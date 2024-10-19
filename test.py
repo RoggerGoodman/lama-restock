@@ -19,25 +19,29 @@ threshold_low_volume = 50
 high_deviation_threshold = 15
 
 
-part1 = 26361
+part1 = 1375
 part2 = 1
-part3 = 12
+part3 = 6
 
-def clean_and_convert(values):  # Clean the numbers (remove commas and convert to int) 
+
+def clean_and_convert(values):  # Clean the numbers (remove commas and convert to int)
     cleaned_values = []
     for value in values:
         # If the value contains a decimal different from ',00', skip the entire row (outer loop iteration)
         if ',' in value and not value.endswith(',00'):
             return None  # This signals that the article must be skipped
-            
+
         # Clean and convert
-        cleaned_value = int(value.replace(',00', '').replace('.', ''))  # Remove commas, convert to int
+        cleaned_value = int(value.replace(',00', '').replace(
+            '.', ''))  # Remove commas, convert to int
         cleaned_values.append(cleaned_value)
-        
+
     return cleaned_values
 
+
 def current_stock(Stock_period):
-    Stock_period = min(Stock_period, len(final_array_sold))  # Use the smaller of Giacenza or the length of the array
+    # Use the smaller of Giacenza or the length of the array
+    Stock_period = min(Stock_period, len(final_array_sold))
     soldS = sum(final_array_sold[:Stock_period])
     boughtS = sum(final_array_bought[:Stock_period])
     resultS = boughtS - soldS
@@ -49,14 +53,13 @@ def current_stock(Stock_period):
         elif (Stock_period == len(final_array_sold)):
             return 0
 
+
 def custom_round(value):
     # Get the integer part and the decimal part
     integer_part = int(value)
     decimal_part = value - integer_part
-    
-    
 
-    rounding_threshold = 0.3 # TODO Test of test
+    rounding_threshold = 0.3  # TODO Test of test
 
     # Apply the adjusted rounding logic
     if decimal_part <= rounding_threshold:
@@ -64,14 +67,17 @@ def custom_round(value):
     else:
         return integer_part + 1  # Round up
 
-    
+
 def next_article():
-    print("Will NOT order this: " + str(part1) + "." + str(part2) + "." + str(part3) + "!")  
+    print("Will NOT order this: " + str(part1) +
+          "." + str(part2) + "." + str(part3) + "!")
     driver.back()
     time.sleep(0.3)
 
-orders_list = [] # it will contain all the lists of orders
-storage_list = [] # it will contain the name of all the storages gathered from the filename of the tables
+
+orders_list = []  # it will contain all the lists of orders
+# it will contain the name of all the storages gathered from the filename of the tables
+storage_list = []
 
 # Get the current month
 current_month = datetime.now().month
@@ -120,7 +126,8 @@ login_button.click()
 time.sleep(3)
 
 # Locate the "eMarket" link by its text
-emarket_link = driver.find_element(By.XPATH, '//a[contains(text(), "eMarket")]')
+emarket_link = driver.find_element(
+    By.XPATH, '//a[contains(text(), "eMarket")]')
 emarket_link.click()
 
 time.sleep(1)
@@ -130,14 +137,14 @@ stat_link.click()
 
 time.sleep(3)  # Adjust as necessary
 
- # Now, switch to the iframe that contains the required script
+# Now, switch to the iframe that contains the required script
 iframe = driver.find_element(By.ID, "ifStatistiche Articolo")
 driver.switch_to.frame(iframe)
 
 try:
     # Locate the input fields, clean and fill them
-    cod_art_field = driver.find_element(By.NAME, 'cod_art')  
-    var_art_field = driver.find_element(By.NAME, 'var_art') 
+    cod_art_field = driver.find_element(By.NAME, 'cod_art')
+    var_art_field = driver.find_element(By.NAME, 'var_art')
     cod_art_field.clear()
     var_art_field.clear()
     cod_art_field.send_keys(part1)
@@ -146,21 +153,25 @@ try:
     actions.perform()
     time.sleep(0.7)
 
-        # Now that you're inside the iframe, attempt to extract the data
+    # Now that you're inside the iframe, attempt to extract the data
     sold_quantities = driver.execute_script("return window.str_qta_vend;")
     bought_quantities = driver.execute_script("return window.str_qta_acq;")
 
 except UnexpectedAlertPresentException:
     print("Alert present: Codice Articolo Non Valido. Going back and continuing.")
-    
+
 
 # Wait for the search results to load
 
 # Split into two lists: one for 2024 and one for 2023
-sold_quantities_2024 = sold_quantities[::2]  # Values for 2024 (January, February, etc.)
-sold_quantities_2023 = sold_quantities[1::2]  # Values for 2023 (January, February, etc.)
-bought_quantities_2024 = bought_quantities[::2]  # Values for 2024 (January, February, etc.)
-bought_quantities_2023 = bought_quantities[1::2]  # Values for 2023 (January, February, etc.)
+# Values for 2024 (January, February, etc.)
+sold_quantities_2024 = sold_quantities[::2]
+# Values for 2023 (January, February, etc.)
+sold_quantities_2023 = sold_quantities[1::2]
+# Values for 2024 (January, February, etc.)
+bought_quantities_2024 = bought_quantities[::2]
+# Values for 2023 (January, February, etc.)
+bought_quantities_2023 = bought_quantities[1::2]
 
 cleaned_2024_sold = clean_and_convert(sold_quantities_2024)
 cleaned_2023_sold = clean_and_convert(sold_quantities_2023)
@@ -180,18 +191,18 @@ final_array_bought = cleaned_2024_bought + cleaned_2023_bought
 # Remove the first elements based on current month
 i = 0
 while len(final_array_bought) > 1 and i < months_to_discard:
-    final_array_sold.pop(0) 
+    final_array_sold.pop(0)
     final_array_bought.pop(0)
-    i += 1  
+    i += 1
 
 # Remove the last elements from both lists if the bought-list has a zero as last element
 while len(final_array_bought) > 0 and final_array_bought[-1] == 0:
-    final_array_bought.pop() 
-    final_array_sold.pop() 
+    final_array_bought.pop()
+    final_array_sold.pop()
 
 if len(final_array_bought) <= 1:
     next_article()
-    
+
 
 # Print the results  TODO Can be eresed
 print("Sold Quantities:", final_array_sold)
@@ -213,8 +224,9 @@ print("Giacenza = ", resultS)
 
 # Calculate avg. daily sales
 # if (current_day > 15):
-    # Sales_period -= 1
-Sales_period = min(Sales_period, len(final_array_sold))  # Use the smaller of Periodo or the length of the array
+# Sales_period -= 1
+# Use the smaller of Periodo or the length of the array
+Sales_period = min(Sales_period, len(final_array_sold))
 soldD = sum(final_array_sold[:Sales_period])
 cleaned_2023_sold.reverse()
 last_year_current_month = cleaned_2023_sold[current_month-1]
@@ -222,19 +234,19 @@ if (last_year_current_month != 0):
     soldD += last_year_current_month
 else:
     Sales_period -= 1
-current_day -= 1            
-daily_sales = soldD / ((Sales_period*30)+(current_day)) 
+current_day -= 1
+daily_sales = soldD / ((Sales_period*30)+(current_day))
 print("Daily Sales = ", daily_sales)
-if (daily_sales == 0): # Skip order of articles that aren't currently being sold
+if (daily_sales == 0):  # Skip order of articles that aren't currently being sold
     next_article()
-    
+
 # Calculate Yearly Average Sales & Deviation
 if (len(final_array_sold) >= 4):
     recent_months = sum(final_array_sold[1:4]) / 3  # Take the last 3 months
     print("Recent months Average Sales = ", recent_months)
     this_month = final_array_sold[0]
     last_month = final_array_sold[1]
-    days_to_recover = 30 - (datetime.now().day -1)
+    days_to_recover = 30 - (datetime.now().day - 1)
     if (days_to_recover > 0):
         last_month = (days_to_recover/30)*last_month
         this_month += last_month
@@ -253,27 +265,24 @@ if (daily_sales*Copertura) > resultS:
     order = daily_sales * Copertura
     if (resultS > 0):
         order -= resultS
-    
 
     order = custom_round(order / part3)
 
-    if  order == 0:
+    if order == 0:
         next_article()
-        
+
     combined_string = '.'.join(map(str, [part1, part2, order]))
-    
+
     print("ORDER THIS: " + combined_string + "!")
 else:
-    print("Will NOT order this: " + str(part1) + "." + str(part2) + "." + str(part3) + "!")
+    print("Will NOT order this: " + str(part1) +
+          "." + str(part2) + "." + str(part3) + "!")
 
 
-
-  
 '''  elif (resultS < 0):
                     resultS = resultS * -1 # Absolute value of the negative stock qty
                     resultS = min(resultS, part3/2) # Cap for negative stock equal to the size of package
                     order += resultS'''
-
 
 
 # This is to be re-implemented!
