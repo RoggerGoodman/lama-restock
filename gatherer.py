@@ -5,13 +5,10 @@ from selenium.webdriver.common.keys import Keys
 import time
 import math
 from datetime import datetime
-from dotenv import load_dotenv
 import os
 import pandas as pd
 from selenium.common.exceptions import UnexpectedAlertPresentException
 from selenium.webdriver.chrome.options import Options
-
-from config import TEST_MODE
 from consts import COLLUMN1_NAME, COLLUMN2_NAME, COLLUMN3_NAME, SPREADSHEETS_FOLDER
 from credentials import PASSWORD, USERNAME
 from helpers import custom_round, clean_and_convert
@@ -52,10 +49,11 @@ class Gatherer:
         # months_to_discard = 12 - current_month if current_month < 12 else 0
 
 
-    # TODO Get rid of the constant
+
     # Load the webpage
     def login(self):
         try:
+            # TODO Get rid of the constant  
             self.driver.get('https://www.pac2000a.it/PacApplicationUserPanel/faces/home.jsf')
         except Exception as exc:
             logger.info('Somwething went wrong, smartie')
@@ -157,7 +155,7 @@ class Gatherer:
                     var_art_field.send_keys(product_var)
                     self.actions.send_keys(Keys.ENTER)
                     self.actions.perform()
-                    time.sleep(2)
+                    time.sleep(1)
 
                     # Now that you're inside the iframe, attempt to extract the data
                     sold_quantities = self.driver.execute_script(
@@ -190,8 +188,7 @@ class Gatherer:
                 # If any of the cleaned lists is None (indicating invalid decimal), skip this article (outer loop iteration)
                 if not cleaned_2024_sold or not cleaned_2023_sold or not cleaned_2024_bought or not cleaned_2023_bought:
                 
-                    logger.info(f"Skipping article at index: " +
-                                index + "due to invalid decimal in data")
+                    logger.info(f"Skipping article at index: {index} due to invalid decimal in data")
 
                     self.next_article(product_cod, product_var, package_size)
                     continue  # Skip to the next row in df.iterrows()
@@ -226,7 +223,6 @@ class Gatherer:
                 logger.info(f"Sold Quantities: {final_array_sold}")
                 logger.info(f"Bought Quantities: {final_array_bought}")
 
-                # TODO Uppercase variable name?
                 # Get the Variables form the Env
                 sales_period = os.getenv("Periodo")
                 sales_period = int(sales_period)
