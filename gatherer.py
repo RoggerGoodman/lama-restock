@@ -11,7 +11,7 @@ from selenium.common.exceptions import UnexpectedAlertPresentException
 from selenium.webdriver.chrome.options import Options
 from consts import COLLUMN1_NAME, COLLUMN2_NAME, COLLUMN3_NAME, SPREADSHEETS_FOLDER
 from credentials import PASSWORD, USERNAME
-from helpers import custom_round, clean_and_convert
+from helpers import custom_round, custom_round2, clean_and_convert
 from logger import logger
 
 
@@ -75,16 +75,17 @@ class Gatherer:
         self.driver.back()
         time.sleep(0.3)
 
-    def current_stock(self, stock_period, final_array_sold, final_array_bought):
+    def calculate_avg_stock(self, stock_period, final_array_sold, final_array_bought, package_size):
         if (stock_period <= len(final_array_sold)):
-            soldS = sum(final_array_sold[:stock_period])
-            boughtS = sum(final_array_bought[:stock_period])
+            soldS = final_array_sold[stock_period-1]
+            boughtS = final_array_bought[stock_period-1]
             resultS = boughtS - soldS
             if resultS >= 1:
                 self.stock_list.append(resultS)
-                return self.current_stock(stock_period + 1, final_array_sold, final_array_bought)
+                return self.calculate_avg_stock(stock_period + 1, final_array_sold, final_array_bought, package_size)
             else:
-                return self.current_stock(stock_period + 1, final_array_sold, final_array_bought)
+                self.stock_list.append(package_size/2)
+                return self.calculate_avg_stock(stock_period + 1, final_array_sold, final_array_bought, package_size)
         else:
             if (len(self.stock_list) > 0):
                 average_value = sum(self.stock_list) / len(self.stock_list)
@@ -93,6 +94,16 @@ class Gatherer:
                 return rounded_up_average
             else:
                 return 0
+            
+    def calculate_last_stock(self, final_array_sold, final_array_bought):
+        for index, value in enumerate(final_array_bought):
+            if value > 0:
+                stock = value
+                first_index = index
+                break  # Stop after finding the first positive value 
+        sold_since_last_restock = sum(final_array_sold[:first_index+1])
+        current_stock = stock - sold_since_last_restock
+        return current_stock       
 
     def gather_data(self):
         self.login()
@@ -232,19 +243,22 @@ class Gatherer:
                 coverage = float(coverage)
                 current_day = datetime.now().day
 
-                # Calculate Giacenza
-                # Use the smaller of Giacenza or the length of the array
+                # Calculate Stock
                 stock_period = min(stock_period, len(final_array_sold))
 
-                stock = self.current_stock(
+                stock = self.calculate_avg_stock(
                     stock_period=stock_period,
                     final_array_sold=final_array_sold,
-                    final_array_bought=final_array_bought
+                    final_array_bought=final_array_bought,
+                    package_size=package_size
                 )
-                logger.info(f"Giacenza = {stock}")
+                logger.info(f"Avg. Stock = {stock}")
 
+                # Calculate stock since last restock
+                current_stock = self.calculate_last_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought)
+                logger.info(f"Supposed Stock = {current_stock}")
+                
                 # Calculate avg. daily sales
-                # Use the smaller of Periodo or the length of the array
                 sales_period = min(sales_period, len(final_array_sold))
                 sold_daily = sum(final_array_sold[:sales_period])
                 cleaned_2023_sold.reverse()
@@ -254,17 +268,28 @@ class Gatherer:
                 else:
                     sales_period -= 1
                 current_day -= 1
-                daily_sales = sold_daily / ((sales_period*30)+(current_day))
-                logger.info(f"Daily Sales = {daily_sales}")
-                if (daily_sales == 0):  # Skip order of articles that aren't currently being sold
+                avg_daily_sales = sold_daily / ((sales_period*30)+(current_day))
+                logger.info(f"Avg. Daily Sales = {avg_daily_sales}")
+                if (avg_daily_sales == 0):  # Skip order of articles that aren't currently being sold
                     self.next_article(product_cod, product_var, package_size)
                     continue
+                
+                # Average Monthly Sales
+                if (len(final_array_sold) >= 6):
+                    sales_period_yearly = min(12, len(final_array_sold))
+                    sold_yearly = sum(final_array_sold[:sales_period_yearly])
+                    avg_monthly_sales = sold_yearly / sales_period_yearly
+                    logger.info(f"Avg. Monthly Sales = {avg_monthly_sales}")
+                else:
+                    avg_monthly_sales = -1
+                    logger.info(f"Avg. Monthly Sales are not available for this article")
 
-                # Calculate Yearly Average Sales & Deviation
-                if (len(final_array_sold) >= 4):
+
+                # Calculate recent months Average Sales & Deviation
+                if len(final_array_sold) >= 4:
                     # Take the last 3 months
                     recent_months = sum(final_array_sold[1:4])/3
-                    logger.info(f"Recent months Average Sales = {recent_months}")
+                    logger.info(f"Average Sales in recent months = {recent_months}")
                     this_month = final_array_sold[0]
                     last_month = final_array_sold[1]
                     days_to_recover = 30 - (datetime.now().day - 1)
@@ -278,17 +303,21 @@ class Gatherer:
                     else:
                         deviation = 0
                     logger.info(f"Deviation = {deviation} %")
-                deviation /= 2
-                daily_sales = daily_sales * (1 + deviation / 100)
+                    # deviation /= 2
+                    avg_daily_sales = avg_daily_sales * (1 + deviation / 100)
+                else:
+                    logger.info(f"Deviation is not available for this article") 
 
                 # Calculate if a new order must be done
-                restock = daily_sales*coverage
-                if (restock) > stock:
-
-                    if (stock > 0):
-                        restock -= stock
-
-                    restock = custom_round(restock / package_size)
+                restock = avg_daily_sales*coverage
+                if restock > stock:
+                    
+                    restock -= stock
+                    
+                    if restock >= package_size:
+                        restock = custom_round(restock / package_size) # At least 1 order will be made
+                    else:
+                        restock = custom_round2(restock / package_size, deviation, current_stock) # Additional evaluations required
 
                     if restock == 0:
                         self.next_article(product_cod, product_var, package_size)
@@ -297,9 +326,17 @@ class Gatherer:
                     current_list.append(combined_string)
                     logger.info("ORDER THIS: " + combined_string + "!")
                     self.number_of_orders += restock
+                elif(0 < avg_monthly_sales <= 10):                    
+                    if current_stock <= 1:
+                        combined_string = '.'.join(map(str, [product_cod, product_var, 1]))
+                        current_list.append(combined_string)
+                        logger.info("ORDER THIS: " + combined_string + "!")
+                    else:
+                        logger.info("Will NOT order this: " + str(product_cod) +
+                                "." + str(product_var) + "." + str(package_size) + "!")                        
                 else:
                     logger.info("Will NOT order this: " + str(product_cod) +
                                 "." + str(product_var) + "." + str(package_size) + "!")
-
+                logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")
                 self.driver.back()
                 time.sleep(0.3)
