@@ -24,7 +24,7 @@ def custom_round(value):
     else:
         return integer_part + 1  # Round up
     
-def custom_round2(value, deviation, current_stock):
+def custom_round2(value, deviation, current_stock, package_size):
     # Get the integer part and the decimal part
     integer_part = int(value)
     decimal_part = value - integer_part
@@ -33,7 +33,7 @@ def custom_round2(value, deviation, current_stock):
     if decimal_part <= 0.3:  # TODO Could be made user editable
         if (deviation > 10):
             return integer_part + 1  # Round up
-        elif (current_stock < 0):
+        elif (current_stock < package_size/4):
             return integer_part + 1  # Round up
         return integer_part  # Round down
     else:

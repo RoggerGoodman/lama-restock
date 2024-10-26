@@ -303,21 +303,21 @@ class Gatherer:
                     else:
                         deviation = 0
                     logger.info(f"Deviation = {deviation} %")
-                    # deviation /= 2
+                    deviation /= 2
                     avg_daily_sales = avg_daily_sales * (1 + deviation / 100)
                 else:
                     logger.info(f"Deviation is not available for this article") 
 
                 # Calculate if a new order must be done
                 restock = avg_daily_sales*coverage
-                if restock > stock:
+                if restock > max(stock, current_stock):
                     
-                    restock -= stock
+                    restock -= max(stock, current_stock) 
                     
                     if restock >= package_size:
                         restock = custom_round(restock / package_size) # At least 1 order will be made
                     else:
-                        restock = custom_round2(restock / package_size, deviation, current_stock) # Additional evaluations required
+                        restock = custom_round2(restock / package_size, deviation, current_stock, package_size) # Additional evaluations required
 
                     if restock == 0:
                         self.next_article(product_cod, product_var, package_size)
