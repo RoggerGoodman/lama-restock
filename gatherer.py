@@ -14,7 +14,6 @@ from credentials import PASSWORD, USERNAME
 from helpers import custom_round, custom_round2, clean_and_convert
 from logger import logger
 
-
 class Gatherer:
 
     def __init__(self) -> None:
@@ -37,20 +36,24 @@ class Gatherer:
         self.current_month = datetime.now().month
 
         #  Statistics
-        self.number_of_orders = 0
+        self.number_of_packages = 0
+        self.number_of_prodcuts = 0
+        self.high_succes = 0
+        self.high_fail = 0
+        self.mid_succes = 0
+        self.mid_fail = 0
+        self.low_succes = 0
+        self.low_fail = 0
+        self.new_article_succes = 0
+        self.new_article_fail = 0
         self.stock_list = []
 
-        # Calculate how many months until November
+        # Calculate how many months until December
         if self.current_month < 12:
             self.months_to_discard = 12 - self.current_month
         else:
             self.months_to_discard = 0
 
-        # months_to_discard = 12 - current_month if current_month < 12 else 0
-
-
-
-    # Load the webpage
     def login(self):
         try:
             # TODO Get rid of the constant  
@@ -68,20 +71,28 @@ class Gatherer:
         username_field.send_keys(USERNAME)
         password_field.send_keys(PASSWORD)
         login_button.click()
-
-    def next_article(self, part1, part2, part3):
+    
+    def next_article(self, part1, part2, part3, reason):
         logger.info("Will NOT order this: " + str(part1) +
                     "." + str(part2) + "." + str(part3) + "!")
+        logger.info(f"Reason : {reason}")
+        logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")
         self.driver.back()
         time.sleep(0.3)
 
+    def calculate_true_stock(self, final_array_sold, final_array_bought):
+        tot_sold = sum(final_array_sold)
+        tot_bought = sum(final_array_bought)
+        true_stock = tot_bought - tot_sold
+        return true_stock
+
     def calculate_avg_stock(self, stock_period, final_array_sold, final_array_bought, package_size):
         if (stock_period <= len(final_array_sold)):
-            soldS = final_array_sold[stock_period-1]
-            boughtS = final_array_bought[stock_period-1]
-            resultS = boughtS - soldS
-            if resultS >= 1:
-                self.stock_list.append(resultS)
+            sold = final_array_sold[stock_period-1]
+            bought = final_array_bought[stock_period-1]
+            avg_stock = bought - sold
+            if avg_stock >= 1:
+                self.stock_list.append(avg_stock)
                 return self.calculate_avg_stock(stock_period + 1, final_array_sold, final_array_bought, package_size)
             else:
                 self.stock_list.append(package_size/2)
@@ -95,16 +106,45 @@ class Gatherer:
             else:
                 return 0
             
-    def calculate_last_stock(self, final_array_sold, final_array_bought):
+    def calculate_last_stock(self, final_array_sold, final_array_bought, values_to_pick):
+        stock = 0
         for index, value in enumerate(final_array_bought):
             if value > 0:
-                stock = value
-                first_index = index
-                break  # Stop after finding the first positive value 
-        sold_since_last_restock = sum(final_array_sold[:first_index+1])
+                stock += value
+                last_index = index
+                values_to_pick -= 1
+                if values_to_pick == 0:
+                    break  # Stop after finding the first positive value 
+        sold_since_last_restock = sum(final_array_sold[:last_index+1])
         current_stock = stock - sold_since_last_restock
-        return current_stock       
+        return current_stock
 
+    def order_this(self, current_list, product_cod, product_var, qty, reason):
+        combined_string = '.'.join(map(str, [product_cod, product_var, qty]))
+        current_list.append(combined_string)
+        logger.info("ORDER THIS: " + combined_string + "!")
+        logger.info(f"Reason : {reason}")
+        logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")        
+        self.driver.back()
+        time.sleep(0.3)
+
+    def stat_recorder(self, qty, category_name):
+        self.number_of_packages += qty
+        setattr(self, category_name, getattr(self, category_name) + 1)
+
+    def log_statistics(self):
+        logger.info(f"High orders : {self.high_succes}")
+        logger.info(f"High fails : {self.high_fail}")
+        logger.info(f"Medium orders : {self.mid_succes}")
+        logger.info(f"Medium fails : {self.mid_fail}")
+        logger.info(f"Low orders : {self.low_succes}")
+        logger.info(f"Low fails : {self.low_fail}")
+        logger.info(f"New products orders : {self.new_article_succes}")
+        logger.info(f"New products fails : {self.new_article_fail}")
+        logger.info(f"Total packages : {self.number_of_packages}")
+        self.number_of_prodcuts = self.high_succes + self.mid_succes + self.low_succes + self.new_article_succes
+        logger.info(f"Total products types ordered : {self.number_of_prodcuts}")
+                   
     def gather_data(self):
         self.login()
         # Wait for the page to load after login
@@ -150,14 +190,15 @@ class Gatherer:
                 product_var = row[COLLUMN2_NAME]  # Var Article
                 package_size = row[COLLUMN3_NAME]  # Package size
 
-                if product_cod == 32052:
-                    time.sleep(0.3)  # TODO this could implement a black list
+                # if product_cod == 32052:
+                    # time.sleep(0.3)  # TODO this could implement a black list
+
                 # Now, switch to the iframe that contains the required script
                 iframe = self.driver.find_element(By.ID, "ifStatistiche Articolo")
                 self.driver.switch_to.frame(iframe)
 
-                try:
-                    # Locate the input fields, clean and fill them
+                # Locate the input fields, clean and fill them
+                try:                    
                     cod_art_field = self.driver.find_element(By.NAME, 'cod_art')
                     var_art_field = self.driver.find_element(By.NAME, 'var_art')
                     cod_art_field.clear()
@@ -175,13 +216,10 @@ class Gatherer:
                         "return window.str_qta_acq;")
 
                 except UnexpectedAlertPresentException:
-                    logger.info(
-                        "Alert present: Codice Articolo Non Valido. Going back and continuing.")
+                    logger.info("Alert present: Invalid product code. Going back and continuing.")
+                    self.actions.send_keys(Keys.ENTER)
                     continue  # Skip to the next iteration of the loop
 
-                # Wait for the search results to load
-
-                # Split into two lists: one for 2024 and one for 2023
                 # Values for 2024 (January, February, etc.)
                 sold_quantities_2024 = sold_quantities[::2]
                 # Values for 2023 (January, February, etc.)
@@ -200,8 +238,8 @@ class Gatherer:
                 if not cleaned_2024_sold or not cleaned_2023_sold or not cleaned_2024_bought or not cleaned_2023_bought:
                 
                     logger.info(f"Skipping article at index: {index} due to invalid decimal in data")
-
-                    self.next_article(product_cod, product_var, package_size)
+                    reason = "The article is sold in kilos, and for now we do not manage this kind"
+                    self.next_article(product_cod, product_var, package_size, reason)
                     continue  # Skip to the next row in df.iterrows()
 
                 # Reverse the order of both lists
@@ -227,14 +265,16 @@ class Gatherer:
                     final_array_sold.pop()
 
                 if len(final_array_bought) <= 1:
-                    self.next_article(product_cod, product_var, package_size)
+                    reason = "The prduct has been in the system for too little"
+                    self.next_article(product_cod, product_var, package_size, reason)
                     continue
 
                 # logger.info the results  TODO Can be eresed
                 logger.info(f"Sold Quantities: {final_array_sold}")
                 logger.info(f"Bought Quantities: {final_array_bought}")
+                #endregion
 
-                # Get the Variables form the Env
+                #region Get the Variables form the Env
                 sales_period = os.getenv("Periodo")
                 sales_period = int(sales_period)
                 stock_period = os.getenv("Giacenza")
@@ -242,23 +282,24 @@ class Gatherer:
                 coverage = os.getenv("Copertura")
                 coverage = float(coverage)
                 current_day = datetime.now().day
+                #endregion
 
-                # Calculate Stock
+                #region Calculate Stock
                 stock_period = min(stock_period, len(final_array_sold))
 
-                stock = self.calculate_avg_stock(
+                avg_stock = self.calculate_avg_stock(
                     stock_period=stock_period,
                     final_array_sold=final_array_sold,
                     final_array_bought=final_array_bought,
                     package_size=package_size
                 )
-                logger.info(f"Avg. Stock = {stock}")
+                logger.info(f"Avg. Stock = {avg_stock}")
+                #endregion
 
-                # Calculate stock since last restock
-                current_stock = self.calculate_last_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought)
+                #region Calculate stocks types
+                current_stock = self.calculate_last_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought, values_to_pick=1)
                 logger.info(f"Supposed Stock = {current_stock}")
                 
-                # Calculate avg. daily sales
                 sales_period = min(sales_period, len(final_array_sold))
                 sold_daily = sum(final_array_sold[:sales_period])
                 cleaned_2023_sold.reverse()
@@ -271,10 +312,19 @@ class Gatherer:
                 avg_daily_sales = sold_daily / ((sales_period*30)+(current_day))
                 logger.info(f"Avg. Daily Sales = {avg_daily_sales}")
                 if (avg_daily_sales == 0):  # Skip order of articles that aren't currently being sold
-                    self.next_article(product_cod, product_var, package_size)
+                    reason = "Avg. dayly sales = 0, no reason to continue"
+                    self.next_article(product_cod, product_var, package_size, reason)
                     continue
                 
-                # Average Monthly Sales
+                if len(final_array_bought) <= 10:
+                    use_true_stock = True
+                    true_stock = self.calculate_true_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought)
+                    logger.info(f"True Stock = {true_stock}")
+                else:
+                    use_true_stock = False
+                #endregion
+
+                #region Average Monthly Sales
                 if (len(final_array_sold) >= 6):
                     sales_period_yearly = min(12, len(final_array_sold))
                     sold_yearly = sum(final_array_sold[:sales_period_yearly])
@@ -283,9 +333,9 @@ class Gatherer:
                 else:
                     avg_monthly_sales = -1
                     logger.info(f"Avg. Monthly Sales are not available for this article")
+                #endregion
 
-
-                # Calculate recent months Average Sales & Deviation
+                #region Calculate recent months Average Sales & Deviation
                 if len(final_array_sold) >= 4:
                     # Take the last 3 months
                     recent_months = sum(final_array_sold[1:4])/3
@@ -297,46 +347,102 @@ class Gatherer:
                         last_month = (days_to_recover/30)*last_month
                         this_month += last_month
                     if recent_months != 0:
-                        deviation = ((this_month - recent_months) /
-                                    recent_months)*100
+                        deviation = ((this_month - recent_months) /recent_months)*100
                         deviation = round(deviation, 2)
                     else:
                         deviation = 0
                     logger.info(f"Deviation = {deviation} %")
-                    deviation /= 2
-                    avg_daily_sales = avg_daily_sales * (1 + deviation / 100)
+                    # deviation_corrected = deviation / 2 #TODO introduce a cap
+                    deviation_corrected = max(-50, min(deviation, 50))
+                    avg_daily_sales_corrected = avg_daily_sales * (1 + deviation_corrected / 100)
                 else:
                     logger.info(f"Deviation is not available for this article") 
+                #endregion
 
-                # Calculate if a new order must be done
-                restock = avg_daily_sales*coverage
-                if restock > max(stock, current_stock):
-                    
-                    restock -= max(stock, current_stock) 
-                    
+                #region Calculate if a new order must be done
+                restock = avg_daily_sales_corrected*coverage
+                                                                          
+                                        
+                if(use_true_stock):
+                    if true_stock <= math.ceil(package_size/2):
+                        reason = "The prduct is relativly new, and true_stock is low enough"
+                        self.stat_recorder(1, "new_article_succes")
+                        self.order_this(current_list, product_cod, product_var, 1, reason)
+                    else:
+                        reason = "The prduct is relativly new, but true_stock not low enough"
+                        self.stat_recorder(0, "new_article_fail")
+                        self.next_article(product_cod, product_var, package_size, reason)
+                        continue  
+                elif(0 < avg_monthly_sales <= 10):
+                    new_current_stock = self.calculate_last_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought, values_to_pick=2)
+                    current_stock = max(current_stock, new_current_stock)
+                    logger.info(f"New best supposed Stock = {current_stock}")                    
+                    if current_stock <= math.floor(package_size*-1/4):
+                        reason = "Avg. monthly sales < 10, and current stock is low enough"
+                        self.stat_recorder(1, "low_succes")
+                        self.order_this(current_list, product_cod, product_var, 1, reason)
+                    else:
+                        reason = "Avg. monthly sales < 10, but current stock not low enough"
+                        self.stat_recorder(0, "low_fail")
+                        self.next_article(product_cod, product_var, package_size, reason)
+                        continue  
+                elif (avg_daily_sales >= 1):
+                    restock -= max(avg_stock, current_stock)
                     if restock >= package_size:
                         restock = custom_round(restock / package_size) # At least 1 order will be made
+                        reason = "Avg. dayly sales >= 1, and current stock is low enough"                     
+                        self.stat_recorder(restock, "high_succes")
+                        self.order_this(current_list, product_cod, product_var, restock, reason)
+                    elif (current_stock < math.ceil(package_size/5)):
+                        reason = "Avg. dayly sales >= 1, and current stock is low enough"
+                        self.stat_recorder(1, "high_succes")
+                        self.order_this(current_list, product_cod, product_var, 1, reason)
+                    elif (math.ceil(restock) >= package_size/2 and deviation > 10): #TODO in need of judgment
+                        reason = "Avg. dayly sales >= 1, and restock need is high enough also deviation is positive"
+                        self.stat_recorder(1, "high_succes")
+                        self.order_this(current_list, product_cod, product_var, 1, reason)
                     else:
-                        restock = custom_round2(restock / package_size, deviation, current_stock, package_size) # Additional evaluations required
-
-                    if restock == 0:
-                        self.next_article(product_cod, product_var, package_size)
+                        reason = "Avg. dayly sales >= 1, but current stock not low enough"
+                        self.stat_recorder(0, "high_fail")
+                        self.next_article(product_cod, product_var, package_size, reason)
                         continue
-                    combined_string = '.'.join(map(str, [product_cod, product_var, restock]))
-                    current_list.append(combined_string)
-                    logger.info("ORDER THIS: " + combined_string + "!")
-                    self.number_of_orders += restock
-                elif(0 < avg_monthly_sales <= 10):                    
-                    if current_stock <= 1:
-                        combined_string = '.'.join(map(str, [product_cod, product_var, 1]))
-                        current_list.append(combined_string)
-                        logger.info("ORDER THIS: " + combined_string + "!")
+                elif(avg_daily_sales < 1):
+                    new_current_stock = self.calculate_last_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought, values_to_pick=2)
+                    def_current_stock = max(current_stock, new_current_stock)
+                    restock = custom_round(restock) - max(def_current_stock, 1) #TODO if negative set it to 1??? If it's negative it gets added otherwise
+                    logger.info(f"New best supposed Stock = {def_current_stock}")
+                    if def_current_stock <= max(math.floor(package_size*-3/4), -7):
+                        reason = "Avg. dayly sales < 1, and current stock is low enough"
+                        self.stat_recorder(1, "mid_succes")
+                        self.order_this(current_list, product_cod, product_var, 1, reason)
+                    elif (restock >= 3):
+                        reason = "Avg. dayly sales < 1, and restock need is high enough"
+                        self.stat_recorder(1, "mid_succes")
+                        self.order_this(current_list, product_cod, product_var, 1, reason)
+                    elif (current_stock < 0 and new_current_stock < 0):
+                        if deviation >= 0: threshold = package_size/2 
+                        else: threshold = package_size
+                        if new_current_stock*-1 > threshold:
+                            reason = "Avg. dayly sales < 1, and both stocks are negative"
+                            self.stat_recorder(1, "mid_succes")
+                            self.order_this(current_list, product_cod, product_var, 1, reason)
+                        else:
+                            reason = "Avg. dayly sales < 1, but current stock not low enough to pass the threshold"
+                            self.stat_recorder(0, "mid_fail")
+                            self.next_article(product_cod, product_var, package_size, reason)
+                            continue                                   
                     else:
-                        logger.info("Will NOT order this: " + str(product_cod) +
-                                "." + str(product_var) + "." + str(package_size) + "!")                        
+                        reason = "Avg. dayly sales < 1, but current stock not low enough"
+                        self.stat_recorder(0, "mid_fail")
+                        self.next_article(product_cod, product_var, package_size, reason)
+                        continue                     
                 else:
-                    logger.info("Will NOT order this: " + str(product_cod) +
-                                "." + str(product_var) + "." + str(package_size) + "!")
-                logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")
-                self.driver.back()
-                time.sleep(0.3)
+                    reason = "This is not good, there is a bug"
+                    self.next_article(product_cod, product_var, package_size, reason)
+                    continue
+                #endregion
+                        
+            self.log_statistics()
+            
+
+    

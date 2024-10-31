@@ -167,3 +167,4 @@ class Orderer:
                 self.make_orders(storage, order_list)
             else:
                 logger.info(f'We made orders')
+                break

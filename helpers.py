@@ -19,7 +19,7 @@ def custom_round(value):
     decimal_part = value - integer_part
 
     # Apply the rounding logic
-    if decimal_part <= 0.55:  # TODO Could be made user editable
+    if decimal_part <= 0.3:  # TODO Could be made user editable
         return integer_part  # Round down
     else:
         return integer_part + 1  # Round up

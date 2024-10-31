@@ -11,6 +11,5 @@ orderer = Orderer()
 orderer.login()
 orderer.lists_combiner(storage_list, orders_list)
 
-# gatherer.logger.info("This order consists of " + str(gatherer.number_of_orders) + " packages")
 # Close the browser
 orderer.driver.quit()
