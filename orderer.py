@@ -1,6 +1,8 @@
 from ssl import Options
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 import time
@@ -29,7 +31,9 @@ class Orderer:
         self.driver.get('https://dropzone.pac2000a.it/')
 
         # Wait for the page to fully load
-        time.sleep(2)
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "username"))
+        )
 
         # Login
         username_field = self.driver.find_element(By.ID, "username")
@@ -39,17 +43,23 @@ class Orderer:
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
 
-        time.sleep(3)
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "carta31"))
+        )
 
         orders_menu = self.driver.find_element(By.ID, "carta31")
         orders_menu.click()
 
-        time.sleep(2)
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "carta32"))
+        )
 
         orders_menu1 = self.driver.find_element(By.ID, "carta32")
         orders_menu1.click()
 
-        time.sleep(3)
+        WebDriverWait(self.driver, 10).until(
+            lambda driver: len(driver.window_handles) > 1
+        )
 
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
@@ -57,11 +67,15 @@ class Orderer:
         self.actions.send_keys(Keys.ESCAPE)
         self.actions.perform()
 
-        time.sleep(2)
+        time.sleep(1)
 
     def make_orders(self, storage: str, order_list: list):
 
         desired_value = storage
+
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "addButtonT"))
+        )
 
         order_button = self.driver.find_element(By.ID, "addButtonT")
         order_button.click()
@@ -77,12 +91,16 @@ class Orderer:
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
 
-        time.sleep(1)
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "dropdownlistArrowmagazzini"))
+        )
 
         dropdown1 = self.driver.find_element(By.ID, "dropdownlistArrowmagazzini")
         dropdown1.click()
 
-        time.sleep(1)
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, '//*[@id="dropdownlistContentmagazzini"]/input'))
+        )
 
         # Locate the input field using XPath
         input_field = self.driver.find_element(
@@ -91,7 +109,7 @@ class Orderer:
         while True:
             self.actions.send_keys(Keys.ARROW_DOWN)
             self.actions.perform()
-            time.sleep(1)
+            time.sleep(0.5)
             # Get the value of the 'value' attribute
             # Arrivato alla fine della dropdown list non torna su, bisogna fixare forse, dipende da come vengono processati i file dalla cartella in cui sono salvate le liste
             input_value = input_field.get_attribute("value")
@@ -100,7 +118,9 @@ class Orderer:
                 self.actions.perform()
                 break
 
-        time.sleep(1)
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "okModifica"))
+        )
 
         # Locate the button using its ID
         confirm_button = self.driver.find_element(By.ID, "okModifica")
@@ -108,9 +128,15 @@ class Orderer:
         # Click the button
         confirm_button.click()
 
-        time.sleep(3)
+        WebDriverWait(self.driver, 10).until(
+            lambda driver: len(driver.window_handles) > 2
+        )
 
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
+
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "addButtonT"))
+        )
 
         new_order_button = self.driver.find_element(By.ID, "addButtonT")
         new_order_button.click()
@@ -124,8 +150,6 @@ class Orderer:
             # Assign each part to part1, part2, and part3
             part1, part2, part3 = map(int, parts)  # Convert parts to integers
 
-            # if part1 == 32052:
-            # time.sleep(0.3) #TODO testing only DELETE
             # Locate the parent div element by its ID
             parent_div1 = self.driver.find_element(By.ID, "codArt")
             parent_div2 = self.driver.find_element(By.ID, "varArt")
@@ -168,3 +192,10 @@ class Orderer:
             else:
                 logger.info(f'We made orders')
                 break
+
+'''WebDriverWait(self.driver, 10).until(
+                EC.text_to_be_present_in_element(
+                    (By.ID, "jqxNotificationDefaultContainer-top-right"),
+                    "Articolo"
+                )
+            )'''           

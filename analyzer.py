@@ -1,4 +1,5 @@
 from logger import logger
+import pandas as pd
 
 class Analyzer:
 
@@ -8,6 +9,9 @@ class Analyzer:
     def stat_recorder(self, qty, category_name):
         self.number_of_packages += qty
         setattr(self, category_name, getattr(self, category_name) + 1)
+
+    def note_recorder(self, note):
+        self.notes_list.append(note)
 
     def log_statistics(self):
         """Logs the statistics to a predefined logger and resets them."""
@@ -20,17 +24,20 @@ class Analyzer:
         logger.info(f"New products orders : {self.new_article_success}")
         logger.info(f"New products fails : {self.new_article_fail}")
         logger.info(f"Total packages : {self.number_of_packages}")
+        logger.info("Vert low daily sales products list:\n" + "\n".join(self.notes_list))
         
         self.number_of_products = (
             self.high_success + self.mid_success + self.low_success + self.new_article_success
         )
         logger.info(f"Total products types ordered : {self.number_of_products}")
 
+        dataframe = pd.DataFrame()
         # Reset statistics for the next use
         self.reset_statistics()
 
     def reset_statistics(self):
         """Resets all statistical fields to their initial values."""
+        self.notes_list = [] #is it right?
         self.number_of_packages = 0
         self.number_of_products = 0
         self.high_success = 0

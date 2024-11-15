@@ -2,13 +2,15 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import time
 import math
 import os
 import pandas as pd
 from selenium.common.exceptions import UnexpectedAlertPresentException
 from selenium.webdriver.chrome.options import Options
-from consts import COLLUMN1_NAME, COLLUMN2_NAME, COLLUMN3_NAME, SPREADSHEETS_FOLDER
+from consts import COLLUMN1_NAME, COLLUMN2_NAME, COLLUMN3_NAME, COLLUMN4_NAME, SPREADSHEETS_FOLDER
 from credentials import PASSWORD, USERNAME
 from helpers import Helper
 from logger import logger
@@ -23,15 +25,16 @@ class Gatherer:
         
         # Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
         chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Run Chrome in headless mode
-        chrome_options.add_argument("--no-sandbox")  # Required for some environments
-        chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-        chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
+        # chrome_options.add_argument("--headless")  # Run Chrome in headless mode
+        # chrome_options.add_argument("--no-sandbox")  # Required for some environments
+        # chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
+        # chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
 
         self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)
         self.orders_list = []  # it will contain all the lists of orders
         self.storage_list = [] # it will contain the name of all the storages gathered from the filename of the tables
+        self.blacklist = {"21820", "21822", "21823", "21824", "26590"}
         
     def login(self):
         try:
@@ -39,8 +42,11 @@ class Gatherer:
             self.driver.get('https://www.pac2000a.it/PacApplicationUserPanel/faces/home.jsf')
         except Exception as exc:
             logger.info('Somwething went wrong, smartie')
-        # Wait for the page to fully load
-        time.sleep(2)
+
+        # Wait for the username field to be present, indicating that the page has loaded
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "username"))
+        )
 
         # Log in by entering the username and password, then clicking the login button
         username_field = self.driver.find_element(By.ID, "username")
@@ -51,57 +57,45 @@ class Gatherer:
         password_field.send_keys(PASSWORD)
         login_button.click()
     
-    def next_article(self, part1, part2, part3, reason):
-        logger.info("Will NOT order this: " + str(part1) +
-                    "." + str(part2) + "." + str(part3) + "!")
+    def next_article(self, part1, part2, part3, name, reason):
+        logger.info(f"Will NOT order {name}: {part1}.{part2}.{part3}!")
         logger.info(f"Reason : {reason}")
         logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")
-        self.driver.back()
-        time.sleep(0.3)
-         
-    def calculate_last_stock(self, final_array_sold, final_array_bought, values_to_pick):
-        stock = 0
-        for index, value in enumerate(final_array_bought):
-            if value > 0:
-                stock += value
-                last_index = index
-                values_to_pick -= 1
-                if values_to_pick == 0:
-                    break  # Stop after finding the first positive value 
-        sold_since_last_restock = sum(final_array_sold[:last_index+1])
-        current_stock = stock - sold_since_last_restock
-        return current_stock
 
-    def order_this(self, current_list, product_cod, product_var, qty, reason):
+    def order_this(self, current_list, product_cod, product_var, qty, name, reason):
         combined_string = '.'.join(map(str, [product_cod, product_var, qty]))
         current_list.append(combined_string)
-        logger.info("ORDER THIS: " + combined_string + "!")
+        logger.info(f"ORDER {name}: " + combined_string + "!")
         logger.info(f"Reason : {reason}")
         logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")        
-        self.driver.back()
-        time.sleep(0.3)
                            
     def gather_data(self):
         self.login()
         # Wait for the page to load after login
-        time.sleep(3)
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, '//a[contains(text(), "eMarket")]'))
+        )
 
         # Locate the "eMarket" link by its text
         emarket_link = self.driver.find_element(By.XPATH, '//a[contains(text(), "eMarket")]')
         emarket_link.click()
 
-        time.sleep(1)
+        WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, '//a[@title="Statistiche Articolo"]'))
+        )
 
         stat_link = self.driver.find_element(By.XPATH, '//a[@title="Statistiche Articolo"]')
         stat_link.click()
 
-        time.sleep(3)  # Adjust as necessary
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "ifStatistiche Articolo"))
+        )
 
         # Loop through all files in the folder
         for file_name in os.listdir(SPREADSHEETS_FOLDER):
             
             if not file_name.endswith('.ods'):  # Adjust for your spreadsheet extension
-                raise ValueError('filkename must be ods')
+                raise ValueError('filename must be ods')
 
             storage_name = os.path.splitext(file_name)[0]  # Filename without extension
             self.storage_list.append(storage_name)
@@ -122,10 +116,12 @@ class Gatherer:
             for index, row in df.iterrows():
                 product_cod = row[COLLUMN1_NAME]  # Cod Article
                 product_var = row[COLLUMN2_NAME]  # Var Article
-                package_size = row[COLLUMN3_NAME]  # Package size
+                package_size = row[COLLUMN3_NAME] # Package size
+                product_name = row[COLLUMN4_NAME] # Codice Name
 
-                # if product_cod == 32052:
-                    # time.sleep(0.3)  # TODO this could implement a black list
+                if product_cod in self.blacklist:
+                    logger.info(f"Skipping blacklisted Cod Article: {product_cod}")
+                    continue  # Skip to the next iteration
 
                 # Now, switch to the iframe that contains the required script
                 iframe = self.driver.find_element(By.ID, "ifStatistiche Articolo")
@@ -141,7 +137,10 @@ class Gatherer:
                     var_art_field.send_keys(product_var)
                     self.actions.send_keys(Keys.ENTER)
                     self.actions.perform()
-                    time.sleep(1)
+                     # Wait until the script variables are defined and available
+                    WebDriverWait(self.driver, 10).until(
+                        lambda driver: driver.execute_script("return typeof window.str_qta_vend !== 'undefined'")
+                    )
 
                     # Now that you're inside the iframe, attempt to extract the data
                     sold_quantities = self.driver.execute_script(
@@ -159,187 +158,187 @@ class Gatherer:
                 bought_quantities_current_year = bought_quantities[::2]
                 bought_quantities_last_year = bought_quantities[1::2]
 
-                cleaned_current_year_sold = helpers.clean_and_convert(sold_quantities_current_year)
-                cleaned_last_year_sold = helpers.clean_and_convert(sold_quantities_last_year)
-                cleaned_current_year_bought = helpers.clean_and_convert(bought_quantities_current_year)
-                cleaned_last_year_bought = helpers.clean_and_convert(bought_quantities_last_year)
+                self.driver.back()
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "ifStatistiche Articolo"))
+                )
+
+                cleaned_current_year_sold = helpers.clean_convert_reverse(sold_quantities_current_year)
+                cleaned_last_year_sold = helpers.clean_convert_reverse(sold_quantities_last_year)
+                cleaned_current_year_bought = helpers.clean_convert_reverse(bought_quantities_current_year)
+                cleaned_last_year_bought = helpers.clean_convert_reverse(bought_quantities_last_year)
 
                 # If any of the cleaned lists is None (indicating invalid decimal), skip this article (outer loop iteration)
                 if not cleaned_current_year_sold or not cleaned_last_year_sold or not cleaned_current_year_bought or not cleaned_last_year_bought:
                     logger.info(f"Skipping article at index: {index} due to invalid decimal in data")
                     reason = "The article is sold in kilos, and for now we do not manage this kind"
-                    self.next_article(product_cod, product_var, package_size, reason)
+                    self.next_article(product_cod, product_var, package_size, product_name, reason)
                     continue  # Skip to the next row in df.iterrows()
 
-                # Reverse the order of both lists
-                cleaned_current_year_sold.reverse()
-                cleaned_last_year_sold.reverse()
-                cleaned_current_year_bought.reverse()
-                cleaned_last_year_bought.reverse()
 
                 # Combine both lists (current year values first, then last year)
                 final_array_sold = cleaned_current_year_sold + cleaned_last_year_sold
                 final_array_bought = cleaned_current_year_bought + cleaned_last_year_bought
 
                 final_array_bought, final_array_sold = helpers.prepare_array(final_array_bought, final_array_sold)
-                
 
+                final_array_bought, final_array_sold = helpers.detect_dead_periods(final_array_bought, final_array_sold)
+                
                 if len(final_array_bought) <= 1:
                     reason = "The prduct has been in the system for too little"
-                    self.next_article(product_cod, product_var, package_size, reason)
+                    self.next_article(product_cod, product_var, package_size, product_name, reason)
                     continue
 
                 # logger.info the results  TODO Can be eresed
-                logger.info(f"Sold Quantities: {final_array_sold}")
+                logger.info(f"  Sold Quantities: {final_array_sold}")
                 logger.info(f"Bought Quantities: {final_array_bought}")
-                #endregion
-
-                #region Get the Variables form the Env
+                                
                 sales_period = os.getenv("Periodo")
                 sales_period = int(sales_period)
                 stock_period = os.getenv("Giacenza")
                 stock_period = int(stock_period)
                 coverage = os.getenv("Copertura")
                 coverage = float(coverage)
-                
-                #endregion
-
-                #region Calculate Stock
-                stock_period = min(stock_period, len(final_array_sold))
-
-                avg_stock = helpers.calculate_avg_stock(
-                    stock_period=stock_period,
-                    final_array_sold=final_array_sold,
-                    final_array_bought=final_array_bought,
-                    package_size=package_size
-                )
-                
-                supposed_stock = helpers.calculate_supposed_stock(
-                    final_array_bought=final_array_bought,
-                    final_array_sold=final_array_sold,
-                    avg_stock=avg_stock
-                )
-
-                #endregion
-
-                #region Calculate stocks types
-                current_stock = self.calculate_last_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought, values_to_pick=1)
-                logger.info(f"Supposed Stock = {current_stock}")
-                
-                avg_daily_sales = helpers.calculate_weighted_avg_sales(sales_period, final_array_sold, cleaned_last_year_sold)                            
-                if (avg_daily_sales == 0):  # Skip order of articles that aren't currently being sold
-                    reason = "Avg. dayly sales = 0, no reason to continue"
-                    self.next_article(product_cod, product_var, package_size, reason)
-                    continue
+                                
+                avg_daily_sales = helpers.calculate_weighted_avg_sales(sales_period, final_array_sold, cleaned_last_year_sold) 
 
                 if len(final_array_bought) <= 10:
                     use_true_stock = True
                     true_stock = helpers.calculate_true_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought)
                 else:
                     use_true_stock = False
-                #endregion
-
-                #region Average Monthly Sales
-                if (len(final_array_sold) >= 6):
+                                
+                if (len(final_array_sold) >= 13):
                     avg_monthly_sales = helpers.calculate_avg_monthly_sales(final_array_sold)
                 else:
                     avg_monthly_sales = -1
                     logger.info(f"Avg. Monthly Sales are not available for this article")
-                #endregion
-
-                #region Calculate recent months Average Sales & Deviation
+                                
                 if len(final_array_sold) >= 4:                    
-                    recent_months = helpers.calculate_avg_sales_recent_months(final_array_sold, 3) # Take the last 3 months
-                    deviation_corrected = helpers.calculate_deviation(final_array_sold, recent_months)
+                    recent_months_sales = helpers.calculate_data_recent_months(final_array_sold, 3, "sales") 
+                    expected_packages = helpers.calculate_expectd_packages(final_array_bought, package_size)
+                    deviation_corrected = helpers.calculate_deviation(final_array_sold, recent_months_sales)
                     avg_daily_sales_corrected = avg_daily_sales * (1 + deviation_corrected / 100)
                 else:
-                    logger.info(f"Deviation is not available for this article") 
-                #endregion
+                    recent_months_sales = -1
+                    deviation_corrected = 0
+                    avg_daily_sales_corrected = avg_daily_sales
+                    logger.info(f"Deviation and recent months sales are not available for this article") 
+                
+                if (recent_months_sales == 0):  # Skip order of articles that aren't currently being sold
+                    reason = "No sales in recent months, no reason to continue"
+                    self.next_article(product_cod, product_var, package_size, product_name, reason)
+                    continue
+
+                stock_oscillation = helpers.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales, package_size)
 
                 #region Calculate if a new order must be done
                 req_stock = avg_daily_sales_corrected*coverage
-                                                                          
-                                        
-                if(use_true_stock):
-                    if true_stock <= math.ceil(package_size/2):
-                        reason = "The prduct is relativly new, and true_stock is low enough"
-                        analyzer.stat_recorder(1, "new_article_success")
-                        self.order_this(current_list, product_cod, product_var, 1, reason)
-                    else:
-                        reason = "The prduct is relativly new, but true_stock not low enough"
-                        analyzer.stat_recorder(0, "new_article_fail")
-                        self.next_article(product_cod, product_var, package_size, reason)
-                        continue  
-                elif(0 < avg_monthly_sales <= 10): #TODO parametrize
-                    new_current_stock = self.calculate_last_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought, values_to_pick=2)
-                    current_stock = max(current_stock, new_current_stock)
-                    logger.info(f"New best supposed Stock = {current_stock}")                    
-                    if current_stock <= math.floor(package_size*-1/4):
-                        reason = "Avg. monthly sales < 10, and current stock is low enough"
-                        analyzer.stat_recorder(1, "low_success")
-                        self.order_this(current_list, product_cod, product_var, 1, reason)
-                    else:
-                        reason = "Avg. monthly sales < 10, but current stock not low enough"
-                        analyzer.stat_recorder(0, "low_fail")
-                        self.next_article(product_cod, product_var, package_size, reason)
-                        continue  
-                elif (avg_daily_sales >= 1):
-                    req_stock -= max(avg_stock, current_stock)
-                    if req_stock >= package_size:
-                        req_stock = helpers.custom_round(req_stock / package_size, 0.3) # At least 1 order will be made
-                        reason = "Avg. dayly sales >= 1, and current stock is low enough"                     
-                        analyzer.stat_recorder(req_stock, "high_success")
-                        self.order_this(current_list, product_cod, product_var, req_stock, reason)
-                    elif (current_stock < math.ceil(package_size/5)):
-                        reason = "Avg. dayly sales >= 1, and current stock is low enough"
-                        analyzer.stat_recorder(1, "high_success")
-                        self.order_this(current_list, product_cod, product_var, 1, reason)
-                    elif (math.ceil(req_stock) >= package_size/2 and deviation_corrected > 10): #TODO in need of judgment
-                        reason = "Avg. dayly sales >= 1, and restock need is high enough also deviation is positive"
-                        analyzer.stat_recorder(1, "high_success")
-                        self.order_this(current_list, product_cod, product_var, 1, reason)
-                    else:
-                        reason = "Avg. dayly sales >= 1, but current stock not low enough"
-                        analyzer.stat_recorder(0, "high_fail")
-                        self.next_article(product_cod, product_var, package_size, reason)
-                        continue
-                elif(avg_daily_sales < 1):
-                    new_current_stock = self.calculate_last_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought, values_to_pick=2)
-                    def_current_stock = max(current_stock, new_current_stock)
-                    req_stock = helpers.custom_round(req_stock, 0.4) - max(def_current_stock, 1) #TODO if negative set it to 1??? If it's negative it gets added otherwise
-                    logger.info(f"New best supposed Stock = {def_current_stock}")
-                    if def_current_stock <= max(math.floor(package_size*-3/4), -7):
-                        reason = "Avg. dayly sales < 1, and current stock is low enough"
-                        analyzer.stat_recorder(1, "mid_success")
-                        self.order_this(current_list, product_cod, product_var, 1, reason)
-                    elif (req_stock >= 3):
-                        reason = "Avg. dayly sales < 1, and restock need is high enough"
-                        analyzer.stat_recorder(1, "mid_success")
-                        self.order_this(current_list, product_cod, product_var, 1, reason)
-                    elif (current_stock < 0 and new_current_stock < 0):
-                        if deviation_corrected >= 0: threshold = package_size/2 
-                        else: threshold = package_size
-                        if new_current_stock*-1 > threshold:
-                            reason = "Avg. dayly sales < 1, and both stocks are negative"
-                            analyzer.stat_recorder(1, "mid_success")
-                            self.order_this(current_list, product_cod, product_var, 1, reason)
-                        else:
-                            reason = "Avg. dayly sales < 1, but current stock not low enough to pass the threshold"
-                            analyzer.stat_recorder(0, "mid_fail")
-                            self.next_article(product_cod, product_var, package_size, reason)
-                            continue                                   
-                    else:
-                        reason = "Avg. dayly sales < 1, but current stock not low enough"
-                        analyzer.stat_recorder(0, "mid_fail")
-                        self.next_article(product_cod, product_var, package_size, reason)
-                        continue                     
+                logger.info(f"Required stock = {req_stock:.2f}")
+                restock = req_stock
+                restock_corrected = req_stock
+
+                if stock_oscillation > 0:
+                    restock -= stock_oscillation
+                    restock_corrected -= stock_oscillation
                 else:
-                    reason = "This is not good, there is a bug"
-                    self.next_article(product_cod, product_var, package_size, reason)
-                    continue
-                #endregion
+                    restock_corrected -= stock_oscillation    
+
+                logger.info(f"Restock = {restock:.2f}")
+                
+                
+                if avg_daily_sales >= 1:
+                    restock, reason, stat = self.process_high_sales(stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock)
+                elif use_true_stock:
+                    if true_stock <= math.floor(package_size / 2):
+                        restock, reason, stat = 1, "The product is relatively new, and true stock is low enough", "new_article_success"
+                    else:
+                        restock, reason, stat = None, "The product is relatively new, but true stock not low enough", "new_article_fail"
+                elif 0 < recent_months_sales <= 14:
+                    restock, reason, stat = self.process_low_sales(stock_oscillation, package_size, restock, deviation_corrected)
+                elif avg_daily_sales < 1:
+                    restock, reason, stat = self.process_mid_sales(stock_oscillation, package_size, restock_corrected, expected_packages)
+                else:
+                    restock, reason, stat = None, "This is not good, there is a bug", None
+
+                # Take Action
+                if restock:
+                    if stat == "low_success":
+                        if avg_daily_sales <= 0.2 or avg_daily_sales_corrected <= 0.2:
+                            analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                    analyzer.stat_recorder(restock, stat)
+                    self.order_this(current_list, product_cod, product_var, restock, product_name, reason)
+                else:
+                    analyzer.stat_recorder(0, stat)
+                    self.next_article(product_cod, product_var, package_size, product_name, reason)
                         
             analyzer.log_statistics()
             
 
+    '''elif restock >= math.ceil(package_size/2) and stock_oscillation <= 0:
+                        reason = "Avg. dayly sales < 1, and restock is needed also oscillation is negative"
+                        analyzer.stat_recorder(1, "mid_success")
+                        self.order_this(current_list, product_cod, product_var, 1, reason)  
+                        
+                        if package_size == 1:
+                    '''
     
+    def process_high_sales(self, stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock):
+        """Handles cases for avg_daily_sales >= 1."""
+        if restock >= package_size:
+            restock = helpers.custom_round(restock / package_size, 0.7)
+            if stock_oscillation <= -package_size:
+                restock += 1
+            return restock, "h1", "high_success"
+
+        if restock > math.ceil(package_size / 2) and (deviation_corrected > 20 or stock_oscillation <= math.floor(-package_size / 3)):
+            order = 2 if stock_oscillation <= -package_size else 1
+            return order, "h2", "high_success"
+
+        if stock_oscillation <= math.floor(-package_size / 2):
+            return 1, "h3", "high_success"
+
+        if expected_packages >= 1 and stock_oscillation < package_size / 2:
+            return 1, "h4", "high_success"
+
+        if package_size >= 20 and restock >= math.ceil(package_size / 4):
+            return 1, "h5", "high_success"
+
+        if stock_oscillation <= math.ceil(req_stock / 2) and expected_packages > 0.3:
+            return 1, "h6", "high_success"
+
+        return None, "h0", "high_fail"
+
+
+    def process_low_sales(self, stock_oscillation, package_size, restock, deviation_corrected):
+        """Handles cases for 0 < recent_months_sales <= 14."""
+        if stock_oscillation <= math.floor(-package_size / 3):
+            return 1, "l1", "low_success"
+
+        if package_size <= 8 and stock_oscillation < math.ceil(-package_size / 4):
+            return 1, "l2", "low_success"
+
+        if restock >= 1.8 and deviation_corrected >= 10 and stock_oscillation < 0:
+            return 1, "l3", "low_success"
+
+        return None, "l0", "low_fail"
+
+
+    def process_mid_sales(self, stock_oscillation, package_size, restock_corrected, expected_packages):
+        """Handles cases for avg_daily_sales < 1."""
+        if restock_corrected > package_size:
+            return 1, "m1", "mid_success"
+
+        if expected_packages >= 1 and stock_oscillation <= 0:
+            return 1, "m2", "mid_success"
+
+        if expected_packages >= 0.5 and stock_oscillation <= math.ceil(-package_size / 3):
+            return 1, "m3", "mid_success"
+
+        if stock_oscillation <= math.floor(-package_size / 3):
+            return 1, "m4", "mid_success"
+        
+        if package_size <= 8 and stock_oscillation <= 0:
+            return 1, "m5", "mid_success"
+
+        return None, "m0", "mid_fail"
