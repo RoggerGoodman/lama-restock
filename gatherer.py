@@ -186,6 +186,7 @@ class Gatherer:
                 
                 if len(final_array_bought) <= 1:
                     reason = "The prduct has been in the system for too little"
+                    analyzer.news_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
                     self.next_article(product_cod, product_var, package_size, product_name, reason)
                     continue
 
@@ -195,18 +196,19 @@ class Gatherer:
                                 
                 sales_period = os.getenv("Periodo")
                 sales_period = int(sales_period)
-                stock_period = os.getenv("Giacenza")
-                stock_period = int(stock_period)
+                # stock_period = os.getenv("Giacenza")
+                # stock_period = int(stock_period)
                 coverage = os.getenv("Copertura")
                 coverage = float(coverage)
                                 
                 avg_daily_sales = helpers.calculate_weighted_avg_sales(sales_period, final_array_sold, cleaned_last_year_sold) 
 
                 if len(final_array_bought) <= 10:
-                    use_true_stock = True
-                    true_stock = helpers.calculate_true_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought)
+                    use_stock = True
+                    stock = helpers.calculate_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought)
                 else:
-                    use_true_stock = False
+                    stock = 0
+                    use_stock = False
                                 
                 if (len(final_array_sold) >= 13):
                     avg_monthly_sales = helpers.calculate_avg_monthly_sales(final_array_sold)
@@ -248,24 +250,18 @@ class Gatherer:
                 
                 
                 if avg_daily_sales >= 1:
-                    restock, reason, stat = self.process_high_sales(stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock)
-                elif use_true_stock:
-                    if true_stock <= math.floor(package_size / 2):
-                        restock, reason, stat = 1, "The product is relatively new, and true stock is low enough", "new_article_success"
-                    else:
-                        restock, reason, stat = None, "The product is relatively new, but true stock not low enough", "new_article_fail"
+                    restock, reason, stat = self.process_A_sales(stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock)
                 elif 0 < recent_months_sales <= 14:
-                    restock, reason, stat = self.process_low_sales(stock_oscillation, package_size, restock, deviation_corrected)
+                    restock, reason, stat = self.process_C_sales(stock_oscillation, package_size, restock, deviation_corrected, use_stock, stock)
                 elif avg_daily_sales < 1:
-                    restock, reason, stat = self.process_mid_sales(stock_oscillation, package_size, restock_corrected, expected_packages)
+                    restock, reason, stat = self.process_B_sales(stock_oscillation, package_size, restock_corrected, expected_packages, use_stock, stock)
                 else:
                     restock, reason, stat = None, "This is not good, there is a bug", None
 
                 # Take Action
                 if restock:
-                    if stat == "low_success":
-                        if avg_daily_sales <= 0.2 or avg_daily_sales_corrected <= 0.2:
-                            analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                    if avg_daily_sales <= 0.2 or avg_daily_sales_corrected <= 0.2:
+                        analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
                     analyzer.stat_recorder(restock, stat)
                     self.order_this(current_list, product_cod, product_var, restock, product_name, reason)
                 else:
@@ -277,68 +273,77 @@ class Gatherer:
 
     '''elif restock >= math.ceil(package_size/2) and stock_oscillation <= 0:
                         reason = "Avg. dayly sales < 1, and restock is needed also oscillation is negative"
-                        analyzer.stat_recorder(1, "mid_success")
+                        analyzer.stat_recorder(1, "B_success")
                         self.order_this(current_list, product_cod, product_var, 1, reason)  
                         
                         if package_size == 1:
                     '''
     
-    def process_high_sales(self, stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock):
+    def process_A_sales(self, stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock):
         """Handles cases for avg_daily_sales >= 1."""
         if restock >= package_size:
             restock = helpers.custom_round(restock / package_size, 0.7)
             if stock_oscillation <= -package_size:
                 restock += 1
-            return restock, "h1", "high_success"
+            return restock, "A1", "A_success"
+        
+        if use_stock and stock <= math.floor(package_size / 2): #TODO If they remain equal for all category, make only 1 check before categorization
+            return 1, "A2", "A_success"
 
         if restock > math.ceil(package_size / 2) and (deviation_corrected > 20 or stock_oscillation <= math.floor(-package_size / 3)):
             order = 2 if stock_oscillation <= -package_size else 1
-            return order, "h2", "high_success"
+            return order, "A3", "A_success"
 
         if stock_oscillation <= math.floor(-package_size / 2):
-            return 1, "h3", "high_success"
+            return 1, "A4", "A_success"
 
         if expected_packages >= 1 and stock_oscillation < package_size / 2:
-            return 1, "h4", "high_success"
+            return 1, "A5", "A_success"
 
         if package_size >= 20 and restock >= math.ceil(package_size / 4):
-            return 1, "h5", "high_success"
+            return 1, "A6", "A_success"
 
         if stock_oscillation <= math.ceil(req_stock / 2) and expected_packages > 0.3:
-            return 1, "h6", "high_success"
+            return 1, "A7", "A_success"
+        
+        return None, "A0", "A_fail"
 
-        return None, "h0", "high_fail"
 
-
-    def process_low_sales(self, stock_oscillation, package_size, restock, deviation_corrected):
+    def process_C_sales(self, stock_oscillation, package_size, restock, deviation_corrected, use_stock, stock):
         """Handles cases for 0 < recent_months_sales <= 14."""
+        if use_stock and stock <= math.floor(package_size / 2):
+            return 1, "C1", "C_success"
+
         if stock_oscillation <= math.floor(-package_size / 3):
-            return 1, "l1", "low_success"
+            return 1, "C2", "C_success"
 
         if package_size <= 8 and stock_oscillation < math.ceil(-package_size / 4):
-            return 1, "l2", "low_success"
+            return 1, "C3", "C_success"
 
         if restock >= 1.8 and deviation_corrected >= 10 and stock_oscillation < 0:
-            return 1, "l3", "low_success"
+            return 1, "C4", "C_success"
 
-        return None, "l0", "low_fail"
+        return None, "C0", "C_fail"
 
 
-    def process_mid_sales(self, stock_oscillation, package_size, restock_corrected, expected_packages):
+    def process_B_sales(self, stock_oscillation, package_size, restock_corrected, expected_packages, use_stock, stock):
         """Handles cases for avg_daily_sales < 1."""
+        if use_stock and stock <= math.floor(package_size / 2):
+            return 1, "B1", "B_success"
+        
         if restock_corrected > package_size:
-            return 1, "m1", "mid_success"
+            return 1, "B2", "B_success"
 
         if expected_packages >= 1 and stock_oscillation <= 0:
-            return 1, "m2", "mid_success"
+            return 1, "B3", "B_success"
 
         if expected_packages >= 0.5 and stock_oscillation <= math.ceil(-package_size / 3):
-            return 1, "m3", "mid_success"
+            return 1, "B4", "B_success"
 
         if stock_oscillation <= math.floor(-package_size / 3):
-            return 1, "m4", "mid_success"
+            return 1, "B5", "B_success"
         
         if package_size <= 8 and stock_oscillation <= 0:
-            return 1, "m5", "mid_success"
+            return 1, "B6", "B_success"
 
-        return None, "m0", "mid_fail"
+        return None, "B0", "B_fail"

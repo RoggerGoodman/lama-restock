@@ -190,7 +190,7 @@ class Helper:
         logger.info(f"Expected packages = {expected_packages:.2f}")
         return expected_packages
 
-    def calculate_true_stock(self, final_array_sold, final_array_bought):
+    def calculate_stock(self, final_array_sold, final_array_bought):
         tot_sold = sum(final_array_sold)
         tot_bought = sum(final_array_bought)
         true_stock = tot_bought - tot_sold
