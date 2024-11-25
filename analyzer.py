@@ -13,8 +13,11 @@ class Analyzer:
     def note_recorder(self, note):
         self.notes_list.append(note)
 
-    def news_recorder(self, note):
-        self.news_list.append(note)
+    def new_entry_recorder(self, note):
+        self.new_entry_list.append(note)
+
+    def brand_new_recorder(self, note):
+        self.brand_new_list.append(note)
 
     def log_statistics(self):
         """Logs the statistics to a predefined logger and resets them."""
@@ -29,7 +32,8 @@ class Analyzer:
             self.A_success + self.B_success + self.C_success
         )
         logger.info(f"Total products types ordered : {self.number_of_products}")
-        logger.info("New or never bought products list:\n" + "\n".join(self.news_list))
+        logger.info("The following products are not being processed by the program because they have been in the system for too little:\n" + "\n".join(self.new_entry_list))
+        logger.info("The following products are brand new or made available once more:\n" + "\n".join(self.brand_new_list))
         logger.info("Very low daily sales products order list:\n" + "\n".join(self.notes_list))
         
         
@@ -41,7 +45,8 @@ class Analyzer:
     def reset_statistics(self):
         """Resets all statistical fields to their initial values."""
         self.notes_list = [] #is it right?
-        self.news_list = []
+        self.new_entry_list = []
+        self.brand_new_list = []
         self.number_of_packages = 0
         self.number_of_products = 0
         self.A_success = 0

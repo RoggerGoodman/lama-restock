@@ -2,7 +2,9 @@
 SPREADSHEETS_FOLDER = './Database/'
 
 # Columns you are interested in
-COLLUMN1_NAME = 'Cod.'
-COLLUMN2_NAME = 'Dif.'
-COLLUMN3_NAME = 'Pz x collo'
-COLLUMN4_NAME = 'Descrizione'
+COLLUMN1_NAME = "Cod."
+COLLUMN2_NAME = "Dif."
+COLLUMN3_NAME = "Pz x collo"
+COLLUMN4_NAME = "Descrizione"
+COLLUMN5_NAME = "Rapp."
+COLLUMN6_NAME = "Disponibilita'"

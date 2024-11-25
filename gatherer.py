@@ -4,13 +4,12 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import time
 import math
 import os
 import pandas as pd
 from selenium.common.exceptions import UnexpectedAlertPresentException
 from selenium.webdriver.chrome.options import Options
-from consts import COLLUMN1_NAME, COLLUMN2_NAME, COLLUMN3_NAME, COLLUMN4_NAME, SPREADSHEETS_FOLDER
+from consts import COLLUMN1_NAME, COLLUMN2_NAME, COLLUMN3_NAME, COLLUMN4_NAME, COLLUMN5_NAME, COLLUMN6_NAME, SPREADSHEETS_FOLDER
 from credentials import PASSWORD, USERNAME
 from helpers import Helper
 from logger import logger
@@ -34,7 +33,7 @@ class Gatherer:
         self.actions = ActionChains(self.driver)
         self.orders_list = []  # it will contain all the lists of orders
         self.storage_list = [] # it will contain the name of all the storages gathered from the filename of the tables
-        self.blacklist = {"21820", "21822", "21823", "21824", "26590"}
+        self.blacklist = {"32192", "32191", "27543", "27542", "26177", "27245", "27247", "28055", "28056", "25664", "27274", "24766", "27273"}
         
     def login(self):
         try:
@@ -117,7 +116,11 @@ class Gatherer:
                 product_cod = row[COLLUMN1_NAME]  # Cod Article
                 product_var = row[COLLUMN2_NAME]  # Var Article
                 package_size = row[COLLUMN3_NAME] # Package size
-                product_name = row[COLLUMN4_NAME] # Codice Name
+                product_name = row[COLLUMN4_NAME] # Cod Name
+                package_multi = row[COLLUMN5_NAME] # Package Multiplier
+                product_availability = row[COLLUMN6_NAME] # Yes/No
+
+                
 
                 if product_cod in self.blacklist:
                     logger.info(f"Skipping blacklisted Cod Article: {product_cod}")
@@ -152,6 +155,10 @@ class Gatherer:
                     logger.info("Alert present: Invalid product code. Going back and continuing.")
                     self.actions.send_keys(Keys.ENTER)
                     continue  # Skip to the next iteration of the loop
+                
+                package_size = int(package_size)
+                package_multi = int(float(package_multi.replace(',', '.')))
+                package_size *= package_multi
 
                 sold_quantities_current_year = sold_quantities[::2]
                 sold_quantities_last_year = sold_quantities[1::2]
@@ -186,7 +193,10 @@ class Gatherer:
                 
                 if len(final_array_bought) <= 1:
                     reason = "The prduct has been in the system for too little"
-                    analyzer.news_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                    if len(final_array_bought) == 0 and product_availability == "Si":
+                        analyzer.brand_new_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                    else:
+                        analyzer.new_entry_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
                     self.next_article(product_cod, product_var, package_size, product_name, reason)
                     continue
 
@@ -249,11 +259,11 @@ class Gatherer:
                 logger.info(f"Restock = {restock:.2f}")
                 
                 
-                if avg_daily_sales >= 1:
+                if avg_daily_sales >= 1.5:
                     restock, reason, stat = self.process_A_sales(stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock)
                 elif 0 < recent_months_sales <= 14:
                     restock, reason, stat = self.process_C_sales(stock_oscillation, package_size, restock, deviation_corrected, use_stock, stock)
-                elif avg_daily_sales < 1:
+                elif avg_daily_sales < 1.5:
                     restock, reason, stat = self.process_B_sales(stock_oscillation, package_size, restock_corrected, expected_packages, use_stock, stock)
                 else:
                     restock, reason, stat = None, "This is not good, there is a bug", None
