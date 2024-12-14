@@ -21,30 +21,33 @@ class Analyzer:
 
     def log_statistics(self):
         """Logs the statistics to a predefined logger and resets them."""
+        totA = self.A_success + self.A_fail
+        totB = self.B_success + self.B_fail
+        totC = self.C_success + self.C_fail
+        total = totA + totB + totC
         logger.info(f"A orders : {self.A_success}")
         logger.info(f"A fails : {self.A_fail}")
+        logger.info(f"A class percentage = {(totA/total)*100:.2f}%")
         logger.info(f"B orders : {self.B_success}")
         logger.info(f"B fails : {self.B_fail}")
+        logger.info(f"B class percentage = {(totB/total)*100:.2f}%")
         logger.info(f"C orders : {self.C_success}")
         logger.info(f"C fails : {self.C_fail}")
+        logger.info(f"C class percentage = {(totC/total)*100:.2f}%")
         logger.info(f"Total packages : {self.number_of_packages}")
-        self.number_of_products = (
-            self.A_success + self.B_success + self.C_success
-        )
-        logger.info(f"Total products types ordered : {self.number_of_products}")
+        totalSuccess = (self.A_success + self.B_success + self.C_success)
+        logger.info(f"Total products types ordered : {totalSuccess}")
         logger.info("The following products are not being processed by the program because they have been in the system for too little:\n" + "\n".join(self.new_entry_list))
         logger.info("The following products are brand new or made available once more:\n" + "\n".join(self.brand_new_list))
         logger.info("Very low daily sales products order list:\n" + "\n".join(self.notes_list))
-        
-        
-        
+     
         dataframe = pd.DataFrame()
         # Reset statistics for the next use
         self.reset_statistics()
 
     def reset_statistics(self):
         """Resets all statistical fields to their initial values."""
-        self.notes_list = [] #is it right?
+        self.notes_list = []
         self.new_entry_list = []
         self.brand_new_list = []
         self.number_of_packages = 0

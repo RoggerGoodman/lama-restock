@@ -22,8 +22,6 @@ class Orderer:
         # chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
 
         self.driver = webdriver.Chrome()
-
-
         self.actions = ActionChains(self.driver)
         
     # Load the webpage

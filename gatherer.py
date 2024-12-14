@@ -33,8 +33,13 @@ class Gatherer:
         self.actions = ActionChains(self.driver)
         self.orders_list = []  # it will contain all the lists of orders
         self.storage_list = [] # it will contain the name of all the storages gathered from the filename of the tables
-        self.blacklist = {"32192", "32191", "27543", "27542", "26177", "27245", "27247", "28055", "28056", "25664", "27274", "24766", "27273"}
-        
+        self.blacklist_whole_cod = {
+            21820, 21822, 21823, 21824, 21825, 21828, 21829, 21830, 25498, 25499, 25500, 26589,
+            26590, 33708, 33709, 33710, 33711, 33712, 33713, 33714, 33716, 33718, 33719, 33722
+            }
+        self.blacklist_granular = {
+            
+        }    
     def login(self):
         try:
             # TODO Get rid of the constant  
@@ -122,8 +127,12 @@ class Gatherer:
 
                 
 
-                if product_cod in self.blacklist:
+                if product_cod in self.blacklist_whole_cod:
                     logger.info(f"Skipping blacklisted Cod Article: {product_cod}")
+                    continue  # Skip to the next iteration
+
+                if (product_cod, product_var) in self.blacklist_granular:
+                    logger.info(f"Skipping blacklisted Cod Article and Var: {product_cod}.{product_var}")
                     continue  # Skip to the next iteration
 
                 # Now, switch to the iframe that contains the required script
@@ -157,7 +166,8 @@ class Gatherer:
                     continue  # Skip to the next iteration of the loop
                 
                 package_size = int(package_size)
-                package_multi = int(float(package_multi.replace(',', '.')))
+                package_multi = int(package_multi)
+                # package_multi = int(float(package_multi.replace(',', '.'))) # TODO Needs to work in both cases
                 package_size *= package_multi
 
                 sold_quantities_current_year = sold_quantities[::2]
@@ -182,25 +192,35 @@ class Gatherer:
                     self.next_article(product_cod, product_var, package_size, product_name, reason)
                     continue  # Skip to the next row in df.iterrows()
 
-
                 # Combine both lists (current year values first, then last year)
                 final_array_sold = cleaned_current_year_sold + cleaned_last_year_sold
                 final_array_bought = cleaned_current_year_bought + cleaned_last_year_bought
 
                 final_array_bought, final_array_sold = helpers.prepare_array(final_array_bought, final_array_sold)
-
-                final_array_bought, final_array_sold = helpers.detect_dead_periods(final_array_bought, final_array_sold)
                 
                 if len(final_array_bought) <= 1:
-                    reason = "The prduct has been in the system for too little"
                     if len(final_array_bought) == 0 and product_availability == "Si":
+                        reason = "The prduct has never been in the system"
                         analyzer.brand_new_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
                     else:
+                        reason = "The prduct has been in the system for too little"
                         analyzer.new_entry_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
                     self.next_article(product_cod, product_var, package_size, product_name, reason)
                     continue
 
-                # logger.info the results  TODO Can be eresed
+                final_array_bought, final_array_sold = helpers.detect_dead_periods(final_array_bought, final_array_sold)
+                if len(final_array_bought)  <= 0:
+                    if product_availability == "No":
+                        reason = "The article is NOT available for restocking and hasn't been bought or sold for the last 3 months" 
+                        self.next_article(product_cod, product_var, package_size, product_name, reason)
+                        continue
+                    else :
+                        reason = "The article is available once more for restocking but hasn't been bought or sold for the last 3 months"
+                        analyzer.brand_new_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                        self.next_article(product_cod, product_var, package_size, product_name, reason)
+                        continue
+
+                # logger.info the results
                 logger.info(f"  Sold Quantities: {final_array_sold}")
                 logger.info(f"Bought Quantities: {final_array_bought}")
                                 
@@ -259,11 +279,11 @@ class Gatherer:
                 logger.info(f"Restock = {restock:.2f}")
                 
                 
-                if avg_daily_sales >= 1.5:
+                if avg_daily_sales >= 1:
                     restock, reason, stat = self.process_A_sales(stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock)
                 elif 0 < recent_months_sales <= 14:
                     restock, reason, stat = self.process_C_sales(stock_oscillation, package_size, restock, deviation_corrected, use_stock, stock)
-                elif avg_daily_sales < 1.5:
+                elif avg_daily_sales < 1:
                     restock, reason, stat = self.process_B_sales(stock_oscillation, package_size, restock_corrected, expected_packages, use_stock, stock)
                 else:
                     restock, reason, stat = None, "This is not good, there is a bug", None
@@ -290,14 +310,13 @@ class Gatherer:
                     '''
     
     def process_A_sales(self, stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock):
-        """Handles cases for avg_daily_sales >= 1."""
         if restock >= package_size:
             restock = helpers.custom_round(restock / package_size, 0.7)
             if stock_oscillation <= -package_size:
                 restock += 1
             return restock, "A1", "A_success"
         
-        if use_stock and stock <= math.floor(package_size / 2): #TODO If they remain equal for all category, make only 1 check before categorization
+        if use_stock and stock <= math.floor(package_size / 2):
             return 1, "A2", "A_success"
 
         if restock > math.ceil(package_size / 2) and (deviation_corrected > 20 or stock_oscillation <= math.floor(-package_size / 3)):
@@ -318,9 +337,7 @@ class Gatherer:
         
         return None, "A0", "A_fail"
 
-
     def process_C_sales(self, stock_oscillation, package_size, restock, deviation_corrected, use_stock, stock):
-        """Handles cases for 0 < recent_months_sales <= 14."""
         if use_stock and stock <= math.floor(package_size / 2):
             return 1, "C1", "C_success"
 
@@ -335,9 +352,7 @@ class Gatherer:
 
         return None, "C0", "C_fail"
 
-
     def process_B_sales(self, stock_oscillation, package_size, restock_corrected, expected_packages, use_stock, stock):
-        """Handles cases for avg_daily_sales < 1."""
         if use_stock and stock <= math.floor(package_size / 2):
             return 1, "B1", "B_success"
         
