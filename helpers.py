@@ -223,7 +223,17 @@ class Helper:
         else:
             return integer_part + 1  # Round up
 
+    def next_article(self, product_cod, product_var, package_size, product_name, reason):
+        logger.info(f"Will NOT order {product_name}: {product_cod}.{product_var}.{package_size}!")
+        logger.info(f"Reason : {reason}")
+        logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")
 
+    def order_this(self, current_list, product_cod, product_var, qty, product_name, reason):
+        combined_string = '.'.join(map(str, [product_cod, product_var, qty]))
+        current_list.append(combined_string)
+        logger.info(f"ORDER {product_name}: " + combined_string + "!")
+        logger.info(f"Reason : {reason}")
+        logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")      
 
     # def custom_round_misha_edition(value):
     #     if not isinstance(value, int) or not isinstance(value, float):

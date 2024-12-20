@@ -4,8 +4,8 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import math
 import os
+from datetime import datetime
 import pandas as pd
 from selenium.common.exceptions import UnexpectedAlertPresentException
 from selenium.webdriver.chrome.options import Options
@@ -17,6 +17,19 @@ from analyzer import Analyzer
 
 analyzer = Analyzer()
 helpers = Helper()
+
+columns = [
+    'product_cod', 'product_var', 'product_name', 'stock_oscillation',
+    'package_size', 'deviation_corrected', 'expected_packages',
+    'req_stock', 'use_stock', 'stock', 'value'
+]
+
+# Map month numbers to their names in Italian
+month_names_italian = {
+    1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile", 5: "Maggio",
+    6: "Giugno", 7: "Luglio", 8: "Agosto", 9: "Settembre", 10: "Ottobre",
+    11: "Novembre", 12: "Dicembre"
+}
 
 class Gatherer:
 
@@ -34,11 +47,22 @@ class Gatherer:
         self.orders_list = []  # it will contain all the lists of orders
         self.storage_list = [] # it will contain the name of all the storages gathered from the filename of the tables
         self.blacklist_whole_cod = {
-
+            21820, 21822, 21823, 21824, 21825, 21828, 21829, 21830, 25498, 25499, 25500, 26589,
+            26590, 33708, 33709, 33710, 33711, 33712, 33713, 33714, 33716, 33718, 33719, 33722
             }
         self.blacklist_granular = {
             
         }    
+
+        self.data_list = []
+        self.current_month_num = datetime.now().month
+        self.previous_month_num = (self.current_month_num - 1) if self.current_month_num > 1 else 12
+        self.current_month_name = month_names_italian[self.current_month_num]
+        self.previous_month_name = month_names_italian[self.previous_month_num]
+
+        self.total_turnover = 0
+        
+
     def login(self):
         try:
             # TODO Get rid of the constant  
@@ -60,17 +84,10 @@ class Gatherer:
         password_field.send_keys(PASSWORD)
         login_button.click()
     
-    def next_article(self, product_cod, product_var, package_size, product_name, reason):
-        logger.info(f"Will NOT order {product_name}: {product_cod}.{product_var}.{package_size}!")
+    def next_article(self, part1, part2, part3, name, reason):
+        logger.info(f"Will NOT order {name}: {part1}.{part2}.{part3}!")
         logger.info(f"Reason : {reason}")
-        logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")
-
-    def order_this(self, current_list, product_cod, product_var, qty, product_name, reason):
-        combined_string = '.'.join(map(str, [product_cod, product_var, qty]))
-        current_list.append(combined_string)
-        logger.info(f"ORDER {product_name}: " + combined_string + "!")
-        logger.info(f"Reason : {reason}")
-        logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")        
+        logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")     
                            
     def gather_data(self):
         self.login()
@@ -164,6 +181,27 @@ class Gatherer:
                     self.actions.send_keys(Keys.ENTER)
                     continue  # Skip to the next iteration of the loop
                 
+                # Dynamically find the row elements based on the current and previous month names
+                row_element = self.driver.find_element(By.XPATH, f"//td[@class='TestoNormalBold' and contains(text(), '{self.current_month_name}')]")
+                this_month_val = row_element.find_element(By.XPATH, "following-sibling::td[2]").text
+                this_month_val_old = row_element.find_element(By.XPATH, "following-sibling::td[5]").text
+
+                row_element = self.driver.find_element(By.XPATH, f"//td[@class='TestoNormalBold' and contains(text(), '{self.previous_month_name}')]")
+                last_month_val = row_element.find_element(By.XPATH, "following-sibling::td[2]").text
+
+                # Convert values to numbers
+                try:
+                    this_month_val = float(this_month_val.replace('.', '').replace(',', '.'))  # Handles European decimal format
+                    this_month_val_old = float(this_month_val_old.replace('.', '').replace(',', '.'))
+                    last_month_val = float(last_month_val.replace('.', '').replace(',', '.'))
+                except ValueError:
+                    print("Error: Unable to convert one or more values to numbers.")
+                    this_month_val, this_month_val_old, last_month_val = 0, 0, 0
+
+                # Calculate the sum
+                total_value = this_month_val + this_month_val_old + last_month_val
+                self.total_turnover += total_value
+
                 package_size = int(package_size)
                 package_multi = int(package_multi)
                 # package_multi = int(float(package_multi.replace(',', '.'))) # TODO Needs to work in both cases
@@ -239,11 +277,11 @@ class Gatherer:
                     stock = 0
                     use_stock = False
                                 
-                if (len(final_array_sold) >= 13):
-                    avg_monthly_sales = helpers.calculate_avg_monthly_sales(final_array_sold)
-                else:
-                    avg_monthly_sales = -1
-                    logger.info(f"Avg. Monthly Sales are not available for this article")
+                # if (len(final_array_sold) >= 13):
+                #     avg_monthly_sales = helpers.calculate_avg_monthly_sales(final_array_sold)
+                # else:
+                #     avg_monthly_sales = -1
+                #     logger.info(f"Avg. Monthly Sales are not available for this article")
                                 
                 if len(final_array_sold) >= 4:                    
                     recent_months_sales = helpers.calculate_data_recent_months(final_array_sold, 3, "sales") 
@@ -266,108 +304,42 @@ class Gatherer:
                 #region Calculate if a new order must be done
                 req_stock = avg_daily_sales_corrected*coverage
                 logger.info(f"Required stock = {req_stock:.2f}")
-                restock = req_stock
-                restock_corrected = req_stock
-
-                if stock_oscillation > 0:
-                    restock -= stock_oscillation
-                    restock_corrected -= stock_oscillation
-                else:
-                    restock_corrected -= stock_oscillation    
-
-                logger.info(f"Restock = {restock:.2f}")
                 
-                
-                if avg_daily_sales >= 1.5:
-                    restock, reason, stat = self.process_A_sales(stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock)
-                elif 0 < recent_months_sales <= 14:
-                    restock, reason, stat = self.process_C_sales(stock_oscillation, package_size, restock, deviation_corrected, use_stock, stock)
-                elif avg_daily_sales < 1.5:
-                    restock, reason, stat = self.process_B_sales(stock_oscillation, package_size, restock_corrected, expected_packages, use_stock, stock)
-                else:
-                    restock, reason, stat = None, "This is not good, there is a bug", None
-
-                # Take Action
-                if restock:
-                    if avg_daily_sales <= 0.2 or avg_daily_sales_corrected <= 0.2:
-                        analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
-                    analyzer.stat_recorder(restock, stat)
-                    self.order_this(current_list, product_cod, product_var, restock, product_name, reason)
-                else:
-                    analyzer.stat_recorder(0, stat)
-                    self.next_article(product_cod, product_var, package_size, product_name, reason)
-                        
-            analyzer.log_statistics()
+                iteration_data = [
+                    product_cod, product_var, product_name, stock_oscillation,
+                    package_size, deviation_corrected, expected_packages,
+                    req_stock, use_stock, stock, total_value
+                ]
+                self.data_list.append(iteration_data)
             
 
-    '''elif restock >= math.ceil(package_size/2) and stock_oscillation <= 0:
-                        reason = "Avg. dayly sales < 1, and restock is needed also oscillation is negative"
-                        analyzer.stat_recorder(1, "B_success")
-                        self.order_this(current_list, product_cod, product_var, 1, reason)  
-                        
-                        if package_size == 1:
-                    '''
-    
-    def process_A_sales(self, stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock):
-        if restock >= package_size:
-            restock = helpers.custom_round(restock / package_size, 0.7)
-            if stock_oscillation <= -package_size:
-                restock += 1
-            return restock, "A1", "A_success"
-        
-        if use_stock and stock <= math.floor(package_size / 2):
-            return 1, "A2", "A_success"
+            data = pd.DataFrame(self.data_list, columns=columns)
 
-        if restock > math.ceil(package_size / 2) and (deviation_corrected > 20 or stock_oscillation <= math.floor(-package_size / 3)):
-            order = 2 if stock_oscillation <= -package_size else 1
-            return order, "A3", "A_success"
+            # Sort by 'total_value' in descending order
+            data = data.sort_values(by='total_value', ascending=False)
 
-        if stock_oscillation <= math.floor(-package_size / 2):
-            return 1, "A4", "A_success"
+            # Initialize cumulative sum and datasets
+            cumulative_sum = 0
+            category_a = []  # Products contributing to 70% of turnover
+            category_b = []  # Products contributing to the next 20% of turnover
+            category_c = []  # Remaining 10%
 
-        if expected_packages >= 1 and stock_oscillation < package_size / 2:
-            return 1, "A5", "A_success"
+            # Iterate through sorted data to categorize
+            for _, row in data.iterrows():
+                cumulative_sum += row['total_value']
+                cumulative_percentage = cumulative_sum / self.total_turnover * 100
 
-        if package_size >= 20 and restock >= math.ceil(package_size / 4):
-            return 1, "A6", "A_success"
+                if cumulative_percentage <= 70:
+                    category_a.append(row)
+                elif cumulative_percentage <= 90:
+                    category_b.append(row)
+                else:
+                    # Add the remaining rows to category C and break
+                    category_c.extend(data.iloc[index:].to_dict('records'))
+                    break
 
-        if stock_oscillation <= math.ceil(req_stock / 2) and expected_packages > 0.3:
-            return 1, "A7", "A_success"
-        
-        return None, "A0", "A_fail"
+            # Convert lists back to DataFrames for further processing
+            category_a_df = pd.DataFrame(category_a, columns=columns)
+            category_b_df = pd.DataFrame(category_b, columns=columns)
+            category_c_df = pd.DataFrame(category_c, columns=columns)
 
-    def process_C_sales(self, stock_oscillation, package_size, restock, deviation_corrected, use_stock, stock):
-        if use_stock and stock <= math.floor(package_size / 2):
-            return 1, "C1", "C_success"
-
-        if stock_oscillation <= math.floor(-package_size / 3):
-            return 1, "C2", "C_success"
-
-        if package_size <= 8 and stock_oscillation < math.ceil(-package_size / 4):
-            return 1, "C3", "C_success"
-
-        if restock >= 1.8 and deviation_corrected >= 10 and stock_oscillation < 0:
-            return 1, "C4", "C_success"
-
-        return None, "C0", "C_fail"
-
-    def process_B_sales(self, stock_oscillation, package_size, restock_corrected, expected_packages, use_stock, stock):
-        if use_stock and stock <= math.floor(package_size / 2):
-            return 1, "B1", "B_success"
-        
-        if restock_corrected > package_size:
-            return 1, "B2", "B_success"
-
-        if expected_packages >= 1 and stock_oscillation <= 0:
-            return 1, "B3", "B_success"
-
-        if expected_packages >= 0.5 and stock_oscillation <= math.ceil(-package_size / 3):
-            return 1, "B4", "B_success"
-
-        if stock_oscillation <= math.floor(-package_size / 3):
-            return 1, "B5", "B_success"
-        
-        if package_size <= 8 and stock_oscillation <= 0:
-            return 1, "B6", "B_success"
-
-        return None, "B0", "B_fail"

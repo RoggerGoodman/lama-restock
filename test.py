@@ -3,7 +3,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 import time
-import math
 from datetime import datetime
 from dotenv import load_dotenv
 import os
@@ -19,7 +18,7 @@ threshold_low_volume = 50
 high_deviation_threshold = 15
 
 
-part1 = 1375
+part1 = 606
 part2 = 1
 part3 = 6
 
@@ -156,7 +155,45 @@ try:
     # Now that you're inside the iframe, attempt to extract the data
     sold_quantities = driver.execute_script("return window.str_qta_vend;")
     bought_quantities = driver.execute_script("return window.str_qta_acq;")
+    # Get the current month and the previous month
+    current_month_num = datetime.now().month
+    previous_month_num = (current_month_num - 1) if current_month_num > 1 else 12
 
+    # Map month numbers to their names in Italian
+    month_names_italian = {
+        1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile", 5: "Maggio",
+        6: "Giugno", 7: "Luglio", 8: "Agosto", 9: "Settembre", 10: "Ottobre",
+        11: "Novembre", 12: "Dicembre"
+    }
+
+    current_month_name = month_names_italian[current_month_num]
+    previous_month_name = month_names_italian[previous_month_num]
+
+    # Dynamically find the row elements based on the current and previous month names
+    row_element = driver.find_element(By.XPATH, f"//td[@class='TestoNormalBold' and contains(text(), '{current_month_name}')]")
+    this_month_val = row_element.find_element(By.XPATH, "following-sibling::td[2]").text
+    this_month_val_old = row_element.find_element(By.XPATH, "following-sibling::td[5]").text
+
+    row_element = driver.find_element(By.XPATH, f"//td[@class='TestoNormalBold' and contains(text(), '{previous_month_name}')]")
+    last_month_val = row_element.find_element(By.XPATH, "following-sibling::td[2]").text
+
+    # Convert values to numbers
+    try:
+        this_month_val = float(this_month_val.replace('.', '').replace(',', '.'))  # Handles European decimal format
+        this_month_val_old = float(this_month_val_old.replace('.', '').replace(',', '.'))
+        last_month_val = float(last_month_val.replace('.', '').replace(',', '.'))
+    except ValueError:
+        print("Error: Unable to convert one or more values to numbers.")
+        this_month_val, this_month_val_old, last_month_val = 0, 0, 0
+
+    # Calculate the sum
+    total_sum = this_month_val + this_month_val_old + last_month_val
+
+    # Print the values and the sum
+    print(f"This Month Value: {this_month_val}")
+    print(f"This Month Old Value: {this_month_val_old}")
+    print(f"Last Month Value: {last_month_val}")
+    print(f"Total Sum: {total_sum}")
 except UnexpectedAlertPresentException:
     print("Alert present: Codice Articolo Non Valido. Going back and continuing.")
 

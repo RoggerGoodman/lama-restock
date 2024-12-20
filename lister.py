@@ -10,7 +10,7 @@ from pywinauto import Application, Desktop
 from selenium.webdriver.chrome.options import Options
 from credentials import PASSWORD, USERNAME
 storges = ["01 RIANO GENERI VARI", "23 S.PALOMBA SURGELATI", "02 POMEZIA DEPERIBILI"]
-desired_value = "01 RIANO GENERI VARI"
+desired_value = "02 POMEZIA DEPERIBILI"
 save_path = r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Database"
 full_file_path = rf"{save_path}\{desired_value}"
 filters = True
