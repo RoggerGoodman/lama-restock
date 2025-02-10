@@ -1,12 +1,11 @@
 import math
 import pandas as pd
-from analyzer import Analyzer
+from analyzer import analyzer
 from helpers import Helper
 
-analyzer = Analyzer()
-helpers = Helper()
+order_list = []
 
-def process_category_c(category_c_df):
+def process_category_c(category_c_df, helper: Helper):
 
     # Iterate through the DataFrame rows
     for _, row in category_c_df.iterrows():
@@ -20,6 +19,7 @@ def process_category_c(category_c_df):
         req_stock = row['req_stock']
         use_stock = row['use_stock']
         stock = row['stock']
+        avg_d_sales = row['avg_d_sales']
 
         restock = req_stock
 
@@ -27,7 +27,7 @@ def process_category_c(category_c_df):
             restock -= stock_oscillation
 
         # Process the product based on conditions
-        result, reason, status = process_C_sales(
+        result, check, status = process_C_sales(
             stock_oscillation,
             package_size,
             restock,
@@ -35,16 +35,23 @@ def process_category_c(category_c_df):
             use_stock,
             stock
         )
-
+        
+        category = "C"
+        
         if result:
             # Log the restock action
-            analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
-            analyzer.stat_recorder(restock, status)
-            helpers.order_this(product_cod, product_var, restock, product_name, reason)
+            if avg_d_sales <= 0.2 or avg_d_sales*(1 + deviation_corrected / 100) <= 0.2:
+                analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+            analyzer.stat_recorder(result, status)
+            helper.order_this(order_list, product_cod, product_var, result, product_name, category, check)
+            helper.line_breaker()
         else:
             # Log that no action was taken
             analyzer.stat_recorder(0, status)
-            helpers.next_article(product_cod, product_var, package_size, product_name, reason)
+            helper.order_denied(product_cod, product_var, package_size, product_name, category, check)
+            helper.line_breaker()
+
+    return order_list
 
 def process_C_sales(stock_oscillation, package_size, restock, deviation_corrected, use_stock, stock):
     """
@@ -62,15 +69,15 @@ def process_C_sales(stock_oscillation, package_size, restock, deviation_correcte
         tuple: (result, reason, status)
     """
     if use_stock and stock <= math.floor(package_size / 2):
-        return 1, "C1", "C_success"
+        return 1, 1, "C_success"
 
     if stock_oscillation <= math.floor(-package_size / 3):
-        return 1, "C2", "C_success"
+        return 1, 2, "C_success"
 
     if package_size <= 8 and stock_oscillation < math.ceil(-package_size / 4):
-        return 1, "C3", "C_success"
+        return 1, 3, "C_success"
 
     if restock >= 1.8 and deviation_corrected >= 10 and stock_oscillation < 0:
-        return 1, "C4", "C_success"
+        return 1, 4, "C_success"
 
-    return None, "C0", "C_fail"
+    return None, 0, "C_fail"

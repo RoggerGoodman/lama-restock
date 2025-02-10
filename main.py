@@ -1,8 +1,10 @@
-from gatherer import Gatherer
+# from gatherer import Gatherer
 from orderer import Orderer
+from gathererNew import Gatherer
+from helpers import Helper
 
-
-gatherer = Gatherer()
+helper = Helper()
+gatherer = Gatherer(helper)
 gatherer.gather_data()
 storage_list = gatherer.storage_list
 orders_list = gatherer.orders_list

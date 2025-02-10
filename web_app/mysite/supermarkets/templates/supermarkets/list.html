@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Supermarkets{% endblock %}
+
+{% block content %}
+    <h2>Supermarkets</h2>
+    <ul>
+        {% for supermarket in supermarkets %}
+            <li>{{ supermarket.name }}</li>
+        {% empty %}
+            <li>No supermarkets available.</li>
+        {% endfor %}
+    </ul>
+{% endblock %}

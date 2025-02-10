@@ -1,18 +1,12 @@
 import math
 import pandas as pd
-from analyzer import Analyzer
+from analyzer import analyzer
 from helpers import Helper
 
-analyzer = Analyzer()
-helpers = Helper()
+order_list = []
 
-def process_category_a(category_a_df):
-    """
-    Processes products in the Category A DataFrame and applies rules to decide actions.
+def process_category_a(category_a_df, helper: Helper):
 
-    Parameters:
-        category_a_df (pd.DataFrame): The DataFrame containing Category A products.
-    """
     # Iterate through the DataFrame rows
     for _, row in category_a_df.iterrows():
         # Extract necessary values from the row
@@ -26,14 +20,16 @@ def process_category_a(category_a_df):
         req_stock = row['req_stock']  
         use_stock = row['use_stock']
         stock = row['stock']
+        avg_d_sales = row['avg_d_sales']
 
         restock = req_stock
+        
 
         if stock_oscillation > 0:
             restock -= stock_oscillation
 
         # Process the product based on conditions
-        result, reason, status = process_A_sales(
+        result, check, status = process_A_sales(
             stock_oscillation,
             package_size,
             deviation_corrected,
@@ -41,20 +37,28 @@ def process_category_a(category_a_df):
             expected_packages,
             req_stock,
             use_stock,
-            stock
+            stock,
+            helper
         )
+
+        category = "A"
 
         if result:
             # Log the restock action
-            analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+            if avg_d_sales <= 0.2 or avg_d_sales*(1 + deviation_corrected / 100) <= 0.2:
+                    analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
             analyzer.stat_recorder(result, status)
-            helpers.order_this(product_cod, product_var, result, product_name, reason) #TODO MUST fix arguments
+            helper.order_this(order_list, product_cod, product_var, result, product_name, category, check)
+            helper.line_breaker()
         else:
             # Log that no action was taken
             analyzer.stat_recorder(0, status)
-            helpers.next_article(product_cod, product_var, package_size, product_name, reason)
+            helper.order_denied(product_cod, product_var, package_size, product_name, category, check)
+            helper.line_breaker()
+    
+    return order_list
 
-def process_A_sales(stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock):
+def process_A_sales(stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock, helper):
     """
     Determines the processing outcome for a Category A product.
 
@@ -72,28 +76,28 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, restoc
         tuple: (result, reason, status)
     """
     if restock >= package_size:
-        restock = helpers.custom_round(restock / package_size, 0.7)
+        restock = helper.custom_round(restock / package_size, 0.7)
         if stock_oscillation <= -package_size:
             restock += 1
-        return restock, "A1", "A_success"
+        return restock, 1, "A_success"
 
     if use_stock and stock <= math.floor(package_size / 2):
-        return 1, "A2", "A_success"
+        return 1, 2, "A_success"
 
     if restock > math.ceil(package_size / 2) and (deviation_corrected > 20 or stock_oscillation <= math.floor(-package_size / 3)):
         order = 2 if stock_oscillation <= -package_size else 1
-        return order, "A3", "A_success"
+        return order, 3, "A_success"
 
     if stock_oscillation <= math.floor(-package_size / 2):
-        return 1, "A4", "A_success"
+        return 1, 4, "A_success"
 
     if expected_packages >= 1 and stock_oscillation < package_size / 2:
-        return 1, "A5", "A_success"
+        return 1, 5, "A_success"
 
     if package_size >= 20 and restock >= math.ceil(package_size / 4):
-        return 1, "A6", "A_success"
+        return 1, 6, "A_success"
 
     if stock_oscillation <= math.ceil(req_stock / 2) and expected_packages > 0.3:
-        return 1, "A7", "A_success"
+        return 1, 7, "A_success"
 
-    return None, "A0", "A_fail"
+    return None, 0, "A_fail"

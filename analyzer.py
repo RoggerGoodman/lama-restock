@@ -58,3 +58,5 @@ class Analyzer:
         self.B_fail = 0
         self.C_success = 0
         self.C_fail = 0
+
+analyzer = Analyzer()
