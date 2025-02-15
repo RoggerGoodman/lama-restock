@@ -1,32 +1,13 @@
 {% extends "base.html" %}
-
+{% block title %}Restock Schedule for {{ category.name }}{% endblock %}
 {% block content %}
-  <h2>Restock Schedule for {{ supermarket.name }}</h2>
+  <h1>Restock Schedule for {{ category.name }} <small>({{ category.supermarket.name }})</small></h1>
   <form method="post">
     {% csrf_token %}
-    
-    <div>
-      <label>Monday: {{ form.monday }}</label>
-    </div>
-    <div>
-      <label>Tuesday: {{ form.tuesday }}</label>
-    </div>
-    <div>
-      <label>Wednesday: {{ form.wednesday }}</label>
-    </div>
-    <div>
-      <label>Thursday: {{ form.thursday }}</label>
-    </div>
-    <div>
-      <label>Friday: {{ form.friday }}</label>
-    </div>
-    <div>
-      <label>Saturday: {{ form.saturday }}</label>
-    </div>
-    <div>
-      <label>Sunday: {{ form.sunday }}</label>
-    </div>
-
-    <button type="submit">Save Schedule</button>
+    {{ form.as_p }}
+    <button type="submit" class="btn btn-primary">Save Schedule</button>
   </form>
+  {% if object.restock_intervals %}
+    <p class="mt-3"><strong>Calculated Intervals:</strong> {{ object.restock_intervals }}</p>
+  {% endif %}
 {% endblock %}

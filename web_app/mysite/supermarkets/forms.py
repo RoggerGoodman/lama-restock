@@ -1,13 +1,18 @@
 from django import forms
-from .models import RestockSchedule
+from .models import RestockSchedule, Blacklist, BlacklistEntry
 
 class RestockScheduleForm(forms.ModelForm):
     class Meta:
         model = RestockSchedule
-        fields = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        # We exclude restock_intervals because it's computed automatically.
+        fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
-    def clean(self):
-        cleaned_data = super().clean()
-        if not any(cleaned_data.values()):
-            raise forms.ValidationError("Please select at least one restock day.")
-        return cleaned_data
+class BlacklistForm(forms.ModelForm):
+    class Meta:
+        model = Blacklist
+        fields = ['category', 'name']  # Adjust the fields as needed
+
+class BlacklistEntryForm(forms.ModelForm):
+    class Meta:
+        model = BlacklistEntry
+        fields = ['product_code', 'product_var']

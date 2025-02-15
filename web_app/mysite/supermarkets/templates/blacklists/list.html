@@ -1,0 +1,23 @@
+<!-- templates/blacklists/blacklist_list.html -->
+{% extends 'base.html' %}
+{% block title %}Blacklists{% endblock %}
+{% block content %}
+  <h1>Blacklists</h1>
+  <a href="{% url 'blacklist-add' %}" class="btn btn-primary mb-3">Create New Blacklist</a>
+
+  <!-- Group blacklists by their category -->
+  {% regroup blacklists by category as grouped_blacklists %}
+
+  {% for group in grouped_blacklists %}
+    <h2>{{ group.grouper.name }}</h2>
+    <ul class="list-group mb-4">
+      {% for blacklist in group.list %}
+        <li class="list-group-item">
+          <a href="{% url 'blacklist-detail' pk=blacklist.pk %}">{{ blacklist.name }}</a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% empty %}
+    <p>No blacklists found.</p>
+  {% endfor %}
+{% endblock %}

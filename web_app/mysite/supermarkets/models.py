@@ -20,30 +20,59 @@ class Category(models.Model):
     def __str__(self):
         return f"{self.name} ({self.supermarket.name})"
 
+DAY_CHOICES = (
+    ('off', 'Off'),
+    ('early', 'Early'),
+    ('late', 'Late'),
+)
+
 class RestockSchedule(models.Model):
-    category = models.ForeignKey(Category, on_delete=models.CASCADE)  # Now linked to Category, not Supermarket
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)  # Linked to Category
 
-    monday = models.BooleanField(default=False)
-    tuesday = models.BooleanField(default=False)
-    wednesday = models.BooleanField(default=False)
-    thursday = models.BooleanField(default=False)
-    friday = models.BooleanField(default=False)
-    saturday = models.BooleanField(default=False)
-    sunday = models.BooleanField(default=False)
+    # For each day, the user can choose whether the restock is off, early, or late.
+    monday    = models.CharField(max_length=10, choices=DAY_CHOICES, default='off')
+    tuesday   = models.CharField(max_length=10, choices=DAY_CHOICES, default='off')
+    wednesday = models.CharField(max_length=10, choices=DAY_CHOICES, default='off')
+    thursday  = models.CharField(max_length=10, choices=DAY_CHOICES, default='off')
+    friday    = models.CharField(max_length=10, choices=DAY_CHOICES, default='off')
+    saturday  = models.CharField(max_length=10, choices=DAY_CHOICES, default='off')
+    sunday    = models.CharField(max_length=10, choices=DAY_CHOICES, default='off')
 
+    # This field stores a string representation of the intervals (calculated automatically).
     restock_intervals = models.CharField(max_length=20, blank=True, editable=False)
 
     def calculate_intervals(self):
-        selected_days = []
-        days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-
-        for i, day in enumerate(days):
-            if getattr(self, day):  
-                selected_days.append(i)
-
-        if len(selected_days) > 1:
-            intervals = [selected_days[i] - selected_days[i - 1] for i in range(1, len(selected_days))]
-            intervals.append(7 - selected_days[-1] + selected_days[0])  # Wrap around to the first selected day
+        """
+        Compute the intervals between restock days using effective day values.
+        If a day is selected as "late", it adds an extra 0.5 to that day's value.
+        For example, if Monday is "late" its effective value is 0.5 (instead of 0).
+        The method returns a string with the intervals (separated by "/").
+        """
+        # Create a list of effective day values for the days that are not "off"
+        day_fields = [
+            self.monday,
+            self.tuesday,
+            self.wednesday,
+            self.thursday,
+            self.friday,
+            self.saturday,
+            self.sunday,
+        ]
+        effective_times = []
+        for i, value in enumerate(day_fields):
+            if value != 'off':
+                # If the value is "late", add 0.5; if "early", add 0.
+                extra = 0.5 if value == 'late' else 0
+                effective_times.append(i + extra)
+                
+        # If more than one day is selected, compute intervals between successive effective times,
+        # and account for wrap-around (making sure the cycle sums to 7)
+        if len(effective_times) > 1:
+            intervals = []
+            for i in range(1, len(effective_times)):
+                intervals.append(effective_times[i] - effective_times[i - 1])
+            # Wrap-around interval: (7 - last effective time) + first effective time
+            intervals.append(7 - effective_times[-1] + effective_times[0])
             return "/".join(map(str, intervals))
         return ""
 
@@ -52,8 +81,14 @@ class RestockSchedule(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        selected_days = [day.capitalize() for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] if getattr(self, day)]
-        return f"Restock for {self.category}: {', '.join(selected_days)} (Intervals: {self.restock_intervals})"
+        # Create a list of day names with their chosen schedule (if not off)
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        day_values = [self.monday, self.tuesday, self.wednesday, self.thursday, self.friday, self.saturday, self.sunday]
+        selected = [
+            f"{day} ({'Late' if val=='late' else 'Early'})"
+            for day, val in zip(day_names, day_values) if val != 'off'
+        ]
+        return f"Restock for {self.category}: {', '.join(selected)} (Intervals: {self.restock_intervals})"
 
 class Blacklist(models.Model):
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
