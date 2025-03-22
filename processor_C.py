@@ -41,7 +41,7 @@ def process_category_c(category_c_df, helper: Helper):
         if result:
             # Log the restock action
             if avg_d_sales <= 0.2 or avg_d_sales*(1 + deviation_corrected / 100) <= 0.2:
-                analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                analyzer.note_recorder(product_name, product_cod, product_var)
             analyzer.stat_recorder(result, status)
             helper.order_this(order_list, product_cod, product_var, result, product_name, category, check)
             helper.line_breaker()
@@ -74,10 +74,10 @@ def process_C_sales(stock_oscillation, package_size, restock, deviation_correcte
     if stock_oscillation <= math.floor(-package_size / 3):
         return 1, 2, "C_success"
 
-    if package_size <= 8 and stock_oscillation < math.ceil(-package_size / 4):
+    if stock_oscillation < math.ceil(-package_size / 4) and package_size <= 8:
         return 1, 3, "C_success"
 
-    if restock >= 1.8 and deviation_corrected >= 10 and stock_oscillation < 0:
+    if restock >= 1.8 and deviation_corrected >= 10 and stock_oscillation < 0: #TODO 1.8 is a static number, wrong in the context
         return 1, 4, "C_success"
 
     return None, 0, "C_fail"

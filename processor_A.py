@@ -22,18 +22,18 @@ def process_category_a(category_a_df, helper: Helper):
         stock = row['stock']
         avg_d_sales = row['avg_d_sales']
 
-        restock = req_stock
+        real_need = req_stock
         
 
         if stock_oscillation > 0:
-            restock -= stock_oscillation
+            real_need -= stock_oscillation
 
         # Process the product based on conditions
         result, check, status = process_A_sales(
             stock_oscillation,
             package_size,
             deviation_corrected,
-            restock,
+            real_need,
             expected_packages,
             req_stock,
             use_stock,
@@ -46,7 +46,7 @@ def process_category_a(category_a_df, helper: Helper):
         if result:
             # Log the restock action
             if avg_d_sales <= 0.2 or avg_d_sales*(1 + deviation_corrected / 100) <= 0.2:
-                    analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                analyzer.note_recorder(product_name, product_cod, product_var)
             analyzer.stat_recorder(result, status)
             helper.order_this(order_list, product_cod, product_var, result, product_name, category, check)
             helper.line_breaker()
@@ -58,7 +58,7 @@ def process_category_a(category_a_df, helper: Helper):
     
     return order_list
 
-def process_A_sales(stock_oscillation, package_size, deviation_corrected, restock, expected_packages, req_stock, use_stock, stock, helper):
+def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, use_stock, stock, helper):
     """
     Determines the processing outcome for a Category A product.
 
@@ -66,7 +66,7 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, restoc
         stock_oscillation (int): Oscillation of stock.
         package_size (int): Size of the package.
         deviation_corrected (float): Corrected deviation value.
-        restock (float): Restock value (to be computed if missing).
+        real_need (float): The effective needed ammount (to be computed if missing).
         expected_packages (float): Expected number of packages to sell.
         req_stock (float): Required stock level.
         use_stock (bool): Whether to use stock.
@@ -75,17 +75,33 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, restoc
     Returns:
         tuple: (result, reason, status)
     """
-    if restock >= package_size:
-        restock = helper.custom_round(restock / package_size, 0.7)
+    if real_need >= package_size:
+        order = helper.custom_round(real_need / package_size, 0.7)
+
         if stock_oscillation <= -package_size:
-            restock += 1
-        return restock, 1, "A_success"
+            order += 1
+
+        if (order*package_size / real_need) < 1.2 and deviation_corrected > 20:
+            order += 1
+
+        if order < expected_packages/2:
+           order =  math.ceil((order + expected_packages)/2)
+           
+        return order, 1, "A_success"
 
     if use_stock and stock <= math.floor(package_size / 2):
         return 1, 2, "A_success"
 
-    if restock > math.ceil(package_size / 2) and (deviation_corrected > 20 or stock_oscillation <= math.floor(-package_size / 3)):
-        order = 2 if stock_oscillation <= -package_size else 1
+    if real_need > math.ceil(package_size / 2) and (deviation_corrected > 20 or stock_oscillation <= math.floor(-package_size / 3)):
+
+        order = 1
+
+        if stock_oscillation <= -package_size:
+            order += 1
+
+        if (order*package_size / real_need) < 1.2 and deviation_corrected > 20:
+            order += 1
+        
         return order, 3, "A_success"
 
     if stock_oscillation <= math.floor(-package_size / 2):
@@ -94,7 +110,7 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, restoc
     if expected_packages >= 1 and stock_oscillation < package_size / 2:
         return 1, 5, "A_success"
 
-    if package_size >= 20 and restock >= math.ceil(package_size / 4):
+    if package_size >= 20 and real_need >= math.ceil(package_size / 4):
         return 1, 6, "A_success"
 
     if stock_oscillation <= math.ceil(req_stock / 2) and expected_packages > 0.3:

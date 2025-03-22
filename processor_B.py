@@ -40,7 +40,7 @@ def process_category_b(category_b_df, helper: Helper):
         if result:
             # Log the restock action
             if avg_d_sales <= 0.2 or avg_d_sales*(1 + deviation_corrected / 100) <= 0.2:
-                analyzer.note_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                analyzer.note_recorder(product_name, product_cod, product_var)
             analyzer.stat_recorder(result, status)
             helper.order_this(order_list, product_cod, product_var, result, product_name, category, check)
             helper.line_breaker()
@@ -73,7 +73,7 @@ def process_B_sales(stock_oscillation, package_size, restock_corrected, expected
     if restock_corrected > package_size:
         return 1, 2, "B_success"
 
-    if expected_packages >= 1 and stock_oscillation <= 0:
+    if expected_packages >= 1 and stock_oscillation <= 0: 
         return 1, 3, "B_success"
 
     if expected_packages >= 0.5 and stock_oscillation <= math.ceil(-package_size / 3):

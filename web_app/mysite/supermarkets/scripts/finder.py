@@ -45,10 +45,10 @@ class Finder:
         orders_menu.click()
 
         WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "carta32"))
+            EC.presence_of_element_located((By.ID, "carta139"))
         )
 
-        orders_menu1 = self.driver.find_element(By.ID, "carta32")
+        orders_menu1 = self.driver.find_element(By.ID, "carta139") #TODO repair form here
         orders_menu1.click()
 
         WebDriverWait(self.driver, 10).until(
@@ -57,9 +57,19 @@ class Finder:
 
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
-        self.actions.click()
-        self.actions.send_keys(Keys.ESCAPE)
-        self.actions.perform()
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "Ordini"))
+        )
+
+        orders_menu1 = self.driver.find_element(By.ID, "Ordini")
+        orders_menu1.click()
+
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//button[text()='Chiudi']"))
+        )
+
+        close_button = self.driver.find_element(By.XPATH, "//button[text()='Chiudi']")
+        close_button.click()
 
         time.sleep(1)
 

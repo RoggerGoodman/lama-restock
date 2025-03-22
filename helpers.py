@@ -70,17 +70,32 @@ class Helper:
 
     def calculate_weighted_avg_sales(self, sales_period, final_array_sold, previous_year_sold):
         sales_period = min(sales_period, len(final_array_sold))
-        sold_daily = sum(final_array_sold[:sales_period])
+        sold_daily_this_month = final_array_sold[0]
+        if len(final_array_sold) >= 2:
+            sold_daily_previous_month = final_array_sold[1]
+        else:
+            sold_daily_previous_month = 0
+        sold_daily_tot = sold_daily_this_month + sold_daily_previous_month
         previous_year_sold.reverse()
         last_year_current_month = previous_year_sold[self.current_month-1]
         if (last_year_current_month != 0):
-            sold_daily += last_year_current_month
+            sold_daily_tot += last_year_current_month 
         else:
             sales_period -= 1
-        avg_daily_sales = sold_daily / ((sales_period*30)+(self.current_day-1))
+        
+        if self.current_day <= 15:
+            avg_daily_sales = sold_daily_tot / ((sales_period*30)+(self.current_day-1))
+        else:
+            sold_daily_previous_month = sold_daily_previous_month * ((30 - self.current_day) / 30)
+            if sales_period >= 1:
+                avg_daily_sales = (sold_daily_this_month + sold_daily_previous_month + last_year_current_month) / (sales_period*30)
+            else: 
+                avg_daily_sales = sold_daily_this_month / (self.current_day-1)
+
+
         if (avg_daily_sales != 0):
             logger.info(f"Avg. Daily Sales = {avg_daily_sales:.2f}")                       
-        return avg_daily_sales
+        return avg_daily_sales, sold_daily_tot
     
     def calculate_data_recent_months(self, list:list, period:int, mode:str):
         recent_months = sum(list[1:period+1])/period
@@ -162,6 +177,7 @@ class Helper:
         previous_index = 0
         oscillation = 0
         positive_combo = False
+        combo_breaker = False
         prevision = math.ceil(avg_daily_sales)
         change = 0
         for index, value in enumerate(final_array_bought):
@@ -170,10 +186,16 @@ class Helper:
                 bought += value
                 sold_since_last_restock = sum(final_array_sold[previous_index:index+1])
                 stock = bought - sold_since_last_restock
+                if stock > 0 and index == 0:
+                    change += stock
+                    previous_index = index + 1
+                    continue 
                 if stock == 0:
                     previous_index = index + 1
                     continue
                 elif (oscillation * stock > 0 or oscillation == 0):
+                    if combo_breaker == True and stock < 0: # or previous_index < index) to limit the ammount of month he can check
+                        break
                     oscillation += stock
                     previous_index = index + 1
                     if stock > 0:
@@ -182,6 +204,12 @@ class Helper:
                     if oscillation < 0:
                         oscillation += stock
                     if oscillation - prevision == 0 and positive_combo == False:
+                        change += oscillation
+                        oscillation = 0
+                        previous_index = index + 1
+                        continue 
+                    if combo_breaker == False and positive_combo == False:
+                        combo_breaker = True
                         change += oscillation
                         oscillation = 0
                         previous_index = index + 1

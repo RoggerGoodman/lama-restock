@@ -22,8 +22,8 @@ from processor_C import process_category_c
 columns = [
     'product_cod', 'product_var', 'product_name', 'stock_oscillation',
     'package_size', 'deviation_corrected', 'expected_packages',
-    'req_stock', 'use_stock', 'stock', 'avg_d_sales', 'total_value'
-]
+    'req_stock', 'use_stock', 'stock', 'avg_d_sales', 'sold_tot'
+]  #'total_value' was removed
 
 # Map month numbers to their names in Italian
 month_names_italian = {
@@ -57,7 +57,7 @@ class Gatherer:
         self.current_month_name = month_names_italian[self.current_month_num]
         self.previous_month_name = month_names_italian[self.previous_month_num]
 
-        self.total_turnover = 0
+        self.total_sales = 0
         
 
     def login(self):
@@ -119,6 +119,7 @@ class Gatherer:
             file_path = os.path.join(SPREADSHEETS_FOLDER, file_name)
 
             df = pd.read_excel(file_path)  # Load the spreadsheet
+            analyzer.get_original_list(df)
 
             # TODO Even though i see the logic why did you use iterrows() here, but i want you to know that using it
             #  in pandas dataframe is overall not a good practice
@@ -174,7 +175,7 @@ class Gatherer:
                     self.actions.send_keys(Keys.ENTER)
                     continue  # Skip to the next iteration of the loop
                 
-                # Dynamically find the row elements based on the current and previous month names
+                """# Dynamically find the row elements based on the current and previous month names
                 row_element = self.driver.find_element(By.XPATH, f"//td[@class='TestoNormalBold' and contains(text(), '{self.current_month_name}')]")
                 this_month_val = row_element.find_element(By.XPATH, "following-sibling::td[2]").text
                 this_month_val_old = row_element.find_element(By.XPATH, "following-sibling::td[5]").text
@@ -204,7 +205,7 @@ class Gatherer:
 
                 # Calculate the sum
                 total_value = this_month_val + this_month_val_old + last_month_val
-                self.total_turnover += total_value
+                self.total_turnover += total_value """
 
                 package_size = int(package_size)
                 package_multi = int(package_multi)
@@ -279,8 +280,8 @@ class Gatherer:
                 coverage = os.getenv("Copertura")
                 coverage = float(coverage)
                                 
-                avg_daily_sales = self.helper.calculate_weighted_avg_sales(sales_period, final_array_sold, cleaned_last_year_sold) 
-
+                avg_daily_sales, sold_tot = self.helper.calculate_weighted_avg_sales(sales_period, final_array_sold, cleaned_last_year_sold) 
+                self.total_sales += sold_tot
                 if len(final_array_bought) <= 10:
                     use_stock = True
                     stock = self.helper.calculate_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought)
@@ -306,7 +307,10 @@ class Gatherer:
                     self.helper.line_breaker()
                     continue
 
-                stock_oscillation = self.helper.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales)
+                if use_stock:
+                    stock_oscillation = stock
+                else:
+                    stock_oscillation = self.helper.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales)
 
                 req_stock = avg_daily_sales_corrected*coverage
                 logger.info(f"Required stock = {req_stock:.2f}")
@@ -317,19 +321,19 @@ class Gatherer:
                 iteration_data = [
                     product_cod, product_var, product_name, stock_oscillation,
                     package_size, deviation_corrected, expected_packages,
-                    req_stock, use_stock, stock, avg_daily_sales, total_value
-                ]
+                    req_stock, use_stock, stock, avg_daily_sales, sold_tot
+                ]   #'total_value' was removed
                 self.data_list.append(iteration_data)
             
 
             data = pd.DataFrame(self.data_list, columns=columns)
 
-            # Sort by 'total_value' in descending order
-            data = data.sort_values(by='total_value', ascending=False)
+            # Sort by 'sold_tot' in descending order
+            data = data.sort_values(by='sold_tot', ascending=False)
 
             # Calculate the cumulative sum and percentage
-            data['cumulative_sum'] = data['total_value'].cumsum()
-            data['cumulative_percentage'] = data['cumulative_sum'] / self.total_turnover * 100
+            data['cumulative_sum'] = data['sold_tot'].cumsum()
+            data['cumulative_percentage'] = data['cumulative_sum'] / self.total_sales * 100
 
             # Categorize rows based on cumulative percentage
             category_a_df = data[data['cumulative_percentage'] <= 70]

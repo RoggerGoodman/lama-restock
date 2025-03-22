@@ -49,10 +49,10 @@ class Orderer:
         orders_menu.click()
 
         WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "carta32"))
+            EC.presence_of_element_located((By.ID, "carta139"))
         )
 
-        orders_menu1 = self.driver.find_element(By.ID, "carta32")
+        orders_menu1 = self.driver.find_element(By.ID, "carta139")
         orders_menu1.click()
 
         WebDriverWait(self.driver, 10).until(
@@ -61,9 +61,36 @@ class Orderer:
 
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
-        self.actions.click()
-        self.actions.send_keys(Keys.ESCAPE)
-        self.actions.perform()
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "Ordini"))
+        )
+
+        time.sleep(1) 
+
+        orders_menu1 = self.driver.find_element(By.ID, "Ordini")
+        orders_menu1.click()
+
+        lista_link = WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//a[@href='./lista']"))
+        )
+
+        # Click the "Lista" link
+        lista_link.click()
+
+        # Wait for the modal to be present
+        modal = WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "modal-content"))
+)
+
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//button[text()='Chiudi']"))
+        )
+
+        time.sleep(1)
+
+        close_button = self.driver.find_element(By.XPATH, "//button[text()='Chiudi']")
+        close_button.click()
+
 
         time.sleep(1)
 
@@ -72,58 +99,66 @@ class Orderer:
         desired_value = storage
 
         WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "addButtonT"))
+            EC.presence_of_element_located((By.ID, "newRowButtonMenuSopra"))
         )
 
-        order_button = self.driver.find_element(By.ID, "addButtonT")
+        order_button = self.driver.find_element(By.ID, "newRowButtonMenuSopra")
         order_button.click()
 
         time.sleep(2)
 
-        dropdown1 = self.driver.find_element(By.ID, "dropdownlistArrowclienteCombo")
-        dropdown1.click()
+        # Step 1: Wait for the modal to appear
+        modal_container = WebDriverWait(self.driver, 10).until(
+            EC.visibility_of_element_located((By.ID, "finestraInsertOrdini"))  # Ensure the modal is visible
+        )
+
+        # Step 2: Wait for the button inside the modal using XPath
+        button_inside_modal = WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//*[@id='IDCodiceClienteBis']/div[1]/div/div[1]/span[2]"))
+        )
+
+        # Step 3: Click the button
+        button_inside_modal.click()
+
+        # Full XPath to locate the element
+        xpath = "/html/body/div[2]/div[2]/div[5]/div/div/div/div[2]/div/form/div[1]/div/smart-combo-box/div[1]/div/div[2]/smart-list-box/div[1]/div[2]/div[2]/smart-list-item"
+
+        # Step 1: Wait for the element to be clickable using full XPath
+        element = WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, xpath))
+        )
+
+        # Step 2: Click the element 
+      
+        element.click()
 
         time.sleep(1)
 
-        self.actions.send_keys(Keys.ARROW_DOWN)
-        self.actions.send_keys(Keys.ENTER)
-        self.actions.perform()
-
-        WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "dropdownlistArrowmagazzini"))
+        # Step 2: Wait for the button inside the modal using XPath 
+        button_inside_modal2 = WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//*[@id='magazziniInsert']/div[1]/div/div[1]/span[2]"))
         )
 
-        dropdown1 = self.driver.find_element(By.ID, "dropdownlistArrowmagazzini")
-        dropdown1.click()
+        # Step 3: Click the button
+        button_inside_modal2.click()
 
-        WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, '//*[@id="dropdownlistContentmagazzini"]/input'))
-        )
+        time.sleep(1)
 
-        # Locate the input field using XPath
-        input_field = self.driver.find_element(
-            By.XPATH, '//*[@id="dropdownlistContentmagazzini"]/input')
+        # Find all smart-list-item elements inside the dropdown
+        list_items = self.driver.find_elements(By.XPATH, "//smart-list-item")
 
-        while True:
-            self.actions.send_keys(Keys.ARROW_DOWN)
-            self.actions.perform()
-            time.sleep(0.5)
-            # Get the value of the 'value' attribute
-            # Arrivato alla fine della dropdown list non torna su, bisogna fixare forse, dipende da come vengono processati i file dalla cartella in cui sono salvate le liste
-            input_value = input_field.get_attribute("value")
-            if input_value == desired_value:
-                self.actions.send_keys(Keys.ENTER)
-                self.actions.perform()
+        # Loop through all the items and check for the matching label
+        for item in list_items:
+            label = item.find_element(By.XPATH, ".//span[@class='smart-content-label']").text
+            if desired_value in label:
+                # Once the item is found, click it
+                item.click()
                 break
 
-        WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "okModifica"))
-        )
+        # Find the 'Conferma' button using its class or smart-id
+        confirm_button = self.driver.find_element(By.XPATH, '//*[@id="confermaInsertTestata"]')
 
-        # Locate the button using its ID
-        confirm_button = self.driver.find_element(By.ID, "okModifica")
-
-        # Click the button
+        # Click the 'Conferma' button
         confirm_button.click()
 
         WebDriverWait(self.driver, 10).until(
@@ -186,6 +221,7 @@ class Orderer:
     def lists_combiner(self, storage_list, orders_list):
         for storage, order_list in zip(storage_list, orders_list):
             if not TEST_MODE:
+                storage = storage.split(' ', 1)[1]
                 self.make_orders(storage, order_list)
             else:
                 logger.info(f'We made orders')

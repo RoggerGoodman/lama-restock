@@ -10,7 +10,7 @@ from pywinauto import Application, Desktop
 from selenium.webdriver.chrome.options import Options
 from credentials import PASSWORD, USERNAME
 storages = ["01 RIANO GENERI VARI", "23 S.PALOMBA SURGELATI", "02 POMEZIA DEPERIBILI"]
-desired_value = "01 RIANO GENERI VARI"
+desired_value = "02 POMEZIA DEPERIBILI"
 save_path = r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Database"
 full_file_path = rf"{save_path}\{desired_value}"
 filters = True
@@ -26,7 +26,8 @@ class Updater :
         # chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
 
         # Define the set of numbers to check
-        self.target_numbers = {"100", "300", "325", "350", "370", "600", "620", "820"}
+        self.target_filters1 = {"100", "300", "325", "350", "370", "600", "620", "820"}
+        self.target_filters3 = {"300", "350"}
         # Initialize WebDriver with the options
         self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)
@@ -100,6 +101,12 @@ class Updater :
         time.sleep(1)
 
         if filters:
+            match desired_value:
+                case "02 POMEZIA DEPERIBILI":
+                    self.target_numbers = self.target_filters3
+                case "01 RIANO GENERI VARI":
+                    self.target_numbers = self.target_filters1
+
             filtersDropdown = self.driver.find_element(By.ID, "dropdownlistArrowF_reparto")
             filtersDropdown.click()
 
