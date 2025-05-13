@@ -29,6 +29,10 @@ DAY_CHOICES = (
 class RestockSchedule(models.Model):
     category = models.ForeignKey(Category, on_delete=models.CASCADE)  # Linked to Category
 
+    restock_time = models.TimeField(
+        help_text="What time (HH:MM) you want the daily restock check to run."
+    )
+
     # For each day, the user can choose whether the restock is off, early, or late.
     monday    = models.CharField(max_length=10, choices=DAY_CHOICES, default='off')
     tuesday   = models.CharField(max_length=10, choices=DAY_CHOICES, default='off')

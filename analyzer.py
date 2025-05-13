@@ -40,7 +40,8 @@ class Analyzer:
         totA = self.A_success + self.A_fail
         totB = self.B_success + self.B_fail
         totC = self.C_success + self.C_fail
-        total = totA + totB + totC
+        totN = self.N_success + self.N_fail
+        total = totA + totB + totC + totN
         logger.info(f"A orders : {self.A_success}")
         logger.info(f"A fails : {self.A_fail}")
         logger.info(f"A class percentage = {(totA/total)*100:.2f}%")
@@ -53,8 +54,12 @@ class Analyzer:
         logger.info(f"C fails : {self.C_fail}")
         logger.info(f"C class percentage = {(totC/total)*100:.2f}%")
         logger.info(f"C class success rate = {(self.C_success/totC)*100:.2f}%")
+        logger.info(f"N orders : {self.N_success}")
+        logger.info(f"N fails : {self.N_fail}")
+        logger.info(f"N class percentage = {(totN/total)*100:.2f}%")
+        logger.info(f"N class success rate = {(self.N_success/totN)*100:.2f}%")
         logger.info(f"Total packages : {self.number_of_packages}")
-        totalSuccess = (self.A_success + self.B_success + self.C_success)
+        totalSuccess = (self.A_success + self.B_success + self.C_success + self.N_success)
         logger.info(f"Total products types ordered : {totalSuccess}")
         self.low_list = self.filter_notes()
         logger.info("The following products are not being processed by the program because they have been in the system for too little:\n" + "\n".join(self.new_entry_list))
@@ -80,5 +85,7 @@ class Analyzer:
         self.B_fail = 0
         self.C_success = 0
         self.C_fail = 0
+        self.N_success = 0 
+        self.N_fail = 0
 
 analyzer = Analyzer()

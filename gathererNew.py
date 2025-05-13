@@ -15,22 +15,10 @@ from logger import logger
 from helpers import Helper
 from analyzer import analyzer
 from blacklists import blacklists
-from processor_A import process_category_a
-from processor_B import process_category_b
-from processor_C import process_category_c
-
-columns = [
-    'product_cod', 'product_var', 'product_name', 'stock_oscillation',
-    'package_size', 'deviation_corrected', 'expected_packages',
-    'req_stock', 'use_stock', 'stock', 'avg_d_sales', 'sold_tot'
-]  #'total_value' was removed
-
-# Map month numbers to their names in Italian
-month_names_italian = {
-    1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile", 5: "Maggio",
-    6: "Giugno", 7: "Luglio", 8: "Agosto", 9: "Settembre", 10: "Ottobre",
-    11: "Novembre", 12: "Dicembre"
-}
+from processor_A import process_A_sales
+from processor_B import process_B_sales
+from processor_C import process_C_sales
+from processor_N import process_N_sales
 
 class Gatherer:
 
@@ -50,19 +38,8 @@ class Gatherer:
         self.orders_list = []  # it will contain all the lists of orders
         self.storage_list = [] # it will contain the name of all the storages gathered from the filename of the tables
 
-
-        self.data_list = []
-        self.current_month_num = datetime.now().month
-        self.previous_month_num = (self.current_month_num - 1) if self.current_month_num > 1 else 12
-        self.current_month_name = month_names_italian[self.current_month_num]
-        self.previous_month_name = month_names_italian[self.previous_month_num]
-
-        self.total_sales = 0
-        
-
     def login(self):
-        try:
-            # TODO Get rid of the constant  
+        try:  
             self.driver.get('https://www.pac2000a.it/PacApplicationUserPanel/faces/home.jsf')
         except Exception as exc:
             logger.info('Somwething went wrong, smartie')
@@ -120,9 +97,7 @@ class Gatherer:
 
             df = pd.read_excel(file_path)  # Load the spreadsheet
             analyzer.get_original_list(df)
-
-            # TODO Even though i see the logic why did you use iterrows() here, but i want you to know that using it
-            #  in pandas dataframe is overall not a good practice
+            order_list = []
 
             # Process each row in the spreadsheet
             logger.info(f"Processing file: {file_name}")
@@ -175,37 +150,6 @@ class Gatherer:
                     self.actions.send_keys(Keys.ENTER)
                     continue  # Skip to the next iteration of the loop
                 
-                """# Dynamically find the row elements based on the current and previous month names
-                row_element = self.driver.find_element(By.XPATH, f"//td[@class='TestoNormalBold' and contains(text(), '{self.current_month_name}')]")
-                this_month_val = row_element.find_element(By.XPATH, "following-sibling::td[2]").text
-                this_month_val_old = row_element.find_element(By.XPATH, "following-sibling::td[5]").text
-
-                row_element = self.driver.find_element(By.XPATH, f"//td[@class='TestoNormalBold' and contains(text(), '{self.previous_month_name}')]")
-                if self.previous_month_num == 12:
-                    last_month_val = row_element.find_element(By.XPATH, "following-sibling::td[5]").text
-                else:
-                    last_month_val = row_element.find_element(By.XPATH, "following-sibling::td[2]").text
-
-                # Convert values to numbers
-                try:
-                    this_month_val = float(this_month_val.replace('.', '').replace(',', '.'))
-                except ValueError:
-                    print("Error: Unable to convert or find values of this month.")
-                    this_month_val = 0
-                try:    
-                    this_month_val_old = float(this_month_val_old.replace('.', '').replace(',', '.'))
-                except ValueError:
-                    print("Error: Unable to convert or find values of this old month.")
-                    this_month_val_old = 0
-                try:
-                    last_month_val = float(last_month_val.replace('.', '').replace(',', '.'))
-                except ValueError:
-                    print("Error: Unable to convert or find values of last month.")
-                    last_month_val = 0
-
-                # Calculate the sum
-                total_value = this_month_val + this_month_val_old + last_month_val
-                self.total_turnover += total_value """
 
                 package_size = int(package_size)
                 package_multi = int(package_multi)
@@ -241,18 +185,14 @@ class Gatherer:
 
                 final_array_bought, final_array_sold = self.helper.prepare_array(final_array_bought, final_array_sold)
                 
-                if len(final_array_bought) <= 1:
-                    if len(final_array_bought) == 0 and product_availability == "Si":
-                        reason = "The prduct has never been in the system"
-                        analyzer.brand_new_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
-                    else:
-                        reason = "The prduct has been in the system for too little"
-                        analyzer.new_entry_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                if len(final_array_bought) == 0 and product_availability == "Si":
+                    reason = "The prduct has never been in the system"
+                    analyzer.brand_new_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, product_name, reason)
                     self.helper.line_breaker()
                     continue
-
-                final_array_bought, final_array_sold = self.helper.detect_dead_periods(final_array_bought, final_array_sold)
+                if len(final_array_bought) > 3 and len(final_array_sold) > 3:
+                    final_array_bought, final_array_sold = self.helper.detect_dead_periods(final_array_bought, final_array_sold)
                 if len(final_array_bought)  <= 0:
                     if product_availability == "No":
                         reason = "The article is NOT available for restocking and hasn't been bought or sold for the last 3 months" 
@@ -270,33 +210,31 @@ class Gatherer:
                 logger.info(f"Processing {product_cod}.{product_var}")
                 logger.info(f"  Sold Quantities: {final_array_sold}")
                 logger.info(f"Bought Quantities: {final_array_bought}")
-                id = f"{product_cod}.{product_var}"
                 
                                 
                 sales_period = os.getenv("Periodo")
                 sales_period = int(sales_period)
-                # stock_period = os.getenv("Giacenza")
-                # stock_period = int(stock_period)
                 coverage = os.getenv("Copertura")
                 coverage = float(coverage)
                                 
-                avg_daily_sales, sold_tot = self.helper.calculate_weighted_avg_sales(sales_period, final_array_sold, cleaned_last_year_sold) 
-                self.total_sales += sold_tot
+                avg_daily_sales = self.helper.calculate_weighted_avg_sales(sales_period, final_array_sold, cleaned_last_year_sold) 
                 if len(final_array_bought) <= 10:
                     use_stock = True
                     stock = self.helper.calculate_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought)
                 else:
                     stock = 0
                     use_stock = False
-                                
+
+                logger.info(f"Package size = {package_size}")
+
                 if len(final_array_sold) >= 4:                    
-                    recent_months_sales = self.helper.calculate_data_recent_months(final_array_sold, 3, "sales")
-                    recent_months_bought = self.helper.calculate_data_recent_months(final_array_bought, 3, "bought") 
-                    expected_packages = self.helper.calculate_expectd_packages(final_array_bought, package_size, recent_months_bought)
+                    recent_months_sales = self.helper.calculate_data_recent_months(final_array_sold, 3)
+                    expected_packages = self.helper.calculate_expectd_packages(final_array_bought, package_size)
                     deviation_corrected = self.helper.calculate_deviation(final_array_sold, recent_months_sales)
                     avg_daily_sales_corrected = avg_daily_sales * (1 + deviation_corrected / 100)
                 else:
                     recent_months_sales = -1
+                    expected_packages = 0
                     deviation_corrected = 0
                     avg_daily_sales_corrected = avg_daily_sales
                     logger.info(f"Deviation and recent months sales are not available for this article") 
@@ -307,54 +245,48 @@ class Gatherer:
                     self.helper.line_breaker()
                     continue
 
-                if use_stock:
-                    stock_oscillation = stock
-                else:
+                if not use_stock:
                     stock_oscillation = self.helper.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales)
 
                 req_stock = avg_daily_sales_corrected*coverage
                 logger.info(f"Required stock = {req_stock:.2f}")
                 self.helper.line_breaker()
 
-                self.helper.initialize_product(product_name, id, package_size, final_array_sold, final_array_bought, avg_daily_sales, recent_months_sales, recent_months_bought, expected_packages, deviation_corrected, stock_oscillation, req_stock)
-                
-                iteration_data = [
-                    product_cod, product_var, product_name, stock_oscillation,
-                    package_size, deviation_corrected, expected_packages,
-                    req_stock, use_stock, stock, avg_daily_sales, sold_tot
-                ]   #'total_value' was removed
-                self.data_list.append(iteration_data)
-            
+                package_consumption = req_stock / package_size 
+                real_need = req_stock
 
-            data = pd.DataFrame(self.data_list, columns=columns)
+                if use_stock:
+                    real_need -= stock
+                    category = "N"
+                    result, check, status = process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, self.helper)
+                elif package_consumption >= 1:
+                    if stock_oscillation > 0:
+                        real_need -= stock_oscillation
+                    category = "A"
+                    result, check, status = process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, use_stock, stock, self.helper)
+                elif package_consumption >= 0.3:
+                    real_need -= stock_oscillation
+                    category = "B"
+                    result, check, status = process_B_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, use_stock, stock)
+                else :
+                    if stock_oscillation > 0:
+                        real_need -= stock_oscillation
+                    category = "C"
+                    result, check, status = process_C_sales(stock_oscillation, package_size, real_need, deviation_corrected, use_stock, stock)
 
-            # Sort by 'sold_tot' in descending order
-            data = data.sort_values(by='sold_tot', ascending=False)
+                if result:
+                # Log the restock action
+                    if avg_daily_sales <= 0.2 or avg_daily_sales_corrected <= 0.2:
+                        analyzer.note_recorder(product_name, product_cod, product_var)
+                    analyzer.stat_recorder(result, status)
+                    self.helper.order_this(order_list, product_cod, product_var, result, product_name, category, check)
+                    self.helper.line_breaker()
+                else:
+                    # Log that no action was taken
+                    analyzer.stat_recorder(0, status)
+                    self.helper.order_denied(product_cod, product_var, package_size, product_name, category, check)
+                    self.helper.line_breaker()
 
-            # Calculate the cumulative sum and percentage
-            data['cumulative_sum'] = data['sold_tot'].cumsum()
-            data['cumulative_percentage'] = data['cumulative_sum'] / self.total_sales * 100
-
-            # Categorize rows based on cumulative percentage
-            category_a_df = data[data['cumulative_percentage'] <= 70]
-            category_b_df = data[(data['cumulative_percentage'] > 70) & (data['cumulative_percentage'] <= 90)]
-            category_c_df = data[data['cumulative_percentage'] > 90]
-
-            # Ensure no overlap by slicing once
-            # Reset indices if required for further processing
-            category_a_df = category_a_df.reset_index(drop=True)
-            category_b_df = category_b_df.reset_index(drop=True)
-            category_c_df = category_c_df.reset_index(drop=True)
-
-            # Process each category
-            order_list_A = process_category_a(category_a_df, self.helper)
-            order_list_B = process_category_b(category_b_df, self.helper)
-            order_list_C = process_category_c(category_c_df, self.helper)
-
-            # Save the table to a CSV file for persistence
-            self.helper.create_table()
-
-            combined_order_list = order_list_A + order_list_B + order_list_C
-            self.orders_list.append(combined_order_list)
+            self.orders_list.append(order_list)
             analyzer.log_statistics()
 
