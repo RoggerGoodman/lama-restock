@@ -10,10 +10,10 @@ from pywinauto import Application, Desktop
 from selenium.webdriver.chrome.options import Options
 from credentials import PASSWORD, USERNAME
 storages = ["01 RIANO GENERI VARI", "23 S.PALOMBA SURGELATI", "02 POMEZIA DEPERIBILI"]
-desired_value = "02 POMEZIA DEPERIBILI"
-save_path = r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Database"
+desired_value = "23 S.PALOMBA SURGELATI"
+save_path = r"C:\Users\rugge\Documents\GitHub\lama-restock\Database"
 full_file_path = rf"{save_path}\{desired_value}"
-filters = True
+filters = False
 
 class Updater :
     def __init__(self) -> None:

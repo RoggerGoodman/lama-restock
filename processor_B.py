@@ -1,6 +1,6 @@
 import math
 
-def process_B_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, use_stock, stock):
+def process_B_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, package_consumption):
     """
     Determines the processing outcome for a Category B product.
 
@@ -17,8 +17,8 @@ def process_B_sales(stock_oscillation, package_size, deviation_corrected, real_n
     """
     order = 1
 
-    if real_need > package_size:
-        if stock_oscillation <= -package_size:
+    if package_consumption > 0.8 and stock_oscillation < package_size:
+        if stock_oscillation < 0 or deviation_corrected > 40:
             order += 1
         return order, 1, "B_success"
 

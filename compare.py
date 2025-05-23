@@ -6,7 +6,7 @@ def compare_csv(human_order_path, autom_order_path, output_file="comparison_resu
     df2 = pd.read_csv(autom_order_path, dtype=str)
 
     # Select relevant columns and clean column names
-    columns_to_keep = ["Cod.", "Diff.", "N.imb."]
+    columns_to_keep = ["Cod.", "Diff.", "N.imb.", "Descrizione"]
     df1 = df1.rename(columns=lambda x: x.strip())
     df2 = df2.rename(columns=lambda x: x.strip())
 

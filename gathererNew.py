@@ -152,8 +152,8 @@ class Gatherer:
                 
 
                 package_size = int(package_size)
-                package_multi = int(package_multi)
-                # package_multi = int(float(package_multi.replace(',', '.'))) # TODO Needs to work in both cases
+                # package_multi = int(package_multi)
+                package_multi = int(float(package_multi.replace(',', '.'))) # TODO Needs to work in both cases
                 package_size *= package_multi
 
                 sold_quantities_current_year = sold_quantities[::2]
@@ -263,9 +263,10 @@ class Gatherer:
                     if stock_oscillation > 0:
                         real_need -= stock_oscillation
                     category = "A"
-                    result, check, status = process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, use_stock, stock, self.helper)
+                    result, check, status = process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, package_consumption, self.helper)
                 elif package_consumption >= 0.3:
-                    real_need -= stock_oscillation
+                    if stock_oscillation > 0:
+                        real_need -= stock_oscillation
                     category = "B"
                     result, check, status = process_B_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, use_stock, stock)
                 else :
