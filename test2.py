@@ -1,6 +1,6 @@
-from orderer import Orderer
-orders_list = [ '122.1.2' ]
-storage_list = ['23 S.PALOMBA SURGELATI']
-orderer = Orderer()
-orderer.login()
-orderer.lists_combiner(storage_list, orders_list)
+
+
+
+#Mese corrente differenza negativa >= package_sie & stock_oscillation <= 0 A1 (+1) Bx
+
+# sales thrends neg & expected_pacakge > 0.9 & stock_oscillation <= 0

@@ -119,6 +119,7 @@ class Helper:
     def calculate_stock_oscillation(self, final_array_bought, final_array_sold, avg_daily_sales):
         previous_index = 0
         oscillation = 0
+        minimum_stock = 0
         positive_combo = False
         combo_breaker = False
         prevision = math.ceil(avg_daily_sales)
@@ -132,6 +133,7 @@ class Helper:
                 if stock > 0 and index == 0:
                     change += stock
                     previous_index = index + 1
+                    minimum_stock = stock
                     continue 
                 if stock == 0:
                     previous_index = index + 1
@@ -158,8 +160,11 @@ class Helper:
                         previous_index = index + 1
                         continue 
                     break
+        if minimum_stock > 0 and (oscillation + change) < minimum_stock:
+            oscillation = minimum_stock
+        else:
+            oscillation += change
         oscillation -= prevision
-        oscillation += change
         logger.info(f"Stock Oscillation = {oscillation}")
         return oscillation
     
@@ -167,6 +172,10 @@ class Helper:
         monthly_packages = (sum(final_array_bought[1:4]) / package_size)/3
         daily_packages = monthly_packages / 30
         expected_packages = daily_packages * (self.current_day - 1)
+        for x in range(1, 4):
+            if final_array_bought[x] != 0:
+                break
+            expected_packages += daily_packages * 30
         expected_packages -= final_array_bought[0]/package_size
         logger.info(f"Expected packages = {expected_packages:.2f}")
         return expected_packages

@@ -10,10 +10,10 @@ from pywinauto import Application, Desktop
 from selenium.webdriver.chrome.options import Options
 from credentials import PASSWORD, USERNAME
 storages = ["01 RIANO GENERI VARI", "23 S.PALOMBA SURGELATI", "02 POMEZIA DEPERIBILI"]
-desired_value = "23 S.PALOMBA SURGELATI"
-save_path = r"C:\Users\rugge\Documents\GitHub\lama-restock\Database"
+desired_value = "02 POMEZIA DEPERIBILI"
+save_path = r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Database"
 full_file_path = rf"{save_path}\{desired_value}"
-filters = False
+filters = True
 
 class Updater :
     def __init__(self) -> None:
@@ -27,7 +27,7 @@ class Updater :
 
         # Define the set of numbers to check
         self.target_filters1 = {"100", "300", "325", "350", "370", "600", "620", "820"}
-        self.target_filters3 = {"300", "350"}
+        self.target_filters3 = {"300", "350", "600"}
         # Initialize WebDriver with the options
         self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)

@@ -1,7 +1,7 @@
 import math
 from helpers import Helper
 
-def process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, helper: Helper):
+def process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, package_consumption, helper: Helper):
 
     order = 1
 
@@ -23,10 +23,15 @@ def process_N_sales(package_size, deviation_corrected, real_need, expected_packa
         return order, 2, "N_success"
 
     if req_stock >= 0.75*stock:
+        if req_stock >= 1.75*package_size:
+            order += 1
         return order, 3, "N_success"
     
     if stock <= 3:
         return order, 4, "N_success"
+    
+    if (stock - req_stock) < package_size and package_consumption >= 1:
+        return order, 5, "N_success"
 
     return None, 0, "N_fail"
 

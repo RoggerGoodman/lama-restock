@@ -152,8 +152,8 @@ class Gatherer:
                 
 
                 package_size = int(package_size)
-                # package_multi = int(package_multi)
-                package_multi = int(float(package_multi.replace(',', '.'))) # TODO Needs to work in both cases
+                package_multi = int(package_multi)
+                # package_multi = int(float(package_multi.replace(',', '.'))) # TODO Needs to work in both cases
                 package_size *= package_multi
 
                 sold_quantities_current_year = sold_quantities[::2]
@@ -250,30 +250,27 @@ class Gatherer:
 
                 req_stock = avg_daily_sales_corrected*coverage
                 logger.info(f"Required stock = {req_stock:.2f}")
-                self.helper.line_breaker()
 
                 package_consumption = req_stock / package_size 
+                logger.info(f"Package consumption = {package_consumption:.2f}")
+
                 real_need = req_stock
+                if stock_oscillation > 0 and use_stock == False:
+                        real_need -= stock_oscillation
 
                 if use_stock:
                     real_need -= stock
                     category = "N"
-                    result, check, status = process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, self.helper)
+                    result, check, status = process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, package_consumption, self.helper)
                 elif package_consumption >= 1:
-                    if stock_oscillation > 0:
-                        real_need -= stock_oscillation
                     category = "A"
-                    result, check, status = process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, package_consumption, self.helper)
+                    result, check, status = process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, self.helper)
                 elif package_consumption >= 0.3:
-                    if stock_oscillation > 0:
-                        real_need -= stock_oscillation
                     category = "B"
-                    result, check, status = process_B_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, use_stock, stock)
+                    result, check, status = process_B_sales(stock_oscillation, package_size, deviation_corrected, req_stock, expected_packages, package_consumption)
                 else :
-                    if stock_oscillation > 0:
-                        real_need -= stock_oscillation
                     category = "C"
-                    result, check, status = process_C_sales(stock_oscillation, package_size, real_need, deviation_corrected, use_stock, stock)
+                    result, check, status = process_C_sales(stock_oscillation, package_size, deviation_corrected, expected_packages)
 
                 if result:
                 # Log the restock action
