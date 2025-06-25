@@ -1,7 +1,7 @@
 import math
 from helpers import Helper
 
-def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, helper: Helper):
+def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, current_gap, helper: Helper):
     """
     Determines the processing outcome for a Category A product.
 
@@ -28,6 +28,8 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
 
         if (order*package_size / real_need) < 1.2 and deviation_corrected > 20:
             order += 1
+        elif current_gap <= -package_size and stock_oscillation <= 0:
+            order += 1
 
         if order < expected_packages/2:
            order =  math.ceil((order + expected_packages)/2)
@@ -50,7 +52,7 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
         
         return order, 2, "A_success"
 
-    if stock_oscillation <= math.floor(-package_size / 2):
+    if deviation_corrected >= 50 and stock_oscillation < req_stock:
         return order, 3, "A_success"
 
     if expected_packages >= 1 and stock_oscillation <= package_size:

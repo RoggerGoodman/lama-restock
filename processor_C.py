@@ -1,6 +1,6 @@
 import math
 
-def process_C_sales(stock_oscillation, package_size, deviation_corrected, expected_packages):
+def process_C_sales(stock_oscillation, package_size, deviation_corrected, expected_packages, trend):
     """
     Determines the processing outcome for a Category C product.
 
@@ -40,6 +40,9 @@ def process_C_sales(stock_oscillation, package_size, deviation_corrected, expect
     
     if deviation_corrected >= 50 and stock_oscillation <= 0:
         return 1, 8, "C_success"
+    
+    if trend == True and stock_oscillation <= 0 and expected_packages >= 0:
+        return 1, 9, "C_success"
 
 
     return None, 0, "C_fail"

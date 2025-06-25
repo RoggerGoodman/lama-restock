@@ -19,6 +19,7 @@ from processor_A import process_A_sales
 from processor_B import process_B_sales
 from processor_C import process_C_sales
 from processor_N import process_N_sales
+from processor_U import process_U_sales
 
 class Gatherer:
 
@@ -232,14 +233,25 @@ class Gatherer:
                     expected_packages = self.helper.calculate_expectd_packages(final_array_bought, package_size)
                     deviation_corrected = self.helper.calculate_deviation(final_array_sold, recent_months_sales)
                     avg_daily_sales_corrected = avg_daily_sales * (1 + deviation_corrected / 100)
+                    trend = self.helper.find_trend(final_array_sold, final_array_bought)
                 else:
                     recent_months_sales = -1
                     expected_packages = 0
                     deviation_corrected = 0
                     avg_daily_sales_corrected = avg_daily_sales
+                    trend = None
                     logger.info(f"Deviation and recent months sales are not available for this article") 
-                
-                if (recent_months_sales == 0):  # Skip order of articles that aren't currently being sold
+
+                if len(final_array_sold) >= 16:
+                    ly_slice = final_array_sold[12:]
+                    ly_recent_months_sales = self.helper.calculate_data_recent_months(ly_slice, 3)
+                    ly_deviation = self.helper.calculate_deviation(ly_slice, ly_recent_months_sales)
+                    deviation_corrected = self.helper.deviation_blender(deviation_corrected, ly_deviation)
+                    logger.info(f"Deviation Blended = {deviation_corrected} %")
+                elif len(final_array_sold) >= 4:
+                    logger.info(f"Deviation = {deviation_corrected} %")
+    
+                if recent_months_sales == 0 and avg_daily_sales == 0:  # Skip order of articles that aren't currently being sold
                     reason = "No sales in recent months, no reason to continue"
                     self.helper.next_article(product_cod, product_var, package_size, product_name, reason)
                     self.helper.line_breaker()
@@ -247,6 +259,15 @@ class Gatherer:
 
                 if not use_stock:
                     stock_oscillation = self.helper.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales)
+
+                if package_size > 1 and stock_oscillation <= -package_size*3: #TODO check if too generic
+                    reason = "WARNING, anomalus oscillation detected"
+                    analyzer.anomalous_stock_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                    self.helper.next_article(product_cod, product_var, package_size, product_name, reason)
+                    self.helper.line_breaker()
+                    continue
+
+                current_gap = final_array_bought[0] - final_array_sold[0]
 
                 req_stock = avg_daily_sales_corrected*coverage
                 logger.info(f"Required stock = {req_stock:.2f}")
@@ -258,19 +279,22 @@ class Gatherer:
                 if stock_oscillation > 0 and use_stock == False:
                         real_need -= stock_oscillation
 
-                if use_stock:
+                if package_size == 1:
+                    category = "U"
+                    result, check, status = process_U_sales(stock_oscillation, deviation_corrected, req_stock, current_gap)
+                elif use_stock:
                     real_need -= stock
                     category = "N"
                     result, check, status = process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, package_consumption, self.helper)
                 elif package_consumption >= 1:
                     category = "A"
-                    result, check, status = process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, self.helper)
+                    result, check, status = process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, current_gap, self.helper)
                 elif package_consumption >= 0.3:
                     category = "B"
-                    result, check, status = process_B_sales(stock_oscillation, package_size, deviation_corrected, req_stock, expected_packages, package_consumption)
+                    result, check, status = process_B_sales(stock_oscillation, package_size, deviation_corrected, req_stock, expected_packages, package_consumption, current_gap)
                 else :
                     category = "C"
-                    result, check, status = process_C_sales(stock_oscillation, package_size, deviation_corrected, expected_packages)
+                    result, check, status = process_C_sales(stock_oscillation, package_size, deviation_corrected, expected_packages, trend)
 
                 if result:
                 # Log the restock action

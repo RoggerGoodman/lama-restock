@@ -19,19 +19,16 @@ def process_N_sales(package_size, deviation_corrected, real_need, expected_packa
            
         return order, 1, "N_success"
 
-    if req_stock >=  math.floor(package_size / 4) and stock <= math.floor(package_size / 2):
-        return order, 2, "N_success"
-
     if req_stock >= 0.75*stock:
-        if req_stock >= 1.75*package_size:
+        if req_stock >= 1.5*package_size and stock <= package_size:
             order += 1
+        return order, 2, "N_success"
+    
+    if stock <= 4:
         return order, 3, "N_success"
     
-    if stock <= 3:
-        return order, 4, "N_success"
-    
     if (stock - req_stock) < package_size and package_consumption >= 1:
-        return order, 5, "N_success"
+        return order, 4, "N_success"
 
     return None, 0, "N_fail"
 

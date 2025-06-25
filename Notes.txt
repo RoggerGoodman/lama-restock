@@ -1,0 +1,10 @@
+
+New Featuere: Delivery check ask for more details
+
+recent_months_sales in the 1/3 of the month 
+
+stock_oscillation < - pacakge_size*2 Warning! (17607.1 check)
+
+Create pacakge_size == 1 category 
+
+C checks must be expressen in function of req_stock

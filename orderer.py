@@ -1,11 +1,14 @@
-from ssl import Options
+from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.actions.wheel_input import ScrollOrigin
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 import time
+import re
+from selenium.common.exceptions import TimeoutException
 from config import TEST_MODE
 from credentials import PASSWORD, USERNAME
 from logger import logger
@@ -14,12 +17,12 @@ from logger import logger
 class Orderer:
 
     def __init__(self) -> None:
-        # Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
-        # chrome_options = Options()
-        # chrome_options.add_argument("--headless")  # Run Chrome in headless mode
-        # chrome_options.add_argument("--no-sandbox")  # Required for some environments
-        # chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-        # chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
+        #Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")  # Run Chrome in headless mode
+        chrome_options.add_argument("--no-sandbox")  # Required for some environments
+        chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
+        chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
 
         self.driver = webdriver.Chrome()
         self.actions = ActionChains(self.driver)
@@ -94,9 +97,9 @@ class Orderer:
 
         time.sleep(1)
 
-    def make_orders(self, storage: str, order_list: list):
+    def make_orders(self, storage: str, order_list: tuple):
 
-        desired_value = storage
+        desired_value = re.sub(r'^\d+\s+', '', storage)
 
         WebDriverWait(self.driver, 10).until(
             EC.presence_of_element_located((By.ID, "newRowButtonMenuSopra"))
@@ -145,15 +148,35 @@ class Orderer:
         time.sleep(1)
 
         # Find all smart-list-item elements inside the dropdown
-        list_items = self.driver.find_elements(By.XPATH, "//smart-list-item")
+        combo_box_element = self.driver.find_element(By.ID, "magazziniInsert")
+        loop = True
 
+        self.actions.send_keys(Keys.ARROW_DOWN)
+        self.actions.perform()
+        time.sleep(0.5)
+        self.actions.send_keys(Keys.ARROW_UP)
+        self.actions.perform()
+        time.sleep(0.5)
+        # Get the value of the 'value' attribute
+        # Arrivato alla fine della dropdown list non torna su, bisogna fixare forse, dipende da come vengono processati i file dalla cartella in cui sono salvate le liste
+        input_value = combo_box_element.get_attribute("value")
+        if input_value == desired_value:
+            self.actions.send_keys(Keys.ENTER)
+            self.actions.perform()
+            loop = False
         # Loop through all the items and check for the matching label
-        for item in list_items:
-            label = item.find_element(By.XPATH, ".//span[@class='smart-content-label']").text
-            if desired_value in label:
-                # Once the item is found, click it
-                item.click()
+        while loop:
+            self.actions.send_keys(Keys.ARROW_DOWN)
+            self.actions.perform()
+            time.sleep(0.5)
+            # Get the value of the 'value' attribute
+            # Arrivato alla fine della dropdown list non torna su, bisogna fixare forse, dipende da come vengono processati i file dalla cartella in cui sono salvate le liste
+            input_value = combo_box_element.get_attribute("value")
+            if input_value == desired_value:
+                self.actions.send_keys(Keys.ESCAPE)
+                self.actions.perform()
                 break
+        time.sleep(1)
 
         # Find the 'Conferma' button using its class or smart-id
         confirm_button = self.driver.find_element(By.XPATH, '//*[@id="confermaInsertTestata"]')
@@ -168,52 +191,107 @@ class Orderer:
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
         WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "addButtonT"))
+            EC.presence_of_element_located((By.ID, "addCatalogoButtonTNuovo"))
         )
 
-        new_order_button = self.driver.find_element(By.ID, "addButtonT")
+        new_order_button = self.driver.find_element(By.ID, "addCatalogoButtonTNuovo")
         new_order_button.click()
 
         time.sleep(1)
 
-        for element in order_list:
-            # Split the element by the dot character
-            parts = element.split('.')
+        WebDriverWait(self.driver, 10).until(
+            lambda driver: len(driver.window_handles) > 3
+        )
 
-            # Assign each part to part1, part2, and part3
-            part1, part2, part3 = map(int, parts)  # Convert parts to integers
+        self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
-            # Locate the parent div element by its ID
-            parent_div1 = self.driver.find_element(By.ID, "codArt")
-            parent_div2 = self.driver.find_element(By.ID, "varArt")
+        button_inside_modal3 = WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//*[@id='confermaFooterFiltro']/button"))
+        )
 
-            # Find the input element within the parent div
-            cod_art_field = parent_div1.find_element(By.TAG_NAME, "input")
-            var_art_field = parent_div2.find_element(By.TAG_NAME, "input")
+        time.sleep(1)
 
-            # Clear the input field and insert the desired number
-            cod_art_field.clear()  # If you need to clear any existing value
-            var_art_field.clear()
+        # Step 3: Click the button
+        button_inside_modal3.click()
 
-            cod_art_field.send_keys(part1)
-            var_art_field.send_keys(part2)
+        time.sleep(60)
+        self.driver.maximize_window()	
 
-            time.sleep(0.8)
+        hover_target1 = self.driver.find_element(By.XPATH, "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[4]")
+        hover_target2 = self.driver.find_element(By.XPATH, "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[5]")
 
-            parent_div3 = self.driver.find_element(By.ID, "w_Quantita")
-            stock_size = parent_div3.find_element(By.TAG_NAME, "input")
-            stock_size.clear()
-            stock_size.send_keys(part3)
+        self.actions.move_to_element(hover_target1).perform()
+        button_xpath1 = "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[4]/div[4]/div[5]"
+        button1 = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, button_xpath1))
+        )
+        button1.click()
+        time.sleep(0.2)
+        options1 = self.driver.find_element(By.XPATH, "/html/body/div[4]/div/smart-filter-panel/div/div[2]/smart-input[1]/div/input")
+        options1.click()
+        time.sleep(0.2)
+        scrollbar = self.driver.find_element(By.XPATH, "/html/body/smart-scroll-viewer/div/smart-scroll-bar[1]/div[1]/div[2]")
+        self.actions.move_to_element(scrollbar).perform()
+        time.sleep(0.2)
+        origin = ScrollOrigin.from_element(scrollbar)
+        self.actions.scroll_from_origin(origin, 0, 500).perform()
+        filter = self.driver.find_element(By.XPATH, "/html/body/smart-scroll-viewer/div/div/div/ul/li[7]")
+        filter.click()
+        time.sleep(0.2)
+        filterB = self.driver.find_element(By.XPATH, "/html/body/div[4]/div/smart-filter-panel/div/div[3]/smart-button[1]/button")
+        filterB.click()
+        time.sleep(0.2)
 
-            time.sleep(0.5)
+        for cod_part, var_part, qty_part in order_list:
 
-            # Locate the button using its ID
-            confirm_button_order = self.driver.find_element(By.ID, "okModificaRiga")
+            self.actions.move_to_element(hover_target1).perform()
+            button_xpath1 = "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[4]/div[4]/div[5]"
+            button1 = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, button_xpath1))
+            )
+            button1.click()
+            time.sleep(0.2)
+            self.actions.key_down(Keys.CONTROL).send_keys('a').key_up(Keys.CONTROL).send_keys(Keys.BACKSPACE)
+            self.actions.perform()
+            self.actions.send_keys(cod_part)
+            self.actions.send_keys(Keys.ENTER)
+            self.actions.perform()
+            time.sleep(0.2)
+            self.actions.move_to_element(hover_target2).perform()
+            button_xpath2 = "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[5]/div[4]/div[5]"
+            button2 = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, button_xpath2))
+            )
+            button2.click()
+            time.sleep(0.2)
+            self.actions.key_down(Keys.CONTROL).send_keys('a').key_up(Keys.CONTROL).send_keys(Keys.BACKSPACE)
+            self.actions.perform()
+            self.actions.send_keys(var_part)
+            self.actions.send_keys(Keys.ENTER)
+            self.actions.perform()
+            time.sleep(0.2)
+            try:
+                quantita_element = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "div[data-field='Quantita'].align-right.smart-label"))
+                )
+            except TimeoutException:
+                logger.info(f'{cod_part}.{var_part} failed because it was not found')
+                continue  # Skip to the next loop iteration if element is not found in 10 seconds
+            quantita_element.click()
+            self.actions.double_click(quantita_element).perform()
+            time.sleep(0.2)
+            self.actions.send_keys(qty_part)
+            self.actions.send_keys(Keys.ENTER)
+            self.actions.perform()
+            time.sleep(0.2)
+        
+        # Wait until the button is clickable
+        send_button = WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "invioOrdineButton"))
+        )
 
-            # Click the button
-            confirm_button_order.click()
-
-            time.sleep(1)
+        # Click the button
+        # send_button.click()
 
         # Switch to the previous tab
         self.driver.switch_to.window(self.driver.window_handles[-2])
@@ -221,7 +299,7 @@ class Orderer:
     def lists_combiner(self, storage_list, orders_list):
         for storage, order_list in zip(storage_list, orders_list):
             if not TEST_MODE:
-                storage = storage.split(' ', 1)[1]
+                #storage = storage.split(' ', 1)[1]
                 self.make_orders(storage, order_list)
             else:
                 logger.info(f'We made orders')

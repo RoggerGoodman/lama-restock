@@ -1,4 +1,5 @@
 from datetime import datetime
+from calendar import monthrange
 from logger import logger
 import math
 
@@ -101,20 +102,31 @@ class Helper:
         return avg_monthly_sales
 
     def calculate_deviation(self, final_array_sold, recent_months):
+        today = datetime.now()
+        dim = monthrange(today.year, today.month)[1]
         this_month = final_array_sold[0]
         last_month = final_array_sold[1]
-        days_to_recover = 30 - (datetime.now().day - 1)
+        days_to_recover = dim - (today.day - 1)
         if (days_to_recover > 0):
-            last_month = (days_to_recover/30)*last_month
+            last_month = (days_to_recover/dim)*last_month
             this_month += last_month
         if recent_months != 0:
             deviation = ((this_month - recent_months) /recent_months)*100
             deviation = round(deviation, 2)
         else:
             deviation = 0
-        logger.info(f"Deviation = {deviation} %")
         deviation_corrected = max(-50, min(deviation, 50))
         return deviation_corrected
+    
+    def deviation_blender(self, deviation, ly_deviation):
+        today = datetime.now()
+        dim = monthrange(today.year, today.month)[1]
+        day = today.day
+
+        alpha = 1.0 - (day / dim)
+        blended = round(alpha * ly_deviation + (1.0 - alpha) * deviation, 2)
+
+        return blended
     
     def calculate_stock_oscillation(self, final_array_bought, final_array_sold, avg_daily_sales):
         previous_index = 0
@@ -172,10 +184,11 @@ class Helper:
         monthly_packages = (sum(final_array_bought[1:4]) / package_size)/3
         daily_packages = monthly_packages / 30
         expected_packages = daily_packages * (self.current_day - 1)
-        for x in range(1, 4):
-            if final_array_bought[x] != 0:
-                break
-            expected_packages += daily_packages * 30
+        if final_array_bought[0] == 0:
+            for x in range(1, 4):
+                if final_array_bought[x] != 0:
+                    break
+                expected_packages += daily_packages * 30
         expected_packages -= final_array_bought[0]/package_size
         logger.info(f"Expected packages = {expected_packages:.2f}")
         return expected_packages
@@ -186,6 +199,26 @@ class Helper:
         true_stock = tot_bought - tot_sold
         logger.info(f"True Stock = {true_stock}")
         return true_stock
+
+    def find_trend(self, final_array_sold, final_array_bought):
+        signs = []
+        for sold, bought in zip(final_array_sold[:3], final_array_bought[:3]):
+            if sold > bought:
+                signs.append(1)
+            elif sold < bought:
+                signs.append(-1)
+            else:
+                signs.append(0)
+
+        window_sum = signs[0] + signs[1] + signs[2]
+        if window_sum >= 2:
+            logger.info(f"Positive Trend")
+            return True #Positive trend
+        if window_sum <= -2:
+            logger.info(f"Negative Trend")
+            return False #Negative trend
+        logger.info(f"No Trend")
+        return None #No trend detected
 
     def custom_round(self, value, threshold):
         # Get the integer part and the decimal part
@@ -206,11 +239,10 @@ class Helper:
         logger.info(f"Will NOT order {product_name}: {product_cod}.{product_var}.{package_size}!")
         logger.info(f"Reason : {category}{check}")
 
-    def order_this(self, current_list:list, product_cod:int, product_var:int, qty:int, product_name:str, category:str, check:int):
-        combined_string = '.'.join(map(str, [product_cod, product_var, qty]))
-        current_list.append(combined_string)
-        logger.info(f"ORDER {product_name}: " + combined_string + "!")
-        logger.info(f"Reason : {category}{check}")
+    def order_this(self, current_list: list, product_cod: int, product_var: int, qty: int, product_name: str, category: str, check: int):
+        current_list.append((product_cod, product_var, qty))  # <-- store as tuple now
+        logger.info(f"ORDER {product_name}: {qty}!")
+        logger.info(f"Reason: {category}{check}")
               
     def line_breaker(self):
         logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")
