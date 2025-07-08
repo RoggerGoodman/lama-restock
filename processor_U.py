@@ -20,4 +20,7 @@ def process_U_sales(stock_oscillation, deviation_corrected, req_stock, current_g
         order = abs(current_gap)
         return order, 2, "U_success"
     
+    if deviation_corrected >= 40 and (stock_oscillation - req_stock) <= 1:
+        return 1, 3, "U_success"
+    
     return None, 0, "U_fail"

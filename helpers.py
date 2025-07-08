@@ -40,6 +40,7 @@ class Helper:
                 if (final_array_bought[i+1] == 0 and final_array_bought[i+2] == 0 and
                     final_array_sold[i+1] == 0 and final_array_sold[i+2] == 0):
                     # Return lists sliced up to the start of the "3 zero combo"
+                    logger.info("Dead period detected")
                     return final_array_bought[:i], final_array_sold[:i]
         
         # If no "3 zero combo" found, return the original lists
@@ -200,25 +201,51 @@ class Helper:
         logger.info(f"True Stock = {true_stock}")
         return true_stock
 
-    def find_trend(self, final_array_sold, final_array_bought):
-        signs = []
-        for sold, bought in zip(final_array_sold[:3], final_array_bought[:3]):
-            if sold > bought:
-                signs.append(1)
-            elif sold < bought:
-                signs.append(-1)
-            else:
-                signs.append(0)
+    def find_current_gap(self, final_array_sold, final_array_bought):
+        if final_array_sold[0] == 0 and final_array_bought[0] == 0:
+            current_gap = final_array_bought[1] - final_array_sold[1]
+        else:
+            current_gap = final_array_bought[0] - final_array_sold[0]
+        return current_gap
 
-        window_sum = signs[0] + signs[1] + signs[2]
-        if window_sum >= 2:
-            logger.info(f"Positive Trend")
-            return True #Positive trend
-        if window_sum <= -2:
-            logger.info(f"Negative Trend")
-            return False #Negative trend
-        logger.info(f"No Trend")
-        return None #No trend detected
+    def find_trend(self, final_array_sold, final_array_bought):
+        today = datetime.now()
+        diffs = []
+        total = 0
+        start = 0
+        end = 3
+        if today.day == 1:
+            start = 1
+            end = 4
+
+        for sold, bought in zip(final_array_sold[start:end], final_array_bought[start:end]):
+            diffs.append(bought - sold)
+
+
+        if diffs[0] != 0 and diffs[1] != 0 and (diffs[0] > 0) == (diffs[1] > 0):
+            total = diffs[0] + diffs[1]
+            if diffs[2] != 0 and (diffs[2] > 0) == (diffs[0] > 0):
+                total += diffs[2]
+            logger.info(f"Trend value is {total}")
+            return total
+        logger.info(f"No trend")
+        return 0
+
+    def calculate_turnover(self, final_array_sold:list, final_array_bought:list, package_size:int, trend):
+        bonus = 0.05
+        if any(x == 0 for x in final_array_sold[1:4]) or any(x == 0 for x in final_array_bought[1:4]):
+            turnover = 0.0
+        else :
+            diffs = [abs(b - s) / package_size for s, b in zip(final_array_sold[1:4], final_array_bought[1:4])]
+            turnover = 1.0 - sum(diffs) / len(diffs)
+        if turnover > 0.7:
+            if trend < 0:
+                turnover += bonus
+            elif trend > 0:
+                turnover -= bonus
+                
+        logger.info(f"Turnover coefficient is {round(turnover, 3)}")
+        return turnover       
 
     def custom_round(self, value, threshold):
         # Get the integer part and the decimal part
