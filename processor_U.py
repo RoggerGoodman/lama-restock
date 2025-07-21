@@ -2,7 +2,7 @@ import math
 
 def process_U_sales(stock_oscillation, deviation_corrected, req_stock, current_gap):
 
-    if stock_oscillation <= 0:
+    if stock_oscillation <= 1:
         order = math.ceil(req_stock)
         if abs(stock_oscillation) > order:
             dif = stock_oscillation + order

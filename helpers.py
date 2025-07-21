@@ -69,6 +69,8 @@ class Helper:
         else:
             sold_daily_previous_month = 0
         sold_daily_tot = sold_daily_this_month + sold_daily_previous_month
+        if sold_daily_tot == 0:
+            return sold_daily_tot
         previous_year_sold.reverse()
         last_year_current_month = previous_year_sold[self.current_month-1]
         if (last_year_current_month != 0):
@@ -180,6 +182,29 @@ class Helper:
         oscillation -= prevision
         logger.info(f"Stock Oscillation = {oscillation}")
         return oscillation
+
+    def calculate_biggest_gap(self, final_array_bought, final_array_sold, avg_daily_sales):
+            gaps = [b - s for b, s in zip(final_array_bought, final_array_sold)]
+            max_abs_gap = max(abs(g) for g in gaps[1:12])          
+            candidate_indexes = [i for i, g in enumerate(gaps[1:12], start=1) if abs(g) == max_abs_gap]
+            best_stock = 0
+            selected_index = 0
+
+            for idx in candidate_indexes:
+                    signed_gap = gaps[idx]
+                    end = idx + 1 if signed_gap > 0 else idx
+
+                    Stot = sum(final_array_sold[:end])
+                    Btot = sum(final_array_bought[:end])
+                    stock = Btot - Stot
+                    if stock > best_stock:
+                            selected_index = idx
+                            best_stock = stock
+
+            best_stock -= math.ceil(avg_daily_sales)
+            logger.info(f"The selected index was {selected_index}")
+            logger.info(f"Biggest gap Stock = {best_stock}")
+            return best_stock
     
     def calculate_expectd_packages(self, final_array_bought:list, package_size:int):
         monthly_packages = (sum(final_array_bought[1:4]) / package_size)/3

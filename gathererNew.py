@@ -220,7 +220,12 @@ class Gatherer:
                 coverage = float(coverage)
                                 
                 avg_daily_sales = self.helper.calculate_weighted_avg_sales(sales_period, final_array_sold, cleaned_last_year_sold) 
-                
+                if avg_daily_sales == 0:
+                    reason = "No sales in recent months, no reason to continue"
+                    self.helper.next_article(product_cod, product_var, package_size, product_name, reason)
+                    self.helper.line_breaker()
+                    continue
+
 
                 logger.info(f"Package size = {package_size}")
 
@@ -251,12 +256,6 @@ class Gatherer:
                     logger.info(f"Deviation Blended = {deviation_corrected} %")
                 elif len(final_array_sold) >= 4:
                     logger.info(f"Deviation = {deviation_corrected} %")
-    
-                if recent_months_sales == 0 and avg_daily_sales == 0:  # Skip order of articles that aren't currently being sold
-                    reason = "No sales in recent months, no reason to continue"
-                    self.helper.next_article(product_cod, product_var, package_size, product_name, reason)
-                    self.helper.line_breaker()
-                    continue
 
                 if len(final_array_bought) > 3 and len(final_array_sold) > 3:
                     final_array_bought, final_array_sold = self.helper.detect_dead_periods(final_array_bought, final_array_sold)
@@ -267,13 +266,15 @@ class Gatherer:
                 else:
                     stock = 0
                     use_stock = False
-                    stock_oscillation = self.helper.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales)
-                    maximum = min ((len(final_array_bought) - 1), 9)
-                    if any(final_array_bought[i] == 0 and final_array_bought[i+1] == 0 for i in range(1, maximum)):
-                        stock_oscillation += math.ceil(avg_daily_sales)
-                        use_stock = True
-                        stock = stock_oscillation
-                        logger.info("I have been deemed worthy")
+                    so = self.helper.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales)
+                    bg = self.helper.calculate_biggest_gap(final_array_bought, final_array_sold, avg_daily_sales)
+                    stock_oscillation = max(so, bg)
+                    # maximum = min ((len(final_array_bought) - 1), 9)
+                    # if any(final_array_bought[i] == 0 and final_array_bought[i+1] == 0 for i in range(1, maximum)):
+                    #    stock_oscillation += math.ceil(avg_daily_sales)
+                    #   use_stock = True
+                    #   stock = stock_oscillation
+                    #    logger.info("I have been deemed worthy")
 
                 if package_size > 1 and stock_oscillation <= -package_size*3: #TODO check if too generic
                     reason = "WARNING, anomalus oscillation detected"
@@ -300,10 +301,10 @@ class Gatherer:
                 elif use_stock:
                     real_need -= stock
                     category = "N"
-                    result, check, status = process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, package_consumption, current_gap, trend, self.helper)
+                    result, check, status = process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, package_consumption, current_gap, trend, turnover, self.helper)
                 elif package_consumption >= 1:
                     category = "A"
-                    result, check, status = process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, current_gap, turnover, self.helper)
+                    result, check, status = process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, current_gap, trend, turnover, self.helper)
                 elif package_consumption >= 0.3:
                     category = "B"
                     result, check, status = process_B_sales(stock_oscillation, package_size, deviation_corrected, req_stock, expected_packages, package_consumption, current_gap, trend, turnover)

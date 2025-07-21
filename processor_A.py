@@ -1,7 +1,7 @@
 import math
 from helpers import Helper
 
-def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, current_gap, turnover, helper: Helper):
+def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_need, expected_packages, req_stock, current_gap, trend, turnover, helper: Helper):
     """
     Determines the processing outcome for a Category A product.
 
@@ -31,6 +31,9 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
         elif current_gap <= -package_size and stock_oscillation <= 0:
             order += 1
 
+        if trend < 0 and abs(trend) >= package_size:
+            order += 1
+
         if deviation_corrected >= 45 and stock_oscillation <= package_size:
             order +=1
 
@@ -57,19 +60,27 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
             order += 1
         
         return order, 2, "A_success"
-
-    if deviation_corrected >= 45 and (stock_oscillation - req_stock) <= package_size:
+    
+    if deviation_corrected >= 25:
         if stock_oscillation < req_stock:
             order += 1
-        return order, 3, "A_success"
+            
+        if (stock_oscillation - req_stock) <= math.floor(package_size*0.7) and package_size <= 8:
+                return order, 3, "A_success"
+            
+        if (stock_oscillation - req_stock) <= math.floor(package_size*0.5) and package_size < 18:
+                return order, 3, "A_success"
+            
+        if (stock_oscillation - req_stock) <= math.floor(package_size*0.3) and package_size >= 18:
+                return order, 3, "A_success"
 
     if package_size >= 20 and real_need >= math.ceil(package_size / 4):
-        return order, 4, "A_success"
-
-    if stock_oscillation <= math.ceil(req_stock / 2) and expected_packages > 0.3:
-        return order, 5, "A_success"
+        return 1, 4, "A_success"
     
-    if turnover >= 0.8 and stock_oscillation <= package_size*2:
-        return order, 6, "A_success"
+    if turnover >= 0.8 and (stock_oscillation <= package_size*2 or expected_packages >= 1):
+        return 1, 5, "A_success"
+    
+    if stock_oscillation >= 0 and stock_oscillation < current_gap and (current_gap - req_stock) <= package_size:
+        return 1, 6, "A_success"
 
     return None, 0, "A_fail"
