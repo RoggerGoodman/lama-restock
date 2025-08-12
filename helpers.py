@@ -104,15 +104,16 @@ class Helper:
         logger.info(f"Avg. Monthly Sales = {avg_monthly_sales:.2f}")
         return avg_monthly_sales
 
-    def calculate_deviation(self, final_array_sold, recent_months):
-        today = datetime.now()
-        dim = monthrange(today.year, today.month)[1]
+    def calculate_deviation(self, final_array_sold, recent_months, present : bool):
         this_month = final_array_sold[0]
-        last_month = final_array_sold[1]
-        days_to_recover = dim - (today.day - 1)
-        if (days_to_recover > 0):
-            last_month = (days_to_recover/dim)*last_month
-            this_month += last_month
+        if present:
+            today = datetime.now()
+            dim = monthrange(today.year, today.month)[1]
+            last_month = final_array_sold[1]
+            days_to_recover = dim - (today.day - 1)
+            if (days_to_recover > 0):
+                last_month = (days_to_recover/dim)*last_month
+                this_month += last_month
         if recent_months != 0:
             deviation = ((this_month - recent_months) /recent_months)*100
             deviation = round(deviation, 2)
@@ -185,8 +186,8 @@ class Helper:
 
     def calculate_biggest_gap(self, final_array_bought, final_array_sold, avg_daily_sales):
             gaps = [b - s for b, s in zip(final_array_bought, final_array_sold)]
-            max_abs_gap = max(abs(g) for g in gaps[1:12])          
-            candidate_indexes = [i for i, g in enumerate(gaps[1:12], start=1) if abs(g) == max_abs_gap]
+            max_abs_gap = max(abs(g) for g in gaps[1:15])          
+            candidate_indexes = [i for i, g in enumerate(gaps[1:15], start=1) if abs(g) == max_abs_gap]
             best_stock = 0
             selected_index = 0
 
@@ -202,9 +203,41 @@ class Helper:
                             best_stock = stock
 
             best_stock -= math.ceil(avg_daily_sales)
+            if best_stock > 5 :
+                best_stock = best_stock - math.floor(selected_index/5)
             logger.info(f"The selected index was {selected_index}")
             logger.info(f"Biggest gap Stock = {best_stock}")
             return best_stock
+    
+    def calculate_max_stock(self, final_array_bought:list, final_array_sold:list):    
+        
+        bought = final_array_bought
+        sold = final_array_sold
+        
+        max_stock = 0
+        best_index = -1
+        current_index = len(bought) - 1
+        
+        while bought and sold:
+            # Calculate current stock
+            tot_bought = sum(bought)
+            tot_sold = sum(sold)
+            stock = tot_bought - tot_sold
+            
+            # Update maximum if current stock is better
+            if stock > max_stock:
+                max_stock = stock
+                best_index = current_index
+            
+            # Remove last elements and continue
+            bought.pop()
+            sold.pop()
+            current_index -= 1
+
+        if max_stock > 8:
+            max_stock = max_stock - math.ceil(best_index/3)
+
+        return max_stock
     
     def calculate_expectd_packages(self, final_array_bought:list, package_size:int):
         monthly_packages = (sum(final_array_bought[1:4]) / package_size)/3
@@ -223,6 +256,9 @@ class Helper:
         tot_sold = sum(final_array_sold)
         tot_bought = sum(final_array_bought)
         true_stock = tot_bought - tot_sold
+        period = len(final_array_sold)
+        if true_stock > 5 :
+            true_stock = true_stock - math.floor(period/5)
         logger.info(f"True Stock = {true_stock}")
         return true_stock
 
@@ -238,10 +274,10 @@ class Helper:
         diffs = []
         total = 0
         start = 0
-        end = 3
+        end = 4
         if today.day == 1:
             start = 1
-            end = 4
+            end = 5
 
         for sold, bought in zip(final_array_sold[start:end], final_array_bought[start:end]):
             diffs.append(bought - sold)
@@ -251,6 +287,8 @@ class Helper:
             total = diffs[0] + diffs[1]
             if diffs[2] != 0 and (diffs[2] > 0) == (diffs[0] > 0):
                 total += diffs[2]
+            if diffs[3] != 0 and (diffs[3] > 0) == (diffs[0] > 0): #TODO can be optimized
+                total += diffs[3]
             logger.info(f"Trend value is {total}")
             return total
         logger.info(f"No trend")

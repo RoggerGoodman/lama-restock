@@ -20,8 +20,14 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
     """
     order = 1
 
-    if real_need >= package_size or req_stock >= package_size*3:
+    if real_need >= package_size or req_stock >= package_size*3 and req_stock > stock_oscillation/2 :
         order = helper.custom_round(real_need / package_size, 0.6)
+
+        if deviation_corrected >= 45 and stock_oscillation <= package_size:
+            order +=1
+
+        if req_stock >= package_size*3:
+            order +=1
 
         if stock_oscillation <= -package_size:
             order += helper.custom_round(abs(stock_oscillation) / package_size, 0.8)
@@ -33,12 +39,6 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
 
         if trend < 0 and abs(trend) >= package_size:
             order += 1
-
-        if deviation_corrected >= 45 and stock_oscillation <= package_size:
-            order +=1
-
-        if req_stock >= package_size*3:
-            order +=1
 
         if order < expected_packages/2:
            order =  math.ceil((order + expected_packages)/2)
@@ -62,20 +62,39 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
         return order, 2, "A_success"
     
     if deviation_corrected >= 25:
-        if stock_oscillation < req_stock:
-            order += 1
             
         if (stock_oscillation - req_stock) <= math.floor(package_size*0.7) and package_size <= 8:
-                return order, 3, "A_success"
+            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.8):
+                order += 1
+            return order, 3, "A_success"
             
         if (stock_oscillation - req_stock) <= math.floor(package_size*0.5) and package_size < 18:
-                return order, 3, "A_success"
+            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.7):
+                order += 1
+            return order, 3, "A_success"
             
         if (stock_oscillation - req_stock) <= math.floor(package_size*0.3) and package_size >= 18:
-                return order, 3, "A_success"
+            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.6):
+                order += 1
+            return order, 3, "A_success"
+        
+    elif deviation_corrected >= -25:
 
-    if package_size >= 20 and real_need >= math.ceil(package_size / 4):
-        return 1, 4, "A_success"
+        if (stock_oscillation - req_stock) <= math.floor(package_size*0.5) and package_size <= 8:
+            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.8):
+                order += 1
+            return order, 4, "A_success"
+            
+        if (stock_oscillation - req_stock) <= math.floor(package_size*0.3) and package_size < 18:
+            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.7):
+                order += 1
+            return order, 4, "A_success"
+            
+        if (stock_oscillation - req_stock) <= math.floor(package_size*0.1) and package_size >= 18:
+            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.6):
+                order += 1
+            return order, 4, "A_success"
+
     
     if turnover >= 0.8 and (stock_oscillation <= package_size*2 or expected_packages >= 1):
         return 1, 5, "A_success"

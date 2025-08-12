@@ -232,7 +232,7 @@ class Gatherer:
                 if len(final_array_sold) >= 4:                    
                     recent_months_sales = self.helper.calculate_data_recent_months(final_array_sold, 3)
                     expected_packages = self.helper.calculate_expectd_packages(final_array_bought, package_size)
-                    deviation_corrected = self.helper.calculate_deviation(final_array_sold, recent_months_sales)
+                    deviation_corrected = self.helper.calculate_deviation(final_array_sold, recent_months_sales, True)
                     avg_daily_sales_corrected = avg_daily_sales * (1 + deviation_corrected / 100)                    
                     trend = self.helper.find_trend(final_array_sold, final_array_bought)
                     turnover = self.helper.calculate_turnover(final_array_sold, final_array_bought, package_size, trend)
@@ -251,7 +251,7 @@ class Gatherer:
                 if len(final_array_sold) >= 16:
                     ly_slice = final_array_sold[12:]
                     ly_recent_months_sales = self.helper.calculate_data_recent_months(ly_slice, 3)
-                    ly_deviation = self.helper.calculate_deviation(ly_slice, ly_recent_months_sales)
+                    ly_deviation = self.helper.calculate_deviation(ly_slice, ly_recent_months_sales, False)
                     deviation_corrected = self.helper.deviation_blender(deviation_corrected, ly_deviation)
                     logger.info(f"Deviation Blended = {deviation_corrected} %")
                 elif len(final_array_sold) >= 4:
@@ -260,7 +260,7 @@ class Gatherer:
                 if len(final_array_bought) > 3 and len(final_array_sold) > 3:
                     final_array_bought, final_array_sold = self.helper.detect_dead_periods(final_array_bought, final_array_sold)
 
-                if len(final_array_bought) <= 10:
+                if len(final_array_bought) <= 15:
                     use_stock = True
                     stock = self.helper.calculate_stock(final_array_sold=final_array_sold,final_array_bought=final_array_bought)
                 else:
@@ -269,6 +269,10 @@ class Gatherer:
                     so = self.helper.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales)
                     bg = self.helper.calculate_biggest_gap(final_array_bought, final_array_sold, avg_daily_sales)
                     stock_oscillation = max(so, bg)
+                    if stock_oscillation <= 0:
+                        ms = self.helper.calculate_max_stock(final_array_bought, final_array_sold)
+                        if ms > 0: 
+                            stock_oscillation = ms
                     # maximum = min ((len(final_array_bought) - 1), 9)
                     # if any(final_array_bought[i] == 0 and final_array_bought[i+1] == 0 for i in range(1, maximum)):
                     #    stock_oscillation += math.ceil(avg_daily_sales)

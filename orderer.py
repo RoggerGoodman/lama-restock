@@ -214,7 +214,7 @@ class Orderer:
         # Step 3: Click the button
         button_inside_modal3.click()
 
-        time.sleep(60)
+        time.sleep(30)
         self.driver.maximize_window()	
 
         hover_target1 = self.driver.find_element(By.XPATH, "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[4]")
