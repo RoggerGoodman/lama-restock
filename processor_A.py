@@ -50,16 +50,21 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
             order = cap
            
         return order, 1, "A_success"
+    
+    if current_gap < -0.70*package_size :
+        gap_need = current_gap + stock_oscillation
+        order = helper.custom_round(gap_need / package_size, 0.6)
+        if order < 1 : 
+            order = 1
 
-    if real_need > math.ceil(package_size / 2) and (deviation_corrected > 20 or stock_oscillation <= math.floor(-package_size / 3)):
-
-        if stock_oscillation <= -package_size:
-            order += 1
-
-        if (order*package_size / real_need) < 1.2 and deviation_corrected > 20:
-            order += 1
+        if current_gap <= -package_size and package_size <= 8:
+            return order, 2, "A_success"
         
-        return order, 2, "A_success"
+        if current_gap <= -0.85*package_size and package_size < 18:
+            return order, 2, "A_success"
+        
+        if current_gap <= -0.7*package_size and package_size >= 18:
+            return order, 2, "A_success"
     
     if deviation_corrected >= 25:
             

@@ -49,7 +49,7 @@ def process_N_sales(package_size, deviation_corrected, real_need, expected_packa
                 
     if package_size <= 8:
 
-        if req_stock >= 0.75 * stock:
+        if req_stock >= math.floor(0.75 * stock):
             if req_stock >= 1.6 * package_size and stock <= package_size:
                 order += 1
             elif req_stock > stock and deviation_corrected > 30:
@@ -64,7 +64,7 @@ def process_N_sales(package_size, deviation_corrected, real_need, expected_packa
 
     elif package_size < 18:
 
-        if req_stock >= 0.75 * stock:
+        if req_stock >= math.floor(0.75 * stock):
             if req_stock >= 1.5 * package_size and stock <= math.ceil(package_size * 0.8):
                 order += 1
             elif req_stock > stock and deviation_corrected > 30:
@@ -79,7 +79,7 @@ def process_N_sales(package_size, deviation_corrected, real_need, expected_packa
 
     else:  # package_size >= 18
 
-        if req_stock >= 0.75 * stock:
+        if req_stock >= math.floor(0.75 * stock):
             if req_stock >= 1.4 * package_size and stock <= math.ceil(package_size * 0.6):
                 order += 1
             elif req_stock > stock and deviation_corrected > 30:

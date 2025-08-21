@@ -237,6 +237,8 @@ class Helper:
         if max_stock > 8:
             max_stock = max_stock - math.ceil(best_index/3)
 
+        logger.info(f"Max Stock = {max_stock}")
+        logger.info(f"Max Stock index = {best_index}")
         return max_stock
     
     def calculate_expectd_packages(self, final_array_bought:list, package_size:int):
@@ -287,8 +289,13 @@ class Helper:
             total = diffs[0] + diffs[1]
             if diffs[2] != 0 and (diffs[2] > 0) == (diffs[0] > 0):
                 total += diffs[2]
-            if diffs[3] != 0 and (diffs[3] > 0) == (diffs[0] > 0): #TODO can be optimized
-                total += diffs[3]
+            if diffs[3] != 0 and (diffs[3] > 0) == (diffs[0] > 0):                
+                if diffs[2] != 0 and (diffs[2] > 0) != (diffs[0] > 0):                    
+                    if abs(diffs[3]) > abs(diffs[2]):
+                        total += diffs[3] + diffs[2]
+                else:
+                    total += diffs[3]
+
             logger.info(f"Trend value is {total}")
             return total
         logger.info(f"No trend")

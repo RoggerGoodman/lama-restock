@@ -20,7 +20,13 @@ def process_B_sales(stock_oscillation, package_size, deviation_corrected, req_st
         if package_consumption > 0.5 and deviation_corrected > 25:
             return order, 2, "B_success"
         
-        if current_gap <= -0.70*package_size:
+        if current_gap <= -0.7*package_size and package_size <= 8:
+            return order, 3, "B_success"
+        
+        if current_gap <= -0.5*package_size and package_size < 18:
+            return order, 3, "B_success"
+        
+        if current_gap <= -0.3*package_size and package_size >= 18:
             return order, 3, "B_success"
         
     if deviation_corrected >= 25:
@@ -34,13 +40,13 @@ def process_B_sales(stock_oscillation, package_size, deviation_corrected, req_st
             return order, 4, "B_success"
         
     elif deviation_corrected >= -25:
-        if (stock_oscillation - req_stock) <= math.ceil(package_size*0.4) and package_size <= 8:
+        if (stock_oscillation - req_stock) <= math.ceil(package_size*0.3) and package_size <= 8:
             return order, 5, "B_success"
             
-        if (stock_oscillation - req_stock) <= math.ceil(package_size*0.2) and package_size < 18:
+        if (stock_oscillation - req_stock) <= math.ceil(package_size*0.1) and package_size < 18:
             return order, 5, "B_success"
             
-        if (stock_oscillation - req_stock) <= 0 and package_size >= 18:
+        if (stock_oscillation - req_stock) < 0 and package_size >= 18:
             return order, 5, "B_success"
 
     if expected_packages >= 1 and deviation_corrected >= 0:
