@@ -61,15 +61,32 @@ class Finder:
             EC.presence_of_element_located((By.ID, "Ordini"))
         )
 
+        time.sleep(1) 
+
         orders_menu1 = self.driver.find_element(By.ID, "Ordini")
         orders_menu1.click()
+
+        lista_link = WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//a[@href='./lista']"))
+        )
+
+        # Click the "Lista" link
+        lista_link.click()
+
+        # Wait for the modal to be present
+        modal = WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "modal-content"))
+)
 
         WebDriverWait(self.driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "//button[text()='Chiudi']"))
         )
 
+        time.sleep(1)
+
         close_button = self.driver.find_element(By.XPATH, "//button[text()='Chiudi']")
         close_button.click()
+
 
         time.sleep(1)
 
