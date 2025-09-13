@@ -186,8 +186,8 @@ class Helper:
 
     def calculate_biggest_gap(self, final_array_bought, final_array_sold, avg_daily_sales):
             gaps = [b - s for b, s in zip(final_array_bought, final_array_sold)]
-            max_abs_gap = max(abs(g) for g in gaps[1:15])          
-            candidate_indexes = [i for i, g in enumerate(gaps[1:15], start=1) if abs(g) == max_abs_gap]
+            max_abs_gap = max(abs(g) for g in gaps[1:12])          
+            candidate_indexes = [i for i, g in enumerate(gaps[1:12], start=1) if abs(g) == max_abs_gap]
             best_stock = 0
             selected_index = 0
 
@@ -274,32 +274,40 @@ class Helper:
     def find_trend(self, final_array_sold, final_array_bought):
         today = datetime.now()
         diffs = []
-        total = 0
         start = 0
-        end = 4
+        
         if today.day == 1:
             start = 1
-            end = 5
 
-        for sold, bought in zip(final_array_sold[start:end], final_array_bought[start:end]):
+        for sold, bought in zip(final_array_sold[start:], final_array_bought[start:]):
             diffs.append(bought - sold)
 
+        if diffs[0] == 0:
+            logger.info(f"No trend")
+            return 0
 
-        if diffs[0] != 0 and diffs[1] != 0 and (diffs[0] > 0) == (diffs[1] > 0):
-            total = diffs[0] + diffs[1]
-            if diffs[2] != 0 and (diffs[2] > 0) == (diffs[0] > 0):
-                total += diffs[2]
-            if diffs[3] != 0 and (diffs[3] > 0) == (diffs[0] > 0):                
-                if diffs[2] != 0 and (diffs[2] > 0) != (diffs[0] > 0):                    
-                    if abs(diffs[3]) > abs(diffs[2]):
-                        total += diffs[3] + diffs[2]
+        total = diffs[0]
+        direction = diffs[0] > 0  # True = positive, False = negative
+
+        for i in range(1, len(diffs)):
+            d = diffs[i]
+            if d == 0:
+                continue  # skip zeros
+
+            if (d > 0) == direction:
+                # same direction, accumulate
+                total += d
+            else:
+                # sign changed
+                if i > 0 and abs(d) > abs(diffs[i-1]):
+                    # only continue if stronger than previous
+                    total += d + diffs[i-1]
                 else:
-                    total += diffs[3]
+                    break  # trend broken
 
-            logger.info(f"Trend value is {total}")
-            return total
-        logger.info(f"No trend")
-        return 0
+        logger.info(f"Trend value is {total}")
+        return total
+        
 
     def calculate_turnover(self, final_array_sold:list, final_array_bought:list, package_size:int, trend):
         bonus = 0.05
@@ -333,7 +341,7 @@ class Helper:
         logger.info(f"Reason : {reason}")
 
     def order_denied(self, product_cod:int, product_var:int, package_size:int, product_name:str, category:str, check:int):
-        logger.info(f"Will NOT order {product_name}: {product_cod}.{product_var}.{package_size}!")
+        logger.info(f"Will NOT order {product_name}!")
         logger.info(f"Reason : {category}{check}")
 
     def order_this(self, current_list: list, product_cod: int, product_var: int, qty: int, product_name: str, category: str, check: int):

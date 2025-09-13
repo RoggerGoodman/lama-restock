@@ -4,6 +4,8 @@ from helpers import Helper
 def process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, package_consumption, current_gap, trend, turnover, helper: Helper):
 
     order = 1
+    real_need = round(real_need)
+    req_stock = round(req_stock)
 
     if real_need >= package_size or req_stock >= package_size*3:
 

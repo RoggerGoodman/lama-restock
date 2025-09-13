@@ -107,4 +107,7 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
     if stock_oscillation >= 0 and stock_oscillation < current_gap and (current_gap - req_stock) <= package_size:
         return 1, 6, "A_success"
 
+    if real_need > 1 :
+        return 1, 7, "A_success"
+    
     return None, 0, "A_fail"

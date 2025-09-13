@@ -268,27 +268,30 @@ class Gatherer:
                     use_stock = False
                     so = self.helper.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales)
                     bg = self.helper.calculate_biggest_gap(final_array_bought, final_array_sold, avg_daily_sales)
-                    stock_oscillation = max(so, bg)
-                    if stock_oscillation <= 0:
-                        ms = self.helper.calculate_max_stock(final_array_bought, final_array_sold)
-                        if ms > 0: 
-                            stock_oscillation = ms
+                    if package_size == 1:
+                        ms = 0
+                    else:
+                        ms = self.helper.calculate_max_stock(final_array_bought[:9], final_array_sold[:9])
+
+                    if package_size > 1 and so <= -package_size*3 and bg < 0: #TODO check if too generic
+                        reason = "WARNING, anomalus oscillation detected"
+                        analyzer.anomalous_stock_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
+                        self.helper.next_article(product_cod, product_var, package_size, product_name, reason)
+                        self.helper.line_breaker()
+                        continue
+
+                    stock_oscillation = max(so, bg, ms)
+                    if stock_oscillation <= 0 and package_size != 1:
+                        msm = self.helper.calculate_max_stock(final_array_bought, final_array_sold)
+                        if msm > 0: 
+                            stock_oscillation = msm
                     # maximum = min ((len(final_array_bought) - 1), 9)
                     # if any(final_array_bought[i] == 0 and final_array_bought[i+1] == 0 for i in range(1, maximum)):
                     #    stock_oscillation += math.ceil(avg_daily_sales)
                     #   use_stock = True
                     #   stock = stock_oscillation
                     #    logger.info("I have been deemed worthy")
-
-                if package_size > 1 and stock_oscillation <= -package_size*3: #TODO check if too generic
-                    reason = "WARNING, anomalus oscillation detected"
-                    analyzer.anomalous_stock_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
-                    self.helper.next_article(product_cod, product_var, package_size, product_name, reason)
-                    self.helper.line_breaker()
-                    continue
                 
-                
-
                 req_stock = avg_daily_sales_corrected*coverage
                 logger.info(f"Required stock = {req_stock:.2f}")
 

@@ -81,8 +81,8 @@ def process_C_sales(stock_oscillation, package_size, deviation_corrected, expect
                 return 1, 8, "C_success"
 
 
-    if turnover >= 0.9 and current_gap <= 0:
-        if stock_oscillation <= package_size and deviation_corrected > 20:
+    if turnover >= 0.85 and current_gap <= 0:
+        if stock_oscillation <= package_size and deviation_corrected > 10:
             return 1, 9, "C_success"
         if expected_packages >= 1:
             return 1, 9, "C_success"
