@@ -267,21 +267,23 @@ class Gatherer:
                     stock = 0
                     use_stock = False
                     so = self.helper.calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales)
-                    bg = self.helper.calculate_biggest_gap(final_array_bought, final_array_sold, avg_daily_sales)
-                    if package_size == 1:
+                    if package_size == 1 or so > package_size:
                         ms = 0
                     else:
                         ms = self.helper.calculate_max_stock(final_array_bought[:9], final_array_sold[:9])
 
-                    if package_size > 1 and so <= -package_size*3 and bg < 0: #TODO check if too generic
+                    if package_size > 1 and so <= -package_size*3 and ms <= 0: #TODO check if too generic
                         reason = "WARNING, anomalus oscillation detected"
                         analyzer.anomalous_stock_recorder(f"Article {product_name}, with code {product_cod}.{product_var}")
                         self.helper.next_article(product_cod, product_var, package_size, product_name, reason)
                         self.helper.line_breaker()
                         continue
 
-                    stock_oscillation = max(so, bg, ms)
-                    if stock_oscillation <= 0 and package_size != 1:
+                    stock_oscillation = max(so, ms)
+                    if stock_oscillation < package_size:
+                        bg = self.helper.calculate_biggest_gap(final_array_bought[1:15], final_array_sold[1:15], avg_daily_sales)
+                        stock_oscillation = max(stock_oscillation, bg)
+                    if stock_oscillation <= 0 and package_size != 1:                        
                         msm = self.helper.calculate_max_stock(final_array_bought, final_array_sold)
                         if msm > 0: 
                             stock_oscillation = msm
@@ -306,7 +308,8 @@ class Gatherer:
                     category = "U"
                     result, check, status = process_U_sales(stock_oscillation, deviation_corrected, req_stock, current_gap)
                 elif use_stock:
-                    real_need -= stock
+                    if stock > 0:
+                        real_need -= stock
                     category = "N"
                     result, check, status = process_N_sales(package_size, deviation_corrected, real_need, expected_packages, req_stock, stock, package_consumption, current_gap, trend, turnover, self.helper)
                 elif package_consumption >= 1:

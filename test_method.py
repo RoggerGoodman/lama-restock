@@ -1,13 +1,13 @@
 import math
-avg_daily_sales = 2.32
-final_array_sold = [38, 55, 43, 27, 16, 15, 11, 5, 5, 12, 32, 68, 63, 44, 42, 20, 18, 6, 5]
-final_array_bought = [30, 66, 42, 24, 12, 12, 12, 6, 6, 6, 24, 72, 54, 60, 48, 24, 12, 12, 6]
+avg_daily_sales = 0.42
+final_array_sold =   [19, 8, 13, 18, 17, 10, 19, 11, 18, 16, 18, 24, 20, 12, 26, 11, 30, 20, 19, 20, 14]
+final_array_bought = [20, 10, 10, 20, 10, 20, 10, 10, 20, 10, 20, 30, 10, 20, 30, 10, 30, 10, 10, 40, 10]
 
 def gap_balance(final_array_sold, final_array_bought, avg_daily_sales):
 
         gaps = [b - s for b, s in zip(final_array_bought, final_array_sold)]
-        max_abs_gap = max(abs(g) for g in gaps[1:12])          
-        candidate_indexes = [i for i, g in enumerate(gaps[1:12], start=1) if abs(g) == max_abs_gap]
+        max_abs_gap = max(abs(g) for g in gaps[1:23])          
+        candidate_indexes = [i for i, g in enumerate(gaps[1:23], start=1) if abs(g) == max_abs_gap]
         print(f"indexs = {candidate_indexes}")
 
         best_stock = 0

@@ -28,7 +28,7 @@ def process_N_sales(package_size, deviation_corrected, real_need, expected_packa
         if order < expected_packages/2:
             order =  math.ceil((order + expected_packages)/2)
 
-        cap = math.ceil(req_stock/package_size)
+        cap = helper.custom_round(req_stock / package_size, 0.6)
         if deviation_corrected >= 20: 
             cap += 1
         if order > cap:
@@ -101,13 +101,13 @@ def process_N_sales(package_size, deviation_corrected, real_need, expected_packa
         return 1, 7, "N_success"
     
     if package_consumption >= 1:        
-        if stock <= 4:
+        if stock - req_stock <= 5:
             return 1, 8, "N_success"
     if package_consumption >= 0.3:
-        if stock <= 3:
+        if stock - req_stock <= 4:
             return 1, 8, "N_success"
     else:
-        if stock <= 2:
+        if stock - req_stock <= 3:
             return 1, 8, "N_success"
     
     return None, 0, "N_fail"

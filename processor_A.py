@@ -43,71 +43,89 @@ def process_A_sales(stock_oscillation, package_size, deviation_corrected, real_n
         if order < expected_packages/2:
            order =  math.ceil((order + expected_packages)/2)
 
-        cap = math.ceil(req_stock/package_size)
-        if deviation_corrected >= 20: 
+        cap = helper.custom_round(req_stock / package_size, 0.6)
+        if deviation_corrected >= 40: 
             cap += 1
         if order > cap:
             order = cap
            
         return order, 1, "A_success"
     
-    if current_gap < -0.70*package_size :
-        gap_need = current_gap + stock_oscillation
-        order = helper.custom_round(gap_need / package_size, 0.6)
-        if order < 1 : 
-            order = 1
+    if current_gap < 0 :
+        gap = min(current_gap, trend)
+        if abs(gap) > 0.70*package_size and stock_oscillation < abs(gap):    
+            gap_need = abs(gap) - stock_oscillation
+            order = helper.custom_round(gap_need / package_size, 0.6)
+            if order < 1 : 
+                order = 1
+            cap = helper.custom_round(req_stock / package_size, 0.6)
+            if deviation_corrected >= 40: 
+                cap += 1
+            if stock_oscillation < req_stock and stock_oscillation <= math.ceil(package_size * 0.7):
+                    order += 1
+            if order > cap:
+                order = cap
 
-        if current_gap <= -package_size and package_size <= 8:
-            return order, 2, "A_success"
-        
-        if current_gap <= -0.85*package_size and package_size < 18:
-            return order, 2, "A_success"
-        
-        if current_gap <= -0.7*package_size and package_size >= 18:
-            return order, 2, "A_success"
+            if current_gap <= -package_size and package_size <= 8:
+                return order, 2, "A_success"
+            
+            if current_gap <= -0.85*package_size and package_size < 18:
+                return order, 2, "A_success"
+            
+            if current_gap <= -0.7*package_size and package_size >= 18:
+                return order, 2, "A_success"
     
-    if deviation_corrected >= 25:
-            
-        if (stock_oscillation - req_stock) <= math.floor(package_size*0.7) and package_size <= 8:
-            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.8):
-                order += 1
-            return order, 3, "A_success"
-            
-        if (stock_oscillation - req_stock) <= math.floor(package_size*0.5) and package_size < 18:
-            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.7):
-                order += 1
-            return order, 3, "A_success"
-            
-        if (stock_oscillation - req_stock) <= math.floor(package_size*0.3) and package_size >= 18:
-            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.6):
-                order += 1
-            return order, 3, "A_success"
-        
-    elif deviation_corrected >= -25:
+    # ---------------- Small packages (≤ 8) ----------------
+    if package_size <= 8:        
+        # Case 3: Deviation analysis
+        if deviation_corrected >= 25:
+            if (stock_oscillation - req_stock) <= math.floor(package_size * 0.7):
+                if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size * 0.8):
+                    order += 1
+                return order, 3, "A_success"
 
-        if (stock_oscillation - req_stock) <= math.floor(package_size*0.5) and package_size <= 8:
-            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.8):
-                order += 1
-            return order, 4, "A_success"
-            
-        if (stock_oscillation - req_stock) <= math.floor(package_size*0.3) and package_size < 18:
-            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.7):
-                order += 1
-            return order, 4, "A_success"
-            
-        if (stock_oscillation - req_stock) <= math.floor(package_size*0.1) and package_size >= 18:
-            if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size*0.6):
-                order += 1
-            return order, 4, "A_success"
+        elif deviation_corrected >= -25:
+            if (stock_oscillation - req_stock) <= math.floor(package_size * 0.5):
+                if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size * 0.8):
+                    order += 1
+                return order, 4, "A_success"
 
-    
-    if turnover >= 0.8 and (stock_oscillation <= package_size*2 or expected_packages >= 1):
+    # ---------------- Medium packages (< 18) ----------------
+    elif package_size < 18:
+        if deviation_corrected >= 25:
+            if (stock_oscillation - req_stock) <= math.floor(package_size * 0.5):
+                if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size * 0.7):
+                    order += 1
+                return order, 3, "A_success"
+
+        elif deviation_corrected >= -25:
+            if (stock_oscillation - req_stock) <= math.floor(package_size * 0.3):
+                if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size * 0.7):
+                    order += 1
+                return order, 4, "A_success"
+
+    # ---------------- Large packages (≥ 18) ----------------
+    elif package_size >= 18:
+        if deviation_corrected >= 25:
+            if (stock_oscillation - req_stock) <= math.floor(package_size * 0.3):
+                if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size * 0.6):
+                    order += 1
+                return order, 3, "A_success"
+
+        elif deviation_corrected >= -25:
+            if (stock_oscillation - req_stock) <= math.floor(package_size * 0.1):
+                if stock_oscillation < req_stock and stock_oscillation <= math.floor(package_size * 0.6):
+                    order += 1
+                return order, 4, "A_success"
+
+    # ---------------- General fallback rules ----------------
+    if turnover >= 0.8 and (stock_oscillation <= package_size * 2 or expected_packages >= 1):
         return 1, 5, "A_success"
-    
+
     if stock_oscillation >= 0 and stock_oscillation < current_gap and (current_gap - req_stock) <= package_size:
         return 1, 6, "A_success"
 
-    if real_need > 1 :
+    if real_need > 1:
         return 1, 7, "A_success"
-    
+
     return None, 0, "A_fail"

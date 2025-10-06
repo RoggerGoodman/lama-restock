@@ -14,6 +14,8 @@ def process_U_sales(stock_oscillation, deviation_corrected, req_stock, current_g
         if order > cap:
             order = cap
 
+        order += math.floor(current_gap/2)
+
         return order, 1, "U_success"
     
     if current_gap < 0 and deviation_corrected >= 0:

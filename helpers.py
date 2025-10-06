@@ -186,8 +186,8 @@ class Helper:
 
     def calculate_biggest_gap(self, final_array_bought, final_array_sold, avg_daily_sales):
             gaps = [b - s for b, s in zip(final_array_bought, final_array_sold)]
-            max_abs_gap = max(abs(g) for g in gaps[1:12])          
-            candidate_indexes = [i for i, g in enumerate(gaps[1:12], start=1) if abs(g) == max_abs_gap]
+            max_abs_gap = max(abs(g) for g in gaps)          
+            candidate_indexes = [i for i, g in enumerate(gaps) if abs(g) == max_abs_gap]
             best_stock = 0
             selected_index = 0
 
@@ -203,10 +203,9 @@ class Helper:
                             best_stock = stock
 
             best_stock -= math.ceil(avg_daily_sales)
-            if best_stock > 5 :
+            if best_stock > 4 :
                 best_stock = best_stock - math.floor(selected_index/5)
-            logger.info(f"The selected index was {selected_index}")
-            logger.info(f"Biggest gap Stock = {best_stock}")
+            logger.info(f"Biggest gap Stock = {best_stock} and the selected index was {selected_index}")
             return best_stock
     
     def calculate_max_stock(self, final_array_bought:list, final_array_sold:list):    
@@ -234,11 +233,10 @@ class Helper:
             sold.pop()
             current_index -= 1
 
-        if max_stock > 8:
+        if max_stock > 4:
             max_stock = max_stock - math.ceil(best_index/3)
 
-        logger.info(f"Max Stock = {max_stock}")
-        logger.info(f"Max Stock index = {best_index}")
+        logger.info(f"Max Stock = {max_stock} and the selected index was {best_index}")
         return max_stock
     
     def calculate_expectd_packages(self, final_array_bought:list, package_size:int):
@@ -288,27 +286,35 @@ class Helper:
 
         total = diffs[0]
         direction = diffs[0] > 0  # True = positive, False = negative
+        combo = 0
 
-        for i in range(1, len(diffs)):
+        i = 1
+        while i < len(diffs):
             d = diffs[i]
             if d == 0:
+                i += 1
                 continue  # skip zeros
 
             if (d > 0) == direction:
                 # same direction, accumulate
                 total += d
+                i += 1
+                combo += 1
             else:
                 # sign changed
-                if i > 0 and abs(d) > abs(diffs[i-1]):
+                if  i + 1 < len(diffs) and abs(diffs[i+1]) > abs(d) and (diffs[i+1]) == direction:
                     # only continue if stronger than previous
-                    total += d + diffs[i-1]
+                    total += d + diffs[i+1]
+                    i+=2
+                    combo += 1
                 else:
                     break  # trend broken
-
+        if combo == 0:
+            logger.info(f"No trend")
+            return 0        
         logger.info(f"Trend value is {total}")
         return total
         
-
     def calculate_turnover(self, final_array_sold:list, final_array_bought:list, package_size:int, trend):
         bonus = 0.05
         if any(x == 0 for x in final_array_sold[1:4]) or any(x == 0 for x in final_array_bought[1:4]):

@@ -17,9 +17,9 @@ def process_C_sales(stock_oscillation, package_size, deviation_corrected, expect
                 return 1, 4, "C_success"
         if trend < 0:
             abs_trend = abs(trend)
-            if abs_trend >= math.floor(package_size * 0.8) and stock_oscillation <= math.floor(package_size * 0.7):
+            if abs_trend >= math.floor(package_size * 0.9) and stock_oscillation <= math.floor(package_size * 0.5):
                 return 1, 5, "C_success"
-            if abs_trend >= package_size and stock_oscillation <= package_size:
+            if abs_trend >= math.ceil(package_size * 1.2) and stock_oscillation <= math.floor(package_size * 0.9):
                 return 1, 6, "C_success"
         if current_gap < 0:
             abs_gap = abs(current_gap)
@@ -43,9 +43,9 @@ def process_C_sales(stock_oscillation, package_size, deviation_corrected, expect
                 return 1, 4, "C_success"
         if trend < 0:
             abs_trend = abs(trend)
-            if abs_trend >= math.floor(package_size * 0.7) and stock_oscillation <= math.floor(package_size * 0.5):
+            if abs_trend >= math.floor(package_size * 0.8) and stock_oscillation <= math.floor(package_size * 0.3):
                 return 1, 5, "C_success"
-            if abs_trend >= math.floor(package_size * 0.9) and stock_oscillation <= math.floor(package_size * 0.7):
+            if abs_trend >= package_size and stock_oscillation <= math.floor(package_size * 0.6):
                 return 1, 6, "C_success"
         if current_gap < 0:
             abs_gap = abs(current_gap)
@@ -69,9 +69,9 @@ def process_C_sales(stock_oscillation, package_size, deviation_corrected, expect
                 return 1, 4, "C_success"
         if trend < 0:
             abs_trend = abs(trend)
-            if abs_trend >= math.floor(package_size * 0.6) and stock_oscillation <= math.floor(package_size * 0.3):
+            if abs_trend >= math.floor(package_size * 0.7) and stock_oscillation <= math.floor(package_size * 0.1):
                 return 1, 5, "C_success"
-            if abs_trend >= math.floor(package_size * 0.8) and stock_oscillation <= math.floor(package_size * 0.4):
+            if abs_trend >= math.floor(package_size * 0.85) and stock_oscillation <= math.floor(package_size * 0.3):
                 return 1, 6, "C_success"
         if current_gap < 0:
             abs_gap = abs(current_gap)

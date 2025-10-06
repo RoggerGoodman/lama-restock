@@ -154,6 +154,12 @@ class Orderer:
         self.actions.send_keys(Keys.ARROW_DOWN)
         self.actions.perform()
         time.sleep(0.5)
+        self.actions.send_keys(Keys.ARROW_DOWN)
+        self.actions.perform()
+        time.sleep(0.5)
+        self.actions.send_keys(Keys.ARROW_UP)
+        self.actions.perform()
+        time.sleep(0.5)
         self.actions.send_keys(Keys.ARROW_UP)
         self.actions.perform()
         time.sleep(0.5)
@@ -161,7 +167,7 @@ class Orderer:
         # Arrivato alla fine della dropdown list non torna su, bisogna fixare forse, dipende da come vengono processati i file dalla cartella in cui sono salvate le liste
         input_value = combo_box_element.get_attribute("value")
         if input_value == desired_value:
-            self.actions.send_keys(Keys.ENTER)
+            self.actions.send_keys(Keys.ESCAPE)
             self.actions.perform()
             loop = False
         # Loop through all the items and check for the matching label
@@ -214,13 +220,15 @@ class Orderer:
         # Step 3: Click the button
         button_inside_modal3.click()
 
-        time.sleep(30)
+        time.sleep(300)
         self.driver.maximize_window()	
+        time.sleep(1)
 
         hover_target1 = self.driver.find_element(By.XPATH, "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[4]")
         hover_target2 = self.driver.find_element(By.XPATH, "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[5]")
 
         self.actions.move_to_element(hover_target1).perform()
+        time.sleep(1)
         button_xpath1 = "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[4]/div[4]/div[5]"
         button1 = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, button_xpath1))

@@ -49,17 +49,17 @@ class Updater :
         self.actions.perform()
 
         WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "carta80"))
+            EC.presence_of_element_located((By.ID, "carta31"))
         )
 
-        list_menu = self.driver.find_element(By.ID, "carta80")
+        list_menu = self.driver.find_element(By.ID, "carta31")
         list_menu.click()
 
         WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "carta84"))
+            EC.presence_of_element_located((By.ID, "carta139"))
         )
 
-        list_menu1 = self.driver.find_element(By.ID, "carta84")
+        list_menu1 = self.driver.find_element(By.ID, "carta139")
         list_menu1.click()
 
         WebDriverWait(self.driver, 10).until(
