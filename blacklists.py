@@ -1,6 +1,6 @@
 # Define blacklists for each storage_name
 blacklists = {
-    "01 RIANO GENERI VARI": {
+    "RIANO GENERI VARI": {
 
         "blacklist_granular": 
         {
@@ -27,7 +27,7 @@ blacklists = {
             (36857, 1), (36858, 1), (36859, 1), (36860, 1), (36861, 1), (4599, 2), (30941, 1)
         }
     },
-    "23 S.PALOMBA SURGELATI": {
+    "S.PALOMBA SURGELATI": {
 
         "blacklist_granular": 
         {
@@ -36,7 +36,7 @@ blacklists = {
             (33711, 1), (33712, 1), (33713, 1), (33714, 1), (33716, 1), (33718, 1), (33719, 1), (33722, 1)
         }
     },
-    "02 POMEZIA DEPERIBILI": {
+    "POMEZIA DEPERIBILI": {
 
         "blacklist_granular": 
         {

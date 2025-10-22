@@ -1,0 +1,190 @@
+from credentials import PASSWORD, USERNAME
+from DatabaseManager import DatabaseManager
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
+from helpers import Helper
+
+class Scrapper:
+
+    def __init__(self, helper: Helper, db: DatabaseManager) -> None:
+        # Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
+        chrome_options = Options()
+        # chrome_options.add_argument("--headless")  # Run Chrome in headless mode
+        # chrome_options.add_argument("--no-sandbox")  # Required for some environments
+        # chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
+        # chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
+
+        self.helper = helper
+        self.driver = webdriver.Chrome(options=chrome_options)
+        self.actions = ActionChains(self.driver)
+        self.db = db
+
+    def login(self):
+
+        self.driver.get('https://www.pac2000a.it/PacApplicationUserPanel/faces/home.jsf')
+    
+
+        # Wait for the username field to be present, indicating that the page has loaded
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "username"))
+        )
+
+        # Log in by entering the username and password, then clicking the login button
+        username_field = self.driver.find_element(By.ID, "username")
+        password_field = self.driver.find_element(By.ID, "Password")
+        login_button = self.driver.find_element(By.CLASS_NAME, "btn-primary")
+
+        username_field.send_keys(USERNAME)
+        password_field.send_keys(PASSWORD)
+        login_button.click()
+
+    def navigate(self):
+        self.login()
+        # Wait for the page to load after login
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, '//a[contains(text(), "eMarket")]'))
+        )
+
+        # Locate the "eMarket" link by its text
+        emarket_link = self.driver.find_element(By.XPATH, '//a[contains(text(), "eMarket")]')
+        emarket_link.click()
+
+        WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, '//a[@title="Statistiche Articolo"]'))
+        )
+
+        stat_link = self.driver.find_element(By.XPATH, '//a[@title="Statistiche Articolo"]')
+        stat_link.click()
+
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "ifStatistiche Articolo"))
+        )
+
+    def init_product_stats_for_settore(self, settore):
+        """
+        For every product in `products` with given settore:
+        - navigate (assumes driver is already on the stats page where cod_art and var_art exist)
+        - enter cod and var, hit enter, wait for window.str_qta_vend / str_qta_acq
+        - clean/prepare arrays via helper, then call db.init_product_stats(cod, v, sold=..., bought=...)
+            - if product_stats exists and force==False -> skip
+            - if product_stats exists and force==True -> update the existing row
+        Returns: dict with counts
+        """
+        
+        timeout=10
+        cur = self.db.conn.cursor()
+        cur.execute("SELECT cod, v FROM products WHERE settore = ?", (settore,))
+        products = cur.fetchall()
+
+        report = {
+            "total": len(products),
+            "processed": 0,
+            "initialized": 0,
+            "updated": 0,
+            "skipped_exists": 0,
+            "errors": 0
+        }
+
+        for row in products:
+            cod = row["cod"]
+            v = row["v"]
+            report["processed"] += 1
+
+            iframe = self.driver.find_element(By.ID, "ifStatistiche Articolo")
+            self.driver.switch_to.frame(iframe)
+
+            try:
+                # --- fill fields and submit (your snippet adapted) ---
+                cod_art_field = self.driver.find_element(By.NAME, "cod_art")
+                var_art_field = self.driver.find_element(By.NAME, "var_art")
+
+                # clear and send
+                cod_art_field.clear()
+                var_art_field.clear()
+                cod_art_field.send_keys(str(cod))
+                var_art_field.send_keys(str(v))
+
+                # press enter (use actions for reliability)
+                self.actions.send_keys(Keys.ENTER).perform()
+
+                # Wait until the JS arrays are available
+                WebDriverWait(self.driver, timeout).until(
+                    lambda d: d.execute_script("return typeof window.str_qta_vend !== 'undefined' && window.str_qta_vend !== null")
+                )
+                sold_quantities = self.driver.execute_script("return window.str_qta_vend;")
+
+                WebDriverWait(self.driver, timeout).until(
+                    lambda d: d.execute_script("return typeof window.str_qta_acq !== 'undefined' && window.str_qta_acq !== null")
+                )
+                bought_quantities = self.driver.execute_script("return window.str_qta_acq;")
+
+                self.driver.back()
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "ifStatistiche Articolo"))
+                )
+
+                # --- split current year and last year as in your snippet ---
+                sold_q_current = sold_quantities[::2]
+                sold_q_last = sold_quantities[1::2]
+                bought_q_current = bought_quantities[::2]
+                bought_q_last = bought_quantities[1::2]
+
+                # --- clean and convert using helper ---
+                cleaned_current_year_sold = self.helper.clean_convert_reverse(sold_q_current)
+                cleaned_last_year_sold = self.helper.clean_convert_reverse(sold_q_last)
+                cleaned_current_year_bought = self.helper.clean_convert_reverse(bought_q_current)
+                cleaned_last_year_bought = self.helper.clean_convert_reverse(bought_q_last)
+
+                # If any of the cleaned lists is falsy -> skip
+                if not cleaned_current_year_sold or not cleaned_last_year_sold or not cleaned_current_year_bought or not cleaned_last_year_bought:
+                    # skip this product (bad/invalid format)
+                    report["errors"] += 1
+                    continue
+
+                # combine arrays as you described (current year first, then last year)
+                final_array_sold = cleaned_current_year_sold + cleaned_last_year_sold
+                final_array_bought = cleaned_current_year_bought + cleaned_last_year_bought
+
+                # call helper.prepare_array (your helper returns (bought, sold))
+                final_array_bought, final_array_sold = self.helper.prepare_array(final_array_bought, final_array_sold)
+
+                if len(final_array_bought) == 0 or len(final_array_sold) == 0 :
+                    continue
+
+                # --- write to DB ---
+                # If row exists and force=True -> update; else init (INSERT)
+                cur = self.db.conn.cursor()
+                cur.execute("SELECT 1 FROM product_stats WHERE cod=? AND v=?", (cod, v))
+                exists = cur.fetchone() is not None
+
+                if not exists:
+                    # init_product_stats expects Python lists
+                    self.db.init_product_stats(cod, v, sold=final_array_sold, bought=final_array_bought, stock=0, verified=False)
+                    report["initialized"] += 1
+                else:
+                     # pass first two elements
+                    self.db.update_product_stats(cod, v, sold_update=final_array_sold[:2], bought_update=final_array_bought[:2])
+
+            except UnexpectedAlertPresentException:
+                self.actions.send_keys(Keys.ENTER)
+                report["errors"] += 1
+                continue  # Skip to the next iteration of the loop
+
+            except TimeoutException:
+                # timed out waiting for JS vars; skip this product
+                report["errors"] += 1
+                continue
+
+            except Exception as e:
+                # generic exception - log and continue
+                print(f"Error initializing stats for {cod}.{v}: {e}")
+                report["errors"] += 1
+                continue
+
+        return report

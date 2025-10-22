@@ -14,26 +14,14 @@ class Analyzer:
         self.number_of_packages += qty
         setattr(self, category_name, getattr(self, category_name) + 1)
 
-    def note_recorder(self, product_name: str, product_cod: int, product_var: int):
-        self.notes_list.append((product_name, product_cod, product_var))
+    def low_sale_recorder(self, product_name: str, product_cod: int, product_var: int):
+        self.low_list.append((product_name, product_cod, product_var))
 
     def brand_new_recorder(self, note):
         self.brand_new_list.append(note)
 
     def anomalous_stock_recorder(self, note):
         self.anomalous_stock_list.append(note)
-
-    def filter_notes(self):
-        # Convert notes_list into a dictionary for faster lookup and removal
-        notes_dict = {(note[1], note[2]): note for note in self.notes_list}
-
-        filtered_list = []
-        for _, row in self.df.iterrows():
-            key = (row[COLLUMN1_NAME], row[COLLUMN2_NAME])
-            if key in notes_dict:
-                filtered_list.append(notes_dict.pop(key))  # Append and remove to shrink search space
-
-        return filtered_list
 
     def safe_div(self, numerator, denominator):
         """Safely divide two numbers, return 0 if denominator is zero."""
@@ -84,7 +72,6 @@ class Analyzer:
         totalSuccess = self.A_success + self.B_success + self.C_success + self.N_success + self.U_success
         logger.info(f"Total products types ordered : {totalSuccess}")
 
-        self.low_list = self.filter_notes()
         logger.info("The following products are brand new or made available once more:\n" + "\n".join(self.brand_new_list))
         logger.info("Very low daily sales products order list:\n" + "\n".join([", ".join(map(str, item)) for item in self.low_list]))
         logger.info("The following products have an anomalous negative stock oscillation :\n" + "\n".join(self.anomalous_stock_list))
@@ -96,7 +83,6 @@ class Analyzer:
 
     def reset_statistics(self):
         """Resets all statistical fields to their initial values."""
-        self.notes_list = []
         self.low_list = []
         self.brand_new_list = []
         self.anomalous_stock_list = []

@@ -1,10 +1,13 @@
 import re
+import os
+import shutil
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import ElementClickInterceptedException
 import time
 from pywinauto import Application, Desktop
 from selenium.webdriver.chrome.options import Options
@@ -68,37 +71,54 @@ class Updater :
 
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
-        time.sleep(2)
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, "linkListino"))
+        )
+
+        time.sleep(1) 
+
+        orders_menu1 = self.driver.find_element(By.ID, "linkListino")
+        orders_menu1.click()
+    
+        time.sleep(1)
 
     def selector(self):
-        client_field = self.driver.find_element(By.ID, "dropdownlistContentF_clienti")
-        client_field.click()
-        self.actions.send_keys("MD")
-        self.actions.perform()
-        time.sleep(1)
-        client_field.click()
-        self.actions.send_keys(Keys.ARROW_DOWN)
-        self.actions.perform()
-        self.actions.send_keys(Keys.ENTER)
-        self.actions.perform()
-        self.actions.send_keys(Keys.TAB)
-        self.actions.perform()
 
+        storage = re.sub(r'^\d+\s+', '', desired_value)
+        input_element = self.driver.find_element(By.XPATH, "//*[@id='idMagConsegnaActionButton']/input")
+        input_element.clear()
+        input_element.send_keys(storage)
+        drop_down_arrow = self.driver.find_element(By.XPATH, "//*[@id='idMagConsegna']/div[1]/div/div[1]/span[2]")
+        drop_down_arrow.click()
         time.sleep(1)
-        input_field = self.driver.find_element(By.XPATH, '//*[@id="dropdownlistContentF_magazzini"]/input')
-
-        while True:
-            self.actions.send_keys(Keys.ARROW_DOWN)
-            self.actions.perform()
-            time.sleep(0.5)
-            # Get the value of the 'value' attribute
-            # Arrivato alla fine della dropdown list non torna su, bisogna fixare forse, dipende da come vengono processati i file dalla cartella in cui sono salvate le liste
-            input_value = input_field.get_attribute("value")
-            if input_value == desired_value:
-                self.actions.send_keys(Keys.ENTER)
-                self.actions.perform()
+        element = self.driver.find_element(By.XPATH, f'//smart-list-item[@label="{storage}"]')
+        element.click()
+        time.sleep(1)
+        try:
+            confirm_button = self.driver.find_element(By.XPATH, "//*[@id='confermaFooterFiltro']/button")
+            confirm_button.click()
+        except ElementClickInterceptedException:
+            # Find all buttons with that ID and click the visible one (top of stack)
+            close_buttons = self.driver.find_elements(By.XPATH, "//*[@id='chiudifooterFiltro']/button")
+            
+            for button in close_buttons:
+                for button in close_buttons:
+                    if button.is_displayed() and button.accessible_name == 'CHIUDI':
+                        try:
+                            button.click()
+                        except ElementClickInterceptedException:
+                            continue
+                        break
                 break
-        time.sleep(1)
+            
+            # Wait a moment for modal to close
+            time.sleep(0.5)
+            
+            # Try clicking the confirm button again
+            confirm_button = self.driver.find_element(By.XPATH, "//*[@id='confermaFooterFiltro']/button")
+            confirm_button.click()
+            time.sleep(10)
+
 
         if filters:
             match desired_value:
@@ -129,56 +149,35 @@ class Updater :
                 else:
                     self.actions.send_keys(Keys.SPACE).perform()
 
-        searchButton = self.driver.find_element(By.ID, "AvviaRicerca")
-        searchButton.click()
-        
-        WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "printButtonT"))
-        )
-        printer = self.driver.find_element(By.ID, "printButtonT")
-        printer.click() 
-        grid = self.driver.find_element(By.ID, "griglia")
-        grid.click()
-        
-        # Immediately switch to the last opened window
-        self.driver.switch_to.window(self.driver.window_handles[-1])
 
-        self.actions.key_down(Keys.CONTROL).send_keys('a').send_keys('c').key_up(Keys.CONTROL).perform()
-        self.driver.quit()
+    def download(self):
+        menu_element = self.driver.find_element(By.XPATH, '//*[@id="menuStrumenti"]')
+        self.actions.move_to_element(menu_element).perform()
 
-    def print(self):
-        # Start OpenOffice Calc
-        app = Application(backend="uia").start(r"C:\Program Files (x86)\OpenOffice 4\program\soffice.exe --calc")
+        # Wait a moment for the submenu to appear (optional but recommended)
+        time.sleep(0.3)
 
-        # Wait for Calc to open and create a new spreadsheet
-        time.sleep(3)  # Adjust based on system speed
-        # Attach to the currently active window
-        windows = Desktop(backend="win32").windows()
+        # Click the export option
+        export_element = self.driver.find_element(By.XPATH, '//*[@id="exportGridStrumenti"]')
+        export_element.click()
+        time.sleep(0.3)
+        exl_button = self.driver.find_element(By.XPATH, '//*[@id="xlsxBtn"]')
+        exl_button.click()
+        # Wait for download to complete
+        time.sleep(10)  # Adjust based on file size
 
-        # Loop through the windows and find the active one
-        calc = None
-        for window in windows:
-            if window.is_active():
-                calc = window
-                break
-        calc.type_keys("{DOWN}")  # Simulates pressing the down arrow key
-        calc.type_keys("{ENTER}")  # Simulates pressing the Enter key
-        time.sleep(2)
+        # Get the download folder (default Chrome/Firefox download location)
+        download_folder = os.path.join(os.path.expanduser('~'), 'Downloads')
+        source_file = os.path.join(download_folder, 'SmartGrid.xlsx')
 
-        # Paste the copied table into the spreadsheet
-        calc.type_keys("^v")  # Simulates Ctrl + V to paste
+        # Define destination folder and new filename
+        destination_folder = './Database/'
+        new_filename = f"{desired_value}.xlsx"
+        destination_file = os.path.join(destination_folder, new_filename)
 
-        # Open the Save As dialog
-        calc.type_keys("^s")  # Simulates Ctrl + S
-        time.sleep(1)  # Ensure the Save As dialog has time to open
+        # Wait until file exists
+        while not os.path.exists(source_file):
+            time.sleep(0.5)
 
-        # Get the current focused window after triggering Ctrl + S
-        save_as = Desktop(backend="win32").window(title="Salva con nome")
-
-        # Type the desired file name and path
-        save_as.type_keys(full_file_path, with_spaces=True)
-
-        # Press Enter to save the file
-        save_as.type_keys("{ENTER}")  # Hit Enter to save the file
-        time.sleep(10)
-        calc.close()
+        # Move and rename the file
+        shutil.move(source_file, destination_file)

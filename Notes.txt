@@ -2,3 +2,11 @@
 New Featuere: Delivery check ask for more details
 
 C checks must be expressen in function of req_stock
+
+.\env\Scripts\python.exe -m pip install <package_name>
+
+SELECT *
+FROM 'product_stats' ps
+LEFT JOIN 'products' p
+ON ps.cod = p.cod AND ps.v = p.v
+WHERE ps.cod = 1505

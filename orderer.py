@@ -9,7 +9,6 @@ from selenium.webdriver.common.keys import Keys
 import time
 import re
 from selenium.common.exceptions import TimeoutException
-from config import TEST_MODE
 from credentials import PASSWORD, USERNAME
 from logger import logger
 
@@ -220,7 +219,7 @@ class Orderer:
         # Step 3: Click the button
         button_inside_modal3.click()
 
-        time.sleep(300)
+        time.sleep(60)
         self.driver.maximize_window()	
         time.sleep(1)
 
@@ -303,15 +302,6 @@ class Orderer:
 
         # Switch to the previous tab
         self.driver.switch_to.window(self.driver.window_handles[-2])
-
-    def lists_combiner(self, storage_list, orders_list):
-        for storage, order_list in zip(storage_list, orders_list):
-            if not TEST_MODE:
-                #storage = storage.split(' ', 1)[1]
-                self.make_orders(storage, order_list)
-            else:
-                logger.info(f'We made orders')
-                break
 
 '''WebDriverWait(self.driver, 10).until(
                 EC.text_to_be_present_in_element(

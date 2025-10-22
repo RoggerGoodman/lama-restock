@@ -61,7 +61,11 @@ class Helper:
 
         return final_array_bought, final_array_sold
 
-    def calculate_weighted_avg_sales(self, sales_period, final_array_sold, previous_year_sold):
+    def calculate_weighted_avg_sales(self, final_array_sold):
+        sales_period = 2
+        if len(final_array_sold) > 12:
+            previous_year_sold = final_array_sold[self.current_month:]
+        else : previous_year_sold = [0]
         sales_period = min(sales_period, len(final_array_sold))
         sold_daily_this_month = final_array_sold[0]
         if len(final_array_sold) >= 2:
@@ -71,10 +75,11 @@ class Helper:
         sold_daily_tot = sold_daily_this_month + sold_daily_previous_month
         if sold_daily_tot == 0:
             return sold_daily_tot
-        previous_year_sold.reverse()
-        last_year_current_month = previous_year_sold[self.current_month-1]
-        if (last_year_current_month != 0):
-            sold_daily_tot += last_year_current_month 
+        if len(final_array_sold) > 12:
+            position = 12 - self.current_month
+            last_year_current_month = previous_year_sold[position]
+            if (last_year_current_month != 0):
+                sold_daily_tot += last_year_current_month 
         else:
             sales_period -= 1
         
@@ -82,8 +87,10 @@ class Helper:
             avg_daily_sales = sold_daily_tot / ((sales_period*30)+(self.current_day-1))
         else:
             sold_daily_previous_month = sold_daily_previous_month * ((30 - self.current_day) / 30)
-            if sales_period >= 1:
+            if sales_period > 1:
                 avg_daily_sales = (sold_daily_this_month + sold_daily_previous_month + last_year_current_month) / (sales_period*30)
+            elif sales_period > 0:
+                avg_daily_sales = (sold_daily_this_month + sold_daily_previous_month) / (sales_period*30)
             else: 
                 avg_daily_sales = sold_daily_this_month / (self.current_day-1)
 
