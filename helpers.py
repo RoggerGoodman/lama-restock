@@ -4,11 +4,10 @@ from logger import logger
 import math
 
 
-
 class Helper:
 
     def __init__(self) -> None:
-        # Get the current month and day
+        # Get the current month and day       
         self.current_month = datetime.now().month
         self.current_day = datetime.now().day
         # Calculate how many months until December
@@ -131,7 +130,7 @@ class Helper:
     
     def deviation_blender(self, deviation, ly_deviation):
         today = datetime.now()
-        dim = monthrange(today.year, today.month)[1]
+        dim = monthrange(today.year, today.month)[1] #days in this month
         day = today.day
 
         alpha = 1.0 - (day / dim)

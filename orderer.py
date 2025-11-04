@@ -24,6 +24,7 @@ class Orderer:
         chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
 
         self.driver = webdriver.Chrome()
+        self.wait = WebDriverWait(self.driver, 10)
         self.actions = ActionChains(self.driver)
         
     # Load the webpage
@@ -31,7 +32,7 @@ class Orderer:
         self.driver.get('https://dropzone.pac2000a.it/')
 
         # Wait for the page to fully load
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "username"))
         )
 
@@ -43,27 +44,27 @@ class Orderer:
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "carta31"))
         )
 
         orders_menu = self.driver.find_element(By.ID, "carta31")
         orders_menu.click()
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "carta139"))
         )
 
         orders_menu1 = self.driver.find_element(By.ID, "carta139")
         orders_menu1.click()
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             lambda driver: len(driver.window_handles) > 1
         )
 
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "Ordini"))
         )
 
@@ -72,7 +73,7 @@ class Orderer:
         orders_menu1 = self.driver.find_element(By.ID, "Ordini")
         orders_menu1.click()
 
-        lista_link = WebDriverWait(self.driver, 10).until(
+        lista_link = self.wait.until(
             EC.element_to_be_clickable((By.XPATH, "//a[@href='./lista']"))
         )
 
@@ -80,11 +81,11 @@ class Orderer:
         lista_link.click()
 
         # Wait for the modal to be present
-        modal = WebDriverWait(self.driver, 10).until(
+        modal = self.wait.until(
             EC.presence_of_element_located((By.CLASS_NAME, "modal-content"))
 )
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.XPATH, "//button[text()='Chiudi']"))
         )
 
@@ -100,7 +101,7 @@ class Orderer:
 
         desired_value = re.sub(r'^\d+\s+', '', storage)
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "newRowButtonMenuSopra"))
         )
 
@@ -110,12 +111,12 @@ class Orderer:
         time.sleep(2)
 
         # Step 1: Wait for the modal to appear
-        modal_container = WebDriverWait(self.driver, 10).until(
+        modal_container = self.wait.until(
             EC.visibility_of_element_located((By.ID, "finestraInsertOrdini"))  # Ensure the modal is visible
         )
 
         # Step 2: Wait for the button inside the modal using XPath
-        button_inside_modal = WebDriverWait(self.driver, 10).until(
+        button_inside_modal = self.wait.until(
             EC.element_to_be_clickable((By.XPATH, "//*[@id='IDCodiceClienteBis']/div[1]/div/div[1]/span[2]"))
         )
 
@@ -126,7 +127,7 @@ class Orderer:
         xpath = "/html/body/div[2]/div[2]/div[5]/div/div/div/div[2]/div/form/div[1]/div/smart-combo-box/div[1]/div/div[2]/smart-list-box/div[1]/div[2]/div[2]/smart-list-item"
 
         # Step 1: Wait for the element to be clickable using full XPath
-        element = WebDriverWait(self.driver, 10).until(
+        element = self.wait.until(
             EC.element_to_be_clickable((By.XPATH, xpath))
         )
 
@@ -137,7 +138,7 @@ class Orderer:
         time.sleep(1)
 
         # Step 2: Wait for the button inside the modal using XPath 
-        button_inside_modal2 = WebDriverWait(self.driver, 10).until(
+        button_inside_modal2 = self.wait.until(
             EC.element_to_be_clickable((By.XPATH, "//*[@id='magazziniInsert']/div[1]/div/div[1]/span[2]"))
         )
 
@@ -189,13 +190,13 @@ class Orderer:
         # Click the 'Conferma' button
         confirm_button.click()
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             lambda driver: len(driver.window_handles) > 2
         )
 
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "addCatalogoButtonTNuovo"))
         )
 
@@ -204,13 +205,13 @@ class Orderer:
 
         time.sleep(1)
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             lambda driver: len(driver.window_handles) > 3
         )
 
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
-        button_inside_modal3 = WebDriverWait(self.driver, 10).until(
+        button_inside_modal3 = self.wait.until(
             EC.element_to_be_clickable((By.XPATH, "//*[@id='confermaFooterFiltro']/button"))
         )
 
@@ -219,7 +220,7 @@ class Orderer:
         # Step 3: Click the button
         button_inside_modal3.click()
 
-        time.sleep(60)
+        time.sleep(120)
         self.driver.maximize_window()	
         time.sleep(1)
 
@@ -229,7 +230,7 @@ class Orderer:
         self.actions.move_to_element(hover_target1).perform()
         time.sleep(1)
         button_xpath1 = "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[4]/div[4]/div[5]"
-        button1 = WebDriverWait(self.driver, 10).until(
+        button1 = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, button_xpath1))
         )
         button1.click()
@@ -253,7 +254,7 @@ class Orderer:
 
             self.actions.move_to_element(hover_target1).perform()
             button_xpath1 = "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[4]/div[4]/div[5]"
-            button1 = WebDriverWait(self.driver, 10).until(
+            button1 = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, button_xpath1))
             )
             button1.click()
@@ -266,7 +267,7 @@ class Orderer:
             time.sleep(0.2)
             self.actions.move_to_element(hover_target2).perform()
             button_xpath2 = "//*[@id='gridListino']/div[1]/div[5]/div[1]/div[1]/smart-grid-column[5]/div[4]/div[5]"
-            button2 = WebDriverWait(self.driver, 10).until(
+            button2 = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, button_xpath2))
             )
             button2.click()
@@ -278,7 +279,7 @@ class Orderer:
             self.actions.perform()
             time.sleep(0.2)
             try:
-                quantita_element = WebDriverWait(self.driver, 10).until(
+                quantita_element = self.wait.until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, "div[data-field='Quantita'].align-right.smart-label"))
                 )
             except TimeoutException:
@@ -293,7 +294,7 @@ class Orderer:
             time.sleep(0.2)
         
         # Wait until the button is clickable
-        send_button = WebDriverWait(self.driver, 10).until(
+        send_button = self.wait.until(
             EC.element_to_be_clickable((By.ID, "invioOrdineButton"))
         )
 
@@ -303,7 +304,7 @@ class Orderer:
         # Switch to the previous tab
         self.driver.switch_to.window(self.driver.window_handles[-2])
 
-'''WebDriverWait(self.driver, 10).until(
+'''self.wait.until(
                 EC.text_to_be_present_in_element(
                     (By.ID, "jqxNotificationDefaultContainer-top-right"),
                     "Articolo"

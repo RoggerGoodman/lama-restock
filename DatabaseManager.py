@@ -2,10 +2,10 @@ import sqlite3
 import json
 import pandas as pd
 from datetime import datetime
+from datetime import date
 from calendar import monthrange
 import sqlite3
 import json
-from datetime import datetime
 from helpers import Helper
 
 class DatabaseManager:
@@ -44,7 +44,7 @@ class DatabaseManager:
                 bought_last_24 TEXT CHECK(json_valid(bought_last_24)),
                 stock INTEGER DEFAULT 0,
                 verified BOOLEAN DEFAULT 0,
-                last_update_month INTEGER CHECK(last_update_month BETWEEN 1 AND 12),
+                last_update DATE,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)
             )
@@ -62,9 +62,27 @@ class DatabaseManager:
             )
         """)
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS extra_losses (
+                cod INTEGER NOT NULL,
+                v INTEGER NOT NULL,
+                
+                broken TEXT CHECK(json_valid(broken)),
+                broken_updated DATE,
+                
+                expired TEXT CHECK(json_valid(expired)),
+                expired_updated DATE,
+                
+                internal TEXT CHECK(json_valid(internal)),
+                internal_updated DATE,
+                
+                FOREIGN KEY (cod, v) REFERENCES products (cod, v),
+                PRIMARY KEY (cod, v)
+            )
+        """)
+
         # helpful indexes
         cur.execute("CREATE INDEX IF NOT EXISTS idx_products_settore ON products(settore)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_stats_last_month ON product_stats(last_update_month)")
 
         self.conn.commit()
         print("Tables created or verified.")
@@ -88,13 +106,16 @@ class DatabaseManager:
         """
         sold_json = json.dumps(sold or [])
         bought_json = json.dumps(bought or [])
-        month = datetime.now().month
+        today = date.today().isoformat()  # e.g. "2025-10-28"
 
         cur = self.conn.cursor()
         cur.execute("""
-            INSERT OR IGNORE INTO product_stats (cod, v, sold_last_24, bought_last_24, stock, verified, last_update_month)
+            INSERT OR IGNORE INTO product_stats (
+                cod, v, sold_last_24, bought_last_24, stock, verified, last_update
+            )
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (cod, v, sold_json, bought_json, stock, int(verified), month))
+        """, (cod, v, sold_json, bought_json, stock, int(verified), today))
+
         self.conn.commit()
 
     def purge_settore(self, settore):
@@ -119,7 +140,7 @@ class DatabaseManager:
 
     # ---------- ARRAY UPDATE LOGIC ----------
 
-    def _update_array_variable_length(self, array_data, current_value, previous_value, current_month, last_month):
+    def _update_array_variable_length(self, array_data:list, current_value, previous_value, current_month, last_month):
         """
         Updates a variable-length monthly array (max 24 elements).
         """
@@ -146,19 +167,15 @@ class DatabaseManager:
 
         - sold_update / bought_update: list/tuple with length 1 or 2:
             [current_value]  OR  [current_value, previous_value]
-        - Month is always 'now' (datetime.now().month).
+        - last_update is always 'today' (DATE).
         - If product_stats row does not exist, it will be initialized using the provided arrays.
         - Delta logic and array-shift use the existing behavior (no full recompute).
         """
-        from datetime import datetime
 
         if sold_update is None and bought_update is None:
             raise ValueError("At least one of sold_update or bought_update must be provided.")
 
-        # current month (always)
-        current_month = datetime.now().month
-
-        # Normalize incoming small updates to tuples (cur_val, prev_val, month=current_month)
+        # --- Prepare helpers ---
         def _prepare_packet(pkt):
             cur_val = pkt[0]
             prev_val = pkt[1] if len(pkt) >= 2 else None
@@ -169,61 +186,80 @@ class DatabaseManager:
 
         cur = self.conn.cursor()
         cur.execute("""
-            SELECT sold_last_24, bought_last_24, stock, last_update_month
+            SELECT sold_last_24, bought_last_24, stock, last_update
             FROM product_stats
             WHERE cod=? AND v=?
         """, (cod, v))
         row = cur.fetchone()
 
-        # Load current arrays and metadata (old values)
+        if not row:
+            # Auto-initialize if missing
+            self.init_product_stats(cod, v, sold=[], bought=[], stock=0, verified=False)
+            cur.execute("""
+                SELECT sold_last_24, bought_last_24, stock, last_update
+                FROM product_stats
+                WHERE cod=? AND v=?
+            """, (cod, v))
+            row = cur.fetchone()
+
+        # --- Load arrays and previous metadata ---
         sold_array = json.loads(row["sold_last_24"]) if row["sold_last_24"] else []
         bought_array = json.loads(row["bought_last_24"]) if row["bought_last_24"] else []
         stock = int(row["stock"]) if row["stock"] is not None else 0
-        last_month = int(row["last_update_month"])
 
-        # --- Compute deltas using old arrays (before modification) ---
+        last_update_str = row["last_update"]
+        last_update_date = datetime.strptime(last_update_str, "%Y-%m-%d").date() if last_update_str else None
+        current_date = date.today()
+
+        # Use month numbers for continuity in your delta logic
+        last_month = last_update_date.month
+        current_month = current_date.month
+
+        # --- Compute deltas using old arrays ---
         sold_delta = 0
         bought_delta = 0
 
-        # SOLD delta
         if sold_pkt is not None:
             cur_sold_val, prev_sold_val = sold_pkt
             if last_month == current_month:
-                old_current = sold_array[0]
+                old_current = sold_array[0] 
                 sold_delta = cur_sold_val - old_current
             else:
-                old_previous_stored = sold_array[0]
+                old_previous_stored = sold_array[0] 
                 sold_delta = cur_sold_val + (prev_sold_val - old_previous_stored)
 
-        # BOUGHT delta
         if bought_pkt is not None:
             cur_bought_val, prev_bought_val = bought_pkt
             if last_month == current_month:
-                old_current = bought_array[0]
+                old_current = bought_array[0] 
                 bought_delta = cur_bought_val - old_current
             else:
-                old_previous_stored = bought_array[0]
+                old_previous_stored = bought_array[0] 
                 bought_delta = cur_bought_val + (prev_bought_val - old_previous_stored)
 
-        # --- Apply array modifications using helper (preserves your shift/replace logic) ---
-        
+        # --- Apply array modifications using your existing helper ---
         if sold_pkt is not None:
             cur_sold_val, prev_sold_val = sold_pkt
-            sold_array = self._update_array_variable_length(sold_array, cur_sold_val, prev_sold_val, current_month, last_month)
-            
+            sold_array = self._update_array_variable_length(
+                sold_array, cur_sold_val, prev_sold_val, current_month, last_month
+            )
+
         if bought_pkt is not None:
             cur_bought_val, prev_bought_val = bought_pkt
-            bought_array = self._update_array_variable_length(bought_array, cur_bought_val, prev_bought_val, current_month, last_month)
-            
+            bought_array = self._update_array_variable_length(
+                bought_array, cur_bought_val, prev_bought_val, current_month, last_month
+            )
+
         # --- Adjust stock incrementally ---
         stock = stock + int(bought_delta) - int(sold_delta)
 
-        # Persist changes
+        # --- Persist changes ---
         cur.execute("""
             UPDATE product_stats
-            SET sold_last_24=?, bought_last_24=?, stock=?, last_update_month=?
+            SET sold_last_24=?, bought_last_24=?, stock=?, last_update=?
             WHERE cod=? AND v=?
-        """, (json.dumps(sold_array), json.dumps(bought_array), stock, current_month, cod, v))
+        """, (json.dumps(sold_array), json.dumps(bought_array), stock, current_date.isoformat(), cod, v))
+
         self.conn.commit()
 
     # ---------- GETTERS ----------
@@ -243,7 +279,7 @@ class DatabaseManager:
             "bought": json.loads(row["bought_last_24"]),
             "stock": row["stock"],
             "verified": bool(row["verified"]),
-            "last_update_month": row["last_update_month"],
+            "last_update": row["last_update"],
         }
     
     def get_stock(self, cod, v):
@@ -278,7 +314,7 @@ class DatabaseManager:
                 ps.bought_last_24,
                 ps.stock,
                 ps.verified,
-                ps.last_update_month
+                ps.last_update
             FROM products AS p
             LEFT JOIN product_stats AS ps
                 ON p.cod = ps.cod AND p.v = ps.v
@@ -300,7 +336,7 @@ class DatabaseManager:
                 "bought": json.loads(row["bought_last_24"]) if row["bought_last_24"] else [],
                 "stock": row["stock"] if row["stock"] is not None else 0,
                 "verified": bool(row["verified"]) if row["verified"] is not None else False,
-                "last_update_month": row["last_update_month"],
+                "last_update": row["last_update"],
             })
 
         return results
@@ -318,10 +354,133 @@ class DatabaseManager:
             raise ValueError(f"No product_stats found for {cod}.{v}")
         self.conn.commit()
 
+    def set_verified_false(self, cod:int, v:int):
+        """
+        Update the 'verified' flag to false.
+        """
+        cur = self.conn.cursor()
+        cur.execute("UPDATE product_stats SET verified=0 WHERE cod=? AND v=?", (cod, v))
+        if cur.rowcount == 0:
+            raise ValueError(f"No product_stats found for {cod}.{v}")
+        self.conn.commit()
+
+    def register_losses(self, cod: int, v: int, delta: int, type: str):
+        """
+        Registers a type of loss (broken, expired, internal).
+
+        If (cod,v) not in products -> raise.
+        If no extra_losses row -> insert array [delta] into the correct column and set {type}_updated to today.
+        If row exists -> update logic:
+        - if same month/year as last update: overwrite array[0] with delta, compute difference and call adjust_stock(..., -difference)
+        - if months passed > 0: create new array = [delta] + [0]*(months_passed-1) + old_array, trim to 24, call adjust_stock(..., -delta)
+        """
+        # validate type
+        allowed = ("broken", "expired", "internal")
+        if type not in allowed:
+            raise ValueError(f"Invalid type '{type}'. Allowed: {allowed}")
+
+        cur = self.conn.cursor()
+
+        # 1) check product exists
+        cur.execute("SELECT 1 FROM products WHERE cod=? AND v=?", (cod, v))
+        if cur.fetchone() is None:
+            raise ValueError(f"Product {cod}.{v} not found in products table")
+
+        # 2) check extra_losses exists for this product
+        cur.execute("SELECT {col}, {col}_updated FROM extra_losses WHERE cod=? AND v=?".format(col=type), (cod, v))
+        row = cur.fetchone()
+
+        today = date.today()
+        today_iso = today.isoformat()
+
+        if row is None:
+            # Insert new row with the chosen type array and updated date.
+            # Note: other json/date columns will be NULL by default.
+            json_array = json.dumps([int(delta)])
+            cur.execute(
+                f"INSERT INTO extra_losses (cod, v, {type}, {type}_updated) VALUES (?, ?, ?, ?)",
+                (cod, v, json_array, today_iso)
+            )
+            self.conn.commit()
+            #self.adjust_stock(cod, v, -int(delta))
+            #if type == "internal":
+                #self.register_internal_sales(delta, cod, v) 
+            return  
+            
+
+        # 3) existing row -> update logic
+        existing_json = row[0]  # could be None or JSON string
+        existing_updated = row[1]  # could be None or a date string
+
+        arr = json.loads(existing_json)           # will raise if invalid JSON
+        if not isinstance(arr, list):
+            raise ValueError(f"extra_losses.{type} for {cod}.{v} is not a JSON array: {existing_json!r}")
+
+        # parse last update date (accept str in ISO format)
+        if isinstance(existing_updated, str):
+            last_update = datetime.fromisoformat(existing_updated).date()
+        else:
+            raise ValueError(f"extra_losses.{type}_updated for {cod}.{v} has unexpected type: {type(existing_updated)}")
+
+        # compute months passed between last_update and today
+        months_passed = (today.year - last_update.year) * 12 + (today.month - last_update.month)
+
+        # CASE A: same month (months_passed == 0)
+        old_first = arr[0]
+        if months_passed == 0:           
+            new_first = int(delta)
+            # overwrite first element but only if there is a difference
+            if len(arr) > 0 and old_first != new_first:
+                arr[0] = new_first
+                # compute difference and adjust stock
+                difference = new_first - int(old_first)
+                self.adjust_stock(cod, v, -int(difference))
+                # update DB: json and date
+                json_out = json.dumps(arr[:24])
+                cur.execute(
+                    f"UPDATE extra_losses SET {type} = ?, {type}_updated = ? WHERE cod = ? AND v = ?",
+                    (json_out, today_iso, cod, v))
+                
+                self.conn.commit()
+
+                if type == "internal":
+                    self.register_internal_sales(difference, cod, v)
+
+                return {"action": "same_month_overwrite", "cod": cod, "v": v, "old_first": old_first, "new_first": new_first, "difference": difference}
+
+            
+        # CASE B: months_passed >= 1
+        else:
+            # We want new array where index 0 is current month (delta),
+            # index 1..months_passed-1 are zeros for the skipped months,
+            # then the previous stored array is shifted right.
+            # e.g. if arr = [old0, old1, ...] and months_passed=3 and delta=7:
+            # new_arr = [7, 0, 0, old0, old1, ...]
+            new_delta = int(delta)
+            zeros = [0] * max(0, months_passed - 1)
+            new_arr = [new_delta] + zeros + arr
+            # trim to 24 elements
+            new_arr = new_arr[:24]
+
+            # update DB and updated date
+            json_out = json.dumps(new_arr)
+            cur.execute(
+                f"UPDATE extra_losses SET {type} = ?, {type}_updated = ? WHERE cod = ? AND v = ?",
+                (json_out, today_iso, cod, v)
+            )
+            self.conn.commit()
+
+            # adjust stock by -delta (a new loss in current month)
+            self.adjust_stock(cod, v, -int(new_delta))
+
+            if type == "internal":
+                self.register_internal_sales(new_delta, cod, v)
+
+            return {"action": "months_passed_insert", "cod": cod, "v": v, "months_passed": months_passed, "new_arr_length": len(new_arr)}
+
     def adjust_stock(self, cod:int, v:int, delta:int):
         """
         Increment or decrement the stock by 'delta' (can be negative).
-        Also sets verified = True.
         """
         cur = self.conn.cursor()
         # Fetch current stock
@@ -335,7 +494,7 @@ class DatabaseManager:
 
         # Update stock and mark as verified
         cur.execute(
-            "UPDATE product_stats SET stock=?, verified=1 WHERE cod=? AND v=?",
+            "UPDATE product_stats SET stock=?, WHERE cod=? AND v=?",
             (new_stock, cod, v)
         )
         self.conn.commit()
@@ -343,7 +502,7 @@ class DatabaseManager:
     def verify_stock(self, cod:int, v:int, new_stock:int):
         """
         Called when a human inspects and corrects stock. Optionally set a new stock value.
-        This sets verified = True. (Does not change last_update_month.)
+        This sets verified = True. (Does not change last_update.)
         """
         cur = self.conn.cursor()
         cur.execute("UPDATE product_stats SET stock=?, verified=1 WHERE cod=? AND v=?", (new_stock, cod, v))
@@ -351,7 +510,37 @@ class DatabaseManager:
             raise ValueError(f"No product_stats found for {cod}.{v}")
         self.conn.commit()
 
+    def register_internal_sales(self, delta, cod, v):
         
+        cur = self.conn.cursor()
+        cur.execute("""
+            SELECT sold_last_24
+            FROM product_stats
+            WHERE cod=? AND v=?
+        """, (cod, v))
+        row = cur.fetchone()
+
+        if row:
+            sold_json = row[0]
+            if sold_json:
+                sold_arr = json.loads(sold_json)
+            else:
+                sold_arr = []
+
+            # Ensure list has at least one entry
+            if not sold_arr:
+                sold_arr = [0]
+
+            # Add delta to the first element (most recent month)
+            sold_arr[0] += delta
+
+            # Update database
+            cur.execute("""
+                UPDATE product_stats
+                SET sold_last_24 = ?
+                WHERE cod=? AND v=?
+            """, (json.dumps(sold_arr), cod, v))
+
     def import_from_excel(self, file_path: str, settore: str):
         """
         Imports products from an Excel file into the database for the given settore.
@@ -415,7 +604,7 @@ class DatabaseManager:
 
         print(f"Imported {len(rows)} products into settore '{settore}'.")
 
-    def estimate_and_update_stock_for_settore(self, settore, batch_commit=100):
+    def estimate_and_update_stock_for_settore(self, settore, batch_commit=100): #TODO Is obsolite already?
         """
         For every product in `settore`:
         - compute estimated stock using helper functions

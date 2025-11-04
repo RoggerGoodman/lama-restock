@@ -88,6 +88,7 @@ class Scrapper:
             "initialized": 0,
             "updated": 0,
             "skipped_exists": 0,
+            "empty": 0,
             "errors": 0
         }
 
@@ -154,12 +155,11 @@ class Scrapper:
                 # call helper.prepare_array (your helper returns (bought, sold))
                 final_array_bought, final_array_sold = self.helper.prepare_array(final_array_bought, final_array_sold)
 
-                if len(final_array_bought) == 0 or len(final_array_sold) == 0 :
-                    continue
+                if len(final_array_bought) == 0 and len(final_array_sold) == 0 :
+                    report["empty"] += 1
 
                 # --- write to DB ---
                 # If row exists and force=True -> update; else init (INSERT)
-                cur = self.db.conn.cursor()
                 cur.execute("SELECT 1 FROM product_stats WHERE cod=? AND v=?", (cod, v))
                 exists = cur.fetchone() is not None
 
@@ -187,4 +187,180 @@ class Scrapper:
                 report["errors"] += 1
                 continue
 
-        return report
+        print(report)
+
+    def init_products_and_stats_from_list(self, product_list:list[tuple], settore:str):
+        """
+        Same as init_product_stats_for_settore(), but takes a Python list of (cod, v) tuples
+        instead of querying the database.
+
+        Args:
+            product_list (list[tuple]): List of (cod, v) pairs to process.
+            settore (str) The sector of the products in the list
+
+        Returns:
+            dict: Summary report.
+        """
+        rapp = 1
+        disponibilita = "No"
+
+        timeout = 10
+        report = {
+            "settore": settore,
+            "total": len(product_list),
+            "processed": 0,
+            "initialized": 0,
+            "updated": 0,
+            "skipped_exists": 0,
+            "empty": 0,
+            "errors": 0
+        }
+
+        for cod, v in product_list:
+            report["processed"] += 1
+
+            iframe = self.driver.find_element(By.ID, "ifStatistiche Articolo")
+            self.driver.switch_to.frame(iframe)
+
+            try:
+                # --- fill fields and submit (your snippet adapted) ---
+                cod_art_field = self.driver.find_element(By.NAME, "cod_art")
+                var_art_field = self.driver.find_element(By.NAME, "var_art")
+
+                # clear and send
+                cod_art_field.clear()
+                var_art_field.clear()
+                cod_art_field.send_keys(str(cod))
+                var_art_field.send_keys(str(v))
+
+                # press enter (use actions for reliability)
+                self.actions.send_keys(Keys.ENTER).perform()
+
+                # Wait until the JS arrays are available
+                WebDriverWait(self.driver, timeout).until(
+                    lambda d: d.execute_script("return typeof window.str_qta_vend !== 'undefined' && window.str_qta_vend !== null")
+                )
+                sold_quantities = self.driver.execute_script("return window.str_qta_vend;")
+
+                WebDriverWait(self.driver, timeout).until(
+                    lambda d: d.execute_script("return typeof window.str_qta_acq !== 'undefined' && window.str_qta_acq !== null")
+                )
+                bought_quantities = self.driver.execute_script("return window.str_qta_acq;")
+
+                # locate the <td> with text 'Articolo', then go to the next <td> in that row
+                articolo_td = self.driver.find_element(By.XPATH, "//td[normalize-space(text())='Articolo']")
+                descrizione_td = articolo_td.find_element(By.XPATH, "./following-sibling::td")
+
+                # get the full text and clean it up
+                full_text = descrizione_td.text.strip()
+
+                # optional: remove the leading code (everything before the first '-')
+                descrizione = full_text.split("-", 1)[1].strip() if "-" in full_text else full_text
+
+                self.driver.back()
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "ifStatistiche Articolo"))
+                )
+
+                # --- split current year and last year as in your snippet ---
+                sold_q_current = sold_quantities[::2]
+                sold_q_last = sold_quantities[1::2]
+                bought_q_current = bought_quantities[::2]
+                bought_q_last = bought_quantities[1::2]
+
+                # --- clean and convert using helper ---
+                cleaned_current_year_sold = self.helper.clean_convert_reverse(sold_q_current)
+                cleaned_last_year_sold = self.helper.clean_convert_reverse(sold_q_last)
+                cleaned_current_year_bought = self.helper.clean_convert_reverse(bought_q_current)
+                cleaned_last_year_bought = self.helper.clean_convert_reverse(bought_q_last)
+
+                # If any of the cleaned lists is falsy -> skip
+                if not cleaned_current_year_sold or not cleaned_last_year_sold or not cleaned_current_year_bought or not cleaned_last_year_bought:
+                    # skip this product (bad/invalid format)
+                    report["errors"] += 1
+                    continue
+
+                # combine arrays as you described (current year first, then last year)
+                final_array_sold = cleaned_current_year_sold + cleaned_last_year_sold
+                final_array_bought = cleaned_current_year_bought + cleaned_last_year_bought
+
+                # call helper.prepare_array (your helper returns (bought, sold))
+                final_array_bought, final_array_sold = self.helper.prepare_array(final_array_bought, final_array_sold)
+
+                if len(final_array_bought) == 0 and len(final_array_sold) == 0 :
+                    report["empty"] += 1
+
+                pz_x_collo = self.determine_pz_x_collo(final_array_bought)
+
+                cur = self.db.conn.cursor()
+                cur.execute("""
+                    INSERT INTO products 
+                    (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
+
+                self.db.conn.commit()
+
+                # --- write to DB ---
+                # If row exists and force=True -> update; else init (INSERT)
+                cur.execute("SELECT 1 FROM product_stats WHERE cod=? AND v=?", (cod, v))
+                exists = cur.fetchone() is not None
+
+                if not exists:
+                    # init_product_stats expects Python lists
+                    self.db.init_product_stats(cod, v, sold=final_array_sold, bought=final_array_bought, stock=0, verified=False)
+                    report["initialized"] += 1
+
+            except UnexpectedAlertPresentException:
+                self.actions.send_keys(Keys.ENTER)
+                report["errors"] += 1
+                continue  # Skip to the next iteration of the loop
+
+            except TimeoutException:
+                # timed out waiting for JS vars; skip this product
+                report["errors"] += 1
+                continue
+
+            except Exception as e:
+                # generic exception - log and continue
+                print(f"Error initializing stats for {cod}.{v}: {e}")
+                report["errors"] += 1
+                continue
+
+        print(report)
+
+    def determine_pz_x_collo(self, final_array_bought:list):
+        """
+        Determine 'pz_x_collo' based on buying pattern.
+
+        Rules:
+        - Default = 12
+        - Remove all zeros.
+        - Find the smallest non-zero value.
+        - If it divides all others perfectly → use it.
+        - Else, try dividing it by 2 once:
+            - If not an integer → default
+            - If it divides all others perfectly → use it
+            - Else → default
+        """
+
+        DEFAULT = 12
+        values = [x for x in final_array_bought if x != 0]
+        if not values:
+            return DEFAULT
+
+        smallest = min(values)
+
+        # Step 1: try with smallest
+        if all(v % smallest == 0 for v in values):
+            return smallest
+
+        # Step 2: try with half
+        half = smallest / 2
+        if half % 1 != 0:
+            return DEFAULT  # not an integer
+
+        if all(v % half == 0 for v in values):
+            return int(half)
+        else:
+            return DEFAULT

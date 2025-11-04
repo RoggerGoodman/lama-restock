@@ -70,6 +70,9 @@ class DecisionMaker:
             disponibilita = row["disponibilita"]
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
+            if verified == 0:
+                logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not verified")
+                continue
 
             if (product_cod, product_var) in blacklist_granular:
                     logger.info(f"Skipping blacklisted Cod Article and Var: {product_cod}.{product_var}")
@@ -78,22 +81,22 @@ class DecisionMaker:
                         
             package_size *= package_multi
 
-            if len(bought_array) == 0 and disponibilita == "Si":
+            if stock == None:
+                logger.info(f"Skipping Article: {product_cod}.{product_var}. Because has no registered stock")
+                continue
+            
+            if stock < 0 and verified == 1:
+                analyzer.anomalous_stock_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
+
+            if len(bought_array) == 0:
+                if disponibilita == "Si":
                     reason = "The prduct has never been in the system"
                     analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     self.helper.line_breaker()
                     continue
-                
-            if len(bought_array)  <= 0:
-                if disponibilita == "No":
+                elif disponibilita == "No":
                     reason = "The article is NOT available for restocking and hasn't been bought or sold for the last 3 months" 
-                    self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
-                    self.helper.line_breaker()
-                    continue
-                else :
-                    reason = "The article is available once more for restocking but hasn't been bought or sold for the last 3 months"
-                    analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     self.helper.line_breaker()
                     continue
@@ -145,7 +148,7 @@ class DecisionMaker:
 
             if verified == 1:
                 category = "N"
-                result, check, status = process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_daily_sales_corrected, expected_packages, req_stock, stock, package_consumption, current_gap, trend, turnover, self.helper)
+                result, check, status = process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_daily_sales_corrected, req_stock, stock)
             elif package_consumption >= 1:
                 category = "A"
                 result, check, status = process_A_sales(stock, package_size, deviation_corrected, real_need, expected_packages, req_stock, current_gap, trend, turnover, self.helper)

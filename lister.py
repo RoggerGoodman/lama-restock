@@ -13,7 +13,7 @@ from pywinauto import Application, Desktop
 from selenium.webdriver.chrome.options import Options
 from credentials import PASSWORD, USERNAME
 storages = ["01 RIANO GENERI VARI", "23 S.PALOMBA SURGELATI", "02 POMEZIA DEPERIBILI"]
-desired_value = "23 S.PALOMBA SURGELATI"
+desired_value = "01 RIANO GENERI VARI"
 save_path = r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Database"
 full_file_path = rf"{save_path}\{desired_value}"
 filters = False
@@ -171,7 +171,7 @@ class Updater :
         source_file = os.path.join(download_folder, 'SmartGrid.xlsx')
 
         # Define destination folder and new filename
-        destination_folder = './Database/'
+        destination_folder = './Lists/'
         new_filename = f"{desired_value}.xlsx"
         destination_file = os.path.join(destination_folder, new_filename)
 
