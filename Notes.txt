@@ -1,9 +1,8 @@
 
 New Featuere: Delivery check ask for more details
 
-C checks must be expressen in function of req_stock
 
-.\env\Scripts\python.exe -m pip install <package_name>
+.\env\Scripts\python.exe -m pip install package_name
 
 SELECT *
 FROM 'product_stats' ps
@@ -14,22 +13,28 @@ WHERE ps.cod = 1505
 
 GENERI VARI
 
-Ordine domenica copertura 3+prevision (pronto per le 16:00)
+Ordine domenica copertura 4 (pronto per le 16:00)
 
-Ordine martedi copertura 3+prevision (pronto per le 16:00)
+Ordine martedi copertura 4 (pronto per le 16:00)
 
-Ordine giovedi copertura 4+prevision (pronto per le 08:00)
+Ordine giovedi copertura 5 (pronto per le 08:00)
 
 SURGELATI
 
-Ordine martedi copertura 4+prevision (pronto per le 11:00)
+Ordine martedi copertura 5 (pronto per le 11:00)
 
-Ordine venerdi copertura 5+prevision (pronto per le 11:00)
+Ordine venerdi copertura 6 (pronto per le 11:00)
 
 DEPERIBILI
 
-Ordine lunedi copertura 3+prevision (pronto per le 09:00)
+Ordine lunedi copertura 4 (pronto per le 09:00)
 
-Ordine mercoledi copertura 3+prevision (pronto per le 09:00)
+Ordine mercoledi copertura 4 (pronto per le 09:00)
 
-Ordine venerdi copertura 4+prevision (pronto per le 09:00)
+Ordine venerdi copertura 5 (pronto per le 09:00)
+
+GIORNI INVENTARIO:
+martedi
+giovedi
+Sabato
+

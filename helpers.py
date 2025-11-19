@@ -7,9 +7,22 @@ import math
 class Helper:
 
     def __init__(self) -> None:
-        # Get the current month and day       
+        # Get the current month and day
+        self.current_year = datetime.now().year
         self.current_month = datetime.now().month
         self.current_day = datetime.now().day
+        self.days_this_month = monthrange(self.current_year, self.current_month)[1]
+
+        # Calculate previous month and year
+        if self.current_month == 1:
+            prev_month = 12
+            prev_year = self.current_year - 1
+        else:
+            prev_month = self.current_month - 1
+            prev_year = self.current_year
+
+        self.days_previous_month = monthrange(prev_year, prev_month)[1]
+         
         # Calculate how many months until December
         if self.current_month < 12:
             self.months_to_discard = 12 - self.current_month
@@ -53,50 +66,116 @@ class Helper:
             final_array_bought.pop(0)
             i += 1
 
-        # Remove the last elements from both lists if the bought-list has a zero as last element
+        # Remove the last elements from both lists if the bought-list and the sold-list both have a zero as last element
         while len(final_array_bought) > 0 and final_array_bought[-1] == 0 and final_array_sold[-1] == 0:
             final_array_bought.pop()
             final_array_sold.pop()
 
         return final_array_bought, final_array_sold
 
-    def calculate_weighted_avg_sales(self, final_array_sold):
+    def calculate_weighted_avg_sales(self, final_array_sold:list):
+        
         sales_period = 2
         if len(final_array_sold) > 12:
-            previous_year_sold = final_array_sold[self.current_month:]
-        else : previous_year_sold = [0]
+            array_previous_year_sold = final_array_sold[self.current_month:]
+        else : array_previous_year_sold = [0]
         sales_period = min(sales_period, len(final_array_sold))
-        sold_daily_this_month = final_array_sold[0]
+        sold_this_month = final_array_sold[0]
         if len(final_array_sold) >= 2:
-            sold_daily_previous_month = final_array_sold[1]
+            sold_previous_month = final_array_sold[1]
         else:
-            sold_daily_previous_month = 0
-        sold_daily_tot = sold_daily_this_month + sold_daily_previous_month
-        if sold_daily_tot == 0:
-            return sold_daily_tot
+            sold_previous_month = 0
+        sold_tot = sold_this_month + sold_previous_month
+        if sold_tot == 0:
+            return sold_tot , 0
         if len(final_array_sold) > 12:
             position = 12 - self.current_month
-            last_year_current_month = previous_year_sold[position]
-            if (last_year_current_month != 0):
-                sold_daily_tot += last_year_current_month 
+            last_year_current_month = array_previous_year_sold[position]
+            avg_sales_last_year = last_year_current_month/self.days_this_month
+            sold_tot += last_year_current_month 
         else:
             sales_period -= 1
+            avg_sales_last_year = 0
         
         if self.current_day <= 15:
-            avg_daily_sales = sold_daily_tot / ((sales_period*30)+(self.current_day-1))
+            avg_daily_sales = sold_tot / max(((sales_period*30)+(self.current_day-1)), 1)
         else:
-            sold_daily_previous_month = sold_daily_previous_month * ((30 - self.current_day) / 30)
+            avg_sold_previous_month = sold_previous_month * ((self.days_previous_month - self.current_day) / self.days_previous_month)
             if sales_period > 1:
-                avg_daily_sales = (sold_daily_this_month + sold_daily_previous_month + last_year_current_month) / (sales_period*30)
+                avg_daily_sales = (sold_this_month + avg_sold_previous_month + last_year_current_month) / (sales_period*30)
             elif sales_period > 0:
-                avg_daily_sales = (sold_daily_this_month + sold_daily_previous_month) / (sales_period*30)
+                avg_daily_sales = (sold_this_month + avg_sold_previous_month) / (sales_period*30)
             else: 
-                avg_daily_sales = sold_daily_this_month / (self.current_day-1)
+                avg_daily_sales = sold_this_month / (self.current_day-1)
 
 
         if (avg_daily_sales != 0):
-            logger.info(f"Avg. Daily Sales = {avg_daily_sales:.2f}")                       
-        return avg_daily_sales
+            logger.info(f"Avg. Daily Sales = {avg_daily_sales:.2f}")
+            logger.info(f"Avg. Sales this month of the previous year= {avg_sales_last_year:.2f}")                       
+        return avg_daily_sales, avg_sales_last_year
+    
+    def calculate_weighted_avg_sales_new(self, final_array_sold: list, alpha: float = 2.0):
+        """
+        Returns (avg_daily_sales, avg_sales_last_year)
+
+        - Handles new products gracefully.
+        - Uses proportional growth between previous months (this vs last year)
+        to stabilize early-month estimates.
+        - Blend fades as month progresses.
+        """
+
+        if not final_array_sold:
+            return 0.0, 0.0
+
+        sold_this_month = final_array_sold[0] if len(final_array_sold) >= 1 else 0.0
+        sold_prev_month = final_array_sold[1] if len(final_array_sold) >= 2 else 0.0
+        sold_same_month_last_year = final_array_sold[12] if len(final_array_sold) > 12 else 0.0
+        sold_prev_month_last_year = final_array_sold[13] if len(final_array_sold) > 13 else 0.0
+
+        days_this_month = max(1, int(self.days_this_month))
+        days_prev_month = max(1, int(self.days_previous_month))
+        observed_days = max(1, int(self.current_day) - 1)
+
+        progress = min(1.0, observed_days / days_this_month)
+
+        # Compute base rates
+        rate_current_obs = sold_this_month / observed_days
+        rate_prev_month = sold_prev_month / days_prev_month if sold_prev_month > 0 else 0.0
+        rate_same_month_last_year = sold_same_month_last_year / days_this_month if sold_same_month_last_year > 0 else 0.0
+        rate_prev_month_last_year = sold_prev_month_last_year / days_prev_month if sold_prev_month_last_year > 0 else 0.0
+
+        # --- Trend ratio: how much this year has grown vs last year ---
+        if rate_prev_month_last_year > 0:
+            growth_ratio = rate_prev_month / rate_prev_month_last_year
+        else:
+            growth_ratio = 1.0
+
+        # --- Adjust prior using growth ratio ---
+        if rate_same_month_last_year > 0:
+            prior_rate = growth_ratio * rate_same_month_last_year
+        elif rate_prev_month > 0:
+            prior_rate = rate_prev_month
+        else:
+            prior_rate = rate_current_obs  # fallback for new products
+
+        # --- Dynamic blend based on month progress ---
+        w_prior = (1 - progress) ** alpha
+        w_current = 1 - w_prior
+        avg_daily_sales = (w_current * rate_current_obs) + (w_prior * prior_rate)
+
+        avg_sales_last_year = rate_same_month_last_year
+
+        try:
+            logger.info(
+                f"Day {self.current_day}/{days_this_month} | progress={progress:.2f} | "
+                f"growth_ratio={growth_ratio:.2f} | w_prior={w_prior:.2f} | "
+                f"rate_obs={rate_current_obs:.2f} | prior_rate={prior_rate:.2f} | "
+                f"avg_daily_sales={avg_daily_sales:.2f}"
+            )
+        except Exception:
+            pass
+
+        return avg_daily_sales, avg_sales_last_year
     
     def calculate_data_recent_months(self, list: list, period: int):
         weights = [0.7, 0.2, 0.1]  # You can adjust these weights
@@ -110,15 +189,13 @@ class Helper:
         logger.info(f"Avg. Monthly Sales = {avg_monthly_sales:.2f}")
         return avg_monthly_sales
 
-    def calculate_deviation(self, final_array_sold, recent_months, present : bool):
+    def calculate_deviation(self, final_array_sold, recent_months, present_time : bool):
         this_month = final_array_sold[0]
-        if present:
-            today = datetime.now()
-            dim = monthrange(today.year, today.month)[1]
+        if present_time:
             last_month = final_array_sold[1]
-            days_to_recover = dim - (today.day - 1)
+            days_to_recover = self.days_this_month - (self.current_day - 1)
             if (days_to_recover > 0):
-                last_month = (days_to_recover/dim)*last_month
+                last_month = (days_to_recover/self.days_this_month)*last_month
                 this_month += last_month
         if recent_months != 0:
             deviation = ((this_month - recent_months) /recent_months)*100
@@ -129,11 +206,8 @@ class Helper:
         return deviation_corrected
     
     def deviation_blender(self, deviation, ly_deviation):
-        today = datetime.now()
-        dim = monthrange(today.year, today.month)[1] #days in this month
-        day = today.day
 
-        alpha = 1.0 - (day / dim)
+        alpha = 1.0 - (self.current_day / self.days_this_month)
         blended = round(alpha * ly_deviation + (1.0 - alpha) * deviation, 2)
 
         return blended
@@ -276,11 +350,10 @@ class Helper:
         return current_gap
 
     def find_trend(self, final_array_sold, final_array_bought):
-        today = datetime.now()
         diffs = []
         start = 0
         
-        if today.day == 1:
+        if self.current_day == 1:
             start = 1
 
         for sold, bought in zip(final_array_sold[start:], final_array_bought[start:]):

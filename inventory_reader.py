@@ -18,6 +18,8 @@ def verify_stocks_from_excel(db: DatabaseManager):
     for file_name in os.listdir(INVENTORY_FOLDER):
         if not file_name.endswith('.csv'):
             raise ValueError("filename must be csv")
+        
+        cluster = os.path.splitext(file_name)[0]  # Filename without extension
 
         file_path = os.path.join(INVENTORY_FOLDER, file_name)
         print(f"Processing file: {file_path}")
@@ -54,7 +56,7 @@ def verify_stocks_from_excel(db: DatabaseManager):
                 new_stock = int(row[STOCK_COL])
 
                 try:
-                    db.verify_stock(cod, v, new_stock)
+                    db.verify_stock(cod, v, new_stock, cluster)
                     
                 except Exception as e:
                     print(f"⚠️ Skipped {cod}.{v} due to error: {e}")

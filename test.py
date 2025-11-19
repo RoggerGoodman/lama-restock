@@ -4,10 +4,10 @@ from helpers import Helper
 helper = Helper()
 db = DatabaseManager(helper)
 
-db.create_tables()
-#db.adjust_stock(18022, 1, -2) 
+#db.create_tables()
+#db.adjust_stock(11036, 1, 72) 
 
-#db.verify_stock(33744, 1, 22)
+db.verify_stock(38575, 1, 10)
 
 #db.init_product_stats(33744, 1, None, None, 22, True)
 

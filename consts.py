@@ -2,6 +2,7 @@
 SPREADSHEETS_FOLDER = './Lists/'
 DATABASE_FOLDER = './Database/'
 INVENTORY_FOLDER = './Inventory/'
+PROMO_FOLDER = './Promo/'
 
 # Columns you are interested in
 COLLUMN1_NAME = "Cod."

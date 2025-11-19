@@ -54,8 +54,12 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS economics (
                 cod INTEGER NOT NULL,
                 v INTEGER NOT NULL,
-                value INTEGER NOT NULL,
-                on_sale BOOLEAN DEFAULT 0,
+                price_std FLOAT NOT NULL,
+                cost_std FLOAT NOT NULL,
+                price_s FLOAT,
+                cost_s FLOAT,
+                sale_start DATE,
+                sale_end DATE,
                 category TEXT NOT NULL,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)
@@ -140,11 +144,11 @@ class DatabaseManager:
 
     # ---------- ARRAY UPDATE LOGIC ----------
 
-    def _update_array_variable_length(self, array_data:list, current_value, previous_value, current_month, last_month):
+    def _update_array_variable_length(self, array_data:list, current_value, previous_value, current_month, last_update_month):
         """
         Updates a variable-length monthly array (max 24 elements).
         """
-        if last_month == current_month:
+        if last_update_month == current_month:
             # Same month → update only first value
             if array_data:
                 array_data[0] = current_value
@@ -212,7 +216,7 @@ class DatabaseManager:
         current_date = date.today()
 
         # Use month numbers for continuity in your delta logic
-        last_month = last_update_date.month
+        last_update_month = last_update_date.month
         current_month = current_date.month
 
         # --- Compute deltas using old arrays ---
@@ -221,7 +225,7 @@ class DatabaseManager:
 
         if sold_pkt is not None:
             cur_sold_val, prev_sold_val = sold_pkt
-            if last_month == current_month:
+            if last_update_month == current_month:
                 old_current = sold_array[0] 
                 sold_delta = cur_sold_val - old_current
             else:
@@ -230,7 +234,7 @@ class DatabaseManager:
 
         if bought_pkt is not None:
             cur_bought_val, prev_bought_val = bought_pkt
-            if last_month == current_month:
+            if last_update_month == current_month:
                 old_current = bought_array[0] 
                 bought_delta = cur_bought_val - old_current
             else:
@@ -241,13 +245,13 @@ class DatabaseManager:
         if sold_pkt is not None:
             cur_sold_val, prev_sold_val = sold_pkt
             sold_array = self._update_array_variable_length(
-                sold_array, cur_sold_val, prev_sold_val, current_month, last_month
+                sold_array, cur_sold_val, prev_sold_val, current_month, last_update_month
             )
 
         if bought_pkt is not None:
             cur_bought_val, prev_bought_val = bought_pkt
             bought_array = self._update_array_variable_length(
-                bought_array, cur_bought_val, prev_bought_val, current_month, last_month
+                bought_array, cur_bought_val, prev_bought_val, current_month, last_update_month
             )
 
         # --- Adjust stock incrementally ---
@@ -402,7 +406,7 @@ class DatabaseManager:
                 (cod, v, json_array, today_iso)
             )
             self.conn.commit()
-            #self.adjust_stock(cod, v, -int(delta))
+            self.adjust_stock(cod, v, -int(delta))
             #if type == "internal":
                 #self.register_internal_sales(delta, cod, v) 
             return  
@@ -443,8 +447,8 @@ class DatabaseManager:
                 
                 self.conn.commit()
 
-                if type == "internal":
-                    self.register_internal_sales(difference, cod, v)
+                #if type == "internal":
+                    #self.register_internal_sales(difference, cod, v)
 
                 return {"action": "same_month_overwrite", "cod": cod, "v": v, "old_first": old_first, "new_first": new_first, "difference": difference}
 
@@ -473,8 +477,8 @@ class DatabaseManager:
             # adjust stock by -delta (a new loss in current month)
             self.adjust_stock(cod, v, -int(new_delta))
 
-            if type == "internal":
-                self.register_internal_sales(new_delta, cod, v)
+            #if type == "internal":
+                #self.register_internal_sales(new_delta, cod, v)
 
             return {"action": "months_passed_insert", "cod": cod, "v": v, "months_passed": months_passed, "new_arr_length": len(new_arr)}
 
@@ -494,12 +498,12 @@ class DatabaseManager:
 
         # Update stock and mark as verified
         cur.execute(
-            "UPDATE product_stats SET stock=?, WHERE cod=? AND v=?",
+            "UPDATE product_stats SET stock=? WHERE cod=? AND v=?",
             (new_stock, cod, v)
         )
         self.conn.commit()
 
-    def verify_stock(self, cod:int, v:int, new_stock:int):
+    def verify_stock(self, cod:int, v:int, new_stock:int, cluster:str = None):
         """
         Called when a human inspects and corrects stock. Optionally set a new stock value.
         This sets verified = True. (Does not change last_update.)
@@ -508,6 +512,12 @@ class DatabaseManager:
         cur.execute("UPDATE product_stats SET stock=?, verified=1 WHERE cod=? AND v=?", (new_stock, cod, v))
         if cur.rowcount == 0:
             raise ValueError(f"No product_stats found for {cod}.{v}")
+        
+        if cluster != None:
+            cur.execute("UPDATE products SET cluster = ? WHERE cod=? AND v=?", (cluster, cod, v))
+            if cur.rowcount == 0:
+                raise ValueError(f"No products found for {cod}.{v}")
+        
         self.conn.commit()
 
     def register_internal_sales(self, delta, cod, v):
@@ -561,6 +571,10 @@ class DatabaseManager:
         RAPP_COLS = "Rapp"
         PZ_COLS = "Pz.x.Collo"
         DISP_COLS = "Disponibilita"
+        COST_COLS = "Costo"
+        PRICE_COLS = "Vendita"
+        REP_COLS = "Reparto"
+
 
     # Skip rows without a numeric Cod.
         df = df[pd.to_numeric(df[COD_COLS], errors="coerce").notna()]
@@ -573,16 +587,34 @@ class DatabaseManager:
         df = df.drop_duplicates(subset=[COD_COLS, V_COLS], keep="first")
 
         # Step 4: Prepare rows for bulk insert
-        rows = []
+        prod_rows = []
+        econ_rows = []
         for _, row in df.iterrows():
             cod = int(row[COD_COLS])
             v = int(row[V_COLS]) if not pd.isna(row[V_COLS]) else 0
             descrizione = str(row[DESC_COLS]).strip() if DESC_COLS in df.columns else ""
-            rapp = int(row[RAPP_COLS]) if RAPP_COLS in df.columns and not pd.isna(row[RAPP_COLS]) else None
             pz_x_collo = int(row[PZ_COLS]) if PZ_COLS in df.columns and not pd.isna(row[PZ_COLS]) else None
             disponibilita = str(row[DISP_COLS]).strip() if DISP_COLS in df.columns else "Si"
+            cost = float(row[COST_COLS]) if COST_COLS in df.columns else None
+            price = float(row[PRICE_COLS]) if PRICE_COLS in df.columns else None
+            category = str(row[REP_COLS]).strip() if REP_COLS in df.columns else ""
 
-            rows.append((cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
+            rapp = None
+            if RAPP_COLS in df.columns and not pd.isna(row[RAPP_COLS]):
+                val = row[RAPP_COLS]
+                try:
+                    num = float(val)
+                    if not num.is_integer():
+                        print(f"⚠️ Warning: Float value {val} found in RAPP_COLS for code {cod}. Skipping row.")
+                        continue
+                    rapp = int(num)
+                except ValueError:
+                    print(f"⚠️ Warning: Invalid RAPP_COLS value '{val}' for code {cod}. Skipping row.")
+                    continue
+
+            prod_rows.append((cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
+            econ_rows.append((cod, v, price, cost, None, None, None, None, category))
+
 
         # Step 5: Insert or update all at once
         cur = self.conn.cursor()
@@ -595,14 +627,28 @@ class DatabaseManager:
                 rapp = excluded.rapp,
                 pz_x_collo = excluded.pz_x_collo,
                 disponibilita = excluded.disponibilita
-        """, rows)
+        """, prod_rows)
+
+        cur.executemany("""
+            INSERT INTO economics
+            (cod, v, price_std, cost_std, price_s, cost_s, sale_start, sale_end, category)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cod, v) DO UPDATE SET
+                price_std = excluded.price_std,
+                cost_std = excluded.cost_std,
+                price_s = excluded.price_s,
+                cost_s = excluded.cost_s,
+                sale_start = excluded.sale_start,
+                sale_end = excluded.sale_end,
+                category = excluded.category
+        """, econ_rows)
 
         self.conn.commit()
 
         # Step 6: Remove stats of deleted products
         # self.purge_orphan_stats()
 
-        print(f"Imported {len(rows)} products into settore '{settore}'.")
+        print(f"Imported {len(prod_rows)} products into settore '{settore}'.")
 
     def estimate_and_update_stock_for_settore(self, settore, batch_commit=100): #TODO Is obsolite already?
         """
@@ -728,3 +774,43 @@ class DatabaseManager:
             self.conn.commit()
 
         return report
+    
+    def update_promos(self, promo_list):
+        """
+        promo_list: list of tuples in the form
+        (cod, v, price_s, cost_s, sale_start, sale_end)
+        """
+
+        if not promo_list:
+            return  # nothing to do
+
+        cur = self.conn.cursor()
+
+        # Step 1: get all existing (cod, v) combinations in the DB
+        cur.execute("SELECT cod, v FROM economics")
+        existing = set((int(cod), int(v)) for cod, v in cur.fetchall())
+
+        # Filter promo_list using same type normalization
+        filtered_list = [
+            row for row in promo_list
+            if (int(row[0]), int(row[1])) in existing
+        ]
+
+        if not filtered_list:
+            return  # nothing to update
+
+        # Step 3: perform the upsert on the filtered list
+        cur.executemany("""
+            INSERT INTO economics (cod, v, price_s, cost_s, sale_start, sale_end, price_std, cost_std, category)
+            VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0)
+            ON CONFLICT(cod, v) DO UPDATE SET
+                price_s   = excluded.price_s,
+                cost_s    = excluded.cost_s,
+                sale_start = excluded.sale_start,
+                sale_end   = excluded.sale_end,
+                price_std  = price_std,
+                cost_std   = cost_std,
+                category = category
+        """, filtered_list)
+
+        self.conn.commit()

@@ -1,3 +1,4 @@
+from datetime import datetime
 from credentials import PASSWORD, USERNAME
 from DatabaseManager import DatabaseManager
 from selenium import webdriver
@@ -9,6 +10,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
 from helpers import Helper
+import pdfplumber
+import re
+
 
 class Scrapper:
 
@@ -24,6 +28,8 @@ class Scrapper:
         self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)
         self.db = db
+        self.offers_path=r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Offers"
+        self.current_day = datetime.now().day
 
     def login(self):
 
@@ -79,7 +85,11 @@ class Scrapper:
         
         timeout=10
         cur = self.db.conn.cursor()
-        cur.execute("SELECT cod, v FROM products WHERE settore = ?", (settore,))
+        if settore == "#RIANO GENERI VARI":
+            cur.execute("SELECT ps.cod, ps.v FROM 'product_stats' ps LEFT JOIN 'products' p ON ps.cod = p.cod AND ps.v = p.v WHERE p.settore = ? AND ps.verified = 1", (settore,))
+        else :
+            cur.execute("SELECT cod, v FROM products WHERE settore = ?", (settore,))
+
         products = cur.fetchall()
 
         report = {
@@ -170,6 +180,7 @@ class Scrapper:
                 else:
                      # pass first two elements
                     self.db.update_product_stats(cod, v, sold_update=final_array_sold[:2], bought_update=final_array_bought[:2])
+                    report["updated"] += 1
 
             except UnexpectedAlertPresentException:
                 self.actions.send_keys(Keys.ENTER)
@@ -364,3 +375,53 @@ class Scrapper:
             return int(half)
         else:
             return DEFAULT
+        
+    def parse_promo_pdf(self, file_path):
+        data = []
+        sale_start = None
+        sale_end = None
+
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+
+                # --- Extract sale_start / sale_end ---
+                m = re.search(r"Pubblico Dal (\d{2}/\d{2}/\d{4}) al (\d{2}/\d{2}/\d{4})", text)
+                if m:
+                    sale_start = datetime.strptime(m.group(1), "%d/%m/%Y").date().isoformat()
+                    sale_end = datetime.strptime(m.group(2), "%d/%m/%Y").date().isoformat()
+
+                # --- Extract table rows ---
+                table = page.extract_table()
+                if not table:
+                    continue
+
+                for row in table:
+                    # Skip headers or empty rows
+                    if not row or row[1] == "Codice Art." or row[1] == None:
+                        continue
+
+                    codice = row[1]     # e.g. "1729.01"
+                    cess = row[5]       # cost_s
+                    pubb = row[6]       # price_s
+
+                    # Convert codice
+                    if codice:
+                        parts = codice.split(".")
+                        cod = int(parts[0])
+                        v = int(parts[1])
+
+                    # Convert prices
+                    try:
+                        cost_s = float(cess.replace(",", ".")) if cess else None
+                    except:
+                        cost_s = None
+
+                    try:
+                        price_s = float(pubb.replace(",", ".")) if pubb else None
+                    except:
+                        price_s = None
+
+                    data.append((cod, v, price_s, cost_s, sale_start, sale_end))
+
+        return data
