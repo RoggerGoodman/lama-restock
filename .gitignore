@@ -91,7 +91,6 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
 .venv
 env/
 venv/
@@ -119,4 +118,3 @@ venv.bak/
 
 # DATABASE STUFF
 /hsqldb
-/Database
