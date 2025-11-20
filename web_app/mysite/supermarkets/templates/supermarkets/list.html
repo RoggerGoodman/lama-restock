@@ -1,0 +1,16 @@
+<!-- templates/supermarkets/list.html -->
+{% extends 'base.html' %}
+{% block title %}My Supermarkets{% endblock %}
+{% block content %}
+  <h1>My Supermarkets</h1>
+  <a href="{% url 'supermarket-add' %}" class="btn btn-primary mb-3">Add New Supermarket</a>
+  <ul class="list-group">
+    {% for supermarket in supermarkets %}
+      <li class="list-group-item">
+        <a href="{% url 'supermarket-detail' pk=supermarket.pk %}">{{ supermarket.name }}</a>
+      </li>
+    {% empty %}
+      <li class="list-group-item">No supermarkets found.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

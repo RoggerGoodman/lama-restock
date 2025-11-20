@@ -1,0 +1,20 @@
+<!-- templates/blacklists/detail.html -->
+{% extends 'base.html' %}
+{% block title %}Blacklist Detail{% endblock %}
+{% block content %}
+  <h1>{{ blacklist.name }}</h1>
+  <p>Category: {{ blacklist.category.name }}</p>
+  
+  <h2>Entries</h2>
+  <ul class="list-group">
+    {% for entry in blacklist.entries.all %}
+      <li class="list-group-item">
+        Product Code: {{ entry.product_code }}, Var: {{ entry.product_var }}
+      </li>
+    {% empty %}
+      <li class="list-group-item">No entries in this blacklist.</li>
+    {% endfor %}
+  </ul>
+  
+  <a href="{% url 'blacklistentry-add' blacklist_pk=blacklist.pk %}" class="btn btn-secondary mt-3">Add Entry</a>
+{% endblock %}

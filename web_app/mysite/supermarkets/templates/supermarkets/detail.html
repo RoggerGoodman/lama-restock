@@ -1,0 +1,10 @@
+<!-- templates/supermarkets/detail.html -->
+{% extends 'base.html' %}
+{% block title %}{{ supermarket.name }}{% endblock %}
+{% block content %}
+  <h1>{{ supermarket.name }}</h1>
+  <p><strong>Username:</strong> {{ supermarket.username }}</p>
+  <p><strong>Password:</strong> {{ supermarket.password }}</p>
+  <p><strong>Owner:</strong> {{ supermarket.owner.username }}</p>
+  <a href="{% url 'supermarket-edit' pk=supermarket.pk %}" class="btn btn-secondary">Edit Supermarket</a>
+{% endblock %}
