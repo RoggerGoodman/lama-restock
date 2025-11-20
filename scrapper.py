@@ -28,7 +28,7 @@ class Scrapper:
         self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)
         self.db = db
-        self.offers_path=r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Offers"
+        self.offers_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Offers"
         self.current_day = datetime.now().day
 
     def login(self):

@@ -12,7 +12,7 @@ import pygetwindow as gw
 import pyautogui
 from credentials import PASSWORD, USERNAME
 
-save_path = r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Inventory"
+save_path = r"C:\Users\rugge\Documents\GitHub\lama-restock\Inventory"
 
 
 class Inventory_Scrapper:
@@ -278,7 +278,7 @@ class Inventory_Scrapper:
         full_path = os.path.join(save_dir, target)
 
         time.sleep(3)
-        windows = gw.getWindowsWithTitle("Salva con nome")
+        windows = gw.getWindowsWithTitle("Save as")
 
         # Bring dialog to the front
         win = windows[0]

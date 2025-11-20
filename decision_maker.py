@@ -10,7 +10,7 @@ from Tiers.processor_N import process_N_sales
 
 
 class DecisionMaker:
-    def __init__(self, helper: Helper, db_path=r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Database\supermarket.db"):
+    def __init__(self, helper: Helper, db_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Database\supermarket.db"):
         """
         Initialize the decision maker.
 

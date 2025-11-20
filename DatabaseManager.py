@@ -9,7 +9,7 @@ import json
 from helpers import Helper
 
 class DatabaseManager:
-    def __init__(self, helper: Helper, db_path=r"C:\Users\Ruggero\Documents\GitHub\lama-restock\Database\supermarket.db"):
+    def __init__(self, helper: Helper, db_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Database\supermarket.db"):
         self.conn = sqlite3.connect(db_path)
         self.helper = helper
         self.conn.row_factory = sqlite3.Row  # allow dict-like access

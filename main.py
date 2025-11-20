@@ -13,7 +13,7 @@ storages = ["01 RIANO GENERI VARI", "23 S.PALOMBA SURGELATI", "02 POMEZIA DEPERI
 product_list = [(38575, 1) ]
 
 settore = "RIANO GENERI VARI"
-coverage = 4
+coverage = 5
 helper = Helper()
 db = DatabaseManager(helper)
 Inv_S = Inventory_Scrapper() 
@@ -89,6 +89,7 @@ def make_order():
 #estimate()
 #losess_recorder()
 #update()
-#verify()
-make_order()
+verify()
+#make_order()
 #register_prducts()
+#verify_lost_stock_from_excel_combined(db)
