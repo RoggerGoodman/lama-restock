@@ -1,0 +1,190 @@
+# LamApp/LamApp/supermarkets/services.py
+"""
+Service layer to integrate existing DatabaseManager with Django models
+"""
+import sys
+import os
+from pathlib import Path
+
+from .scripts.DatabaseManager import DatabaseManager
+from .scripts.decision_maker import DecisionMaker
+from .scripts.helpers import Helper
+from .scripts.scrapper import Scrapper
+from .scripts.orderer import Orderer
+from django.conf import settings
+from .models import Storage, RestockLog
+from django.utils import timezone
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class RestockService:
+    """Service to handle restock operations"""
+    
+    def __init__(self, storage: Storage):
+        self.storage = storage
+        self.settore = storage.settore
+        self.supermarket = storage.supermarket
+        
+        # Initialize your existing classes
+        self.helper = Helper()
+        
+        # Use storage-specific database path
+        db_path = self.get_db_path()
+        self.db = DatabaseManager(self.helper, db_path=db_path)
+        self.decision_maker = DecisionMaker(self.helper, db_path=db_path)
+    
+    def get_db_path(self):
+        """Get database path for this storage"""
+        # Create a database file per supermarket
+        db_dir = Path(settings.BASE_DIR) / 'databases'
+        db_dir.mkdir(exist_ok=True)
+        
+        # Sanitize supermarket name for filename
+        safe_name = "".join(c for c in self.supermarket.name if c.isalnum() or c in (' ', '_')).strip()
+        safe_name = safe_name.replace(' ', '_')
+        
+        return str(db_dir / f"{safe_name}.db")
+    
+    def run_restock_check(self, coverage=None):
+        """
+        Run the restock check for this storage
+        Returns: RestockLog instance
+        """
+        log = RestockLog.objects.create(
+            storage=self.storage,
+            status='processing'
+        )
+        
+        try:
+            # Calculate coverage if not provided
+            if coverage is None:
+                schedule = self.storage.schedule
+                today = timezone.now().weekday()  # 0=Monday, 6=Sunday
+                coverage = schedule.calculate_coverage_for_day(today)
+            
+            log.coverage_used = coverage
+            log.save()
+            
+            # Run decision maker
+            self.decision_maker.decide_orders_for_settore(self.settore, coverage)
+            
+            # Get orders list
+            orders_list = self.decision_maker.orders_list
+            
+            # Update log statistics
+            log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
+            log.products_ordered = len(orders_list)
+            log.total_packages = sum(qty for _, _, qty in orders_list)
+            
+            # Store detailed results
+            log.set_results({
+                'orders': [
+                    {'cod': cod, 'var': var, 'qty': qty}
+                    for cod, var, qty in orders_list
+                ],
+                'settore': self.settore,
+                'coverage': float(coverage)
+            })
+            
+            log.status = 'completed'
+            log.completed_at = timezone.now()
+            log.save()
+            
+            return log, orders_list
+            
+        except Exception as e:
+            logger.exception(f"Error during restock check for {self.storage}")
+            log.status = 'failed'
+            log.error_message = str(e)
+            log.completed_at = timezone.now()
+            log.save()
+            raise
+    
+    def execute_order(self, orders_list):
+        """
+        Execute the actual order placement using Orderer
+        """
+        orderer = Orderer()
+        try:
+            orderer.login()
+            orderer.make_orders(self.settore, orders_list)
+            return True
+        except Exception as e:
+            logger.exception(f"Error executing order for {self.storage}")
+            raise
+        finally:
+            orderer.driver.quit()
+    
+    def import_products_from_excel(self, file_path):
+        """Import products from Excel file"""
+        self.db.import_from_excel(file_path, self.settore)
+    
+    def update_product_stats(self):
+        """Update product statistics from PAC2000A"""
+        scrapper = Scrapper(self.helper, self.db)
+        try:
+            scrapper.navigate()
+            scrapper.init_product_stats_for_settore(self.settore)
+        finally:
+            scrapper.driver.quit()
+    
+    def verify_inventory(self, csv_file_path):
+        """Verify inventory from CSV file"""
+        from .scripts.inventory_reader import verify_stocks_from_excel
+        verify_stocks_from_excel(self.db)
+    
+    def register_losses(self, loss_type, csv_file_path):
+        """Register product losses (broken, expired, internal use)"""
+        from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
+        # You'll need to adapt this to work with individual files
+        verify_lost_stock_from_excel_combined(self.db)
+    
+    def get_blacklist_tuples(self):
+        """Get blacklist as set of (cod, var) tuples for decision maker"""
+        blacklist_set = set()
+        for blacklist in self.storage.blacklists.all():
+            for entry in blacklist.entries.all():
+                blacklist_set.add((entry.product_code, entry.product_var))
+        return blacklist_set
+    
+    def close(self):
+        """Clean up resources"""
+        self.db.close()
+
+
+class StorageService:
+    """Service to manage storage discovery and setup"""
+    
+    @staticmethod
+    def discover_storages(supermarket):
+        """
+        Use Finder to discover available storages for a supermarket
+        Returns: list of storage names
+        """
+        from .scripts.finder import Finder 
+        
+        finder = Finder()
+        try:
+            finder.login(supermarket.username, supermarket.password)
+            return finder.find_storages()
+        finally:
+            finder.driver.quit()
+    
+    @staticmethod
+    def sync_storages(supermarket):
+        """
+        Sync storages from PAC2000A to Django database
+        """
+        storage_names = StorageService.discover_storages(supermarket)
+        
+        for name in storage_names:
+            # Remove numeric prefix if present
+            settore = name.split(' ', 1)[1] if ' ' in name else name
+            
+            Storage.objects.get_or_create(
+                supermarket=supermarket,
+                name=name,
+                defaults={'settore': settore}
+            )

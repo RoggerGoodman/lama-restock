@@ -1,0 +1,212 @@
+<!-- LamApp/LamApp/supermarkets/templates/dashboard.html -->
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - LamaRestock{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Statistics Cards -->
+    <div class="row">
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-blue">
+                    <i class="bi bi-shop"></i>
+                </div>
+                <h3 class="mb-1">{{ total_supermarkets }}</h3>
+                <p class="text-muted mb-0">Supermarkets</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-green">
+                    <i class="bi bi-boxes"></i>
+                </div>
+                <h3 class="mb-1">{{ total_storages }}</h3>
+                <p class="text-muted mb-0">Storages</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-orange">
+                    <i class="bi bi-clock-history"></i>
+                </div>
+                <h3 class="mb-1">{{ recent_logs|length }}</h3>
+                <p class="text-muted mb-0">Recent Operations</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-red">
+                    <i class="bi bi-calendar-check"></i>
+                </div>
+                <h3 class="mb-1">
+                    {% for supermarket in supermarkets %}
+                        {% for storage in supermarket.storages.all %}
+                            {% if storage.schedule %}1{% endif %}
+                        {% endfor %}
+                    {% endfor %}
+                </h3>
+                <p class="text-muted mb-0">Active Schedules</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quick Actions -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-lightning-charge"></i> Quick Actions
+                </h5>
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="{% url 'supermarket-add' %}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Add Supermarket
+                    </a>
+                    <a href="{% url 'restock_schedule_list' %}" class="btn btn-outline-primary">
+                        <i class="bi bi-calendar"></i> Manage Schedules
+                    </a>
+                    <a href="{% url 'blacklist-list' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-slash-circle"></i> Manage Blacklists
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Supermarkets Overview -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-shop"></i> Your Supermarkets
+                </h5>
+                
+                {% if supermarkets %}
+                    <div class="row">
+                        {% for supermarket in supermarkets %}
+                        <div class="col-md-6 col-lg-4 mb-3">
+                            <div class="card h-100 border-0" style="background-color: #f8f9fa;">
+                                <div class="card-body">
+                                    <h6 class="card-title">
+                                        <i class="bi bi-shop text-primary"></i>
+                                        {{ supermarket.name }}
+                                    </h6>
+                                    <p class="text-muted small mb-2">
+                                        {{ supermarket.storages.count }} storage{{ supermarket.storages.count|pluralize }}
+                                    </p>
+                                    
+                                    <!-- Storage List -->
+                                    {% if supermarket.storages.all %}
+                                    <ul class="list-unstyled small">
+                                        {% for storage in supermarket.storages.all %}
+                                        <li class="mb-1">
+                                            <a href="{% url 'storage-detail' pk=storage.id %}" class="text-decoration-none">
+                                                <i class="bi bi-box"></i> {{ storage.name }}
+                                                {% if storage.schedule %}
+                                                    <span class="badge bg-success">
+                                                        <i class="bi bi-check-circle"></i>
+                                                    </span>
+                                                {% else %}
+                                                    <span class="badge bg-warning">
+                                                        <i class="bi bi-exclamation-triangle"></i>
+                                                    </span>
+                                                {% endif %}
+                                            </a>
+                                        </li>
+                                        {% endfor %}
+                                    </ul>
+                                    {% endif %}
+                                    
+                                    <div class="mt-3">
+                                        <a href="{% url 'supermarket-detail' pk=supermarket.id %}" class="btn btn-sm btn-outline-primary">
+                                            View Details
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        You haven't added any supermarkets yet.
+                        <a href="{% url 'supermarket-add' %}" class="alert-link">Add your first supermarket</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Recent Activity -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-activity"></i> Recent Activity
+                </h5>
+                
+                {% if recent_logs %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Storage</th>
+                                    <th>Status</th>
+                                    <th>Products Ordered</th>
+                                    <th>Total Packages</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for log in recent_logs %}
+                                <tr>
+                                    <td>{{ log.started_at|date:"M d, H:i" }}</td>
+                                    <td>
+                                        <strong>{{ log.storage.supermarket.name }}</strong><br>
+                                        <small class="text-muted">{{ log.storage.name }}</small>
+                                    </td>
+                                    <td>
+                                        {% if log.status == 'completed' %}
+                                            <span class="badge bg-success">
+                                                <i class="bi bi-check-circle"></i> Completed
+                                            </span>
+                                        {% elif log.status == 'failed' %}
+                                            <span class="badge bg-danger">
+                                                <i class="bi bi-x-circle"></i> Failed
+                                            </span>
+                                        {% elif log.status == 'processing' %}
+                                            <span class="badge bg-warning">
+                                                <i class="bi bi-hourglass-split"></i> Processing
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">
+                                                <i class="bi bi-clock"></i> Pending
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ log.products_ordered }}</td>
+                                    <td>{{ log.total_packages }}</td>
+                                    <td>
+                                        <a href="{% url 'restock-log-detail' pk=log.id %}" class="btn btn-sm btn-outline-primary">
+                                            View
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        No recent activity to display.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
