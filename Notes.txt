@@ -38,3 +38,39 @@ martedi
 giovedi
 Sabato
 
+lama-restock/
+├── LamApp/                    # Django web application
+│   └── LamApp/
+│       ├── supermarkets/       # Main app
+│       │   ├── models.py       # Database models
+│       │   ├── views.py        # View logic
+│       │   ├── forms.py        # Forms
+│       │   ├── services.py     # Business logic
+│       │   ├── templates/      # HTML templates
+│       │   └── scripts/        # Automation scripts
+│       ├── LamApp/             # Project settings
+│       └── manage.py
+├── DatabaseManager.py          # Core database operations
+├── decision_maker.py           # Restock decision logic
+├── helpers.py                  # Calculation helpers
+├── scrapper.py                 # PAC2000A data scraping
+├── orderer.py                  # Order placement
+├── inventory_reader.py         # Inventory import
+├── setup.py                    # Quick setup script
+└── requirements.txt            # Python dependencies
+
+def purge_entry():
+    cur = db.conn.cursor()
+    entries_to_delete = [
+        (36090, 1),  # (cod, v)
+        (34018, 1)
+    ]
+
+    for cod, v in entries_to_delete:
+        # Delete from product_stats first (dependent)
+        cur.execute("DELETE FROM product_stats WHERE cod=? AND v=?", (cod, v))
+        
+        # Then from products (main table)
+        cur.execute("DELETE FROM products WHERE cod=? AND v=?", (cod, v))
+
+    db.conn.commit()
