@@ -1,20 +1,126 @@
-<!-- templates/blacklists/detail.html -->
+<!-- LamApp/supermarkets/templates/blacklists/detail.html -->
 {% extends 'base.html' %}
-{% block title %}Blacklist Detail{% endblock %}
+{% block title %}Blacklist: {{ blacklist.name }}{% endblock %}
+{% block page_title %}{{ blacklist.name }}{% endblock %}
+
 {% block content %}
-  <h1>{{ blacklist.name }}</h1>
-  <p>Storage: {{ blacklist.storage.name }}</p>
-  
-  <h2>Entries</h2>
-  <ul class="list-group">
-    {% for entry in blacklist.entries.all %}
-      <li class="list-group-item">
-        Product Code: {{ entry.product_code }}, Var: {{ entry.product_var }}
-      </li>
-    {% empty %}
-      <li class="list-group-item">No entries in this blacklist.</li>
-    {% endfor %}
-  </ul>
-  
-  <a href="{% url 'blacklistentry-add' blacklist_pk=blacklist.pk %}" class="btn btn-secondary mt-3">Add Entry</a>
+<div class="container-fluid">
+    <!-- Breadcrumb -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'blacklist-list' %}">Blacklists</a></li>
+                    <li class="breadcrumb-item active">{{ blacklist.name }}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Blacklist Info -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h4 class="mb-1">
+                            <i class="bi bi-slash-circle text-danger"></i>
+                            {{ blacklist.name }}
+                        </h4>
+                        <p class="text-muted mb-0">
+                            <i class="bi bi-box"></i> {{ blacklist.storage.name }}
+                            <span class="text-muted mx-2">|</span>
+                            <i class="bi bi-shop"></i> {{ blacklist.storage.supermarket.name }}
+                        </p>
+                    </div>
+                </div>
+
+                {% if blacklist.description %}
+                <div class="alert alert-info mb-3">
+                    {{ blacklist.description }}
+                </div>
+                {% endif %}
+
+                <!-- Actions -->
+                <div class="d-flex gap-2 mb-3">
+                    <a href="{% url 'blacklistentry-add' blacklist_pk=blacklist.pk %}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Add Product
+                    </a>
+                    <a href="{% url 'storage-detail' pk=blacklist.storage.id %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Storage
+                    </a>
+                    <a href="{% url 'blacklist-delete' pk=blacklist.pk %}" class="btn btn-outline-danger">
+                        <i class="bi bi-trash"></i> Delete Blacklist
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="stat-card">
+                <h6 class="mb-3">Statistics</h6>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted">Total Products</span>
+                    <strong>{{ blacklist.entries.count }}</strong>
+                </div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="text-muted">Created</span>
+                    <strong>{{ blacklist.created_at|date:"M d, Y" }}</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Entries List -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-list-check"></i> Blacklisted Products
+                </h5>
+
+                {% if blacklist.entries.all %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Product Code</th>
+                                    <th>Variant</th>
+                                    <th>Full Code</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for entry in blacklist.entries.all %}
+                                <tr>
+                                    <td><code>{{ entry.product_code }}</code></td>
+                                    <td><code>{{ entry.product_var }}</code></td>
+                                    <td><strong>{{ entry.product_code }}.{{ entry.product_var }}</strong></td>
+                                    <td>
+                                        <a href="{% url 'blacklistentry-delete' pk=entry.pk %}" class="btn btn-sm btn-outline-danger">
+                                            <i class="bi bi-trash"></i> Remove
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="alert alert-secondary mt-3">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>{{ blacklist.entries.count }}</strong> product{{ blacklist.entries.count|pluralize }} will be excluded from restock orders.
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        No products in this blacklist yet.
+                        <a href="{% url 'blacklistentry-add' blacklist_pk=blacklist.pk %}" class="alert-link">Add your first product</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

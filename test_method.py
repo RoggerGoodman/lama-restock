@@ -27,5 +27,17 @@ def purge_unverified_products():
     conn.commit()
     print("Purge complete.")
 
-purge_unverified_products()
+def change_data( old_value="RIANO GENERI VARI", new_value="GENERI VARI"):
+    cur.execute("""
+        UPDATE products
+        SET settore = ?
+        WHERE settore = ?
+    """, (new_value, old_value))
+    conn.commit()
+    print(f"Updated {cur.rowcount} rows.")
+
+
+    
+change_data()
+#purge_unverified_products()
 #cur.execute("DROP TABLE economics;")

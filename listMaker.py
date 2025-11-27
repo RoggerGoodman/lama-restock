@@ -1,6 +1,6 @@
-from lister import Updater
+from lister import Lister
 
-updater = Updater()
+updater = Lister()
 updater.login()
 updater.selector()
 updater.download()

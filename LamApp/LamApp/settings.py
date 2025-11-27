@@ -128,3 +128,57 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_REDIRECT_URL = 'dashboard'
 LOGOUT_REDIRECT_URL = 'home'
 LOGIN_URL = 'login'
+
+# ===== LamaRestock Configuration =====
+
+# Directory where inventory CSV files will be downloaded
+INVENTORY_FOLDER = BASE_DIR / 'Inventory'
+
+# Create the directory if it doesn't exist
+INVENTORY_FOLDER.mkdir(exist_ok=True)
+
+# Logging configuration for automation
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'automation.log',
+            'maxBytes': 10485760,  # 10MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'supermarkets': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'supermarkets.automation_services': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'supermarkets.scheduler': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
+# Create logs directory if it doesn't exist
+(BASE_DIR / 'logs').mkdir(exist_ok=True)
+

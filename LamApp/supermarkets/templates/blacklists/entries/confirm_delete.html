@@ -1,0 +1,33 @@
+<!-- LamApp/supermarkets/templates/blacklists/entries/confirm_delete.html -->
+{% extends 'base.html' %}
+{% block title %}Delete Entry{% endblock %}
+{% block page_title %}Confirm Deletion{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-lg-6 offset-lg-3">
+            <div class="stat-card">
+                <h4 class="mb-4 text-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Remove Product from Blacklist
+                </h4>
+
+                <p>Remove product <strong>{{ object.product_code }}.{{ object.product_var }}</strong> from blacklist?</p>
+
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'blacklist-detail' pk=object.blacklist.pk %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash"></i> Yes, Remove
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

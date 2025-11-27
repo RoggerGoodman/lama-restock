@@ -1,0 +1,72 @@
+<!-- LamApp/supermarkets/templates/storages/verify_stock.html -->
+{% extends 'base.html' %}
+{% block title %}Verify Stock - {{ storage.name }}{% endblock %}
+{% block page_title %}Verify Stock{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Verify Stock</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-clipboard-check text-primary"></i>
+                    Verify Stock from Inventory
+                </h4>
+
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> Instructions</h6>
+                    <ul class="mb-0">
+                        <li>Upload a CSV file from inventory count</li>
+                        <li>File must contain columns: Codice, Variante, Qta Originale</li>
+                        <li>Stock will be updated and marked as verified</li>
+                        <li>File will be processed and deleted after verification</li>
+                    </ul>
+                </div>
+
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    
+                    <div class="mb-4">
+                        <label for="csv_file" class="form-label">
+                            <i class="bi bi-file-earmark-text"></i> CSV File
+                        </label>
+                        <input 
+                            type="file" 
+                            class="form-control" 
+                            id="csv_file" 
+                            name="csv_file" 
+                            accept=".csv"
+                            required
+                        >
+                        <div class="form-text">
+                            Select a CSV file containing inventory data
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> Verify Stock
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

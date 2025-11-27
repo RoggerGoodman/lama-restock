@@ -1,4 +1,4 @@
-# LamApp/LamApp/supermarkets/views.py
+# LamApp/supermarkets/views.py
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
@@ -9,14 +9,19 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib import messages
 from django.http import JsonResponse, HttpResponseForbidden
 from django.views.decorators.http import require_POST
+from pathlib import Path
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from django.conf import settings
+import os
 
 from .models import (
     Supermarket, Storage, RestockSchedule, 
-    Blacklist, BlacklistEntry, RestockLog
+    Blacklist, BlacklistEntry, RestockLog, ListUpdateSchedule
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, 
-    BlacklistEntryForm, StorageForm
+    BlacklistEntryForm, StorageForm, PromoUploadForm, ListUpdateScheduleForm
 )
 from .services import RestockService, StorageService
 import logging
@@ -135,7 +140,21 @@ class SupermarketUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView)
         return self.get_object().owner == self.request.user
 
     def get_success_url(self):
+        messages.success(self.request, "Supermarket updated successfully!")
         return reverse_lazy('supermarket-detail', kwargs={'pk': self.object.pk})
+
+
+class SupermarketDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = Supermarket
+    template_name = 'supermarkets/confirm_delete.html'
+    success_url = reverse_lazy('supermarket-list')
+
+    def test_func(self):
+        return self.get_object().owner == self.request.user
+
+    def delete(self, request, *args, **kwargs):
+        messages.success(request, f"Supermarket '{self.get_object().name}' deleted successfully!")
+        return super().delete(request, *args, **kwargs)
 
 
 @login_required
@@ -178,11 +197,26 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         return context
 
 
+class StorageDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = Storage
+    template_name = 'storages/confirm_delete.html'
+
+    def test_func(self):
+        return self.get_object().supermarket.owner == self.request.user
+
+    def get_success_url(self):
+        return reverse_lazy('supermarket-detail', kwargs={'pk': self.object.supermarket.pk})
+
+    def delete(self, request, *args, **kwargs):
+        messages.success(request, f"Storage '{self.get_object().name}' deleted successfully!")
+        return super().delete(request, *args, **kwargs)
+
+
 # ============ Restock Schedule Views ============
 
 class RestockScheduleListView(LoginRequiredMixin, ListView):
     model = Storage
-    template_name = "restock_schedule_list.html"
+    template_name = "schedules/restock_schedule_list.html"
     context_object_name = "storages"
     
     def get_queryset(self):
@@ -194,7 +228,7 @@ class RestockScheduleListView(LoginRequiredMixin, ListView):
 class RestockScheduleView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = RestockSchedule
     form_class = RestockScheduleForm
-    template_name = "restock_schedule.html"
+    template_name = "schedules/restock_schedule.html"
     
     def test_func(self):
         storage = get_object_or_404(Storage, id=self.kwargs.get("storage_id"))
@@ -220,16 +254,34 @@ class RestockScheduleView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         )
         return context
 
-    def get_success_url(self):
+    def form_valid(self, form):
         messages.success(self.request, "Schedule updated successfully!")
-        return reverse_lazy("restock_schedule_list")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse_lazy("storage-detail", kwargs={"pk": self.object.storage.pk})
+
+
+class RestockScheduleDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = RestockSchedule
+    template_name = 'schedules/confirm_delete.html'
+
+    def test_func(self):
+        return self.get_object().storage.supermarket.owner == self.request.user
+
+    def get_success_url(self):
+        return reverse_lazy('storage-detail', kwargs={'pk': self.object.storage.pk})
+
+    def delete(self, request, *args, **kwargs):
+        messages.success(request, "Schedule deleted successfully!")
+        return super().delete(request, *args, **kwargs)
 
 
 # ============ Restock Operation Views ============
 
 @login_required
 def run_restock_view(request, storage_id):
-    """Manually trigger a restock check"""
+    """Manually trigger a restock check AND execute the order"""
     storage = get_object_or_404(
         Storage, 
         id=storage_id, 
@@ -238,36 +290,36 @@ def run_restock_view(request, storage_id):
     
     if request.method == 'POST':
         try:
-            service = RestockService(storage)
-            
             # Get coverage from form or use default
             coverage = request.POST.get('coverage')
             if coverage:
                 coverage = float(coverage)
             
-            log, orders_list = service.run_restock_check(coverage)
+            # Use the automation service which includes order execution
+            from .automation_services import AutomatedRestockService
             
-            messages.success(
-                request, 
-                f"Restock check completed! {log.products_ordered} products to order, "
-                f"{log.total_packages} total packages."
-            )
+            service = AutomatedRestockService(storage)
             
-            # Ask if user wants to execute the order
-            request.session['pending_orders'] = {
-                'storage_id': storage_id,
-                'log_id': log.id,
-                'orders': [[cod, var, qty] for cod, var, qty in orders_list]
-            }
-            
-            return redirect('restock-log-detail', pk=log.id)
+            try:
+                # This will: update stats → calculate orders → execute order
+                log = service.run_full_restock_workflow(coverage)
+                
+                messages.success(
+                    request, 
+                    f"Restock completed successfully! "
+                    f"{log.products_ordered} products ordered, "
+                    f"{log.total_packages} total packages."
+                )
+                
+                return redirect('restock-log-detail', pk=log.id)
+                
+            finally:
+                service.close()
             
         except Exception as e:
             logger.exception("Error running restock check")
             messages.error(request, f"Error: {str(e)}")
             return redirect('storage-detail', pk=storage_id)
-        finally:
-            service.close()
     
     return render(request, 'storages/run_restock.html', {'storage': storage})
 
@@ -358,6 +410,19 @@ class BlacklistCreateView(LoginRequiredMixin, CreateView):
         return reverse_lazy('blacklist-detail', kwargs={'pk': self.object.pk})
 
 
+class BlacklistDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = Blacklist
+    template_name = 'blacklists/confirm_delete.html'
+    success_url = reverse_lazy('blacklist-list')
+
+    def test_func(self):
+        return self.get_object().storage.supermarket.owner == self.request.user
+
+    def delete(self, request, *args, **kwargs):
+        messages.success(request, f"Blacklist '{self.get_object().name}' deleted successfully!")
+        return super().delete(request, *args, **kwargs)
+
+
 class BlacklistEntryCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     model = BlacklistEntry
     form_class = BlacklistEntryForm
@@ -387,6 +452,7 @@ class BlacklistEntryCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateVi
 
 class BlacklistEntryDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = BlacklistEntry
+    template_name = 'blacklists/entries/confirm_delete.html'
     
     def test_func(self):
         return self.get_object().blacklist.storage.supermarket.owner == self.request.user
@@ -394,3 +460,188 @@ class BlacklistEntryDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteVi
     def get_success_url(self):
         messages.success(self.request, "Blacklist entry removed!")
         return reverse_lazy('blacklist-detail', kwargs={'pk': self.object.blacklist.pk})
+    
+
+
+# ============ Data Management Views ============
+@login_required
+def verify_stock_view(request, storage_id):
+    """Verify stock from inventory CSV file"""
+    storage = get_object_or_404(
+        Storage, 
+        id=storage_id, 
+        supermarket__owner=request.user
+    )
+    
+    if request.method == 'POST':
+        if 'csv_file' not in request.FILES:
+            messages.error(request, "No file uploaded")
+            return redirect('storage-detail', pk=storage_id)
+        
+        csv_file = request.FILES['csv_file']
+        
+        # Validate file extension
+        if not csv_file.name.endswith('.csv'):
+            messages.error(request, "File must be .csv format")
+            return redirect('storage-detail', pk=storage_id)
+        
+        try:
+            # Save file to INVENTORY_FOLDER
+            inventory_folder = Path(settings.INVENTORY_FOLDER)
+            file_path = inventory_folder / csv_file.name
+            
+            with open(file_path, 'wb+') as destination:
+                for chunk in csv_file.chunks():
+                    destination.write(chunk)
+            
+            # Process the file
+            service = RestockService(storage)
+            
+            from .scripts.inventory_reader import verify_stocks_from_excel
+            verify_stocks_from_excel(service.db)
+            
+            service.close()
+            
+            messages.success(
+                request, 
+                f"Stock verification completed for {storage.name}!"
+            )
+            
+        except Exception as e:
+            logger.exception("Error verifying stock")
+            messages.error(request, f"Error verifying stock: {str(e)}")
+        
+        return redirect('storage-detail', pk=storage_id)
+    
+    return render(request, 'storages/verify_stock.html', {'storage': storage})
+
+@login_required
+def configure_list_updates_view(request, storage_id):
+    """Configure automatic list updates for a storage"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    # Get or create schedule
+    try:
+        schedule = storage.list_update_schedule
+    except ListUpdateSchedule.DoesNotExist:
+        schedule = None
+    
+    if request.method == 'POST':
+        if schedule:
+            form = ListUpdateScheduleForm(request.POST, instance=schedule)
+        else:
+            form = ListUpdateScheduleForm(request.POST)
+        
+        if form.is_valid():
+            schedule = form.save(commit=False)
+            schedule.storage = storage
+            schedule.save()
+            
+            messages.success(request, "List update schedule configured successfully!")
+            return redirect('storage-detail', pk=storage_id)
+    else:
+        if schedule:
+            form = ListUpdateScheduleForm(instance=schedule)
+        else:
+            form = ListUpdateScheduleForm()
+    
+    return render(request, 'storages/configure_list_updates.html', {
+        'storage': storage,
+        'form': form,
+        'schedule': schedule
+    })
+
+
+@login_required
+def manual_list_update_view(request, storage_id):
+    """Manually trigger product list download and import"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    if request.method == 'POST':
+        try:
+            from .list_update_service import ListUpdateService
+            
+            service = ListUpdateService(storage)
+            result = service.update_and_import()
+            service.close()
+            
+            if result['success']:
+                messages.success(request, result['message'])
+            else:
+                messages.error(request, result['message'])
+                
+        except Exception as e:
+            logger.exception("Error in manual list update")
+            messages.error(request, f"Error: {str(e)}")
+        
+        return redirect('storage-detail', pk=storage_id)
+    
+    return render(request, 'storages/manual_list_update.html', {
+        'storage': storage
+    })
+
+
+@login_required
+def upload_promos_view(request, storage_id):
+    """Upload and process promo PDF file"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    if request.method == 'POST':
+        form = PromoUploadForm(request.POST, request.FILES)
+        
+        if form.is_valid():
+            pdf_file = request.FILES['pdf_file']
+            
+            try:
+                # Save file temporarily
+                temp_dir = Path(settings.BASE_DIR) / 'temp_promos'
+                temp_dir.mkdir(exist_ok=True)
+                
+                file_path = temp_dir / pdf_file.name
+                
+                with open(file_path, 'wb+') as destination:
+                    for chunk in pdf_file.chunks():
+                        destination.write(chunk)
+                
+                # Process promos
+                from .services import RestockService
+                service = RestockService(storage)
+                
+                from .scripts.scrapper import Scrapper
+                promo_list = Scrapper(service.helper, service.db).parse_promo_pdf(str(file_path))
+                
+                service.db.update_promos(promo_list)
+                service.close()
+                
+                # Clean up
+                os.remove(file_path)
+                
+                messages.success(
+                    request,
+                    f"Successfully processed {len(promo_list)} promo items!"
+                )
+                
+            except Exception as e:
+                logger.exception("Error processing promos")
+                messages.error(request, f"Error processing promos: {str(e)}")
+            
+            return redirect('storage-detail', pk=storage_id)
+    else:
+        form = PromoUploadForm()
+    
+    return render(request, 'storages/upload_promos.html', {
+        'storage': storage,
+        'form': form
+    })

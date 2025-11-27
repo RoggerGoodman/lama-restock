@@ -1,3 +1,4 @@
+# LamApp/supermarkets/models.py
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
@@ -21,10 +22,11 @@ class Supermarket(models.Model):
 
 
 class Storage(models.Model):
-    """Storage/warehouse within a supermarket (e.g., RIANO GENERI VARI, SURGELATI, DEPERIBILI)"""
+    """Storage/warehouse within a supermarket"""
     supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='storages')
     name = models.CharField(max_length=255)
     settore = models.CharField(max_length=255, help_text="Internal settore name from DB")
+    last_list_update = models.DateTimeField(null=True, blank=True, help_text="Last time product list was updated")
     
     class Meta:
         unique_together = ('supermarket', 'name')
@@ -34,103 +36,90 @@ class Storage(models.Model):
         return f"{self.name} ({self.supermarket.name})"
 
 
-DAY_CHOICES = [
-    ('0', 'Off'),
-    ('1', 'Early Morning'),
-    ('2', 'Late Afternoon'),
-]
 WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
 class RestockSchedule(models.Model):
-    """Restock schedule for a specific storage"""
+    """
+    Simplified restock schedule.
+    - Each day is either ON (True) or OFF (False) for ordering
+    - Orders run at 6:00 AM on order days
+    - Delivery happens the day after ordering
+    - Coverage is calculated as days until NEXT order
+    """
     storage = models.OneToOneField(Storage, on_delete=models.CASCADE, related_name='schedule')
     
-    # Day configurations
-    monday = models.CharField(max_length=10, choices=DAY_CHOICES, default='0')
-    tuesday = models.CharField(max_length=10, choices=DAY_CHOICES, default='0')
-    wednesday = models.CharField(max_length=10, choices=DAY_CHOICES, default='0')
-    thursday = models.CharField(max_length=10, choices=DAY_CHOICES, default='0')
-    friday = models.CharField(max_length=10, choices=DAY_CHOICES, default='0')
-    saturday = models.CharField(max_length=10, choices=DAY_CHOICES, default='0')
-    sunday = models.CharField(max_length=10, choices=DAY_CHOICES, default='0')
-    
-    # Time when restock check should run
-    restock_time = models.TimeField(default='09:00', help_text="Time to run daily restock check")
-    
-    # Auto-calculated fields
-    restock_intervals = models.CharField(max_length=50, blank=True, editable=False)
-    
-    # Base coverage (can be overridden dynamically)
-    base_coverage = models.DecimalField(
-        max_digits=4, 
-        decimal_places=1, 
-        default=4.5,
-        validators=[MinValueValidator(0)],
-        help_text="Base coverage in days"
-    )
+    # Simple boolean for each day - True means "order on this day"
+    monday = models.BooleanField(default=False, help_text="Order on Monday")
+    tuesday = models.BooleanField(default=False, help_text="Order on Tuesday")
+    wednesday = models.BooleanField(default=False, help_text="Order on Wednesday")
+    thursday = models.BooleanField(default=False, help_text="Order on Thursday")
+    friday = models.BooleanField(default=False, help_text="Order on Friday")
+    saturday = models.BooleanField(default=False, help_text="Order on Saturday")
+    sunday = models.BooleanField(default=False, help_text="Order on Sunday")
 
-    def get_day_value(self, day_name):
-        """Get the value for a specific day"""
-        return getattr(self, day_name.lower())
-    
-    def set_day_value(self, day_name, value):
-        """Set the value for a specific day"""
-        setattr(self, day_name.lower(), value)
-
-    def calculate_intervals(self):
-        """Calculate intervals between restock days"""
-        day_fields = [
-            self.monday, self.tuesday, self.wednesday, 
-            self.thursday, self.friday, self.saturday, self.sunday
-        ]
-        
-        effective_times = []
-        for i, value in enumerate(day_fields):
-            if value != 'off':
-                extra = 0.5 if value == 'late' else 0
-                effective_times.append(i + extra)
-        
-        if len(effective_times) > 1:
-            intervals = []
-            for i in range(1, len(effective_times)):
-                intervals.append(effective_times[i] - effective_times[i - 1])
-            intervals.append(7 - effective_times[-1] + effective_times[0])
-            return "/".join(map(str, intervals))
-        return ""
-
-    def calculate_coverage_for_day(self, order_day):
+    def get_order_days(self):
         """
-        Calculate dynamic coverage based on days until next delivery.
-        order_day: 0=Monday, 6=Sunday
+        Returns list of day indices where orders happen (0=Monday, 6=Sunday)
+        Example: [1, 3, 6] means Tuesday, Thursday, Sunday
         """
-        day_fields = [
-            self.monday, self.tuesday, self.wednesday, 
-            self.thursday, self.friday, self.saturday, self.sunday
-        ]
+        order_days = []
+        for i, day_name in enumerate(WEEKDAYS):
+            if getattr(self, day_name):
+                order_days.append(i)
+        return order_days
+
+    def calculate_coverage_for_day(self, order_day_index):
+        """
+        Calculate coverage (days until NEXT order) for a given order day.
         
-        # Find next delivery day
-        restock_days = [i for i, val in enumerate(day_fields) if val != 'off']
+        Logic:
+        - Today is order day, delivery tomorrow
+        - Coverage = days from tomorrow until day before next order
         
-        if not restock_days:
-            return float(self.base_coverage)
+        Args:
+            order_day_index: 0=Monday, 6=Sunday
+            
+        Returns:
+            int: Number of days to cover
+            
+        """
+        order_days = self.get_order_days()
         
-        # Find days until next restock
-        days_until_next = None
-        for day in restock_days:
-            if day > order_day:
-                days_until_next = day - order_day
+        if not order_days:
+            return 0
+        
+        if len(order_days) == 1:
+            # Only one order day per week
+            return 9
+        
+        # Find the next order day after current order_day_index
+        next_order_day = None
+        for day in order_days:
+            if day > order_day_index:
+                next_order_day = day
                 break
         
-        if days_until_next is None:
-            # Wrap around to next week
-            days_until_next = 7 - order_day + restock_days[0]
+        # If no order day found after current, wrap around to first day of next week
+        if next_order_day is None:
+            next_order_day = order_days[0] + 7
         
-        # Add 1 for the delivery day itself
-        return float(days_until_next + 1)
+        coverage = next_order_day - order_day_index + 2
+        
+        return coverage
 
-    def save(self, *args, **kwargs):
-        self.restock_intervals = self.calculate_intervals()
-        super().save(*args, **kwargs)
+    def get_schedule_summary(self):
+        """Returns human-readable schedule summary"""
+        order_days = self.get_order_days()
+        if not order_days:
+            return "No orders scheduled"
+        
+        day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        days_str = ", ".join([day_names[i] for i in order_days])
+        
+        # Calculate coverages for each order day
+        coverages = [self.calculate_coverage_for_day(day) for day in order_days]
+        
+        return f"Orders: {days_str} | Coverages: {coverages} days"
 
     def __str__(self):
         return f"Schedule for {self.storage.name}"
@@ -205,3 +194,42 @@ class RestockLog(models.Model):
 
     def __str__(self):
         return f"{self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"
+    
+
+class ListUpdateSchedule(models.Model):
+    """Schedule for automatic product list updates"""
+    FREQUENCY_CHOICES = [
+        ('weekly', 'Weekly'),
+        ('biweekly', 'Every 2 Weeks'),
+        ('monthly', 'Monthly'),
+    ]
+    
+    storage = models.OneToOneField(Storage, on_delete=models.CASCADE, related_name='list_update_schedule')
+    frequency = models.CharField(max_length=20, choices=FREQUENCY_CHOICES, default='biweekly')
+    enabled = models.BooleanField(default=True, help_text="Enable automatic updates")
+    
+    def __str__(self):
+        return f"List Update Schedule for {self.storage.name} ({self.get_frequency_display()})"
+
+
+class ListUpdateLog(models.Model):
+    """Log of product list update operations"""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    
+    storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='list_update_logs')
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    file_path = models.CharField(max_length=500, blank=True)
+    error_message = models.TextField(blank=True)
+    
+    class Meta:
+        ordering = ['-started_at']
+    
+    def __str__(self):
+        return f"List Update: {self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"

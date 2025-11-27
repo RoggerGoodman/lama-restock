@@ -1,0 +1,44 @@
+<!-- LamApp/supermarkets/templates/supermarkets/confirm_delete.html -->
+{% extends 'base.html' %}
+{% block title %}Delete Supermarket{% endblock %}
+{% block page_title %}Confirm Deletion{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-lg-6 offset-lg-3">
+            <div class="stat-card">
+                <h4 class="mb-4 text-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Delete Supermarket
+                </h4>
+
+                <div class="alert alert-danger">
+                    <p class="mb-2"><strong>Warning:</strong> This action cannot be undone!</p>
+                    <p class="mb-0">Deleting this supermarket will also delete:</p>
+                    <ul class="mt-2 mb-0">
+                        <li>All storages</li>
+                        <li>All schedules</li>
+                        <li>All blacklists</li>
+                        <li>All restock logs</li>
+                    </ul>
+                </div>
+
+                <p>Are you sure you want to delete <strong>{{ object.name }}</strong>?</p>
+
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'supermarket-detail' pk=object.pk %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash"></i> Yes, Delete
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
