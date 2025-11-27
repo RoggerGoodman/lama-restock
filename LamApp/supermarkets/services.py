@@ -1,4 +1,4 @@
-# LamApp/LamApp/supermarkets/services.py
+# LamApp/supermarkets/services.py
 """
 Service layer to integrate existing DatabaseManager with Django models
 """
@@ -33,11 +33,14 @@ class RestockService:
         # Use storage-specific database path
         db_path = self.get_db_path()
         self.db = DatabaseManager(self.helper, db_path=db_path)
-        self.decision_maker = DecisionMaker(self.helper, db_path=db_path)
+        self.decision_maker = DecisionMaker(
+            self.helper, 
+            db_path=db_path,
+            blacklist_set=self.get_blacklist_set()  # ADD BLACKLIST
+        )
     
     def get_db_path(self):
         """Get database path for this storage"""
-        # Create a database file per supermarket
         db_dir = Path(settings.BASE_DIR) / 'databases'
         db_dir.mkdir(exist_ok=True)
         
@@ -46,6 +49,21 @@ class RestockService:
         safe_name = safe_name.replace(' ', '_')
         
         return str(db_dir / f"{safe_name}.db")
+    
+    def get_blacklist_set(self):
+        """
+        Get all blacklisted products for this storage as a set of (cod, var) tuples.
+        """
+        blacklist_set = set()
+        
+        # Get all blacklists for this storage
+        for blacklist in self.storage.blacklists.all():
+            # Get all entries in this blacklist
+            for entry in blacklist.entries.all():
+                blacklist_set.add((entry.product_code, entry.product_var))
+        
+        logger.info(f"Loaded {len(blacklist_set)} blacklisted products for {self.storage.name}")
+        return blacklist_set
     
     def run_restock_check(self, coverage=None):
         """
@@ -109,7 +127,8 @@ class RestockService:
         orderer = Orderer()
         try:
             orderer.login()
-            orderer.make_orders(self.settore, orders_list)
+            # Use storage.name for orderer (this is what dropdown expects)
+            orderer.make_orders(self.storage.name, orders_list)
             return True
         except Exception as e:
             logger.exception(f"Error executing order for {self.storage}")
@@ -138,16 +157,7 @@ class RestockService:
     def register_losses(self, loss_type, csv_file_path):
         """Register product losses (broken, expired, internal use)"""
         from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
-        # You'll need to adapt this to work with individual files
         verify_lost_stock_from_excel_combined(self.db)
-    
-    def get_blacklist_tuples(self):
-        """Get blacklist as set of (cod, var) tuples for decision maker"""
-        blacklist_set = set()
-        for blacklist in self.storage.blacklists.all():
-            for entry in blacklist.entries.all():
-                blacklist_set.add((entry.product_code, entry.product_var))
-        return blacklist_set
     
     def close(self):
         """Clean up resources"""

@@ -1,4 +1,4 @@
-<!-- LamApp/LamApp/supermarkets/templates/storages/detail.html -->
+<!-- LamApp/supermarkets/templates/storages/detail.html -->
 {% extends 'base.html' %}
 
 {% block title %}{{ storage.name }} - LamaRestock{% endblock %}
@@ -33,7 +33,7 @@
                             <i class="bi bi-shop"></i> {{ storage.supermarket.name }}
                         </p>
                     </div>
-                    <div>
+                    <div class="btn-group">
                         {% if schedule %}
                             <span class="badge bg-success" style="font-size: 1rem;">
                                 <i class="bi bi-check-circle"></i> Schedule Active
@@ -46,6 +46,37 @@
                     </div>
                 </div>
 
+                <!-- Actions -->
+                <div class="d-flex gap-2 mb-3 flex-wrap">
+                    <a href="{% url 'run-restock' storage_id=storage.id %}" class="btn btn-primary">
+                        <i class="bi bi-play-circle"></i> Run Restock Check
+                    </a>
+                    <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="btn btn-outline-primary">
+                        <i class="bi bi-calendar-check"></i> {% if schedule %}Edit Schedule{% else %}Create Schedule{% endif %}
+                    </a>
+                    <a href="{% url 'blacklist-add' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-plus-circle"></i> Add Blacklist
+                    </a>
+                </div>
+
+                <!-- Data Management Actions -->
+                <div class="d-flex gap-2 mb-3 flex-wrap">
+                    <a href="{% url 'verify-stock' storage_id=storage.id %}" class="btn btn-outline-info">
+                        <i class="bi bi-clipboard-check"></i> Verify Stock
+                    </a>
+                    <a href="{% url 'manual-list-update' storage_id=storage.id %}" class="btn btn-outline-info">
+                        <i class="bi bi-download"></i> Update Product List
+                    </a>
+                </div>
+
+                <!-- Danger Zone -->
+                <div class="border-top pt-3 mt-3">
+                    <h6 class="text-danger mb-2">Danger Zone</h6>
+                    <a href="{% url 'storage-delete' pk=storage.id %}" class="btn btn-outline-danger btn-sm">
+                        <i class="bi bi-trash"></i> Delete Storage
+                    </a>
+                </div>
+
                 <!-- Schedule Info -->
                 {% if schedule %}
                 <div class="alert alert-info">
@@ -54,25 +85,22 @@
                     </h6>
                     <div class="row">
                         <div class="col-md-6">
-                            <p class="mb-1"><strong>Base Coverage:</strong> {{ schedule.base_coverage }} days</p>
-                            <p class="mb-1"><strong>Check Time:</strong> {{ schedule.restock_time|time:"H:i" }}</p>
-                        </div>
-                        <div class="col-md-6">
                             <p class="mb-1"><strong>Active Days:</strong></p>
-                            <div class="d-flex gap-1 flex-wrap">
-                                {% if schedule.monday != 'off' %}<span class="badge bg-primary">Mon</span>{% endif %}
-                                {% if schedule.tuesday != 'off' %}<span class="badge bg-primary">Tue</span>{% endif %}
-                                {% if schedule.wednesday != 'off' %}<span class="badge bg-primary">Wed</span>{% endif %}
-                                {% if schedule.thursday != 'off' %}<span class="badge bg-primary">Thu</span>{% endif %}
-                                {% if schedule.friday != 'off' %}<span class="badge bg-primary">Fri</span>{% endif %}
-                                {% if schedule.saturday != 'off' %}<span class="badge bg-primary">Sat</span>{% endif %}
-                                {% if schedule.sunday != 'off' %}<span class="badge bg-primary">Sun</span>{% endif %}
+                            <div class="d-flex gap-1 flex-wrap mb-2">
+                                {% if schedule.monday %}<span class="badge bg-primary">Mon</span>{% endif %}
+                                {% if schedule.tuesday %}<span class="badge bg-primary">Tue</span>{% endif %}
+                                {% if schedule.wednesday %}<span class="badge bg-primary">Wed</span>{% endif %}
+                                {% if schedule.thursday %}<span class="badge bg-primary">Thu</span>{% endif %}
+                                {% if schedule.friday %}<span class="badge bg-primary">Fri</span>{% endif %}
+                                {% if schedule.saturday %}<span class="badge bg-primary">Sat</span>{% endif %}
+                                {% if schedule.sunday %}<span class="badge bg-primary">Sun</span>{% endif %}
                             </div>
                         </div>
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Summary:</strong></p>
+                            <small class="text-muted">{{ schedule.get_schedule_summary }}</small>
+                        </div>
                     </div>
-                    <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="btn btn-sm btn-outline-primary mt-2">
-                        <i class="bi bi-pencil"></i> Edit Schedule
-                    </a>
                 </div>
                 {% else %}
                 <div class="alert alert-warning">
@@ -81,16 +109,6 @@
                     <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">Create schedule now</a>
                 </div>
                 {% endif %}
-
-                <!-- Actions -->
-                <div class="d-flex gap-2 mt-3">
-                    <a href="{% url 'run-restock' storage_id=storage.id %}" class="btn btn-primary">
-                        <i class="bi bi-play-circle"></i> Run Restock Check
-                    </a>
-                    <a href="{% url 'blacklist-add' %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-plus-circle"></i> Add Blacklist
-                    </a>
-                </div>
             </div>
         </div>
 
@@ -137,21 +155,28 @@
                         <div class="col-md-6 col-lg-4 mb-3">
                             <div class="card border-0" style="background-color: #f8f9fa;">
                                 <div class="card-body">
-                                    <h6 class="card-title">
-                                        <i class="bi bi-list-check text-danger"></i>
-                                        {{ blacklist.name }}
-                                    </h6>
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <h6 class="card-title mb-0">
+                                            <i class="bi bi-list-check text-danger"></i>
+                                            {{ blacklist.name }}
+                                        </h6>
+                                        <div class="btn-group btn-group-sm">
+                                            <a href="{% url 'blacklist-detail' pk=blacklist.id %}" class="btn btn-sm btn-outline-primary">
+                                                <i class="bi bi-eye"></i>
+                                            </a>
+                                            <a href="{% url 'blacklist-delete' pk=blacklist.id %}" class="btn btn-sm btn-outline-danger">
+                                                <i class="bi bi-trash"></i>
+                                            </a>
+                                        </div>
+                                    </div>
                                     {% if blacklist.description %}
                                     <p class="text-muted small mb-2">{{ blacklist.description|truncatewords:15 }}</p>
                                     {% endif %}
-                                    <p class="mb-2">
+                                    <p class="mb-0">
                                         <span class="badge bg-secondary">
                                             {{ blacklist.entries.count }} product{{ blacklist.entries.count|pluralize }}
                                         </span>
                                     </p>
-                                    <a href="{% url 'blacklist-detail' pk=blacklist.id %}" class="btn btn-sm btn-outline-primary">
-                                        View Details
-                                    </a>
                                 </div>
                             </div>
                         </div>

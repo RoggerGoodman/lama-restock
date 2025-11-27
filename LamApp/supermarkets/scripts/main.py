@@ -1,19 +1,19 @@
-from .scrapper import Scrapper
-from .DatabaseManager import DatabaseManager
-from .decision_maker import DecisionMaker
-from .inventory_scrapper import Inventory_Scrapper 
-from .orderer import Orderer
-from .inventory_reader import verify_stocks_from_excel, verify_lost_stock_from_excel_combined
-from .helpers import Helper
-from .constants import SPREADSHEETS_FOLDER, DATABASE_FOLDER, INVENTORY_FOLDER, PROMO_FOLDER
+from scrapper import Scrapper
+from DatabaseManager import DatabaseManager
+from decision_maker import DecisionMaker
+from inventory_scrapper import Inventory_Scrapper 
+from orderer import Orderer
+from inventory_reader import verify_stocks_from_excel, verify_lost_stock_from_excel_combined
+from helpers import Helper
+from constants import SPREADSHEETS_FOLDER, DATABASE_FOLDER, INVENTORY_FOLDER, PROMO_FOLDER
 import os
 import re
 storages = ["01 RIANO GENERI VARI", "23 S.PALOMBA SURGELATI", "02 POMEZIA DEPERIBILI"]
 
 product_list = [(38636, 1) ]
 
-settore = "S.PALOMBA SURGELATI"
-coverage = 6
+settore = "SURGELATI"
+coverage = 4
 helper = Helper()
 db = DatabaseManager(helper)
 Inv_S = Inventory_Scrapper() 
@@ -27,10 +27,13 @@ def list_import():
 
         storage_name = os.path.splitext(file_name)[0]  # Filename without extension
         storage_name = re.sub(r'^\d+\s+', '', storage_name) # Filename without number
+        settore = storage_name.split(' ', 1)[1] if ' ' in storage_name else storage_name
+        settore = settore.lstrip('-').strip()
         # Full path to the current spreadsheet file
         file_path = os.path.join(SPREADSHEETS_FOLDER, file_name)
 
-        db.import_from_excel(file_path, settore=storage_name)
+
+        db.import_from_excel(file_path, settore=settore)
     db.close()
 
 def offers_finder():
@@ -88,8 +91,8 @@ def make_order():
 #offers_finder()
 #estimate()
 #losess_recorder()
-#update()
-verify()
+update()
+#verify()
 #make_order()
 #register_prducts()
 #verify_lost_stock_from_excel_combined(db)

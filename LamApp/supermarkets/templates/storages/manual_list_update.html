@@ -1,0 +1,88 @@
+<!-- LamApp/supermarkets/templates/storages/manual_list_update.html -->
+{% extends 'base.html' %}
+{% block title %}Update Product List - {{ storage.name }}{% endblock %}
+{% block page_title %}Update Product List{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Update List</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-download text-primary"></i>
+                    Manual Product List Update
+                </h4>
+
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-exclamation-triangle"></i> What This Does</h6>
+                    <ol class="mb-0">
+                        <li>Downloads the latest product list from PAC2000A</li>
+                        <li>Imports new products to database</li>
+                        <li>Updates existing product information</li>
+                    </ol>
+                    <p class="mt-2 mb-0">
+                        <strong>Note:</strong> This process may take 2-5 minutes. A browser window will open automatically.
+                    </p>
+                </div>
+
+                {% if storage.last_list_update %}
+                <div class="alert alert-info">
+                    <strong>Last Update:</strong> {{ storage.last_list_update|date:"M d, Y H:i" }}
+                    <br>
+                    <small class="text-muted">({{ storage.last_list_update|timesince }} ago)</small>
+                </div>
+                {% endif %}
+
+                <form method="post" id="updateForm">
+                    {% csrf_token %}
+                    
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <i class="bi bi-download"></i> Download and Import
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Progress indicator -->
+                <div id="progressIndicator" class="mt-4" style="display: none;">
+                    <div class="alert alert-info">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm me-3" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <div>
+                                <strong>Processing...</strong><br>
+                                <small>Downloading and importing product list. This may take several minutes.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('updateForm').addEventListener('submit', function() {
+    document.getElementById('progressIndicator').style.display = 'block';
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('submitBtn').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+});
+</script>
+{% endblock %}

@@ -1,10 +1,7 @@
 import sqlite3
 import json
 import pandas as pd
-from datetime import datetime
-from datetime import date
-import sqlite3
-import json
+from datetime import datetime, date
 from .helpers import Helper
 
 class DatabaseManager:
@@ -343,6 +340,28 @@ class DatabaseManager:
             })
 
         return results
+    
+    def get_category_stock_value(self, category: str):
+        cur = self.conn.cursor()
+        cur.execute("""
+            SELECT e.cod, e.v, e.cost_std, ps.stock
+            FROM economics e
+            JOIN product_stats ps
+            ON e.cod = ps.cod AND e.v = ps.v
+            WHERE e.category = ?;
+        """, (category,))
+        
+        rows = cur.fetchall()
+
+        total_value = 0.0
+        for cod, v, cost_std, stock in rows:
+            if cost_std is None or stock is None:
+                continue
+
+            total_value += float(cost_std) * int(stock)
+
+        return round(total_value, 2)
+
         
     # ---------- SETTERS ----------
 

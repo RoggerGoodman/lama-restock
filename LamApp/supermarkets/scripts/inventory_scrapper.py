@@ -11,8 +11,11 @@ import os
 import pygetwindow as gw
 import pyautogui
 from .constants import PASSWORD, USERNAME
+from django.conf import settings
 
-save_path = r"C:\Users\rugge\Documents\GitHub\lama-restock\Inventory"
+#save_path = r"C:\Users\rugge\Documents\GitHub\lama-restock\Inventory"
+save_path = str(settings.INVENTORY_FOLDER)
+
 
 
 class Inventory_Scrapper:

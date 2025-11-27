@@ -7,18 +7,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import ElementClickInterceptedException
+from selenium.common.exceptions import ElementClickInterceptedException, NoSuchElementException, TimeoutException
 import time
-from pywinauto import Application, Desktop
 from selenium.webdriver.chrome.options import Options
-from credentials import PASSWORD, USERNAME
+from LamApp.supermarkets.scripts.constants import PASSWORD, USERNAME
 storages = ["01 RIANO GENERI VARI", "23 S.PALOMBA SURGELATI", "02 POMEZIA DEPERIBILI"]
 desired_value = "01 RIANO GENERI VARI"
-save_path = r"C:\Users\rugge\Documents\GitHub\lama-restock\Database"
-full_file_path = rf"{save_path}\{desired_value}"
-filters = False
+filters = True
 
-class Updater :
+class Lister :
     def __init__(self) -> None:
         # Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
         chrome_options = Options()
@@ -29,17 +26,18 @@ class Updater :
         # chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
 
         # Define the set of numbers to check
-        self.target_filters1 = {"100", "300", "325", "350", "370", "600", "620", "820"}
+        self.target_filters1 = {"100", "600", "620", "800", "820"}
         self.target_filters3 = {"300", "350", "600"}
         # Initialize WebDriver with the options
         self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)
+        self.wait = WebDriverWait(self.driver, 300)
 
     def login(self):
         self.driver.get('https://dropzone.pac2000a.it/')
 
         # Wait for the page to fully load
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "username"))
         )
 
@@ -51,27 +49,27 @@ class Updater :
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "carta31"))
         )
 
         list_menu = self.driver.find_element(By.ID, "carta31")
         list_menu.click()
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "carta139"))
         )
 
         list_menu1 = self.driver.find_element(By.ID, "carta139")
         list_menu1.click()
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             lambda driver: len(driver.window_handles) > 1
         )
 
         self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
 
-        WebDriverWait(self.driver, 10).until(
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "linkListino"))
         )
 
@@ -82,18 +80,73 @@ class Updater :
     
         time.sleep(1)
 
+    def close_ordini_popup(self):
+        try:
+            # Check presence of the popup by its title
+            popup_title = self.driver.find_element(By.XPATH, "//h4[normalize-space()='Elenco Ordini In Corso']")
+            
+            # If found, wait for the Chiudi button and click it
+            chiudi_btn = WebDriverWait(self.driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, "/html/body/div[2]/div[2]/div[8]/div/div/div/div[3]/div/smart-button"))
+            )
+            chiudi_btn.click()
+            print("Popup 'Elenco Ordini In Corso' found and closed.")
+
+        except NoSuchElementException:
+            # Popup not present → do nothing
+            pass
+        except TimeoutException:
+            # Popup present but button didn't load → fail silently or handle as needed
+            print("Popup detected but Chiudi button not clickable.")
+
     def selector(self):
 
         storage = re.sub(r'^\d+\s+', '', desired_value)
         input_element = self.driver.find_element(By.XPATH, "//*[@id='idMagConsegnaActionButton']/input")
         input_element.clear()
         input_element.send_keys(storage)
-        drop_down_arrow = self.driver.find_element(By.XPATH, "//*[@id='idMagConsegna']/div[1]/div/div[1]/span[2]")
-        drop_down_arrow.click()
         time.sleep(1)
         element = self.driver.find_element(By.XPATH, f'//smart-list-item[@label="{storage}"]')
         element.click()
         time.sleep(1)
+        self.close_ordini_popup()
+        drop_down_arrow_1 = self.driver.find_element(By.XPATH, "//*[@id='idMagStatoAssort']/div[1]/div/div[1]/span[2]")
+        drop_down_arrow_1.click()
+        time.sleep(1)
+        state_elemnt = self.driver.find_element(By.XPATH, "//span[normalize-space()='SOSPESO LISTINO/NO COMUNIC.VAR']")
+        state_elemnt.click()
+        drop_down_arrow_2 = self.driver.find_element(By.XPATH, "//*[@id='idRepartoFilter']/div[1]/div/div[1]/span[2]")
+        drop_down_arrow_2.click()
+        time.sleep(1)
+        if storage == "S.PALOMBA SURGELATI":
+            filters = False
+        if filters:
+            match storage:
+                case "RIANO GENERI VARI":
+                    target_filters = {"100", "600", "620", "800", "820"} #Sala Generi Vari, Ortofrutta, Frutta secca, Non-Food, Extra-Alimentare
+                case "POMEZIA DEPERIBILI":
+                    target_filters = {"300", "350", "600"} #Murale Salumi/Latticini, Pane, Ortofrutta
+                
+
+            list_items = self.driver.find_elements(By.CSS_SELECTOR, "smart-list-item")
+
+            for item in list_items:
+                label = item.get_attribute("label")   # e.g. "100 - SALA GENERI VARI"
+
+                if not label:
+                    continue
+
+                code = label.split(" - ")[0].strip()
+
+                if code in target_filters:
+                    # Scroll into view
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", item)
+
+                    # Small delay to let the scroll finish (optional but helps with smart widgets)
+                    time.sleep(0.2)
+                    # Click it
+                    item.click()
+        
         try:
             confirm_button = self.driver.find_element(By.XPATH, "//*[@id='confermaFooterFiltro']/button")
             confirm_button.click()
@@ -117,38 +170,9 @@ class Updater :
             # Try clicking the confirm button again
             confirm_button = self.driver.find_element(By.XPATH, "//*[@id='confermaFooterFiltro']/button")
             confirm_button.click()
-            time.sleep(10)
-
-
-        if filters:
-            match desired_value:
-                case "02 POMEZIA DEPERIBILI":
-                    self.target_numbers = self.target_filters3
-                case "01 RIANO GENERI VARI":
-                    self.target_numbers = self.target_filters1
-
-            filtersDropdown = self.driver.find_element(By.ID, "dropdownlistArrowF_reparto")
-            filtersDropdown.click()
-
-            # Locate the input element
-            input_element = self.driver.find_element(By.XPATH, "//div[@id='dropdownlistContentF_reparto']//input")
-
-            selected_options = 0
-            target_options = len(self.target_numbers)
-            while selected_options < target_options:
-                self.actions.send_keys(Keys.ARROW_DOWN)
-                self.actions.send_keys(Keys.SPACE)
-                self.actions.perform()
-                # Get the value of the 'value' attribute
-                current_value = input_element.get_attribute("value")
-                match = re.search(r'\d+$', current_value.strip())
-                if match:
-                    last_number = match.group()
-                if last_number in self.target_numbers:
-                    selected_options += 1
-                else:
-                    self.actions.send_keys(Keys.SPACE).perform()
-
+        self.wait.until(
+            EC.invisibility_of_element_located((By.ID, "loadingWindow"))
+        )
 
     def download(self):
         menu_element = self.driver.find_element(By.XPATH, '//*[@id="menuStrumenti"]')

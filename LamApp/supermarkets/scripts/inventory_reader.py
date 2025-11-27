@@ -1,7 +1,9 @@
 import pandas as pd
 import os
 from .DatabaseManager import DatabaseManager
-from .constants import INVENTORY_FOLDER
+from django.conf import settings
+#INVENTORY_FOLDER = r"C:\Users\rugge\Documents\GitHub\lama-restock\Inventory"
+INVENTORY_FOLDER = str(settings.INVENTORY_FOLDER)
 
 def verify_stocks_from_excel(db: DatabaseManager):
     """

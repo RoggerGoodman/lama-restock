@@ -1,36 +1,34 @@
-# LamApp/LamApp/supermarkets/forms.py
+# LamApp/supermarkets/forms.py
 from django import forms
-from .models import RestockSchedule, Blacklist, BlacklistEntry, Storage
+from .models import RestockSchedule, Blacklist, BlacklistEntry, Storage, ListUpdateSchedule
 
 
 class RestockScheduleForm(forms.ModelForm):
-    """Form for editing restock schedules"""
+    """
+    Simplified form for restock schedules.
+    Just checkboxes for which days to order.
+    """
     
     class Meta:
         model = RestockSchedule
-        fields = [
-            'monday', 'tuesday', 'wednesday', 'thursday', 
-            'friday', 'saturday', 'sunday', 
-            'restock_time', 'base_coverage'
-        ]
+        fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         widgets = {
-            'restock_time': forms.TimeInput(attrs={'type': 'time'}),
-            'base_coverage': forms.NumberInput(attrs={
-                'step': '0.5',
-                'min': '0',
-                'max': '30'
-            }),
+            'monday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'tuesday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'wednesday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'thursday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'friday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'saturday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'sunday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
         help_texts = {
-            'monday': 'When to restock on Mondays',
-            'tuesday': 'When to restock on Tuesdays',
-            'wednesday': 'When to restock on Wednesdays',
-            'thursday': 'When to restock on Thursdays',
-            'friday': 'When to restock on Fridays',
-            'saturday': 'When to restock on Saturdays',
-            'sunday': 'When to restock on Sundays',
-            'restock_time': 'What time should the restock check run?',
-            'base_coverage': 'Default coverage in days (will be calculated dynamically based on schedule)',
+            'monday': 'Check to place orders on Monday (delivery Tuesday)',
+            'tuesday': 'Check to place orders on Tuesday (delivery Wednesday)',
+            'wednesday': 'Check to place orders on Wednesday (delivery Thursday)',
+            'thursday': 'Check to place orders on Thursday (delivery Friday)',
+            'friday': 'Check to place orders on Friday (delivery Saturday)',
+            'saturday': 'Check to place orders on Saturday (delivery Sunday)',
+            'sunday': 'Check to place orders on Sunday (delivery Monday)',
         }
 
 
@@ -41,8 +39,8 @@ class StorageForm(forms.ModelForm):
         model = Storage
         fields = ['name', 'settore']
         widgets = {
-            'name': forms.TextInput(attrs={'placeholder': 'e.g., RIANO GENERI VARI'}),
-            'settore': forms.TextInput(attrs={'placeholder': 'e.g., RIANO GENERI VARI'}),
+            'name': forms.TextInput(attrs={'placeholder': 'e.g., RIANO GENERI VARI', 'class': 'form-control'}),
+            'settore': forms.TextInput(attrs={'placeholder': 'e.g., RIANO GENERI VARI', 'class': 'form-control'}),
         }
 
 
@@ -53,10 +51,12 @@ class BlacklistForm(forms.ModelForm):
         model = Blacklist
         fields = ['storage', 'name', 'description']
         widgets = {
-            'name': forms.TextInput(attrs={'placeholder': 'e.g., Seasonal Products'}),
+            'storage': forms.Select(attrs={'class': 'form-select'}),
+            'name': forms.TextInput(attrs={'placeholder': 'e.g., Seasonal Products', 'class': 'form-control'}),
             'description': forms.Textarea(attrs={
                 'rows': 3,
-                'placeholder': 'Optional description of this blacklist'
+                'placeholder': 'Optional description of this blacklist',
+                'class': 'form-control'
             }),
         }
 
@@ -68,8 +68,8 @@ class BlacklistEntryForm(forms.ModelForm):
         model = BlacklistEntry
         fields = ['product_code', 'product_var']
         widgets = {
-            'product_code': forms.NumberInput(attrs={'placeholder': 'Product code'}),
-            'product_var': forms.NumberInput(attrs={'placeholder': 'Variant', 'value': 1}),
+            'product_code': forms.NumberInput(attrs={'placeholder': 'Product code', 'class': 'form-control'}),
+            'product_var': forms.NumberInput(attrs={'placeholder': 'Variant', 'value': 1, 'class': 'form-control'}),
         }
         
     def clean(self):
@@ -103,5 +103,33 @@ class ManualRestockForm(forms.Form):
         decimal_places=1,
         required=False,
         help_text="Leave empty to use schedule's calculated coverage",
-        widget=forms.NumberInput(attrs={'step': '0.5', 'placeholder': 'Auto'})
+        widget=forms.NumberInput(attrs={'step': '0.5', 'placeholder': 'Auto', 'class': 'form-control'})
+    )
+
+class ListUpdateScheduleForm(forms.ModelForm):
+    """Form for configuring automatic list updates"""
+    
+    class Meta:
+        model = ListUpdateSchedule
+        fields = ['frequency', 'enabled']
+        widgets = {
+            'frequency': forms.Select(attrs={'class': 'form-select'}),
+            'enabled': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+        help_texts = {
+            'frequency': 'How often to download and update product list',
+            'enabled': 'Enable automatic updates',
+        }
+
+
+class PromoUploadForm(forms.Form):
+    """Form for uploading promo PDF files"""
+    
+    pdf_file = forms.FileField(
+        label="Promo PDF File",
+        help_text="Upload the promo PDF file from supplier",
+        widget=forms.FileInput(attrs={
+            'class': 'form-control',
+            'accept': '.pdf'
+        })
     )

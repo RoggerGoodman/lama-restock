@@ -1,0 +1,224 @@
+<!-- LamApp/supermarkets/templates/restock_logs/detail.html -->
+{% extends 'base.html' %}
+
+{% block title %}Restock Log - {{ log.storage.name }}{% endblock %}
+{% block page_title %}Restock Operation Details{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Breadcrumb -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=log.storage.id %}">{{ log.storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Log #{{ log.id }}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Status Card -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-start mb-4">
+                    <div>
+                        <h4 class="mb-1">
+                            <i class="bi bi-file-text text-primary"></i>
+                            Restock Log #{{ log.id }}
+                        </h4>
+                        <p class="text-muted mb-0">
+                            {{ log.storage.supermarket.name }} - {{ log.storage.name }}
+                        </p>
+                    </div>
+                    <div>
+                        {% if log.status == 'completed' %}
+                            <span class="badge bg-success" style="font-size: 1rem;">
+                                <i class="bi bi-check-circle"></i> Completed
+                            </span>
+                        {% elif log.status == 'failed' %}
+                            <span class="badge bg-danger" style="font-size: 1rem;">
+                                <i class="bi bi-x-circle"></i> Failed
+                            </span>
+                        {% elif log.status == 'processing' %}
+                            <span class="badge bg-warning" style="font-size: 1rem;">
+                                <i class="bi bi-hourglass-split"></i> Processing
+                            </span>
+                        {% else %}
+                            <span class="badge bg-secondary" style="font-size: 1rem;">
+                                <i class="bi bi-clock"></i> Pending
+                            </span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Time Info -->
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <p class="text-muted mb-1">Started At</p>
+                        <p class="mb-0">
+                            <strong>{{ log.started_at|date:"M d, Y" }}</strong><br>
+                            <small>{{ log.started_at|time:"H:i:s" }}</small>
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <p class="text-muted mb-1">Completed At</p>
+                        <p class="mb-0">
+                            {% if log.completed_at %}
+                                <strong>{{ log.completed_at|date:"M d, Y" }}</strong><br>
+                                <small>{{ log.completed_at|time:"H:i:s" }}</small>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <p class="text-muted mb-1">Duration</p>
+                        <p class="mb-0">
+                            {% if log.completed_at %}
+                                {% with duration=log.completed_at|timeuntil:log.started_at %}
+                                    <strong>{{ duration }}</strong>
+                                {% endwith %}
+                            {% else %}
+                                <span class="text-muted">In progress...</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Error Message (if failed) -->
+                {% if log.status == 'failed' and log.error_message %}
+                <div class="alert alert-danger">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Error</h6>
+                    <pre class="mb-0" style="white-space: pre-wrap;">{{ log.error_message }}</pre>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Statistics Card -->
+        <div class="col-lg-4">
+            <div class="stat-card">
+                <h6 class="mb-3">Statistics</h6>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Coverage Used</span>
+                        <strong>
+                            {% if log.coverage_used %}
+                                {{ log.coverage_used }} days
+                            {% else %}
+                                —
+                            {% endif %}
+                        </strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Total Products</span>
+                        <strong>{{ log.total_products }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Products Ordered</span>
+                        <strong class="text-primary">{{ log.products_ordered }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-muted">Total Packages</span>
+                        <strong class="text-success">{{ log.total_packages }}</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Order Details -->
+    {% if results.orders %}
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="bi bi-list-check"></i> Order Details
+                    </h5>
+                    <span class="badge bg-primary">{{ results.orders|length }} item{{ results.orders|length|pluralize }}</span>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Product Code</th>
+                                <th>Variant</th>
+                                <th class="text-end">Quantity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for order in results.orders %}
+                            <tr>
+                                <td><code>{{ order.cod }}</code></td>
+                                <td><code>{{ order.var }}</code></td>
+                                <td class="text-end">
+                                    <span class="badge bg-success">{{ order.qty }} package{{ order.qty|pluralize:"s" }}</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-light">
+                                <td colspan="2"><strong>Total</strong></td>
+                                <td class="text-end">
+                                    <strong>{{ log.total_packages }} package{{ log.total_packages|pluralize:"s" }}</strong>
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- Additional Info -->
+                {% if results.settore %}
+                <div class="mt-3">
+                    <p class="text-muted mb-1">
+                        <strong>Settore:</strong> {{ results.settore }}
+                    </p>
+                    {% if results.coverage %}
+                    <p class="text-muted mb-0">
+                        <strong>Coverage:</strong> {{ results.coverage }} days
+                    </p>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle"></i>
+                    No products were ordered in this operation.
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Actions -->
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="d-flex gap-2">
+                <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> Back to Storage
+                </a>
+                {% if log.status == 'completed' and results.orders %}
+                <form method="post" action="{% url 'execute-order' log_id=log.id %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-warning" onclick="return confirm('Are you sure you want to execute this order? This will place the order in PAC2000A.');">
+                        <i class="bi bi-play-circle"></i> Execute Order Again
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,10 +1,148 @@
-<!-- templates/supermarkets/detail.html -->
+<!-- LamApp/supermarkets/templates/supermarkets/detail.html -->
 {% extends 'base.html' %}
 {% block title %}{{ supermarket.name }}{% endblock %}
+{% block page_title %}{{ supermarket.name }}{% endblock %}
+
 {% block content %}
-  <h1>{{ supermarket.name }}</h1>
-  <p><strong>Username:</strong> {{ supermarket.username }}</p>
-  <p><strong>Password:</strong> {{ supermarket.password }}</p>
-  <p><strong>Owner:</strong> {{ supermarket.owner.username }}</p>
-  <a href="{% url 'supermarket-edit' pk=supermarket.pk %}" class="btn btn-secondary">Edit Supermarket</a>
+<div class="container-fluid">
+    <!-- Breadcrumb -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Supermarkets</a></li>
+                    <li class="breadcrumb-item active">{{ supermarket.name }}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Supermarket Info -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="stat-card">
+                <h4 class="mb-3">
+                    <i class="bi bi-shop text-primary"></i>
+                    {{ supermarket.name }}
+                </h4>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>Username:</strong></p>
+                        <p class="text-muted">{{ supermarket.username }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>Owner:</strong></p>
+                        <p class="text-muted">{{ supermarket.owner.username }}</p>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="{% url 'supermarket-edit' pk=supermarket.pk %}" class="btn btn-primary">
+                        <i class="bi bi-pencil"></i> Edit Details
+                    </a>
+                    <form method="post" action="{% url 'sync-storages' pk=supermarket.pk %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-primary">
+                            <i class="bi bi-arrow-repeat"></i> Sync Storages
+                        </button>
+                    </form>
+                    <a href="{% url 'supermarket-delete' pk=supermarket.pk %}" class="btn btn-outline-danger">
+                        <i class="bi bi-trash"></i> Delete Supermarket
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="stat-card">
+                <h6 class="mb-3">Quick Stats</h6>
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-muted">Total Storages</span>
+                        <strong>{{ storages|length }}</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Storages List -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="bi bi-boxes"></i> Storages
+                    </h5>
+                </div>
+
+                {% if storages %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Storage Name</th>
+                                    <th>Schedule</th>
+                                    <th>Blacklists</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for storage in storages %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'storage-detail' pk=storage.id %}">
+                                            <strong>{{ storage.name }}</strong>
+                                        </a>
+                                        <br>
+                                        <small class="text-muted">{{ storage.settore }}</small>
+                                    </td>
+                                    <td>
+                                        {% if storage.schedule %}
+                                            <span class="badge bg-success">
+                                                <i class="bi bi-check-circle"></i> Active
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-warning">
+                                                <i class="bi bi-exclamation-triangle"></i> None
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {{ storage.blacklists.count }}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-outline-primary">
+                                                <i class="bi bi-eye"></i> View
+                                            </a>
+                                            <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="btn btn-outline-secondary">
+                                                <i class="bi bi-calendar"></i> Schedule
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        No storages found. 
+                        <form method="post" action="{% url 'sync-storages' pk=supermarket.pk %}" style="display: inline;">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                Sync Storages Now
+                            </button>
+                        </form>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

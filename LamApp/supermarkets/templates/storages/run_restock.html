@@ -1,0 +1,150 @@
+<!-- LamApp/supermarkets/templates/storages/run_restock.html -->
+{% extends 'base.html' %}
+
+{% block title %}Run Restock - {{ storage.name }}{% endblock %}
+{% block page_title %}Run Manual Restock{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Breadcrumb -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Run Restock</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-play-circle text-primary"></i>
+                    Run Manual Restock Check
+                </h4>
+
+                <!-- Storage Info -->
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> Storage Information</h6>
+                    <p class="mb-1"><strong>Storage:</strong> {{ storage.name }}</p>
+                    <p class="mb-1"><strong>Supermarket:</strong> {{ storage.supermarket.name }}</p>
+                    <p class="mb-0"><strong>Settore:</strong> {{ storage.settore }}</p>
+                </div>
+
+                <!-- Warning -->
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-exclamation-triangle"></i> What This Will Do</h6>
+                    <ol class="mb-0">
+                        <li>Update product statistics from PAC2000A (may take 5-10 minutes)</li>
+                        <li>Calculate which products need to be ordered</li>
+                        <li><strong>Place the actual order in the system</strong></li>
+                    </ol>
+                    <p class="mt-2 mb-0">
+                        <strong>Note:</strong> This will open browser windows and perform automated actions.
+                    </p>
+                </div>
+
+                <!-- Form -->
+                <form method="post" id="restockForm">
+                    {% csrf_token %}
+                    
+                    <div class="mb-4">
+                        <label for="coverage" class="form-label">
+                            <i class="bi bi-calendar-range"></i> Coverage (days)
+                        </label>
+                        <input 
+                            type="number" 
+                            class="form-control" 
+                            id="coverage" 
+                            name="coverage" 
+                            step="0.5" 
+                            min="0" 
+                            max="30"
+                            placeholder="Leave empty to use schedule calculation"
+                        >
+                        <div class="form-text">
+                            How many days worth of products to order. 
+                            {% if storage.schedule %}
+                                Schedule base coverage: <strong>{{ storage.schedule.base_coverage }} days</strong>
+                            {% else %}
+                                <span class="text-warning">No schedule configured - you must specify coverage</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Buttons -->
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <i class="bi bi-play-circle"></i> Run Restock Check
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Progress indicator (hidden by default) -->
+                <div id="progressIndicator" class="mt-4" style="display: none;">
+                    <div class="alert alert-info">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm me-3" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <div>
+                                <strong>Restock check in progress...</strong><br>
+                                <small>This may take several minutes. Please do not close this page.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedule Info (if exists) -->
+            {% if storage.schedule %}
+            <div class="stat-card mt-3">
+                <h6 class="mb-3">
+                    <i class="bi bi-calendar-check"></i> Current Schedule
+                </h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>Base Coverage:</strong> {{ storage.schedule.base_coverage }} days</p>
+                        <p class="mb-1"><strong>Check Time:</strong> {{ storage.schedule.restock_time|time:"H:i" }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-1"><strong>Active Days:</strong></p>
+                        <div class="d-flex gap-1 flex-wrap">
+                            {% if storage.schedule.monday != '0' %}<span class="badge bg-primary">Mon</span>{% endif %}
+                            {% if storage.schedule.tuesday != '0' %}<span class="badge bg-primary">Tue</span>{% endif %}
+                            {% if storage.schedule.wednesday != '0' %}<span class="badge bg-primary">Wed</span>{% endif %}
+                            {% if storage.schedule.thursday != '0' %}<span class="badge bg-primary">Thu</span>{% endif %}
+                            {% if storage.schedule.friday != '0' %}<span class="badge bg-primary">Fri</span>{% endif %}
+                            {% if storage.schedule.saturday != '0' %}<span class="badge bg-primary">Sat</span>{% endif %}
+                            {% if storage.schedule.sunday != '0' %}<span class="badge bg-primary">Sun</span>{% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('restockForm').addEventListener('submit', function(e) {
+    // Show progress indicator
+    document.getElementById('progressIndicator').style.display = 'block';
+    
+    // Disable submit button
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+    
+    // The form will submit normally, just with visual feedback
+});
+</script>
+{% endblock %}
