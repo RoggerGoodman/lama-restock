@@ -133,3 +133,118 @@ class PromoUploadForm(forms.Form):
             'accept': '.pdf'
         })
     )
+
+
+class StockAdjustmentForm(forms.Form):
+    """Form for adjusting stock manually"""
+    
+    product_code = forms.IntegerField(
+        label="Product Code",
+        min_value=1,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'e.g., 12345'
+        }),
+        help_text="Enter the product code"
+    )
+    
+    product_var = forms.IntegerField(
+        label="Product Variant",
+        min_value=1,
+        initial=1,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'value': '1'
+        }),
+        help_text="Enter the variant (usually 1)"
+    )
+    
+    adjustment = forms.IntegerField(
+        label="Adjustment Amount",
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'e.g., -12 or +24'
+        }),
+        help_text="Positive to add stock, negative to remove stock"
+    )
+    
+    reason = forms.ChoiceField(
+        label="Reason for Adjustment",
+        choices=[
+            ('undelivered', 'Undelivered Package'),
+            ('extra_delivery', 'Extra Package Delivered'),
+            ('miscount', 'Inventory Miscount'),
+            ('damaged', 'Damaged in Transit'),
+            ('return', 'Customer Return'),
+            ('other', 'Other')
+        ],
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    
+    notes = forms.CharField(
+        label="Notes (Optional)",
+        required=False,
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 3,
+            'placeholder': 'Optional: Add any additional details about this adjustment'
+        })
+    )
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        adjustment = cleaned_data.get('adjustment')
+        
+        if adjustment == 0:
+            raise forms.ValidationError("Adjustment cannot be zero")
+        
+        return cleaned_data
+
+
+class BulkStockAdjustmentForm(forms.Form):
+    """Form for bulk stock adjustments via CSV"""
+    
+    csv_file = forms.FileField(
+        label="CSV File",
+        help_text="Upload a CSV with columns: Product Code, Variant, Adjustment, Reason",
+        widget=forms.FileInput(attrs={
+            'class': 'form-control',
+            'accept': '.csv'
+        })
+    )
+    
+    reason = forms.ChoiceField(
+        label="Default Reason (for all adjustments)",
+        choices=[
+            ('undelivered', 'Undelivered Package'),
+            ('extra_delivery', 'Extra Package Delivered'),
+            ('miscount', 'Inventory Miscount'),
+            ('damaged', 'Damaged in Transit'),
+            ('return', 'Customer Return'),
+            ('other', 'Other')
+        ],
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+
+class RecordLossesForm(forms.Form):
+    """Form for manually uploading and recording losses"""
+    
+    loss_type = forms.ChoiceField(
+        label="Loss Type",
+        choices=[
+            ('broken', 'ROTTURE (Broken/Damaged)'),
+            ('expired', 'SCADUTO (Expired)'),
+            ('internal', 'UTILIZZO INTERNO (Internal Use)')
+        ],
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        help_text="Select the type of loss you want to record"
+    )
+    
+    csv_file = forms.FileField(
+        label="Loss CSV File",
+        help_text="Upload the CSV file with loss data",
+        widget=forms.FileInput(attrs={
+            'class': 'form-control',
+            'accept': '.csv'
+        })
+    )

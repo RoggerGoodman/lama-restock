@@ -1,4 +1,5 @@
 # LamApp/supermarkets/views.py
+from datetime import timezone
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
@@ -21,7 +22,8 @@ from .models import (
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, 
-    BlacklistEntryForm, StorageForm, PromoUploadForm, ListUpdateScheduleForm
+    BlacklistEntryForm, StorageForm, PromoUploadForm, ListUpdateScheduleForm,
+    StockAdjustmentForm, BulkStockAdjustmentForm
 )
 from .services import RestockService, StorageService
 import logging
@@ -59,11 +61,24 @@ def dashboard_view(request):
         storage__supermarket__owner=request.user
     ).select_related('storage', 'storage__supermarket')[:10]
     
+    # Count active schedules properly
+    active_schedules = RestockSchedule.objects.filter(
+        storage__supermarket__owner=request.user
+    ).count()
+    
+    # Get all storages with schedules for the upcoming operations section
+    scheduled_storages = Storage.objects.filter(
+        supermarket__owner=request.user,
+        schedule__isnull=False
+    ).select_related('schedule', 'supermarket', 'list_update_schedule')
+    
     context = {
         'supermarkets': supermarkets,
         'recent_logs': recent_logs,
         'total_supermarkets': supermarkets.count(),
         'total_storages': sum(s.storages.count() for s in supermarkets),
+        'active_schedules': active_schedules,
+        'scheduled_storages': scheduled_storages,
     }
     return render(request, 'dashboard.html', context)
 
@@ -193,6 +208,12 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             context['schedule'] = self.object.schedule
         except RestockSchedule.DoesNotExist:
             context['schedule'] = None
+        
+        # Check if list update schedule exists
+        try:
+            context['list_schedule'] = self.object.list_update_schedule
+        except ListUpdateSchedule.DoesNotExist:
+            context['list_schedule'] = None
         
         return context
 
@@ -460,10 +481,10 @@ class BlacklistEntryDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteVi
     def get_success_url(self):
         messages.success(self.request, "Blacklist entry removed!")
         return reverse_lazy('blacklist-detail', kwargs={'pk': self.object.blacklist.pk})
-    
 
 
 # ============ Data Management Views ============
+
 @login_required
 def verify_stock_view(request, storage_id):
     """Verify stock from inventory CSV file"""
@@ -494,26 +515,156 @@ def verify_stock_view(request, storage_id):
                 for chunk in csv_file.chunks():
                     destination.write(chunk)
             
-            # Process the file
-            service = RestockService(storage)
+            # IMPORTANT: Update stats and record losses BEFORE verification
+            # Use AutomatedRestockService which has these methods
+            from .automation_services import AutomatedRestockService
             
-            from .scripts.inventory_reader import verify_stocks_from_excel
-            verify_stocks_from_excel(service.db)
+            service = AutomatedRestockService(storage)
             
-            service.close()
-            
-            messages.success(
-                request, 
-                f"Stock verification completed for {storage.name}!"
-            )
+            try:
+                logger.info(f"Updating product stats for {storage.name}...")
+                service.update_product_stats()
+                
+                logger.info(f"Recording losses for {storage.name}...")
+                service.record_losses()
+                
+                # Track changes for report
+                verification_report = {
+                    'total_products': 0,
+                    'products_verified': 0,
+                    'stock_changes': [],
+                    'total_stock_before': 0,
+                    'total_stock_after': 0,
+                    'verified_at': timezone.now()
+                }
+                
+                # Read CSV and get product list before verification
+                import pandas as pd
+                df = pd.read_csv(file_path)
+                
+                # Clean column names
+                COD_COL = "Codice"
+                V_COL = "Variante"
+                STOCK_COL = "Qta Originale"
+                
+                # Get stock levels BEFORE verification
+                stock_before = {}
+                for _, row in df.iterrows():
+                    try:
+                        cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        v_str = str(row[V_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        cod = int(cod_str)
+                        v = int(v_str)
+                        
+                        try:
+                            stock_before[(cod, v)] = service.db.get_stock(cod, v)
+                        except:
+                            stock_before[(cod, v)] = None
+                    except:
+                        continue
+                
+                # Now verify stock
+                logger.info(f"Verifying stock from CSV for {storage.name}...")
+                from .scripts.inventory_reader import verify_stocks_from_excel
+                verify_stocks_from_excel(service.db)
+                
+                # Get stock levels AFTER verification and calculate changes
+                for _, row in df.iterrows():
+                    try:
+                        cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        v_str = str(row[V_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        stock_str = str(row[STOCK_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        
+                        cod = int(cod_str)
+                        v = int(v_str)
+                        new_stock = int(stock_str)
+                        
+                        old_stock = stock_before.get((cod, v))
+                        
+                        if old_stock is not None:
+                            verification_report['total_products'] += 1
+                            verification_report['total_stock_before'] += old_stock
+                            verification_report['total_stock_after'] += new_stock
+                            
+                            if old_stock != new_stock:
+                                verification_report['products_verified'] += 1
+                                verification_report['stock_changes'].append({
+                                    'cod': cod,
+                                    'var': v,
+                                    'old_stock': old_stock,
+                                    'new_stock': new_stock,
+                                    'difference': new_stock - old_stock
+                                })
+                    except:
+                        continue
+                
+                # Store report in session for display
+                request.session['verification_report'] = {
+                    'total_products': verification_report['total_products'],
+                    'products_verified': verification_report['products_verified'],
+                    'stock_changes': verification_report['stock_changes'][:50],  # Limit to 50 for display
+                    'total_stock_before': verification_report['total_stock_before'],
+                    'total_stock_after': verification_report['total_stock_after'],
+                    'verified_at': verification_report['verified_at'].isoformat(),
+                    'storage_name': storage.name
+                }
+                
+                messages.success(
+                    request, 
+                    f"Stock verification completed for {storage.name}! "
+                    f"{verification_report['products_verified']} products updated out of {verification_report['total_products']} verified."
+                )
+                
+                return redirect('verification-report', storage_id=storage_id)
+                
+            finally:
+                service.close()
             
         except Exception as e:
             logger.exception("Error verifying stock")
             messages.error(request, f"Error verifying stock: {str(e)}")
-        
-        return redirect('storage-detail', pk=storage_id)
+            return redirect('storage-detail', pk=storage_id)
     
     return render(request, 'storages/verify_stock.html', {'storage': storage})
+
+
+@login_required
+def verification_report_view(request, storage_id):
+    """Display verification report"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    report = request.session.get('verification_report')
+    
+    if not report:
+        messages.warning(request, "No verification report available")
+        return redirect('storage-detail', pk=storage_id)
+    
+    # Calculate statistics
+    if report['stock_changes']:
+        total_difference = sum(change['difference'] for change in report['stock_changes'])
+        avg_difference = total_difference / len(report['stock_changes'])
+        
+        increases = [c for c in report['stock_changes'] if c['difference'] > 0]
+        decreases = [c for c in report['stock_changes'] if c['difference'] < 0]
+        
+        report['total_difference'] = total_difference
+        report['avg_difference'] = avg_difference
+        report['increases_count'] = len(increases)
+        report['decreases_count'] = len(decreases)
+        report['total_increase'] = sum(c['difference'] for c in increases)
+        report['total_decrease'] = sum(c['difference'] for c in decreases)
+    
+    context = {
+        'storage': storage,
+        'report': report
+    }
+    
+    return render(request, 'storages/verification_report.html', context)
+
 
 @login_required
 def configure_list_updates_view(request, storage_id):
@@ -590,12 +741,12 @@ def manual_list_update_view(request, storage_id):
 
 
 @login_required
-def upload_promos_view(request, storage_id):
-    """Upload and process promo PDF file"""
-    storage = get_object_or_404(
-        Storage,
-        id=storage_id,
-        supermarket__owner=request.user
+def upload_promos_view(request, supermarket_id):
+    """Upload and process promo PDF file - SUPERMARKET LEVEL"""
+    supermarket = get_object_or_404(
+        Supermarket,
+        id=supermarket_id,
+        owner=request.user
     )
     
     if request.method == 'POST':
@@ -615,10 +766,18 @@ def upload_promos_view(request, storage_id):
                     for chunk in pdf_file.chunks():
                         destination.write(chunk)
                 
-                # Process promos
+                # Get database path for this supermarket
                 from .services import RestockService
-                service = RestockService(storage)
+                # Use first storage to get db connection (they share same supermarket DB)
+                first_storage = supermarket.storages.first()
                 
+                if not first_storage:
+                    messages.error(request, "No storages found for this supermarket. Sync storages first.")
+                    return redirect('supermarket-detail', pk=supermarket_id)
+                
+                service = RestockService(first_storage)
+                
+                # Parse and update promos
                 from .scripts.scrapper import Scrapper
                 promo_list = Scrapper(service.helper, service.db).parse_promo_pdf(str(file_path))
                 
@@ -630,18 +789,316 @@ def upload_promos_view(request, storage_id):
                 
                 messages.success(
                     request,
-                    f"Successfully processed {len(promo_list)} promo items!"
+                    f"Successfully processed {len(promo_list)} promo items for {supermarket.name}!"
                 )
                 
             except Exception as e:
                 logger.exception("Error processing promos")
                 messages.error(request, f"Error processing promos: {str(e)}")
             
-            return redirect('storage-detail', pk=storage_id)
+            return redirect('supermarket-detail', pk=supermarket_id)
     else:
         form = PromoUploadForm()
     
-    return render(request, 'storages/upload_promos.html', {
+    return render(request, 'supermarkets/upload_promos.html', {
+        'supermarket': supermarket,
+        'form': form
+    })
+
+
+# ============ Stock Adjustment Views ============
+
+@login_required
+def adjust_stock_view(request, storage_id):
+    """Manually adjust stock for a single product"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    if request.method == 'POST':
+        form = StockAdjustmentForm(request.POST)
+        
+        if form.is_valid():
+            product_code = form.cleaned_data['product_code']
+            product_var = form.cleaned_data['product_var']
+            adjustment = form.cleaned_data['adjustment']
+            reason = form.cleaned_data['reason']
+            notes = form.cleaned_data.get('notes', '')
+            
+            try:
+                service = RestockService(storage)
+                
+                # Check if product exists
+                try:
+                    current_stock = service.db.get_stock(product_code, product_var)
+                except ValueError:
+                    messages.error(
+                        request,
+                        f"Product {product_code}.{product_var} not found in database"
+                    )
+                    service.close()
+                    return redirect('adjust-stock', storage_id=storage_id)
+                
+                # Apply adjustment
+                service.db.adjust_stock(product_code, product_var, adjustment)
+                new_stock = service.db.get_stock(product_code, product_var)
+                
+                service.close()
+                
+                # Log the adjustment
+                logger.info(
+                    f"Stock adjusted for {storage.name}: "
+                    f"Product {product_code}.{product_var} "
+                    f"{current_stock} -> {new_stock} ({adjustment:+d}) "
+                    f"Reason: {reason}"
+                )
+                
+                messages.success(
+                    request,
+                    f"Stock adjusted successfully! "
+                    f"Product {product_code}.{product_var}: "
+                    f"{current_stock} → {new_stock} ({adjustment:+d})"
+                )
+                
+                # Redirect back to form for another adjustment or to storage detail
+                if 'adjust_another' in request.POST:
+                    return redirect('adjust-stock', storage_id=storage_id)
+                else:
+                    return redirect('storage-detail', pk=storage_id)
+                
+            except Exception as e:
+                logger.exception("Error adjusting stock")
+                messages.error(request, f"Error adjusting stock: {str(e)}")
+    else:
+        form = StockAdjustmentForm()
+    
+    return render(request, 'storages/adjust_stock.html', {
         'storage': storage,
         'form': form
     })
+
+
+@login_required
+def bulk_adjust_stock_view(request, storage_id):
+    """Bulk adjust stock via CSV upload"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    if request.method == 'POST':
+        form = BulkStockAdjustmentForm(request.POST, request.FILES)
+        
+        if form.is_valid():
+            csv_file = request.FILES['csv_file']
+            default_reason = form.cleaned_data['reason']
+            
+            try:
+                import csv
+                import io
+                
+                # Read CSV
+                decoded_file = csv_file.read().decode('utf-8')
+                csv_reader = csv.DictReader(io.StringIO(decoded_file))
+                
+                service = RestockService(storage)
+                
+                adjustments_made = []
+                errors = []
+                
+                for row_num, row in enumerate(csv_reader, start=2):
+                    try:
+                        # Parse row
+                        product_code = int(row.get('Product Code', row.get('product_code', 0)))
+                        product_var = int(row.get('Variant', row.get('variant', row.get('Product Variant', 1))))
+                        adjustment = int(row.get('Adjustment', row.get('adjustment', 0)))
+                        
+                        if adjustment == 0:
+                            continue
+                        
+                        # Get current stock
+                        try:
+                            current_stock = service.db.get_stock(product_code, product_var)
+                        except ValueError:
+                            errors.append(f"Row {row_num}: Product {product_code}.{product_var} not found")
+                            continue
+                        
+                        # Apply adjustment
+                        service.db.adjust_stock(product_code, product_var, adjustment)
+                        new_stock = service.db.get_stock(product_code, product_var)
+                        
+                        adjustments_made.append({
+                            'code': product_code,
+                            'var': product_var,
+                            'old': current_stock,
+                            'new': new_stock,
+                            'adjustment': adjustment
+                        })
+                        
+                    except (KeyError, ValueError) as e:
+                        errors.append(f"Row {row_num}: Invalid data - {str(e)}")
+                        continue
+                
+                service.close()
+                
+                # Show results
+                if adjustments_made:
+                    messages.success(
+                        request,
+                        f"Successfully adjusted {len(adjustments_made)} products!"
+                    )
+                
+                if errors:
+                    messages.warning(
+                        request,
+                        f"Encountered {len(errors)} errors. Check logs for details."
+                    )
+                    for error in errors[:5]:  # Show first 5 errors
+                        messages.error(request, error)
+                
+                return redirect('storage-detail', pk=storage_id)
+                
+            except Exception as e:
+                logger.exception("Error in bulk stock adjustment")
+                messages.error(request, f"Error processing CSV: {str(e)}")
+    else:
+        form = BulkStockAdjustmentForm()
+    
+    return render(request, 'storages/bulk_adjust_stock.html', {
+        'storage': storage,
+        'form': form
+    })
+
+
+# ============ Stock Value Analysis Views ============
+
+@login_required
+def stock_value_view(request, storage_id):
+    """View stock value breakdown by category"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    try:
+        service = RestockService(storage)
+        
+        # Get all unique categories
+        cursor = service.db.conn.cursor()
+        cursor.execute("SELECT DISTINCT category FROM economics WHERE category != ''")
+        categories = [row[0] for row in cursor.fetchall()]
+        
+        # Calculate value for each category
+        category_values = []
+        total_value = 0
+        
+        for category in categories:
+            value = service.db.get_category_stock_value(category)
+            if value > 0:
+                category_values.append({
+                    'name': category,
+                    'value': value
+                })
+                total_value += value
+        
+        # Sort by value descending
+        category_values.sort(key=lambda x: x['value'], reverse=True)
+        
+        # Calculate percentages
+        for cat in category_values:
+            cat['percentage'] = (cat['value'] / total_value * 100) if total_value > 0 else 0
+        
+        service.close()
+        
+        context = {
+            'storage': storage,
+            'category_values': category_values,
+            'total_value': total_value,
+        }
+        
+        return render(request, 'storages/stock_value.html', context)
+        
+    except Exception as e:
+        logger.exception("Error calculating stock value")
+        messages.error(request, f"Error calculating stock value: {str(e)}")
+        return redirect('storage-detail', pk=storage_id)
+
+
+@login_required
+def supermarket_stock_value_view(request, supermarket_id):
+    """View total stock value across all storages in a supermarket"""
+    supermarket = get_object_or_404(
+        Supermarket,
+        id=supermarket_id,
+        owner=request.user
+    )
+    
+    try:
+        storage_values = []
+        total_value = 0
+        category_totals = {}
+        
+        for storage in supermarket.storages.all():
+            service = RestockService(storage)
+            
+            # Get categories for this storage
+            cursor = service.db.conn.cursor()
+            cursor.execute("SELECT DISTINCT category FROM economics WHERE category != ''")
+            categories = [row[0] for row in cursor.fetchall()]
+            
+            storage_total = 0
+            storage_categories = []
+            
+            for category in categories:
+                value = service.db.get_category_stock_value(category)
+                if value > 0:
+                    storage_total += value
+                    storage_categories.append({
+                        'name': category,
+                        'value': value
+                    })
+                    
+                    # Add to category totals
+                    if category in category_totals:
+                        category_totals[category] += value
+                    else:
+                        category_totals[category] = value
+            
+            service.close()
+            
+            if storage_total > 0:
+                storage_values.append({
+                    'storage': storage,
+                    'total': storage_total,
+                    'categories': storage_categories
+                })
+                total_value += storage_total
+        
+        # Convert category totals to list and sort
+        category_list = [
+            {'name': name, 'value': value}
+            for name, value in category_totals.items()
+        ]
+        category_list.sort(key=lambda x: x['value'], reverse=True)
+        
+        # Calculate percentages
+        for cat in category_list:
+            cat['percentage'] = (cat['value'] / total_value * 100) if total_value > 0 else 0
+        
+        context = {
+            'supermarket': supermarket,
+            'storage_values': storage_values,
+            'total_value': total_value,
+            'category_totals': category_list,
+        }
+        
+        return render(request, 'supermarkets/stock_value.html', context)
+        
+    except Exception as e:
+        logger.exception("Error calculating supermarket stock value")
+        messages.error(request, f"Error calculating stock value: {str(e)}")
+        return redirect('supermarket-detail', pk=supermarket_id)

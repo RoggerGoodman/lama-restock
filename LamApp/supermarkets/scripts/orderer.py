@@ -1,14 +1,12 @@
 from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.actions.wheel_input import ScrollOrigin
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 import time
 import re
-from selenium.common.exceptions import TimeoutException
 from .constants import PASSWORD, USERNAME
 from .logger import logger
 
@@ -218,6 +216,7 @@ class Orderer:
                 "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]"
             )
             if is_off:
+                logger.info(f"Article {cod_part}.{var_part} doesn't accept orders. Skipping.")
                 continue
             stock_size.clear()
             stock_size.send_keys(qty_part)

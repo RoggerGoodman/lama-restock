@@ -40,13 +40,7 @@
                 <div class="icon icon-red">
                     <i class="bi bi-calendar-check"></i>
                 </div>
-                <h3 class="mb-1">
-                    {% for supermarket in supermarkets %}
-                        {% for storage in supermarket.storages.all %}
-                            {% if storage.schedule %}1{% endif %}
-                        {% endfor %}
-                    {% endfor %}
-                </h3>
+                <h3 class="mb-1">{{ active_schedules }}</h3>
                 <p class="text-muted mb-0">Active Schedules</p>
             </div>
         </div>
@@ -73,6 +67,165 @@
             </div>
         </div>
     </div>
+
+    <!-- NEW: Scheduled Operations Section -->
+    {% if scheduled_storages %}
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-calendar-event"></i> Scheduled Automatic Operations
+                </h5>
+                
+                <p class="text-muted mb-3">
+                    <i class="bi bi-info-circle"></i>
+                    These operations run automatically at scheduled times. All times are in your server's timezone.
+                </p>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Storage</th>
+                                <th>Operation Type</th>
+                                <th>Schedule</th>
+                                <th>Last Run</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for storage in scheduled_storages %}
+                                <!-- Restock Operations -->
+                                {% if storage.schedule %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ storage.supermarket.name }}</strong><br>
+                                        <small class="text-muted">{{ storage.name }}</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary">
+                                            <i class="bi bi-box-seam"></i> Restock Orders
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="mb-1">
+                                            <strong>6:00 AM</strong> on:
+                                        </div>
+                                        <div class="d-flex gap-1 flex-wrap">
+                                            {% if storage.schedule.monday %}<span class="badge bg-secondary">Mon</span>{% endif %}
+                                            {% if storage.schedule.tuesday %}<span class="badge bg-secondary">Tue</span>{% endif %}
+                                            {% if storage.schedule.wednesday %}<span class="badge bg-secondary">Wed</span>{% endif %}
+                                            {% if storage.schedule.thursday %}<span class="badge bg-secondary">Thu</span>{% endif %}
+                                            {% if storage.schedule.friday %}<span class="badge bg-secondary">Fri</span>{% endif %}
+                                            {% if storage.schedule.saturday %}<span class="badge bg-secondary">Sat</span>{% endif %}
+                                            {% if storage.schedule.sunday %}<span class="badge bg-secondary">Sun</span>{% endif %}
+                                        </div>
+                                        <small class="text-muted d-block mt-1">
+                                            {{ storage.schedule.get_schedule_summary }}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        {% with last_log=storage.restock_logs.first %}
+                                            {% if last_log %}
+                                                <small>{{ last_log.started_at|timesince }} ago</small>
+                                            {% else %}
+                                                <span class="text-muted">Never</span>
+                                            {% endif %}
+                                        {% endwith %}
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-eye"></i> View
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endif %}
+
+                                <!-- Loss Recording (day before orders at 22:30) -->
+                                {% if storage.schedule %}
+                                <tr class="table-light">
+                                    <td>
+                                        <small class="text-muted">↳ {{ storage.name }}</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-warning text-dark">
+                                            <i class="bi bi-clipboard-data"></i> Loss Recording
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="mb-1">
+                                            <strong>22:30</strong> (10:30 PM)
+                                        </div>
+                                        <small class="text-muted">
+                                            Runs the day before each order day
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">Automatic</small>
+                                    </td>
+                                    <td>—</td>
+                                </tr>
+                                {% endif %}
+
+                                <!-- List Updates -->
+                                {% if storage.list_update_schedule and storage.list_update_schedule.enabled %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ storage.supermarket.name }}</strong><br>
+                                        <small class="text-muted">{{ storage.name }}</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">
+                                            <i class="bi bi-arrow-repeat"></i> Product List Update
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="mb-1">
+                                            <strong>3:00 AM</strong> daily
+                                        </div>
+                                        <small class="text-muted">
+                                            Frequency: {{ storage.list_update_schedule.get_frequency_display }}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        {% if storage.last_list_update %}
+                                            <small>{{ storage.last_list_update|timesince }} ago</small>
+                                        {% else %}
+                                            <span class="text-muted">Never</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'configure-list-updates' storage_id=storage.id %}" class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-gear"></i> Configure
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="alert alert-secondary mt-3 mb-0">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <h6 class="mb-2"><i class="bi bi-box-seam text-primary"></i> Restock Orders</h6>
+                            <small>Calculates needed products and places orders automatically at 6:00 AM</small>
+                        </div>
+                        <div class="col-md-4">
+                            <h6 class="mb-2"><i class="bi bi-clipboard-data text-warning"></i> Loss Recording</h6>
+                            <small>Downloads inventory losses (broken/expired/internal) at 22:30 before order days</small>
+                        </div>
+                        <div class="col-md-4">
+                            <h6 class="mb-2"><i class="bi bi-arrow-repeat text-info"></i> List Updates</h6>
+                            <small>Downloads latest product list from PAC2000A at 3:00 AM based on configured frequency</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     
     <!-- Supermarkets Overview -->
     <div class="row mt-4">

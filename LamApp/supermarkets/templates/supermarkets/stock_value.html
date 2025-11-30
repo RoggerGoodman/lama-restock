@@ -1,0 +1,162 @@
+<!-- LamApp/supermarkets/templates/supermarkets/stock_value.html -->
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Stock Value - {{ supermarket.name }}{% endblock %}
+{% block page_title %}Total Inventory Value{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Supermarkets</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=supermarket.id %}">{{ supermarket.name }}</a></li>
+                    <li class="breadcrumb-item active">Stock Value</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Total Value Card -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card text-center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <h2 class="mb-2">
+                    <i class="bi bi-building"></i> {{ supermarket.name }}
+                </h2>
+                <h1 class="display-3 mb-2">€{{ total_value|floatformat:2 }}</h1>
+                <p class="mb-0 opacity-75">Total Inventory Value Across All Storages</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Storage Breakdown -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-4">
+                    <i class="bi bi-boxes"></i> Value by Storage
+                </h5>
+
+                {% if storage_values %}
+                    <div class="row">
+                        {% for storage_data in storage_values %}
+                        <div class="col-md-6 col-lg-4 mb-3">
+                            <div class="card h-100 border-0" style="background-color: #f8f9fa;">
+                                <div class="card-body">
+                                    <h6 class="card-title">
+                                        <i class="bi bi-box text-primary"></i>
+                                        {{ storage_data.storage.name }}
+                                    </h6>
+                                    <h4 class="text-success mb-3">€{{ storage_data.total|floatformat:2 }}</h4>
+                                    
+                                    <div class="mb-2">
+                                        <small class="text-muted">Top Categories:</small>
+                                    </div>
+                                    <ul class="list-unstyled small mb-3">
+                                        {% for cat in storage_data.categories|slice:":3" %}
+                                        <li class="mb-1">
+                                            <strong>{{ cat.name }}:</strong> €{{ cat.value|floatformat:2 }}
+                                        </li>
+                                        {% endfor %}
+                                    </ul>
+                                    
+                                    <a href="{% url 'stock-value' storage_id=storage_data.storage.id %}" class="btn btn-sm btn-outline-primary w-100">
+                                        <i class="bi bi-eye"></i> View Details
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        No stock value data available for any storage.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Totals -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-4">
+                    <i class="bi bi-pie-chart"></i> Total Value by Category (All Storages)
+                </h5>
+
+                {% if category_totals %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th class="text-end">Total Value</th>
+                                    <th>Percentage</th>
+                                    <th style="width: 40%">Distribution</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for cat in category_totals %}
+                                <tr>
+                                    <td><strong>{{ cat.name }}</strong></td>
+                                    <td class="text-end">€{{ cat.value|floatformat:2 }}</td>
+                                    <td>
+                                        <span class="badge bg-primary">{{ cat.percentage|floatformat:1 }}%</span>
+                                    </td>
+                                    <td>
+                                        <div class="progress" style="height: 25px;">
+                                            <div class="progress-bar bg-info" 
+                                                 role="progressbar" 
+                                                 style="width: {{ cat.percentage }}%"
+                                                 aria-valuenow="{{ cat.percentage }}" 
+                                                 aria-valuemin="0" 
+                                                 aria-valuemax="100">
+                                                {{ cat.percentage|floatformat:1 }}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot class="table-light">
+                                <tr>
+                                    <td><strong>Total</strong></td>
+                                    <td class="text-end"><strong>€{{ total_value|floatformat:2 }}</strong></td>
+                                    <td colspan="2"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="d-flex gap-2">
+                <a href="{% url 'supermarket-detail' pk=supermarket.id %}" class="btn btn-secondary">
+                    <i class="bi bi-arrow-left"></i> Back to Supermarket
+                </a>
+                <button onclick="window.print()" class="btn btn-outline-primary">
+                    <i class="bi bi-printer"></i> Print Report
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+@media print {
+    .sidebar, .top-navbar, nav, .btn, .breadcrumb { display: none !important; }
+    .main-content { margin-left: 0 !important; }
+}
+</style>
+{% endblock %}

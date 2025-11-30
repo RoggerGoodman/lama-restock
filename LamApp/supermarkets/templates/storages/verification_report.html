@@ -1,0 +1,219 @@
+<!-- LamApp/supermarkets/templates/storages/verification_report.html -->
+{% extends 'base.html' %}
+
+{% block title %}Verification Report - {{ storage.name }}{% endblock %}
+{% block page_title %}Stock Verification Report{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Verification Report</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-blue">
+                    <i class="bi bi-box-seam"></i>
+                </div>
+                <h3 class="mb-1">{{ report.total_products }}</h3>
+                <p class="text-muted mb-0">Total Products</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-orange">
+                    <i class="bi bi-arrow-left-right"></i>
+                </div>
+                <h3 class="mb-1">{{ report.products_verified }}</h3>
+                <p class="text-muted mb-0">Changes Made</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-green">
+                    <i class="bi bi-check-circle"></i>
+                </div>
+                <h3 class="mb-1">{{ report.total_stock_after }}</h3>
+                <p class="text-muted mb-0">Total Stock After</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-red">
+                    <i class="bi bi-clipboard-data"></i>
+                </div>
+                <h3 class="mb-1">
+                    {% if report.total_difference >= 0 %}
+                        +{{ report.total_difference }}
+                    {% else %}
+                        {{ report.total_difference }}
+                    {% endif %}
+                </h3>
+                <p class="text-muted mb-0">Net Change</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Statistics -->
+    {% if report.stock_changes %}
+    <div class="row mb-4">
+        <div class="col-lg-12">
+            <div class="stat-card">
+                <h5 class="mb-4">
+                    <i class="bi bi-graph-up-arrow"></i> Change Analysis
+                </h5>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="text-center p-3 border rounded">
+                            <h6 class="text-muted mb-2">Stock Before</h6>
+                            <h3 class="mb-0">{{ report.total_stock_before }}</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3 border rounded">
+                            <h6 class="text-muted mb-2">Stock After</h6>
+                            <h3 class="mb-0">{{ report.total_stock_after }}</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center p-3 border rounded {% if report.total_difference < 0 %}bg-danger-subtle{% else %}bg-success-subtle{% endif %}">
+                            <h6 class="text-muted mb-2">Total Difference</h6>
+                            <h3 class="mb-0">
+                                {% if report.total_difference >= 0 %}
+                                    <span class="text-success">+{{ report.total_difference }}</span>
+                                {% else %}
+                                    <span class="text-danger">{{ report.total_difference }}</span>
+                                {% endif %}
+                            </h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <div class="alert alert-success">
+                            <strong><i class="bi bi-arrow-up"></i> Increases:</strong> {{ report.increases_count }} products
+                            <br>
+                            <small>Total: +{{ report.total_increase }} units</small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="alert alert-danger">
+                            <strong><i class="bi bi-arrow-down"></i> Decreases:</strong> {{ report.decreases_count }} products
+                            <br>
+                            <small>Total: {{ report.total_decrease }} units</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Detailed Changes -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h5 class="mb-0">
+                        <i class="bi bi-list-ul"></i> Detailed Changes
+                    </h5>
+                    {% if report.products_verified > 50 %}
+                    <span class="badge bg-info">
+                        Showing first 50 of {{ report.products_verified }} changes
+                    </span>
+                    {% endif %}
+                </div>
+
+                {% if report.stock_changes %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Product Code</th>
+                                    <th>Variant</th>
+                                    <th class="text-end">Before</th>
+                                    <th class="text-center">→</th>
+                                    <th class="text-end">After</th>
+                                    <th class="text-end">Difference</th>
+                                    <th>Change</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for change in report.stock_changes %}
+                                <tr>
+                                    <td><code>{{ change.cod }}</code></td>
+                                    <td><code>{{ change.var }}</code></td>
+                                    <td class="text-end">{{ change.old_stock }}</td>
+                                    <td class="text-center"><i class="bi bi-arrow-right"></i></td>
+                                    <td class="text-end"><strong>{{ change.new_stock }}</strong></td>
+                                    <td class="text-end">
+                                        {% if change.difference >= 0 %}
+                                            <span class="text-success">+{{ change.difference }}</span>
+                                        {% else %}
+                                            <span class="text-danger">{{ change.difference }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if change.difference > 0 %}
+                                            <span class="badge bg-success">
+                                                <i class="bi bi-arrow-up"></i> Increased
+                                            </span>
+                                        {% elif change.difference < 0 %}
+                                            <span class="badge bg-danger">
+                                                <i class="bi bi-arrow-down"></i> Decreased
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle"></i>
+                        <strong>Perfect Match!</strong> All products matched the inventory exactly. No changes were needed.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="d-flex gap-2">
+                <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-primary">
+                    <i class="bi bi-arrow-left"></i> Back to Storage
+                </a>
+                <button onclick="window.print()" class="btn btn-outline-secondary">
+                    <i class="bi bi-printer"></i> Print Report
+                </button>
+                <a href="{% url 'verify-stock' storage_id=storage.id %}" class="btn btn-outline-primary">
+                    <i class="bi bi-arrow-repeat"></i> Run Another Verification
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+@media print {
+    .sidebar, .top-navbar, nav, .btn, .breadcrumb { display: none !important; }
+    .main-content { margin-left: 0 !important; }
+}
+</style>
+{% endblock %}
