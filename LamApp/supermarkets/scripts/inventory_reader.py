@@ -2,12 +2,19 @@ import pandas as pd
 import os
 from .DatabaseManager import DatabaseManager
 from django.conf import settings
-#INVENTORY_FOLDER = r"C:\Users\rugge\Documents\GitHub\lama-restock\Inventory"
-INVENTORY_FOLDER = str(settings.INVENTORY_FOLDER)
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Two separate folders for different purposes
+INVENTORY_FOLDER = str(settings.INVENTORY_FOLDER)  # For verification
+LOSSES_FOLDER = str(settings.LOSSES_FOLDER)  # For loss recording
+
 
 def verify_stocks_from_excel(db: DatabaseManager):
     """
     Verifies and updates stock levels from CSV files inside INVENTORY_FOLDER.
+    Used for manual stock verification with inventory counts.
 
     - Supports multiple rows with the same (Codice, Variante).
     - When duplicates exist, their 'Qta Originale' values are summed.
@@ -19,16 +26,22 @@ def verify_stocks_from_excel(db: DatabaseManager):
 
     for file_name in os.listdir(INVENTORY_FOLDER):
         if not file_name.endswith('.csv'):
-            raise ValueError("filename must be csv")
+            logger.warning(f"Skipping non-CSV file: {file_name}")
+            continue
         
         cluster = os.path.splitext(file_name)[0]  # Filename without extension
 
         file_path = os.path.join(INVENTORY_FOLDER, file_name)
-        print(f"Processing file: {file_path}")
+        logger.info(f"Processing verification file: {file_path}")
 
         try:
             # Load CSV
             df = pd.read_csv(file_path)
+
+            # Check if required columns exist
+            if COD_COL not in df.columns or V_COL not in df.columns or STOCK_COL not in df.columns:
+                logger.error(f"Missing required columns in {file_name}. Expected: {COD_COL}, {V_COL}, {STOCK_COL}")
+                continue
 
             # Clean and normalize numeric columns
             for col in [COD_COL, V_COL, STOCK_COL]:
@@ -44,7 +57,7 @@ def verify_stocks_from_excel(db: DatabaseManager):
             df[V_COL] = df[V_COL].astype(float).astype(int)
             df[STOCK_COL] = df[STOCK_COL].astype(float)
 
-            # 🔸 Combine duplicates by summing STOCK_COL
+            # Combine duplicates by summing STOCK_COL
             combined = (
                 df.groupby([COD_COL, V_COL], as_index=False)[STOCK_COL]
                 .sum()
@@ -59,44 +72,86 @@ def verify_stocks_from_excel(db: DatabaseManager):
 
                 try:
                     db.verify_stock(cod, v, new_stock, cluster)
-                    
+                    logger.debug(f"Verified stock: {cod}.{v} = {new_stock}")
                 except Exception as e:
-                    print(f"⚠️ Skipped {cod}.{v} due to error: {e}")
+                    logger.warning(f"Skipped {cod}.{v} due to error: {e}")
+            
+            # Delete file after processing
             try:
                 os.remove(file_path)
-                print(f"🗑️ Deleted file: {file_path}")
+                logger.info(f"✓ Processed and deleted file: {file_path}")
             except Exception as e:
-                print(f"⚠️ Could not delete file {file_path}: {e}")
+                logger.error(f"Could not delete file {file_path}: {e}")
 
         except Exception as e:
-            print(f"❌ Error reading or processing file {file_name}: {e}")            
+            logger.exception(f"Error reading or processing file {file_name}")            
 
-    db.conn.close()
-    print("All verifications complete.")
-    
+    logger.info("All verifications complete.")
+
 
 def verify_lost_stock_from_excel_combined(db: DatabaseManager):
     """
-    Verifies and updates stock levels from CSV files inside INVENTORY_FOLDER.
-
-    - Supports multiple rows with the same (Codice, Variante).
-    - When duplicates exist, their 'Qta Originale' values are summed.
-    - Each processed file is deleted after successful processing.
+    Process loss files (ROTTURE, SCADUTO, UTILIZZO INTERNO) from LOSSES_FOLDER.
+    
+    CRITICAL FIXES:
+    1. Only processes files that exist in folder
+    2. Checks for required columns before processing
+    3. Validates data types before database operations
+    4. Proper error handling and logging
+    5. Deletes files ONLY after successful processing
     """
     COD_COL = "Codice"
     V_COL = "Variante"
     STOCK_COL = "Qta Originale"
+    
+    # Map filenames to loss types
+    LOSS_FILES = {
+        "ROTTURE.csv": "broken",
+        "SCADUTO.csv": "expired",
+        "UTILIZZO INTERNO.csv": "internal"
+    }
 
-    for file_name in os.listdir(INVENTORY_FOLDER):
-        if not file_name.endswith('.csv'):
-            raise ValueError("filename must be csv")
+    logger.info(f"Starting loss processing. Checking folder: {LOSSES_FOLDER}")
+    
+    # List all files in folder
+    all_files = os.listdir(LOSSES_FOLDER)
+    logger.info(f"Files in folder: {all_files}")
+    
+    files_processed = 0
+    total_losses = 0
 
-        file_path = os.path.join(INVENTORY_FOLDER, file_name)
-        print(f"Processing file: {file_path}")
+    for file_name, loss_type in LOSS_FILES.items():
+        file_path = os.path.join(LOSSES_FOLDER, file_name)
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            logger.warning(f"Loss file not found: {file_name} (expected at {file_path})")
+            continue
+        
+        logger.info(f"Processing loss file: {file_name} (type: {loss_type})")
 
         try:
             # Load CSV
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(file_path, encoding='utf-8')
+            
+            logger.info(f"File loaded. Shape: {df.shape}, Columns: {df.columns.tolist()}")
+
+            # Check if required columns exist
+            if COD_COL not in df.columns:
+                logger.error(f"Missing column '{COD_COL}' in {file_name}. Available: {df.columns.tolist()}")
+                continue
+            
+            if V_COL not in df.columns:
+                logger.error(f"Missing column '{V_COL}' in {file_name}. Available: {df.columns.tolist()}")
+                continue
+                
+            if STOCK_COL not in df.columns:
+                logger.error(f"Missing column '{STOCK_COL}' in {file_name}. Available: {df.columns.tolist()}")
+                continue
+
+            # Log first few rows for debugging
+            logger.info(f"First 3 rows of {file_name}:")
+            logger.info(f"\n{df[[COD_COL, V_COL, STOCK_COL]].head(3).to_string()}")
 
             # Clean and normalize numeric columns
             for col in [COD_COL, V_COL, STOCK_COL]:
@@ -107,61 +162,94 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
                     .str.replace(",", ".", regex=False)
                 )
 
-            # Convert to integers safely
-            df[COD_COL] = df[COD_COL].astype(float).astype(int)
-            df[V_COL] = df[V_COL].astype(float).astype(int)
+            # Convert to numeric, dropping invalid rows
+            df[COD_COL] = pd.to_numeric(df[COD_COL], errors='coerce')
+            df[V_COL] = pd.to_numeric(df[V_COL], errors='coerce')
+            df[STOCK_COL] = pd.to_numeric(df[STOCK_COL], errors='coerce')
+            
+            # Drop rows with NaN values
+            initial_rows = len(df)
+            df = df.dropna(subset=[COD_COL, V_COL, STOCK_COL])
+            dropped_rows = initial_rows - len(df)
+            
+            if dropped_rows > 0:
+                logger.warning(f"Dropped {dropped_rows} invalid rows from {file_name}")
+
+            # Convert to integers
+            df[COD_COL] = df[COD_COL].astype(int)
+            df[V_COL] = df[V_COL].astype(int)
             df[STOCK_COL] = df[STOCK_COL].astype(float)
 
-            # 🔸 Combine duplicates by summing STOCK_COL
+            # Combine duplicates by summing STOCK_COL
             combined = (
                 df.groupby([COD_COL, V_COL], as_index=False)[STOCK_COL]
                 .sum()
                 .astype({COD_COL: int, V_COL: int, STOCK_COL: int})
             )
+            
+            logger.info(f"After combining duplicates: {len(combined)} unique products")
 
-            # Go through combined rows
+            # Process each row
+            processed_count = 0
+            error_count = 0
+            
             for _, row in combined.iterrows():
                 cod = int(row[COD_COL])
                 v = int(row[V_COL])
-                new_stock = int(row[STOCK_COL])
+                delta = int(row[STOCK_COL])
+                
+                if delta == 0:
+                    continue  # Skip zero losses
 
                 try:
-                    match file_name:
-                        case "ROTTURE.csv":
-                            type = "broken"
-                        case "SCADUTO.csv":
-                            type = "expired"
-                        case "UTILIZZO INTERNO.csv":
-                            type = "internal"
-                    db.register_losses(cod, v, new_stock, type)
-                    
+                    db.register_losses(cod, v, delta, loss_type)
+                    processed_count += 1
+                    total_losses += delta
+                    logger.debug(f"Registered {loss_type}: {cod}.{v} = {delta}")
+                except ValueError as e:
+                    # Product not found in database
+                    logger.debug(f"Product {cod}.{v} not in database: {e}")
+                    error_count += 1
                 except Exception as e:
-                    print(f"⚠️ Skipped {cod}.{v} due to error: {e}")
+                    logger.warning(f"Error processing {cod}.{v}: {e}")
+                    error_count += 1
+            
+            logger.info(f"✓ Processed {file_name}: {processed_count} losses registered, {error_count} skipped")
+            files_processed += 1
 
-        except Exception as e:
-            print(f"❌ Error reading or processing file {file_name}: {e}")
-        finally:
-            # Attempt to delete the file (whether success or not)
+            # Delete file ONLY after successful processing
             try:
                 os.remove(file_path)
-                print(f"🗑️ Deleted file: {file_path}")
+                logger.info(f"✓ Deleted processed file: {file_path}")
             except Exception as e:
-                print(f"⚠️ Could not delete file {file_path}: {e}")
+                logger.error(f"Could not delete file {file_path}: {e}")
 
-    db.conn.close()
+        except Exception as e:
+            logger.exception(f"✗ Error reading or processing file {file_name}")
+            continue
+    
+    logger.info(f"Loss processing complete: {files_processed} files processed, {total_losses} total losses registered")
 
 
-def adjust_stocks_from_excel(db:DatabaseManager):
-    # Load Excel (first sheet by default)
+def adjust_stocks_from_excel(db: DatabaseManager):
+    """
+    Adjust stock levels from CSV files in INVENTORY_FOLDER (for manual corrections).
+    Uses the 'Diff.' column for adjustment amounts.
+    """
     for file_name in os.listdir(INVENTORY_FOLDER):
             
         if not file_name.endswith('.csv'):
-            raise ValueError('filename must be csv')
+            logger.warning(f"Skipping non-CSV file: {file_name}")
+            continue
+            
         # Full path to the current CSV file
         file_path = os.path.join(INVENTORY_FOLDER, file_name)
 
+        logger.info(f"Processing adjustment file: {file_path}")
+
         # Read CSV file
         df = pd.read_csv(file_path)
+        
         # Adjust column names based on your Excel structure
         COD_COL = "Cod."
         V_COL = "Diff."
@@ -177,21 +265,19 @@ def adjust_stocks_from_excel(db:DatabaseManager):
 
                 cod = int(cod_str)                
                 v = int(v_str)
-                new_stock = int(stock_str) 
+                adjustment = int(stock_str) 
 
-                db.adjust_stock(cod, v, new_stock)
-                print(f"Verified stock for {cod}.{v} → {new_stock}")
+                db.adjust_stock(cod, v, adjustment)
+                logger.debug(f"Adjusted stock: {cod}.{v} by {adjustment}")
                 tot += 1
 
             except Exception as e:
-                print(f"Skipped row due to error: {e}")
+                logger.warning(f"Skipped row due to error: {e}")
 
         try:
             os.remove(file_path)
-            print(f"Deleted file: {file_path}")
+            logger.info(f"✓ Deleted file: {file_path}")
         except Exception as e:
-            print(f"Could not delete file {file_path}: {e}")
+            logger.error(f"Could not delete file {file_path}: {e}")
 
-    db.conn.close()
-    print("All adjustment complete.")
-    print(f"Adjusted {tot} entries")
+    logger.info(f"All adjustments complete. Adjusted {tot} entries")

@@ -46,10 +46,14 @@
                     </div>
                 </div>
 
-                <!-- Actions -->
+                <!-- Main Actions -->
+                <h6 class="mb-2 mt-4"><i class="bi bi-lightning-charge"></i> Quick Actions</h6>
                 <div class="d-flex gap-2 mb-3 flex-wrap">
                     <a href="{% url 'run-restock' storage_id=storage.id %}" class="btn btn-primary">
                         <i class="bi bi-play-circle"></i> Run Restock Check
+                    </a>
+                    <a href="{% url 'stock-value' storage_id=storage.id %}" class="btn btn-success">
+                        <i class="bi bi-cash-stack"></i> View Stock Value
                     </a>
                     <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="btn btn-outline-primary">
                         <i class="bi bi-calendar-check"></i> {% if schedule %}Edit Schedule{% else %}Create Schedule{% endif %}
@@ -60,12 +64,22 @@
                 </div>
 
                 <!-- Data Management Actions -->
+                <h6 class="mb-2 mt-4"><i class="bi bi-database"></i> Data Management</h6>
                 <div class="d-flex gap-2 mb-3 flex-wrap">
+                    <a href="{% url 'adjust-stock' storage_id=storage.id %}" class="btn btn-warning">
+                        <i class="bi bi-pencil-square"></i> Adjust Stock
+                    </a>
+                    <a href="{% url 'bulk-adjust-stock' storage_id=storage.id %}" class="btn btn-outline-warning">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> Bulk Adjust Stock
+                    </a>
                     <a href="{% url 'verify-stock' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-clipboard-check"></i> Verify Stock
                     </a>
                     <a href="{% url 'manual-list-update' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-download"></i> Update Product List
+                    </a>
+                    <a href="{% url 'configure-list-updates' storage_id=storage.id %}" class="btn btn-outline-info">
+                        <i class="bi bi-gear"></i> Configure Auto Updates
                     </a>
                 </div>
 
@@ -79,9 +93,9 @@
 
                 <!-- Schedule Info -->
                 {% if schedule %}
-                <div class="alert alert-info">
+                <div class="alert alert-info mt-3">
                     <h6 class="mb-2">
-                        <i class="bi bi-calendar-check"></i> Schedule Information
+                        <i class="bi bi-calendar-check"></i> Restock Schedule
                     </h6>
                     <div class="row">
                         <div class="col-md-6">
@@ -103,10 +117,46 @@
                     </div>
                 </div>
                 {% else %}
-                <div class="alert alert-warning">
+                <div class="alert alert-warning mt-3">
                     <i class="bi bi-exclamation-triangle"></i>
-                    No schedule configured for this storage.
+                    No restock schedule configured.
                     <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">Create schedule now</a>
+                </div>
+                {% endif %}
+
+                <!-- List Update Schedule Info -->
+                {% if list_schedule %}
+                <div class="alert alert-info mt-3">
+                    <h6 class="mb-2">
+                        <i class="bi bi-arrow-repeat"></i> Product List Updates
+                    </h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Status:</strong></p>
+                            {% if list_schedule.enabled %}
+                                <span class="badge bg-success">Enabled</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Disabled</span>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>Frequency:</strong></p>
+                            <small class="text-muted">{{ list_schedule.get_frequency_display }}</small>
+                        </div>
+                    </div>
+                    {% if storage.last_list_update %}
+                    <div class="mt-2">
+                        <small class="text-muted">
+                            <strong>Last Update:</strong> {{ storage.last_list_update|timesince }} ago
+                        </small>
+                    </div>
+                    {% endif %}
+                </div>
+                {% else %}
+                <div class="alert alert-warning mt-3">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Automatic list updates not configured.
+                    <a href="{% url 'configure-list-updates' storage_id=storage.id %}" class="alert-link">Configure now</a>
                 </div>
                 {% endif %}
             </div>

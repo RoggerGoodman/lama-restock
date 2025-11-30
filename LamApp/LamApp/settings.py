@@ -131,11 +131,15 @@ LOGIN_URL = 'login'
 
 # ===== LamaRestock Configuration =====
 
-# Directory where inventory CSV files will be downloaded
+# INVENTORY FOLDER: For stock verification CSV files
+# Used by verify_stocks_from_excel() - manual inventory counts
 INVENTORY_FOLDER = BASE_DIR / 'Inventory'
-
-# Create the directory if it doesn't exist
 INVENTORY_FOLDER.mkdir(exist_ok=True)
+
+# LOSSES FOLDER: For loss recording CSV files (ROTTURE, SCADUTO, UTILIZZO INTERNO)
+# Used by verify_lost_stock_from_excel_combined() - automated and manual loss recording
+LOSSES_FOLDER = BASE_DIR / 'Losses'
+LOSSES_FOLDER.mkdir(exist_ok=True)
 
 # Logging configuration for automation
 LOGGING = {

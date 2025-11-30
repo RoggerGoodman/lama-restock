@@ -21,21 +21,29 @@ urlpatterns = [
     path('supermarkets/<int:pk>/edit/', views.SupermarketUpdateView.as_view(), name='supermarket-edit'),
     path('supermarkets/<int:pk>/delete/', views.SupermarketDeleteView.as_view(), name='supermarket-delete'),
     path('supermarkets/<int:pk>/sync/', views.sync_storages_view, name='sync-storages'),
+    # MOVED: Promos are now supermarket-level (not storage-level)
+    path('supermarkets/<int:supermarket_id>/upload-promos/', views.upload_promos_view, name='upload-promos'),
     
     # Storages
     path('storages/<int:pk>/', views.StorageDetailView.as_view(), name='storage-detail'),
     path('storages/<int:pk>/delete/', views.StorageDeleteView.as_view(), name='storage-delete'),
     path('storages/<int:storage_id>/restock/', views.run_restock_view, name='run-restock'),
     
-    # List Updates (replaces old import)
+    # List Updates
     path('storages/<int:storage_id>/configure-updates/', views.configure_list_updates_view, name='configure-list-updates'),
     path('storages/<int:storage_id>/update-list/', views.manual_list_update_view, name='manual-list-update'),
     
-    # Promos
-    path('storages/<int:storage_id>/upload-promos/', views.upload_promos_view, name='upload-promos'),
-    
-    # Stock Verification (keep this one - still useful)
+    # Stock Verification
     path('storages/<int:storage_id>/verify/', views.verify_stock_view, name='verify-stock'),
+    path('storages/<int:storage_id>/verification-report/', views.verification_report_view, name='verification-report'),
+    
+    # Stock Value Analysis
+    path('storages/<int:storage_id>/stock-value/', views.stock_value_view, name='stock-value'),
+    path('supermarkets/<int:supermarket_id>/stock-value/', views.supermarket_stock_value_view, name='supermarket-stock-value'),
+    
+    # Stock Adjustments
+    path('storages/<int:storage_id>/adjust-stock/', views.adjust_stock_view, name='adjust-stock'),
+    path('storages/<int:storage_id>/bulk-adjust-stock/', views.bulk_adjust_stock_view, name='bulk-adjust-stock'),
     
     # Restock Schedules
     path('schedules/', views.RestockScheduleListView.as_view(), name='restock_schedule_list'),

@@ -3,14 +3,19 @@
 Background scheduler for automated restock operations.
 Orders run at 6:00 AM on scheduled days.
 Product lists update at 3:00 AM based on configuration.
+Loss recording runs at 22:30 the day before orders.
 """
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import datetime
 import logging
 import atexit
+import os
 
 logger = logging.getLogger(__name__)
+
+# Global flag to prevent multiple scheduler instances
+_scheduler = None
 
 
 def start():
@@ -18,10 +23,33 @@ def start():
     Start the background scheduler.
     This is called when Django starts (in apps.py ready() method).
     """
-    scheduler = BackgroundScheduler()
+    global _scheduler
+    
+    # Prevent multiple scheduler instances
+    if _scheduler is not None:
+        logger.warning("Scheduler already running, skipping initialization")
+        return
+    
+    # Check if this is a management command that shouldn't run scheduler
+    # (like makemigrations, migrate, shell, etc.)
+    import sys
+    if len(sys.argv) > 1:
+        command = sys.argv[1]
+        # Don't start scheduler for these commands
+        if command in ['makemigrations', 'migrate', 'shell', 'createsuperuser', 
+                       'test', 'collectstatic', 'runserver']:
+            logger.info(f"Skipping scheduler for command: {command}")
+            return
+    
+    # Check if running in reloader (Django development server spawns two processes)
+    if os.environ.get('RUN_MAIN') != 'true':
+        logger.info("Skipping scheduler in reloader process")
+        return
+    
+    _scheduler = BackgroundScheduler()
     
     # Schedule 1: Check for restock orders daily at 6:00 AM
-    scheduler.add_job(
+    _scheduler.add_job(
         check_and_run_restock_orders,
         CronTrigger(hour=6, minute=0),
         id='restock_orders',
@@ -29,7 +57,7 @@ def start():
     )
     
     # Schedule 2: Run losses recording daily at 22:30
-    scheduler.add_job(
+    _scheduler.add_job(
         run_losses_recording,
         CronTrigger(hour=22, minute=30),
         id='losses_recording',
@@ -37,18 +65,27 @@ def start():
     )
     
     # Schedule 3: Check for product list updates daily at 3:00 AM
-    scheduler.add_job(
+    _scheduler.add_job(
         run_list_updates,
         CronTrigger(hour=3, minute=0),
         id='list_updates',
         replace_existing=True
     )
     
-    scheduler.start()
-    logger.info("Scheduler started - Orders: 6AM, Losses: 22:30, List Updates: 3AM")
+    _scheduler.start()
+    logger.info("✓ Scheduler started successfully - Orders: 6AM, Losses: 22:30, List Updates: 3AM")
     
     # Make sure the scheduler stops when Django stops
-    atexit.register(lambda: scheduler.shutdown())
+    atexit.register(lambda: shutdown_scheduler())
+
+
+def shutdown_scheduler():
+    """Safely shutdown the scheduler"""
+    global _scheduler
+    if _scheduler is not None:
+        _scheduler.shutdown()
+        _scheduler = None
+        logger.info("Scheduler shutdown complete")
 
 
 def check_and_run_restock_orders():
@@ -86,9 +123,9 @@ def check_and_run_restock_orders():
             try:
                 # Coverage will be calculated automatically based on schedule
                 service.run_full_restock_workflow(coverage=None)
-                logger.info(f"Successfully completed restock for {schedule.storage.name}")
+                logger.info(f"✓ Successfully completed restock for {schedule.storage.name}")
             except Exception as e:
-                logger.exception(f"Failed to run restock for {schedule.storage.name}")
+                logger.exception(f"✗ Failed to run restock for {schedule.storage.name}")
             finally:
                 service.close()
                     
@@ -99,10 +136,14 @@ def check_and_run_restock_orders():
 
 def run_losses_recording():
     """
-    Run losses recording for all storages that have orders scheduled for tomorrow.
+    Run losses recording for all SUPERMARKETS that have orders scheduled for tomorrow.
+    
+    CRITICAL: This runs ONCE PER SUPERMARKET, not once per storage.
+    Downloads losses for ALL storages in a supermarket in one operation.
+    
     This runs once daily at 22:30.
     """
-    from .models import Storage, RestockSchedule
+    from .models import Supermarket, RestockSchedule
     from .automation_services import AutomatedRestockService
     from datetime import datetime, timedelta
     
@@ -116,34 +157,39 @@ def run_losses_recording():
     
     logger.info(f"Checking for losses recording (tomorrow is {tomorrow_field})")
     
-    # Find all schedules where tomorrow is an order day
-    storages_to_process = []
+    # Get all supermarkets that have at least one order tomorrow
+    supermarkets_to_process = set()
     
-    for storage in Storage.objects.select_related('schedule', 'supermarket'):
+    for schedule in RestockSchedule.objects.select_related('storage__supermarket').all():
+        # Check if tomorrow is an order day
+        is_order_tomorrow = getattr(schedule, tomorrow_field)
+        
+        if is_order_tomorrow:
+            supermarkets_to_process.add(schedule.storage.supermarket)
+    
+    logger.info(f"Found {len(supermarkets_to_process)} supermarket(s) with orders tomorrow")
+    
+    # Process each supermarket ONCE
+    for supermarket in supermarkets_to_process:
         try:
-            schedule = storage.schedule
-            # Check if tomorrow is an order day
-            is_order_tomorrow = getattr(schedule, tomorrow_field)
+            logger.info(f"Recording losses for supermarket: {supermarket.name}")
             
-            if is_order_tomorrow:
-                storages_to_process.append(storage)
-                
-        except RestockSchedule.DoesNotExist:
-            continue
-    
-    logger.info(f"Found {len(storages_to_process)} storages with orders tomorrow")
-    
-    # Process each storage
-    for storage in storages_to_process:
-        try:
-            logger.info(f"Recording losses for {storage.name}")
-            service = AutomatedRestockService(storage)
+            # Get the first storage for this supermarket (they share the same credentials)
+            first_storage = supermarket.storages.first()
+            
+            if not first_storage:
+                logger.warning(f"No storages found for {supermarket.name}")
+                continue
+            
+            # Use automation service to record losses
+            service = AutomatedRestockService(first_storage)
             service.record_losses()
             service.close()
-            logger.info(f"Successfully recorded losses for {storage.name}")
+            
+            logger.info(f"✓ Successfully recorded losses for {supermarket.name}")
             
         except Exception as e:
-            logger.exception(f"Failed to record losses for {storage.name}")
+            logger.exception(f"✗ Failed to record losses for {supermarket.name}")
             continue
 
 

@@ -1,0 +1,112 @@
+<!-- LamApp/supermarkets/templates/supermarkets/upload_promos.html -->
+{% extends 'base.html' %}
+{% block title %}Upload Promos - {{ supermarket.name }}{% endblock %}
+{% block page_title %}Upload Promo File{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Supermarkets</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=supermarket.id %}">{{ supermarket.name }}</a></li>
+                    <li class="breadcrumb-item active">Upload Promos</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-file-pdf text-danger"></i>
+                    Upload Promo PDF for {{ supermarket.name }}
+                </h4>
+
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> How It Works</h6>
+                    <ol class="mb-0">
+                        <li>Upload the promo PDF file from your supplier</li>
+                        <li>The system extracts product codes, prices, and dates</li>
+                        <li>Prices are updated in the <strong>supermarket's database</strong></li>
+                        <li>Changes apply to <strong>all storages</strong> in this supermarket</li>
+                    </ol>
+                </div>
+
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Important Notes</h6>
+                    <ul class="mb-0">
+                        <li>File must be a valid PDF with parseable text</li>
+                        <li>Format expected: Product codes, sale prices, cost prices, and date ranges</li>
+                        <li>Products not in your database will be skipped</li>
+                        <li>This affects the economics table for all storages</li>
+                    </ul>
+                </div>
+
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    
+                    <div class="mb-4">
+                        {{ form.pdf_file.label_tag }}
+                        {{ form.pdf_file }}
+                        {% if form.pdf_file.help_text %}
+                        <div class="form-text">{{ form.pdf_file.help_text }}</div>
+                        {% endif %}
+                        {% if form.pdf_file.errors %}
+                        <div class="text-danger">{{ form.pdf_file.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'supermarket-detail' pk=supermarket.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-upload"></i> Upload and Process
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Example/Help Section -->
+            <div class="stat-card mt-3">
+                <h6 class="mb-3"><i class="bi bi-question-circle"></i> What Gets Updated?</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>price_s</code></td>
+                                <td>Sale price (customer pays this during promo)</td>
+                            </tr>
+                            <tr>
+                                <td><code>cost_s</code></td>
+                                <td>Sale cost (what you pay supplier during promo)</td>
+                            </tr>
+                            <tr>
+                                <td><code>sale_start</code></td>
+                                <td>When promo begins</td>
+                            </tr>
+                            <tr>
+                                <td><code>sale_end</code></td>
+                                <td>When promo ends</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-muted small mb-0">
+                    <strong>Note:</strong> The system automatically calculates discount percentages based on the difference between standard and promo prices.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
