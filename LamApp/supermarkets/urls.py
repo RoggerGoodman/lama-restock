@@ -61,4 +61,11 @@ urlpatterns = [
     path('blacklists/<int:pk>/delete/', views.BlacklistDeleteView.as_view(), name='blacklist-delete'),
     path('blacklists/<int:blacklist_pk>/entries/add/', views.BlacklistEntryCreateView.as_view(), name='blacklistentry-add'),
     path('blacklists/entries/<int:pk>/delete/', views.BlacklistEntryDeleteView.as_view(), name='blacklistentry-delete'),
+
+    # Loss Management
+    # SUPERMARKET LEVEL - Recording (one CSV for all storages)
+    path('supermarkets/<int:supermarket_id>/record-losses/', views.record_losses_view, name='record-losses'),
+    
+    # STORAGE LEVEL - Analytics (view individual storage losses)
+    path('storages/<int:storage_id>/losses-analytics/', views.losses_analytics_view, name='losses-analytics'),
 ]

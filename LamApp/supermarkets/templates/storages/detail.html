@@ -75,12 +75,23 @@
                     <a href="{% url 'verify-stock' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-clipboard-check"></i> Verify Stock
                     </a>
+                    <a href="{% url 'losses-analytics' storage_id=storage.id %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-graph-up"></i> View Loss Analytics
+                    </a>
                     <a href="{% url 'manual-list-update' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-download"></i> Update Product List
                     </a>
                     <a href="{% url 'configure-list-updates' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-gear"></i> Configure Auto Updates
                     </a>
+                </div>
+
+                <!-- Note about loss recording -->
+                <div class="alert alert-info mt-3">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Loss Recording:</strong> To record losses (broken/expired/internal use), go to the 
+                    <a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}" class="alert-link">supermarket page</a>.
+                    Loss files contain data for all storages.
                 </div>
 
                 <!-- Danger Zone -->

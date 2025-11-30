@@ -398,6 +398,7 @@ class DatabaseManager:
         """
         # validate type
         allowed = ("broken", "expired", "internal")
+        delta = int(delta)
         if type not in allowed:
             raise ValueError(f"Invalid type '{type}'. Allowed: {allowed}")
 
@@ -418,16 +419,16 @@ class DatabaseManager:
         if row is None:
             # Insert new row with the chosen type array and updated date.
             # Note: other json/date columns will be NULL by default.
-            json_array = json.dumps([int(delta)])
+            json_array = json.dumps([delta])
             cur.execute(
                 f"INSERT INTO extra_losses (cod, v, {type}, {type}_updated) VALUES (?, ?, ?, ?)",
                 (cod, v, json_array, today_iso)
             )
             self.conn.commit()
-            self.adjust_stock(cod, v, -int(delta))
+            self.adjust_stock(cod, v, -delta)
             #if type == "internal":
                 #self.register_internal_sales(delta, cod, v) 
-            return  
+            return {"action": "new_entry", "cod": cod, "v": v, "delta": delta}   
             
 
         # 3) existing row -> update logic
@@ -450,7 +451,7 @@ class DatabaseManager:
         # CASE A: same month (months_passed == 0)
         old_first = arr[0]
         if months_passed == 0:           
-            new_first = int(delta)
+            new_first = delta
             # overwrite first element but only if there is a difference
             if len(arr) > 0 and old_first != new_first:
                 arr[0] = new_first
@@ -478,7 +479,7 @@ class DatabaseManager:
             # then the previous stored array is shifted right.
             # e.g. if arr = [old0, old1, ...] and months_passed=3 and delta=7:
             # new_arr = [7, 0, 0, old0, old1, ...]
-            new_delta = int(delta)
+            new_delta = delta
             zeros = [0] * max(0, months_passed - 1)
             new_arr = [new_delta] + zeros + arr
             # trim to 24 elements
@@ -493,7 +494,7 @@ class DatabaseManager:
             self.conn.commit()
 
             # adjust stock by -delta (a new loss in current month)
-            self.adjust_stock(cod, v, -int(new_delta))
+            self.adjust_stock(cod, v, -new_delta)
 
             #if type == "internal":
                 #self.register_internal_sales(new_delta, cod, v)
