@@ -1,0 +1,254 @@
+<!-- LamApp/supermarkets/templates/storages/losses_analytics.html -->
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Loss Analytics - {{ storage.name }}{% endblock %}
+{% block page_title %}Loss Analytics{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Loss Analytics</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Period Filter -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-calendar-range"></i> Time Period
+                    </h5>
+                    <div class="btn-group">
+                        {% for opt in period_options %}
+                        <a href="?period={{ opt.value }}" 
+                           class="btn btn-sm {% if period == opt.value|add:0 %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                            {{ opt.label }}
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-red">
+                    <i class="bi bi-x-octagon"></i>
+                </div>
+                <h3 class="mb-1">{{ stats.broken.total }}</h3>
+                <p class="text-muted mb-1">Broken/Damaged</p>
+                <small class="text-muted">{{ stats.broken.products }} product{{ stats.broken.products|pluralize }}</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-orange">
+                    <i class="bi bi-calendar-x"></i>
+                </div>
+                <h3 class="mb-1">{{ stats.expired.total }}</h3>
+                <p class="text-muted mb-1">Expired</p>
+                <small class="text-muted">{{ stats.expired.products }} product{{ stats.expired.products|pluralize }}</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-blue">
+                    <i class="bi bi-people"></i>
+                </div>
+                <h3 class="mb-1">{{ stats.internal.total }}</h3>
+                <p class="text-muted mb-1">Internal Use</p>
+                <small class="text-muted">{{ stats.internal.products }} product{{ stats.internal.products|pluralize }}</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-red">
+                    <i class="bi bi-exclamation-triangle"></i>
+                </div>
+                <h3 class="mb-1">{{ total_losses }}</h3>
+                <p class="text-muted mb-1">Total Losses</p>
+                <small class="text-muted">Last {{ period }} month{{ period|pluralize }}</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loss Breakdown Chart -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="stat-card">
+                <h5 class="mb-4">
+                    <i class="bi bi-bar-chart"></i> Monthly Loss Trends
+                </h5>
+                <canvas id="lossChart" height="100"></canvas>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="stat-card">
+                <h5 class="mb-4">
+                    <i class="bi bi-pie-chart"></i> Loss Distribution
+                </h5>
+                <canvas id="distributionChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Products by Loss -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-4">
+                    <i class="bi bi-list-ol"></i> Top Products by Loss (Last {{ period }} Month{{ period|pluralize }})
+                </h5>
+
+                {% if top_products %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Product Code</th>
+                                <th>Description</th>
+                                <th class="text-end">Total Units Lost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in top_products %}
+                            <tr>
+                                <td><strong>{{ forloop.counter }}</strong></td>
+                                <td><code>{{ product.cod }}.{{ product.var }}</code></td>
+                                <td>{{ product.description|truncatewords:8 }}</td>
+                                <td class="text-end">
+                                    <span class="badge bg-danger">{{ product.total_losses }} units</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    No loss data available for the selected period.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="d-flex gap-2">
+                <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                    <i class="bi bi-arrow-left"></i> Back to Storage
+                </a>
+                <a href="{% url 'record-losses' storage_id=storage.id %}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> Record New Losses
+                </a>
+                <button onclick="window.print()" class="btn btn-outline-secondary">
+                    <i class="bi bi-printer"></i> Print Report
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Monthly trend chart
+const lossCtx = document.getElementById('lossChart').getContext('2d');
+new Chart(lossCtx, {
+    type: 'line',
+    data: {
+        labels: ['12 mo', '11 mo', '10 mo', '9 mo', '8 mo', '7 mo', '6 mo', '5 mo', '4 mo', '3 mo', '2 mo', 'Last mo'],
+        datasets: [
+            {
+                label: 'Broken',
+                data: {{ stats.broken.monthly|default:"[]"|safe }}.reverse().slice(-12),
+                borderColor: 'rgb(220, 53, 69)',
+                backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                tension: 0.4
+            },
+            {
+                label: 'Expired',
+                data: {{ stats.expired.monthly|default:"[]"|safe }}.reverse().slice(-12),
+                borderColor: 'rgb(255, 193, 7)',
+                backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                tension: 0.4
+            },
+            {
+                label: 'Internal Use',
+                data: {{ stats.internal.monthly|default:"[]"|safe }}.reverse().slice(-12),
+                borderColor: 'rgb(13, 110, 253)',
+                backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                tension: 0.4
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'top',
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true
+            }
+        }
+    }
+});
+
+// Distribution pie chart
+const distCtx = document.getElementById('distributionChart').getContext('2d');
+new Chart(distCtx, {
+    type: 'doughnut',
+    data: {
+        labels: ['Broken', 'Expired', 'Internal Use'],
+        datasets: [{
+            data: [
+                {{ stats.broken.total }},
+                {{ stats.expired.total }},
+                {{ stats.internal.total }}
+            ],
+            backgroundColor: [
+                'rgb(220, 53, 69)',
+                'rgb(255, 193, 7)',
+                'rgb(13, 110, 253)'
+            ]
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            }
+        }
+    }
+});
+</script>
+
+<style>
+@media print {
+    .sidebar, .top-navbar, nav, .btn, .breadcrumb { display: none !important; }
+    .main-content { margin-left: 0 !important; }
+}
+</style>
+{% endblock %}

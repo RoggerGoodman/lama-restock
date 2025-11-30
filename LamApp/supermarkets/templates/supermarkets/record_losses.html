@@ -1,0 +1,119 @@
+<!-- LamApp/supermarkets/templates/storages/record_losses.html -->
+{% extends 'base.html' %}
+{% block title %}Record Losses - {{ storage.name }}{% endblock %}
+{% block page_title %}Record Product Losses{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Record Losses</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-clipboard-data text-warning"></i>
+                    Manual Loss Recording
+                </h4>
+
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> What This Does</h6>
+                    <p class="mb-2">Record product losses manually by uploading a CSV file:</p>
+                    <ul class="mb-0">
+                        <li><strong>ROTTURE</strong> - Broken or damaged products</li>
+                        <li><strong>SCADUTO</strong> - Expired products</li>
+                        <li><strong>UTILIZZO INTERNO</strong> - Internal usage (staff consumption, samples, etc.)</li>
+                    </ul>
+                </div>
+
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Important Notes</h6>
+                    <ul class="mb-0">
+                        <li>Stock will be automatically reduced by the loss amounts</li>
+                        <li>File must be CSV format</li>
+                        <li>Expected columns: Codice, Variante, Qta Originale</li>
+                        <li>Products not in database will be skipped</li>
+                        <li>Losses are tracked monthly in the database</li>
+                    </ul>
+                </div>
+
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.loss_type.id_for_label }}" class="form-label">
+                            {{ form.loss_type.label }}
+                        </label>
+                        {{ form.loss_type }}
+                        {% if form.loss_type.help_text %}
+                        <div class="form-text">{{ form.loss_type.help_text }}</div>
+                        {% endif %}
+                        {% if form.loss_type.errors %}
+                        <div class="text-danger">{{ form.loss_type.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="{{ form.csv_file.id_for_label }}" class="form-label">
+                            {{ form.csv_file.label }}
+                        </label>
+                        {{ form.csv_file }}
+                        {% if form.csv_file.help_text %}
+                        <div class="form-text">{{ form.csv_file.help_text }}</div>
+                        {% endif %}
+                        {% if form.csv_file.errors %}
+                        <div class="text-danger">{{ form.csv_file.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-upload"></i> Upload and Process
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- CSV Format Example -->
+            <div class="stat-card mt-3">
+                <h6 class="mb-3"><i class="bi bi-file-text"></i> Expected CSV Format</h6>
+                <div class="bg-light p-3 rounded">
+                    <code style="display: block; white-space: pre;">
+Codice,Variante,Qta Originale,Descrizione
+12345,1,5,Product Name
+67890,1,12,Another Product
+...
+                    </code>
+                </div>
+                <p class="text-muted small mb-0 mt-2">
+                    <strong>Note:</strong> The "Descrizione" column is optional. Only Codice, Variante, and Qta Originale are required.
+                </p>
+            </div>
+
+            <!-- Link to Analytics -->
+            <div class="stat-card mt-3">
+                <h6 class="mb-3"><i class="bi bi-graph-up"></i> View Loss Analytics</h6>
+                <p class="text-muted mb-2">
+                    Want to see loss trends over time?
+                </p>
+                <a href="{% url 'losses-analytics' storage_id=storage.id %}" class="btn btn-outline-info">
+                    <i class="bi bi-bar-chart-line"></i> View Loss Analytics
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

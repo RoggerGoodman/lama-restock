@@ -1,5 +1,6 @@
 # LamApp/supermarkets/views.py
 from datetime import timezone
+import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
@@ -8,11 +9,8 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib import messages
-from django.http import JsonResponse, HttpResponseForbidden
 from django.views.decorators.http import require_POST
 from pathlib import Path
-from django.core.files.storage import default_storage
-from django.core.files.base import ContentFile
 from django.conf import settings
 import os
 
@@ -23,7 +21,7 @@ from .models import (
 from .forms import (
     RestockScheduleForm, BlacklistForm, 
     BlacklistEntryForm, StorageForm, PromoUploadForm, ListUpdateScheduleForm,
-    StockAdjustmentForm, BulkStockAdjustmentForm
+    StockAdjustmentForm, BulkStockAdjustmentForm, RecordLossesForm
 )
 from .services import RestockService, StorageService
 import logging
@@ -1102,3 +1100,212 @@ def supermarket_stock_value_view(request, supermarket_id):
         logger.exception("Error calculating supermarket stock value")
         messages.error(request, f"Error calculating stock value: {str(e)}")
         return redirect('supermarket-detail', pk=supermarket_id)
+
+@login_required
+def record_losses_view(request, supermarket_id):
+    """Manually record losses for ALL storages in supermarket"""
+    supermarket = get_object_or_404(
+        Supermarket,
+        id=supermarket_id,
+        owner=request.user
+    )
+    
+    if request.method == 'POST':
+        form = RecordLossesForm(request.POST, request.FILES)
+        
+        if form.is_valid():
+            loss_type = form.cleaned_data['loss_type']
+            csv_file = request.FILES['csv_file']
+            
+            # Map to filename
+            filename_mapping = {
+                'broken': 'ROTTURE.csv',
+                'expired': 'SCADUTO.csv',
+                'internal': 'UTILIZZO INTERNO.csv'
+            }
+            expected_filename = filename_mapping[loss_type]
+            
+            try:
+                # Save file to LOSSES_FOLDER
+                losses_folder = Path(settings.LOSSES_FOLDER)
+                losses_folder.mkdir(exist_ok=True)
+                
+                file_path = losses_folder / expected_filename
+                
+                if file_path.exists():
+                    file_path.unlink()
+                
+                with open(file_path, 'wb+') as destination:
+                    for chunk in csv_file.chunks():
+                        destination.write(chunk)
+                
+                # Process for FIRST storage (they share same DB)
+                first_storage = supermarket.storages.first()
+                
+                if not first_storage:
+                    messages.error(request, "No storages found for this supermarket")
+                    return redirect('supermarket-detail', pk=supermarket_id)
+                
+                service = RestockService(first_storage)
+                
+                try:
+                    from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
+                    
+                    # This processes ALL storages' data from the CSV
+                    verify_lost_stock_from_excel_combined(service.db)
+                    
+                    messages.success(
+                        request,
+                        f"Successfully recorded {loss_type} losses for {supermarket.name}! "
+                        f"All storages have been updated."
+                    )
+                    
+                except Exception as e:
+                    logger.exception("Error processing loss file")
+                    messages.error(request, f"Error processing losses: {str(e)}")
+                finally:
+                    service.close()
+                
+                return redirect('supermarket-detail', pk=supermarket_id)
+                
+            except Exception as e:
+                logger.exception("Error saving loss file")
+                messages.error(request, f"Error saving file: {str(e)}")
+    else:
+        form = RecordLossesForm()
+    
+    return render(request, 'supermarkets/record_losses.html', {
+        'supermarket': supermarket,
+        'form': form
+    })
+
+
+@login_required
+def losses_analytics_view(request, storage_id):
+    """View loss analytics over different time periods"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    # Get time period filter (default: last 3 months)
+    period = request.GET.get('period', '3')
+    try:
+        period_months = int(period)
+    except ValueError:
+        period_months = 3
+    
+    try:
+        service = RestockService(storage)
+        
+        # Query loss data from database
+        cursor = service.db.conn.cursor()
+        
+        # Get all products with losses
+        cursor.execute("""
+            SELECT 
+                cod, v,
+                broken, broken_updated,
+                expired, expired_updated,
+                internal, internal_updated
+            FROM extra_losses
+        """)
+        
+        loss_data = cursor.fetchall()
+        
+        # Calculate loss statistics
+        stats = {
+            'broken': {'total': 0, 'products': 0, 'monthly': []},
+            'expired': {'total': 0, 'products': 0, 'monthly': []},
+            'internal': {'total': 0, 'products': 0, 'monthly': []},
+        }
+        
+        loss_types = ['broken', 'expired', 'internal']
+        
+        for row in loss_data:
+            cod = row[0]
+            v = row[1]
+            
+            for i, loss_type in enumerate(loss_types):
+                loss_json = row[2 + i*2]  # broken, expired, internal
+                loss_updated = row[3 + i*2]  # broken_updated, etc.
+                
+                if loss_json:
+                    try:
+                        loss_array = json.loads(loss_json)
+                        
+                        # Calculate based on period
+                        months_to_include = min(period_months, len(loss_array))
+                        period_losses = sum(loss_array[:months_to_include])
+                        
+                        if period_losses > 0:
+                            stats[loss_type]['total'] += period_losses
+                            stats[loss_type]['products'] += 1
+                            stats[loss_type]['monthly'] = loss_array[:12]  # Last 12 months for chart
+                    except:
+                        continue
+        
+        # Calculate total losses and value
+        total_losses = sum(s['total'] for s in stats.values())
+        
+        # Get top products by losses
+        top_products = []
+        for row in loss_data:
+            cod = row[0]
+            v = row[1]
+            
+            product_total = 0
+            for i, loss_type in enumerate(loss_types):
+                loss_json = row[2 + i*2]
+                if loss_json:
+                    try:
+                        loss_array = json.loads(loss_json)
+                        months_to_include = min(period_months, len(loss_array))
+                        product_total += sum(loss_array[:months_to_include])
+                    except:
+                        continue
+            
+            if product_total > 0:
+                # Get product description
+                cursor.execute(
+                    "SELECT descrizione FROM products WHERE cod=? AND v=?",
+                    (cod, v)
+                )
+                desc_row = cursor.fetchone()
+                description = desc_row[0] if desc_row else f"Product {cod}.{v}"
+                
+                top_products.append({
+                    'cod': cod,
+                    'var': v,
+                    'description': description,
+                    'total_losses': product_total
+                })
+        
+        # Sort by total losses
+        top_products.sort(key=lambda x: x['total_losses'], reverse=True)
+        top_products = top_products[:20]  # Top 20
+        
+        service.close()
+        
+        context = {
+            'storage': storage,
+            'stats': stats,
+            'total_losses': total_losses,
+            'top_products': top_products,
+            'period': period_months,
+            'period_options': [
+                {'value': '1', 'label': 'Last Month'},
+                {'value': '3', 'label': 'Last 3 Months'},
+                {'value': '6', 'label': 'Last 6 Months'},
+                {'value': '12', 'label': 'Last Year'},
+                {'value': '24', 'label': 'All Time (24 months)'},
+            ]
+        }
+        
+        return render(request, 'storages/losses_analytics.html', context)
+        
+    except Exception as e:
+        logger.exception("Error calculating loss analytics")
+        messages.error(request, f"Error calculating analytics: {str(e)}")
+        return redirect('storage-detail', pk=storage_id)
