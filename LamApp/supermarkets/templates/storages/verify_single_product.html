@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% block title %}Verify Product - {{ storage.name }}{% endblock %}
+{% block page_title %}Verify Single Product{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Verify Product</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-check-circle text-success"></i>
+                    Verify Single Product
+                </h4>
+
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    Enter the product code and variant, then input the verified stock count. Optionally assign a cluster.
+                </div>
+
+                <form method="post">
+                    {% csrf_token %}
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            {{ form.product_code.label_tag }}
+                            {{ form.product_code }}
+                            {% if form.product_code.errors %}
+                            <div class="text-danger">{{ form.product_code.errors }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.product_var.label_tag }}
+                            {{ form.product_var }}
+                            {% if form.product_var.errors %}
+                            <div class="text-danger">{{ form.product_var.errors }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        {{ form.stock.label_tag }}
+                        {{ form.stock }}
+                        {% if form.stock.errors %}
+                        <div class="text-danger">{{ form.stock.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-4">
+                        {{ form.cluster.label_tag }}
+                        {{ form.cluster }}
+                        {% if form.cluster.errors %}
+                        <div class="text-danger">{{ form.cluster.errors }}</div>
+                        {% endif %}
+                        <div class="form-text">Assign this product to a cluster for better organization</div>
+                    </div>
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" name="verify_another" class="btn btn-outline-primary">
+                            <i class="bi bi-check-circle"></i> Verify & Add Another
+                        </button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> Verify
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

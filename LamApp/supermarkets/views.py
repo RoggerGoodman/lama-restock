@@ -21,7 +21,7 @@ from .models import (
 from .forms import (
     RestockScheduleForm, BlacklistForm, 
     BlacklistEntryForm, StorageForm, PromoUploadForm, ListUpdateScheduleForm,
-    StockAdjustmentForm, BulkStockAdjustmentForm, RecordLossesForm
+    StockAdjustmentForm, BulkStockAdjustmentForm, RecordLossesForm, SingleProductVerificationForm
 )
 from .services import RestockService, StorageService
 import logging
@@ -625,6 +625,45 @@ def verify_stock_view(request, storage_id):
     
     return render(request, 'storages/verify_stock.html', {'storage': storage})
 
+@login_required
+def verify_single_product_view(request, storage_id):
+    """Verify a single product's stock"""
+    storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+    
+    if request.method == 'POST':
+        form = SingleProductVerificationForm(request.POST)
+        
+        if form.is_valid():
+            cod = form.cleaned_data['product_code']
+            var = form.cleaned_data['product_var']
+            new_stock = form.cleaned_data['stock']
+            cluster = form.cleaned_data.get('cluster') or None
+            
+            try:
+                service = RestockService(storage)
+                service.db.verify_stock(cod, var, new_stock, cluster)
+                service.close()
+                
+                messages.success(request, f"Product {cod}.{var} verified! Stock set to {new_stock}")
+                
+                if 'verify_another' in request.POST:
+                    return redirect('verify-single-product', storage_id=storage_id)
+                else:
+                    return redirect('storage-detail', pk=storage_id)
+                    
+            except ValueError as e:
+                messages.error(request, f"Product not found: {str(e)}")
+            except Exception as e:
+                logger.exception("Error verifying product")
+                messages.error(request, f"Error: {str(e)}")
+    else:
+        form = SingleProductVerificationForm()
+    
+    return render(request, 'storages/verify_single_product.html', {
+        'storage': storage,
+        'form': form
+    })
+
 
 @login_required
 def verification_report_view(request, storage_id):
@@ -974,132 +1013,114 @@ def bulk_adjust_stock_view(request, storage_id):
 # ============ Stock Value Analysis Views ============
 
 @login_required
-def stock_value_view(request, storage_id):
-    """View stock value breakdown by category"""
-    storage = get_object_or_404(
-        Storage,
-        id=storage_id,
-        supermarket__owner=request.user
-    )
+def stock_value_unified_view(request):
+    """Unified stock value view with flexible filtering"""
     
-    try:
+    # Get user's supermarkets
+    supermarkets = Supermarket.objects.filter(owner=request.user)
+    
+    # Get filters from query params
+    supermarket_id = request.GET.get('supermarket_id')
+    storage_id = request.GET.get('storage_id')
+    cluster = request.GET.get('cluster')
+    
+    # Build scope description
+    scope_parts = []
+    if supermarket_id:
+        scope_parts.append(get_object_or_404(Supermarket, id=supermarket_id, owner=request.user).name)
+    if storage_id:
+        scope_parts.append(get_object_or_404(Storage, id=storage_id).name)
+    if cluster:
+        scope_parts.append(f"Cluster: {cluster}")
+    
+    scope_description = " → ".join(scope_parts) if scope_parts else "All Supermarkets"
+    
+    # Get relevant storages
+    if supermarket_id:
+        storages = Storage.objects.filter(supermarket_id=supermarket_id)
+    else:
+        storages = Storage.objects.filter(supermarket__owner=request.user)
+    
+    if storage_id:
+        storages = storages.filter(id=storage_id)
+    
+    # Get available clusters (for the selected storage if any)
+    clusters = []
+    if storage_id:
+        storage = Storage.objects.get(id=storage_id)
         service = RestockService(storage)
-        
-        # Get all unique categories
         cursor = service.db.conn.cursor()
-        cursor.execute("SELECT DISTINCT category FROM economics WHERE category != ''")
-        categories = [row[0] for row in cursor.fetchall()]
-        
-        # Calculate value for each category
-        category_values = []
-        total_value = 0
-        
-        for category in categories:
-            value = service.db.get_category_stock_value(category)
-            if value > 0:
-                category_values.append({
-                    'name': category,
-                    'value': value
-                })
-                total_value += value
-        
-        # Sort by value descending
-        category_values.sort(key=lambda x: x['value'], reverse=True)
-        
-        # Calculate percentages
-        for cat in category_values:
-            cat['percentage'] = (cat['value'] / total_value * 100) if total_value > 0 else 0
-        
+        cursor.execute("SELECT DISTINCT cluster FROM products WHERE cluster IS NOT NULL AND cluster != ''")
+        clusters = [row[0] for row in cursor.fetchall()]
         service.close()
-        
-        context = {
-            'storage': storage,
-            'category_values': category_values,
-            'total_value': total_value,
-        }
-        
-        return render(request, 'storages/stock_value.html', context)
-        
-    except Exception as e:
-        logger.exception("Error calculating stock value")
-        messages.error(request, f"Error calculating stock value: {str(e)}")
-        return redirect('storage-detail', pk=storage_id)
-
-
-@login_required
-def supermarket_stock_value_view(request, supermarket_id):
-    """View total stock value across all storages in a supermarket"""
-    supermarket = get_object_or_404(
-        Supermarket,
-        id=supermarket_id,
-        owner=request.user
-    )
     
-    try:
-        storage_values = []
-        total_value = 0
-        category_totals = {}
-        
-        for storage in supermarket.storages.all():
+    # Calculate values
+    category_totals = {}
+    total_value = 0
+    
+    for storage in storages:
+        try:
             service = RestockService(storage)
-            
-            # Get categories for this storage
             cursor = service.db.conn.cursor()
-            cursor.execute("SELECT DISTINCT category FROM economics WHERE category != ''")
-            categories = [row[0] for row in cursor.fetchall()]
             
-            storage_total = 0
-            storage_categories = []
+            # Build query based on filters
+            query = """
+                SELECT e.category, SUM(e.cost_std * ps.stock) as value
+                FROM economics e
+                JOIN product_stats ps ON e.cod = ps.cod AND e.v = ps.v
+                JOIN products p ON e.cod = p.cod AND e.v = p.v
+                WHERE e.category != '' AND ps.stock > 0
+            """
+            params = []
             
-            for category in categories:
-                value = service.db.get_category_stock_value(category)
-                if value > 0:
-                    storage_total += value
-                    storage_categories.append({
-                        'name': category,
-                        'value': value
-                    })
-                    
-                    # Add to category totals
-                    if category in category_totals:
-                        category_totals[category] += value
-                    else:
-                        category_totals[category] = value
+            if cluster:
+                query += " AND p.cluster = ?"
+                params.append(cluster)
+            
+            query += " GROUP BY e.category"
+            
+            cursor.execute(query, params)
+            
+            for row in cursor.fetchall():
+                category_name = row[0]
+                value = row[1] or 0
+                
+                if category_name in category_totals:
+                    category_totals[category_name] += value
+                else:
+                    category_totals[category_name] = value
+                
+                total_value += value
             
             service.close()
-            
-            if storage_total > 0:
-                storage_values.append({
-                    'storage': storage,
-                    'total': storage_total,
-                    'categories': storage_categories
-                })
-                total_value += storage_total
-        
-        # Convert category totals to list and sort
-        category_list = [
-            {'name': name, 'value': value}
-            for name, value in category_totals.items()
-        ]
-        category_list.sort(key=lambda x: x['value'], reverse=True)
-        
-        # Calculate percentages
-        for cat in category_list:
-            cat['percentage'] = (cat['value'] / total_value * 100) if total_value > 0 else 0
-        
-        context = {
-            'supermarket': supermarket,
-            'storage_values': storage_values,
-            'total_value': total_value,
-            'category_totals': category_list,
-        }
-        
-        return render(request, 'supermarkets/stock_value.html', context)
-        
-    except Exception as e:
-        logger.exception("Error calculating supermarket stock value")
-        messages.error(request, f"Error calculating stock value: {str(e)}")
-        return redirect('supermarket-detail', pk=supermarket_id)
+        except Exception as e:
+            logger.exception(f"Error calculating value for {storage.name}")
+            continue
+    
+    # Convert to list and sort
+    category_values = [
+        {'name': name, 'value': value}
+        for name, value in category_totals.items()
+    ]
+    category_values.sort(key=lambda x: x['value'], reverse=True)
+    
+    # Calculate percentages
+    for cat in category_values:
+        cat['percentage'] = (cat['value'] / total_value * 100) if total_value > 0 else 0
+    
+    context = {
+        'supermarkets': supermarkets,
+        'storages': Storage.objects.filter(supermarket__owner=request.user),
+        'clusters': clusters,
+        'selected_supermarket': supermarket_id or '',
+        'selected_storage': storage_id or '',
+        'selected_cluster': cluster or '',
+        'scope_description': scope_description,
+        'category_values': category_values,
+        'total_value': total_value,
+    }
+    
+    return render(request, 'stock_value_unified.html', context)
 
 @login_required
 def record_losses_view(request, supermarket_id):
@@ -1181,131 +1202,137 @@ def record_losses_view(request, supermarket_id):
 
 
 @login_required
-def losses_analytics_view(request, storage_id):
-    """View loss analytics over different time periods"""
-    storage = get_object_or_404(
-        Storage,
-        id=storage_id,
-        supermarket__owner=request.user
-    )
+def losses_analytics_unified_view(request):
+    """Unified loss analytics with flexible filtering"""
     
-    # Get time period filter (default: last 3 months)
+    # Get user's supermarkets
+    supermarkets = Supermarket.objects.filter(owner=request.user)
+    
+    # Get filters
+    supermarket_id = request.GET.get('supermarket_id')
+    storage_id = request.GET.get('storage_id')
     period = request.GET.get('period', '3')
+    
     try:
         period_months = int(period)
     except ValueError:
         period_months = 3
     
-    try:
-        service = RestockService(storage)
-        
-        # Query loss data from database
-        cursor = service.db.conn.cursor()
-        
-        # Get all products with losses
-        cursor.execute("""
-            SELECT 
-                cod, v,
-                broken, broken_updated,
-                expired, expired_updated,
-                internal, internal_updated
-            FROM extra_losses
-        """)
-        
-        loss_data = cursor.fetchall()
-        
-        # Calculate loss statistics
-        stats = {
-            'broken': {'total': 0, 'products': 0, 'monthly': []},
-            'expired': {'total': 0, 'products': 0, 'monthly': []},
-            'internal': {'total': 0, 'products': 0, 'monthly': []},
-        }
-        
-        loss_types = ['broken', 'expired', 'internal']
-        
-        for row in loss_data:
-            cod = row[0]
-            v = row[1]
+    # Build scope description
+    scope_parts = []
+    if supermarket_id:
+        scope_parts.append(get_object_or_404(Supermarket, id=supermarket_id, owner=request.user).name)
+    if storage_id:
+        scope_parts.append(get_object_or_404(Storage, id=storage_id).name)
+    
+    scope_description = " → ".join(scope_parts) if scope_parts else "All Supermarkets"
+    
+    # Get relevant storages
+    if supermarket_id:
+        storages = Storage.objects.filter(supermarket_id=supermarket_id)
+    else:
+        storages = Storage.objects.filter(supermarket__owner=request.user)
+    
+    if storage_id:
+        storages = storages.filter(id=storage_id)
+    
+    # Aggregate loss statistics
+    stats = {
+        'broken': {'total': 0, 'products': 0, 'monthly': [0]*24},
+        'expired': {'total': 0, 'products': 0, 'monthly': [0]*24},
+        'internal': {'total': 0, 'products': 0, 'monthly': [0]*24},
+    }
+    
+    top_products_dict = {}
+    
+    for storage in storages:
+        try:
+            service = RestockService(storage)
+            cursor = service.db.conn.cursor()
             
-            for i, loss_type in enumerate(loss_types):
-                loss_json = row[2 + i*2]  # broken, expired, internal
-                loss_updated = row[3 + i*2]  # broken_updated, etc.
+            cursor.execute("""
+                SELECT 
+                    el.cod, el.v,
+                    el.broken, el.expired, el.internal,
+                    p.descrizione
+                FROM extra_losses el
+                LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
+            """)
+            
+            loss_types = ['broken', 'expired', 'internal']
+            
+            for row in cursor.fetchall():
+                cod = row[0]
+                v = row[1]
+                description = row[5] or f"Product {cod}.{v}"
                 
-                if loss_json:
-                    try:
-                        loss_array = json.loads(loss_json)
-                        
-                        # Calculate based on period
-                        months_to_include = min(period_months, len(loss_array))
-                        period_losses = sum(loss_array[:months_to_include])
-                        
-                        if period_losses > 0:
-                            stats[loss_type]['total'] += period_losses
-                            stats[loss_type]['products'] += 1
-                            stats[loss_type]['monthly'] = loss_array[:12]  # Last 12 months for chart
-                    except:
-                        continue
-        
-        # Calculate total losses and value
-        total_losses = sum(s['total'] for s in stats.values())
-        
-        # Get top products by losses
-        top_products = []
-        for row in loss_data:
-            cod = row[0]
-            v = row[1]
-            
-            product_total = 0
-            for i, loss_type in enumerate(loss_types):
-                loss_json = row[2 + i*2]
-                if loss_json:
-                    try:
-                        loss_array = json.loads(loss_json)
-                        months_to_include = min(period_months, len(loss_array))
-                        product_total += sum(loss_array[:months_to_include])
-                    except:
-                        continue
-            
-            if product_total > 0:
-                # Get product description
-                cursor.execute(
-                    "SELECT descrizione FROM products WHERE cod=? AND v=?",
-                    (cod, v)
-                )
-                desc_row = cursor.fetchone()
-                description = desc_row[0] if desc_row else f"Product {cod}.{v}"
+                product_key = (cod, v, description)
+                if product_key not in top_products_dict:
+                    top_products_dict[product_key] = 0
                 
-                top_products.append({
-                    'cod': cod,
-                    'var': v,
-                    'description': description,
-                    'total_losses': product_total
-                })
-        
-        # Sort by total losses
-        top_products.sort(key=lambda x: x['total_losses'], reverse=True)
-        top_products = top_products[:20]  # Top 20
-        
-        service.close()
-        
-        context = {
-            'storage': storage,
-            'stats': stats,
-            'total_losses': total_losses,
-            'top_products': top_products,
-            'period': period_months,
-            'period_options': [
-                {'value': '1', 'label': 'Last Month'},
-                {'value': '3', 'label': 'Last 3 Months'},
-                {'value': '6', 'label': 'Last 6 Months'},
-                {'value': '12', 'label': 'Last Year'},
-                {'value': '24', 'label': 'All Time (24 months)'},
-            ]
+                for i, loss_type in enumerate(loss_types):
+                    loss_json = row[2 + i]
+                    
+                    if loss_json:
+                        try:
+                            loss_array = json.loads(loss_json)
+                            
+                            # Calculate for period
+                            months_to_include = min(period_months, len(loss_array))
+                            period_losses = sum(loss_array[:months_to_include])
+                            
+                            if period_losses > 0:
+                                stats[loss_type]['total'] += period_losses
+                                stats[loss_type]['products'] += 1
+                                
+                                # Aggregate monthly data
+                                for idx, val in enumerate(loss_array[:24]):
+                                    stats[loss_type]['monthly'][idx] += val
+                                
+                                # Add to top products
+                                top_products_dict[product_key] += period_losses
+                        except:
+                            continue
+            
+            service.close()
+        except Exception as e:
+            logger.exception(f"Error processing losses for {storage.name}")
+            continue
+    
+    # Convert top products dict to list
+    top_products = [
+        {
+            'cod': cod,
+            'var': v,
+            'description': desc,
+            'total_losses': total
         }
-        
-        return render(request, 'storages/losses_analytics.html', context)
-        
-    except Exception as e:
-        logger.exception("Error calculating loss analytics")
-        messages.error(request, f"Error calculating analytics: {str(e)}")
-        return redirect('storage-detail', pk=storage_id)
+        for (cod, v, desc), total in top_products_dict.items()
+    ]
+    
+    top_products.sort(key=lambda x: x['total_losses'], reverse=True)
+    top_products = top_products[:20]
+    
+    # Calculate total
+    total_losses = sum(s['total'] for s in stats.values())
+    
+    context = {
+        'supermarkets': supermarkets,
+        'storages': Storage.objects.filter(supermarket__owner=request.user),
+        'selected_supermarket': supermarket_id or '',
+        'selected_storage': storage_id or '',
+        'scope_description': scope_description,
+        'stats': stats,
+        'total_losses': total_losses,
+        'top_products': top_products,
+        'period': period_months,
+        'period_options': [
+            {'value': 1, 'label': 'Last Month'},
+            {'value': 3, 'label': 'Last 3 Months'},
+            {'value': 6, 'label': 'Last 6 Months'},
+            {'value': 12, 'label': 'Last Year'},
+            {'value': 24, 'label': 'All Time (24 months)'},
+        ]
+    }
+    
+    return render(request, 'losses_analytics_unified.html', context)

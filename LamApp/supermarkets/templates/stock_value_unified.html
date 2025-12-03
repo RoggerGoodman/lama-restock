@@ -1,0 +1,166 @@
+{% extends 'base.html' %}
+{% block title %}Stock Value Analysis{% endblock %}
+{% block page_title %}Stock Value Analysis{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Stock Value</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Filter Form -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3"><i class="bi bi-funnel"></i> Filters</h5>
+                <form method="get" class="row g-3">
+                    <div class="col-md-4">
+                        <label for="supermarket_id" class="form-label">Supermarket</label>
+                        <select name="supermarket_id" id="supermarket_id" class="form-select" onchange="updateStorages()">
+                            <option value="">All Supermarkets</option>
+                            {% for sm in supermarkets %}
+                            <option value="{{ sm.id }}" {% if sm.id|stringformat:"s" == selected_supermarket %}selected{% endif %}>
+                                {{ sm.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="storage_id" class="form-label">Storage (Settore)</label>
+                        <select name="storage_id" id="storage_id" class="form-select" onchange="updateClusters()">
+                            <option value="">All Storages</option>
+                            {% for storage in storages %}
+                            <option value="{{ storage.id }}" data-supermarket="{{ storage.supermarket.id }}" 
+                                    {% if storage.id|stringformat:"s" == selected_storage %}selected{% endif %}>
+                                {{ storage.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="cluster" class="form-label">Cluster (Optional)</label>
+                        <select name="cluster" id="cluster" class="form-select">
+                            <option value="">All Clusters</option>
+                            {% for cluster in clusters %}
+                            <option value="{{ cluster }}" {% if cluster == selected_cluster %}selected{% endif %}>
+                                {{ cluster }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-search"></i> Apply Filters
+                        </button>
+                        <a href="{% url 'stock-value-unified' %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Clear
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Total Value -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card text-center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <h2 class="mb-2"><i class="bi bi-box"></i> {{ scope_description }}</h2>
+                <h1 class="display-3 mb-2">€{{ total_value|floatformat:2 }}</h1>
+                <p class="mb-0 opacity-75">Total Inventory Value</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Breakdown -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-4"><i class="bi bi-pie-chart"></i> Value by Category</h5>
+                {% if category_values %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th class="text-end">Value</th>
+                                <th>Percentage</th>
+                                <th style="width: 40%">Distribution</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cat in category_values %}
+                            <tr>
+                                <td><strong>{{ cat.name }}</strong></td>
+                                <td class="text-end">€{{ cat.value|floatformat:2 }}</td>
+                                <td><span class="badge bg-primary">{{ cat.percentage|floatformat:1 }}%</span></td>
+                                <td>
+                                    <div class="progress" style="height: 25px;">
+                                        <div class="progress-bar bg-info" role="progressbar" 
+                                             style="width: {{ cat.percentage }}%">
+                                            {{ cat.percentage|floatformat:1 }}%
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot class="table-light">
+                            <tr>
+                                <td><strong>Total</strong></td>
+                                <td class="text-end"><strong>€{{ total_value|floatformat:2 }}</strong></td>
+                                <td colspan="2"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> No data available for the selected filters.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function updateStorages() {
+    const supermarketId = document.getElementById('supermarket_id').value;
+    const storageSelect = document.getElementById('storage_id');
+    const options = storageSelect.querySelectorAll('option');
+    
+    options.forEach(opt => {
+        if (opt.value === '') {
+            opt.style.display = 'block';
+            return;
+        }
+        
+        if (!supermarketId || opt.dataset.supermarket === supermarketId) {
+            opt.style.display = 'block';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+    
+    storageSelect.value = '';
+    document.getElementById('cluster').value = '';
+}
+
+function updateClusters() {
+    // Clusters will be loaded from backend based on storage
+    // For now just clear selection
+    document.getElementById('cluster').value = '';
+}
+</script>
+{% endblock %}

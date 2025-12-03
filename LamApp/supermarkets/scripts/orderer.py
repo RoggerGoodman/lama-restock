@@ -210,7 +210,7 @@ class Orderer:
             var_art_field.send_keys(var_part)
 
             time.sleep(0.8)
-
+            #TODO fix here
             is_off = self.driver.find_elements(
                 By.XPATH,
                 "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]"

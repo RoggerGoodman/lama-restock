@@ -389,14 +389,8 @@ class DatabaseManager:
     def register_losses(self, cod: int, v: int, delta: int, type: str):
         """
         Registers a type of loss (broken, expired, internal).
-
-        If (cod,v) not in products -> raise.
-        If no extra_losses row -> insert array [delta] into the correct column and set {type}_updated to today.
-        If row exists -> update logic:
-        - if same month/year as last update: overwrite array[0] with delta, compute difference and call adjust_stock(..., -difference)
-        - if months passed > 0: create new array = [delta] + [0]*(months_passed-1) + old_array, trim to 24, call adjust_stock(..., -delta)
+        AUTO-CREATES extra_losses entry if missing.
         """
-        # validate type
         allowed = ("broken", "expired", "internal")
         delta = int(delta)
         if type not in allowed:
@@ -404,102 +398,113 @@ class DatabaseManager:
 
         cur = self.conn.cursor()
 
-        # 1) check product exists
+        # 1) Check product exists in products table
         cur.execute("SELECT 1 FROM products WHERE cod=? AND v=?", (cod, v))
         if cur.fetchone() is None:
             raise ValueError(f"Product {cod}.{v} not found in products table")
 
-        # 2) check extra_losses exists for this product
-        cur.execute("SELECT {col}, {col}_updated FROM extra_losses WHERE cod=? AND v=?".format(col=type), (cod, v))
+        # 2) Get or create extra_losses entry
+        cur.execute(
+            f"SELECT {type}, {type}_updated FROM extra_losses WHERE cod=? AND v=?",
+            (cod, v)
+        )
         row = cur.fetchone()
 
         today = date.today()
         today_iso = today.isoformat()
 
+        # If no entry exists, create it
         if row is None:
-            # Insert new row with the chosen type array and updated date.
-            # Note: other json/date columns will be NULL by default.
             json_array = json.dumps([delta])
             cur.execute(
-                f"INSERT INTO extra_losses (cod, v, {type}, {type}_updated) VALUES (?, ?, ?, ?)",
+                f"""INSERT INTO extra_losses (cod, v, {type}, {type}_updated, 
+                    broken, broken_updated, expired, expired_updated, internal, internal_updated)
+                    VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL)""",
                 (cod, v, json_array, today_iso)
             )
             self.conn.commit()
             self.adjust_stock(cod, v, -delta)
-            #if type == "internal":
-                #self.register_internal_sales(delta, cod, v) 
-            return {"action": "new_entry", "cod": cod, "v": v, "delta": delta}   
-            
+            return {"action": "new_entry", "cod": cod, "v": v, "delta": delta}
 
-        # 3) existing row -> update logic
-        existing_json = row[0]  # could be None or JSON string
-        existing_updated = row[1]  # could be None or a date string
+        # 3) Entry exists - get current data
+        existing_json = row[0]
+        existing_updated = row[1]
 
-        arr = json.loads(existing_json)           # will raise if invalid JSON
+        # Handle case where column exists but is NULL
+        if existing_json is None:
+            # Column is NULL - treat as new entry
+            json_array = json.dumps([delta])
+            cur.execute(
+                f"UPDATE extra_losses SET {type} = ?, {type}_updated = ? WHERE cod = ? AND v = ?",
+                (json_array, today_iso, cod, v)
+            )
+            self.conn.commit()
+            self.adjust_stock(cod, v, -delta)
+            return {"action": "initialized_null", "cod": cod, "v": v, "delta": delta}
+
+        # Parse existing JSON
+        arr = json.loads(existing_json)
         if not isinstance(arr, list):
-            raise ValueError(f"extra_losses.{type} for {cod}.{v} is not a JSON array: {existing_json!r}")
+            raise ValueError(f"extra_losses.{type} for {cod}.{v} is not a JSON array")
 
-        # parse last update date (accept str in ISO format)
+        # Parse last update date
         if isinstance(existing_updated, str):
             last_update = datetime.fromisoformat(existing_updated).date()
         else:
-            raise ValueError(f"extra_losses.{type}_updated for {cod}.{v} has unexpected type: {type(existing_updated)}")
+            raise ValueError(f"extra_losses.{type}_updated for {cod}.{v} has unexpected type")
 
-        # compute months passed between last_update and today
+        # Calculate months passed
         months_passed = (today.year - last_update.year) * 12 + (today.month - last_update.month)
 
-        # CASE A: same month (months_passed == 0)
-        old_first = arr[0]
-        if months_passed == 0:           
+        # SAME MONTH: Overwrite first element
+        if months_passed == 0:
+            old_first = arr[0]
             new_first = delta
-            # overwrite first element but only if there is a difference
-            if len(arr) > 0 and old_first != new_first:
+            
+            if old_first != new_first:
                 arr[0] = new_first
-                # compute difference and adjust stock
                 difference = new_first - int(old_first)
                 self.adjust_stock(cod, v, -int(difference))
-                # update DB: json and date
+                
                 json_out = json.dumps(arr[:24])
                 cur.execute(
                     f"UPDATE extra_losses SET {type} = ?, {type}_updated = ? WHERE cod = ? AND v = ?",
-                    (json_out, today_iso, cod, v))
-                
+                    (json_out, today_iso, cod, v)
+                )
                 self.conn.commit()
-
-                #if type == "internal":
-                    #self.register_internal_sales(difference, cod, v)
-
-                return {"action": "same_month_overwrite", "cod": cod, "v": v, "old_first": old_first, "new_first": new_first, "difference": difference}
-
-            
-        # CASE B: months_passed >= 1
+                
+                return {
+                    "action": "same_month_overwrite",
+                    "cod": cod,
+                    "v": v,
+                    "old_first": old_first,
+                    "new_first": new_first,
+                    "difference": difference
+                }
+        
+        # NEW MONTH(S): Insert new month(s) with zeros for skipped months
         else:
-            # We want new array where index 0 is current month (delta),
-            # index 1..months_passed-1 are zeros for the skipped months,
-            # then the previous stored array is shifted right.
-            # e.g. if arr = [old0, old1, ...] and months_passed=3 and delta=7:
-            # new_arr = [7, 0, 0, old0, old1, ...]
             new_delta = delta
             zeros = [0] * max(0, months_passed - 1)
             new_arr = [new_delta] + zeros + arr
-            # trim to 24 elements
-            new_arr = new_arr[:24]
-
-            # update DB and updated date
+            new_arr = new_arr[:24]  # Trim to 24 months
+            
             json_out = json.dumps(new_arr)
             cur.execute(
                 f"UPDATE extra_losses SET {type} = ?, {type}_updated = ? WHERE cod = ? AND v = ?",
                 (json_out, today_iso, cod, v)
             )
             self.conn.commit()
-
-            # adjust stock by -delta (a new loss in current month)
+            
             self.adjust_stock(cod, v, -new_delta)
-
-            #if type == "internal":
-                #self.register_internal_sales(new_delta, cod, v)
-
-            return {"action": "months_passed_insert", "cod": cod, "v": v, "months_passed": months_passed, "new_arr_length": len(new_arr)}
+            
+            return {
+                "action": "months_passed_insert",
+                "cod": cod,
+                "v": v,
+                "months_passed": months_passed,
+                "new_arr_length": len(new_arr)
+            }
 
     def adjust_stock(self, cod:int, v:int, delta:int):
         """
@@ -510,7 +515,8 @@ class DatabaseManager:
         cur.execute("SELECT stock FROM product_stats WHERE cod=? AND v=?", (cod, v))
         row = cur.fetchone()
         if not row:
-            raise ValueError(f"No product_stats found for {cod}.{v}")
+            print(f"No product_stats found for {cod}.{v}")
+            return
 
         current_stock = int(row["stock"]) if row["stock"] is not None else 0
         new_stock = current_stock + delta

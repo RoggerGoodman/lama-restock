@@ -248,3 +248,32 @@ class RecordLossesForm(forms.Form):
             'accept': '.csv'
         })
     )
+
+class SingleProductVerificationForm(forms.Form):
+    """Form for verifying a single product"""
+    
+    product_code = forms.IntegerField(
+        label="Product Code",
+        min_value=1,
+        widget=forms.NumberInput(attrs={'class': 'form-control'})
+    )
+    
+    product_var = forms.IntegerField(
+        label="Variant",
+        initial=1,
+        min_value=1,
+        widget=forms.NumberInput(attrs={'class': 'form-control'})
+    )
+    
+    stock = forms.IntegerField(
+        label="Verified Stock",
+        min_value=0,
+        widget=forms.NumberInput(attrs={'class': 'form-control'})
+    )
+    
+    cluster = forms.CharField(
+        label="Cluster (Optional)",
+        required=False,
+        max_length=100,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )

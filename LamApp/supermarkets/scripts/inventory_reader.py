@@ -79,7 +79,7 @@ def verify_stocks_from_excel(db: DatabaseManager):
             # Delete file after processing
             try:
                 os.remove(file_path)
-                logger.info(f"✓ Processed and deleted file: {file_path}")
+                logger.info(f"Processed and deleted file: {file_path}")
             except Exception as e:
                 logger.error(f"Could not delete file {file_path}: {e}")
 
@@ -208,19 +208,19 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
                     logger.debug(f"Registered {loss_type}: {cod}.{v} = {delta}")
                 except ValueError as e:
                     # Product not found in database
-                    logger.debug(f"Product {cod}.{v} not in database: {e}")
+                    logger.debug(f"Product {cod}.{v} not in database (will be skipped)")
                     error_count += 1
                 except Exception as e:
-                    logger.warning(f"Error processing {cod}.{v}: {e}")
+                    logger.warning(f"Error processing {cod}.{v}: {type(e).__name__}: {e}")
                     error_count += 1
             
-            logger.info(f"✓ Processed {file_name}: {processed_count} losses registered, {error_count} skipped")
+            logger.info(f" Processed {file_name}: {processed_count} losses registered, {error_count} skipped")
             files_processed += 1
 
             # Delete file ONLY after successful processing
             try:
                 os.remove(file_path)
-                logger.info(f"✓ Deleted processed file: {file_path}")
+                logger.info(f" Deleted processed file: {file_path}")
             except Exception as e:
                 logger.error(f"Could not delete file {file_path}: {e}")
 
@@ -276,7 +276,7 @@ def adjust_stocks_from_excel(db: DatabaseManager):
 
         try:
             os.remove(file_path)
-            logger.info(f"✓ Deleted file: {file_path}")
+            logger.info(f" Deleted file: {file_path}")
         except Exception as e:
             logger.error(f"Could not delete file {file_path}: {e}")
 

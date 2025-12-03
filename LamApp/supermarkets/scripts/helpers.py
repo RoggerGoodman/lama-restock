@@ -147,6 +147,7 @@ class Helper:
         # --- Trend ratio: how much this year has grown vs last year ---
         if rate_prev_month_last_year > 0:
             growth_ratio = rate_prev_month / rate_prev_month_last_year
+            growth_ratio = min(growth_ratio, 2)
         else:
             growth_ratio = 1.0
 
