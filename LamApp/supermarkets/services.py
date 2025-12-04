@@ -2,10 +2,8 @@
 """
 Service layer to integrate existing DatabaseManager with Django models
 """
-import sys
-import os
 from pathlib import Path
-
+import re
 from .scripts.DatabaseManager import DatabaseManager
 from .scripts.decision_maker import DecisionMaker
 from .scripts.helpers import Helper
@@ -191,10 +189,10 @@ class StorageService:
         
         for name in storage_names:
             # Remove numeric prefix if present
-            settore = name.split(' ', 1)[1] if ' ' in name else name
+            settore = re.sub(r'^[^ ]+\s*-?\s*', '', name)
             
             Storage.objects.get_or_create(
                 supermarket=supermarket,
                 name=name,
-                defaults={'settore': settore}
+                settore = settore
             )

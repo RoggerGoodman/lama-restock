@@ -222,19 +222,19 @@ class DatabaseManager:
         if sold_pkt is not None:
             cur_sold_val, prev_sold_val = sold_pkt
             if last_update_month == current_month:
-                old_current = sold_array[0] 
+                old_current = sold_array[0] if sold_array else 0
                 sold_delta = cur_sold_val - old_current
             else:
-                old_previous_stored = sold_array[0] 
+                old_previous_stored = sold_array[0] if sold_array else 0
                 sold_delta = cur_sold_val + (prev_sold_val - old_previous_stored)
 
         if bought_pkt is not None:
             cur_bought_val, prev_bought_val = bought_pkt
             if last_update_month == current_month:
-                old_current = bought_array[0] 
+                old_current = bought_array[0] if bought_array else 0
                 bought_delta = cur_bought_val - old_current
             else:
-                old_previous_stored = bought_array[0] 
+                old_previous_stored = bought_array[0] if bought_array else 0
                 bought_delta = cur_bought_val + (prev_bought_val - old_previous_stored)
 
         # --- Apply array modifications using your existing helper ---
@@ -659,8 +659,20 @@ class DatabaseManager:
             (cod, v, price_std, cost_std, price_s, cost_s, sale_start, sale_end, category)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(cod, v) DO UPDATE SET
-                price_std = excluded.price_std,
-                cost_std = excluded.cost_std,
+                price_std = CASE
+                    WHEN excluded.sale_start IS NOT NULL
+                    AND excluded.sale_end IS NOT NULL
+                    AND DATE('now') BETWEEN excluded.sale_start AND excluded.sale_end
+                    THEN economics.price_std    -- keep existing
+                    ELSE excluded.price_std     -- update
+                END,
+                cost_std = CASE
+                    WHEN excluded.sale_start IS NOT NULL
+                    AND excluded.sale_end IS NOT NULL
+                    AND DATE('now') BETWEEN excluded.sale_start AND excluded.sale_end
+                    THEN economics.cost_std
+                    ELSE excluded.cost_std
+                END,
                 price_s = excluded.price_s,
                 cost_s = excluded.cost_s,
                 sale_start = excluded.sale_start,
@@ -674,131 +686,6 @@ class DatabaseManager:
         # self.purge_orphan_stats()
 
         print(f"Imported {len(prod_rows)} products into settore '{settore}'.")
-
-    def estimate_and_update_stock_for_settore(self, settore, batch_commit=100): #TODO Is obsolite already?
-        """
-        For every product in `settore`:
-        - compute estimated stock using helper functions
-        - update product_stats.stock and set verified = 0 (since it's an automatic estimate)
-        Args:
-        settore (str): sector to process
-        helper: object exposing the methods you provided:
-            calculate_weighted_avg_sales(array),
-            detect_dead_periods(bought_array, sold_array) -> (bought_array, sold_array),
-            calculate_stock(final_array_sold=..., final_array_bought=...),
-            calculate_stock_oscillation(final_array_bought, final_array_sold, avg_daily_sales),
-            calculate_max_stock(bought_slice, sold_slice)
-        batch_commit (int): number of rows to update before committing (default 100)
-        Returns:
-        dict report with counts and simple stats
-        """
-        cur = self.conn.cursor()
-        cur.execute("""
-            SELECT p.cod, p.v, ps.sold_last_24, ps.bought_last_24, ps.stock
-            FROM products p
-            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-            WHERE p.settore = ?
-        """, (settore,))
-        rows = cur.fetchall()
-
-        report = {
-            "total_products": len(rows),
-            "updated": 0,
-            "skipped_no_stats": 0,
-            "errors": 0
-        }
-
-        to_commit = 0
-
-        for r in rows:
-            cod = r["cod"]
-            v = r["v"]
-            stock = r["stock"]
-            if stock != None: 
-                continue
-            try:
-                sold_json = r["sold_last_24"]
-                bought_json = r["bought_last_24"]
-
-                # If there are no arrays at all, skip (nothing to estimate)
-                if not sold_json and not bought_json:
-                    report["skipped_no_stats"] += 1
-                    continue
-
-                sold = json.loads(sold_json) if sold_json else []
-                bought = json.loads(bought_json) if bought_json else []
-
-                # ensure lists
-                sold = list(sold)
-                bought = list(bought)
-
-                # 1) weighted average daily sales
-                try:
-                    if len(sold) > 0:
-                        avg_daily_sales = self.helper.calculate_weighted_avg_sales(sold)
-                except Exception as e:
-                    # if helper fails, skip this product
-                    print(f"Helper calculate_weighted_avg_sales failed for {cod}.{v}: {e}")
-                    report["errors"] += 1
-                    continue
-
-                # 2) detect dead periods if we have enough history
-                if len(bought) > 3 and len(sold) > 3:
-                    try:
-                        bought, sold = self.helper.detect_dead_periods(bought, sold)
-                        # ensure lists after detection
-                        bought = list(bought)
-                        sold = list(sold)
-                    except Exception as e:
-                        print(f"Helper detect_dead_periods failed for {cod}.{v}: {e}")
-                        report["errors"] += 1
-                        continue
-
-                # 3) choose calculation method
-                try:
-                    if len(bought) <= 15:
-                        stock_est = self.helper.calculate_stock(final_array_sold=sold, final_array_bought=bought)
-                    else:
-                        so = self.helper.calculate_stock_oscillation(bought, sold, avg_daily_sales)
-                        # take recent 9 months (or fewer if not available) for max stock calc
-                        bought_recent = bought[:9]
-                        sold_recent = sold[:9]
-                        ms = self.helper.calculate_max_stock(bought_recent, sold_recent)
-                        stock_est = max(so, ms)
-                except Exception as e:
-                    print(f"Stock calculation failed for {cod}.{v}: {e}")
-                    report["errors"] += 1
-                    continue
-
-                # sanitize result -> integer, non-negative
-                if stock_est is None:
-                    stock_est = 0
-                stock_est = max(0, stock_est)
-
-                # 4) update DB (set verified = 0 because this is an automatic estimate)
-                cur.execute("""
-                    UPDATE product_stats
-                    SET stock = ?, verified = 0
-                    WHERE cod = ? AND v = ?
-                """, (stock_est, cod, v))
-                to_commit += 1
-                report["updated"] += 1
-
-                # commit in batches
-                if to_commit >= batch_commit:
-                    self.conn.commit()
-                    to_commit = 0
-
-            except Exception as e:
-                print(f"Unexpected error processing {cod}.{v}: {e}")
-                report["errors"] += 1
-                continue
-
-        # final commit
-        if to_commit > 0:
-            self.conn.commit()
-
-        return report
     
     def update_promos(self, promo_list):
         """

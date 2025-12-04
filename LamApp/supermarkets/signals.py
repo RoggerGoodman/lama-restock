@@ -1,3 +1,4 @@
+import re
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import Supermarket, Storage
@@ -11,4 +12,5 @@ def fetch_storags(sender, instance, created, **kwargs):
         storages = finder.find_storages()
 
         for storage_name in storages:
-            Storage.objects.create(name=storage_name, supermarket=instance)
+            settore = re.sub(r'^[^ ]+\s*-?\s*', '', storage_name)
+            Storage.objects.create(name=storage_name, supermarket=instance, settore=settore)

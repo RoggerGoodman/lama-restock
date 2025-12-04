@@ -74,3 +74,6 @@ def purge_entry():
         cur.execute("DELETE FROM products WHERE cod=? AND v=?", (cod, v))
 
     db.conn.commit()
+
+Articolo Profumi è in bloccato
+Costo / rapporto * stock

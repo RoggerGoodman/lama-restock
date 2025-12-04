@@ -1022,6 +1022,7 @@ def stock_value_unified_view(request):
     # Get filters from query params
     supermarket_id = request.GET.get('supermarket_id')
     storage_id = request.GET.get('storage_id')
+    settore = request.GET.get('settore')
     cluster = request.GET.get('cluster')
     
     # Build scope description
@@ -1030,6 +1031,8 @@ def stock_value_unified_view(request):
         scope_parts.append(get_object_or_404(Supermarket, id=supermarket_id, owner=request.user).name)
     if storage_id:
         scope_parts.append(get_object_or_404(Storage, id=storage_id).name)
+    if settore:
+        scope_parts.append(f"Settore: {settore}")
     if cluster:
         scope_parts.append(f"Cluster: {cluster}")
     
@@ -1049,8 +1052,9 @@ def stock_value_unified_view(request):
     if storage_id:
         storage = Storage.objects.get(id=storage_id)
         service = RestockService(storage)
+        settore = storage.settore
         cursor = service.db.conn.cursor()
-        cursor.execute("SELECT DISTINCT cluster FROM products WHERE cluster IS NOT NULL AND cluster != ''")
+        cursor.execute("SELECT DISTINCT cluster FROM products WHERE cluster IS NOT NULL AND cluster != '' AND settore = ? ", (settore,))
         clusters = [row[0] for row in cursor.fetchall()]
         service.close()
     
@@ -1061,14 +1065,18 @@ def stock_value_unified_view(request):
     for storage in storages:
         try:
             service = RestockService(storage)
+            settore = storage.settore
             cursor = service.db.conn.cursor()
             
             # Build query based on filters
             query = """
-                SELECT e.category, SUM(e.cost_std * ps.stock) as value
+                SELECT e.category,
+                    SUM((e.cost_std / p.rapp) * ps.stock) AS value
                 FROM economics e
-                JOIN product_stats ps ON e.cod = ps.cod AND e.v = ps.v
-                JOIN products p ON e.cod = p.cod AND e.v = p.v
+                JOIN product_stats ps
+                    ON e.cod = ps.cod AND e.v = ps.v
+                JOIN products p
+                    ON e.cod = p.cod AND e.v = p.v
                 WHERE e.category != '' AND ps.stock > 0
             """
             params = []
@@ -1076,7 +1084,8 @@ def stock_value_unified_view(request):
             if cluster:
                 query += " AND p.cluster = ?"
                 params.append(cluster)
-            
+            query += " AND p.settore = ?"
+            params.append(settore)
             query += " GROUP BY e.category"
             
             cursor.execute(query, params)

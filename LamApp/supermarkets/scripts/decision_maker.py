@@ -209,8 +209,8 @@ class DecisionMaker:
                 turnover = 0
                 logger.info(f"Deviation and recent months sales are not available for this article") 
             
-            current_gap = self.helper.find_current_gap(sold_array, bought_array)
-            logger.info(f"Current gap is {current_gap}")
+            #current_gap = self.helper.find_current_gap(sold_array, bought_array)
+            #logger.info(f"Current gap is {current_gap}")
 
             if len(sold_array) >= 16:
                 ly_slice = sold_array[12:]

@@ -216,8 +216,13 @@ class Orderer:
                 "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]"
             )
             if is_off:
-                logger.info(f"Article {cod_part}.{var_part} doesn't accept orders. Skipping.")
-                continue
+                time.sleep(1.5)
+                is_off_really = self.driver.find_elements(
+                By.XPATH,
+                "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]")
+                if is_off_really:
+                    logger.info(f"Article {cod_part}.{var_part} doesn't accept orders. Skipping.")
+                    continue
             stock_size.clear()
             stock_size.send_keys(qty_part)
 
