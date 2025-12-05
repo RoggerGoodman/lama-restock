@@ -232,9 +232,9 @@ class DecisionMaker:
             if discount is not None:
                 if discount == 0:
                     discount = 15
-                    print("This product is currently on sale:", discount, "%, with default value")
+                    logger.info(f"This product is currently on sale: {discount}% with default value")
                 else:
-                    print("This product is currently on sale:", discount, "%")
+                    logger.info(f"This product is currently on sale: {discount}%")
 
                 req_stock += (req_stock * discount/100)
 
