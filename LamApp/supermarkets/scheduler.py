@@ -73,7 +73,7 @@ def start():
     )
     
     _scheduler.start()
-    logger.info("✓ Scheduler started successfully - Orders: 6AM, Losses: 22:30, List Updates: 3AM")
+    logger.info(" Scheduler started successfully - Orders: 6AM, Losses: 22:30, List Updates: 3AM")
     
     # Make sure the scheduler stops when Django stops
     atexit.register(lambda: shutdown_scheduler())
@@ -123,7 +123,7 @@ def check_and_run_restock_orders():
             try:
                 # Coverage will be calculated automatically based on schedule
                 service.run_full_restock_workflow(coverage=None)
-                logger.info(f"✓ Successfully completed restock for {schedule.storage.name}")
+                logger.info(f" Successfully completed restock for {schedule.storage.name}")
             except Exception as e:
                 logger.exception(f"✗ Failed to run restock for {schedule.storage.name}")
             finally:
@@ -186,7 +186,7 @@ def run_losses_recording():
             service.record_losses()
             service.close()
             
-            logger.info(f"✓ Successfully recorded losses for {supermarket.name}")
+            logger.info(f" Successfully recorded losses for {supermarket.name}")
             
         except Exception as e:
             logger.exception(f"✗ Failed to record losses for {supermarket.name}")

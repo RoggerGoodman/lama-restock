@@ -36,10 +36,10 @@ urlpatterns = [
     # Stock Verification
     path('storages/<int:storage_id>/verify/', views.verify_stock_view, name='verify-stock'),
     path('storages/<int:storage_id>/verification-report/', views.verification_report_view, name='verification-report'),
+    path('storages/<int:storage_id>/verify-product/', views.verify_single_product_view, name='verify-single-product'),
     
     # Stock Value Analysis
-    path('storages/<int:storage_id>/stock-value/', views.stock_value_view, name='stock-value'),
-    path('supermarkets/<int:supermarket_id>/stock-value/', views.supermarket_stock_value_view, name='supermarket-stock-value'),
+    path('stock-value/', views.stock_value_unified_view, name='stock-value-unified'),
     
     # Stock Adjustments
     path('storages/<int:storage_id>/adjust-stock/', views.adjust_stock_view, name='adjust-stock'),
@@ -65,7 +65,6 @@ urlpatterns = [
     # Loss Management
     # SUPERMARKET LEVEL - Recording (one CSV for all storages)
     path('supermarkets/<int:supermarket_id>/record-losses/', views.record_losses_view, name='record-losses'),
-    
-    # STORAGE LEVEL - Analytics (view individual storage losses)
-    path('storages/<int:storage_id>/losses-analytics/', views.losses_analytics_view, name='losses-analytics'),
+    path('losses-analytics/', views.losses_analytics_unified_view, name='losses-analytics-unified'),
+
 ]

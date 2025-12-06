@@ -14,3 +14,4 @@ PyGetWindow == 0.0.9
 PyAutoGUI == 0.9.54
 gunicorn == 23.0.0
 whitenoise == 6.11.0
+djlint == 1.36.4

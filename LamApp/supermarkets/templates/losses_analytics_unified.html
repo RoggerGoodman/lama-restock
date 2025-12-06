@@ -1,7 +1,6 @@
-<!-- LamApp/supermarkets/templates/storages/losses_analytics.html -->
 {% extends 'base.html' %}
 {% load static %}
-{% block title %}Loss Analytics - {{ storage.name }}{% endblock %}
+{% block title %}Loss Analytics{% endblock %}
 {% block page_title %}Loss Analytics{% endblock %}
 
 {% block content %}
@@ -11,31 +10,69 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
                     <li class="breadcrumb-item active">Loss Analytics</li>
                 </ol>
             </nav>
         </div>
     </div>
 
-    <!-- Period Filter -->
+    <!-- Filter Form -->
     <div class="row mb-4">
         <div class="col-12">
             <div class="stat-card">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">
-                        <i class="bi bi-calendar-range"></i> Time Period
-                    </h5>
-                    <div class="btn-group">
-                        {% for opt in period_options %}
-                        <a href="?period={{ opt.value }}" 
-                           class="btn btn-sm {% if period == opt.value|add:0 %}btn-primary{% else %}btn-outline-primary{% endif %}">
-                            {{ opt.label }}
-                        </a>
-                        {% endfor %}
+                <h5 class="mb-3"><i class="bi bi-funnel"></i> Filters</h5>
+                <form method="get" class="row g-3">
+                    <div class="col-md-4">
+                        <label for="supermarket_id" class="form-label">Supermarket</label>
+                        <select name="supermarket_id" id="supermarket_id" class="form-select" onchange="this.form.submit()">
+                            <option value="">All Supermarkets</option>
+                            {% for sm in supermarkets %}
+                            <option value="{{ sm.id }}" {% if sm.id|stringformat:"s" == selected_supermarket %}selected{% endif %}>
+                                {{ sm.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
                     </div>
-                </div>
+                    
+                    <div class="col-md-4">
+                        <label for="storage_id" class="form-label">Storage (Settore)</label>
+                        <select name="storage_id" id="storage_id" class="form-select" onchange="this.form.submit()">
+                            <option value="">All Storages</option>
+                            {% for storage in storages %}
+                            <option value="{{ storage.id }}" 
+                                    {% if storage.id|stringformat:"s" == selected_storage %}selected{% endif %}>
+                                {{ storage.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="period" class="form-label">Time Period</label>
+                        <select name="period" id="period" class="form-select" onchange="this.form.submit()">
+                            {% for opt in period_options %}
+                            <option value="{{ opt.value }}" {% if period == opt.value|add:0 %}selected{% endif %}>
+                                {{ opt.label }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-12">
+                        <a href="{% url 'losses-analytics-unified' %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Clear Filters
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scope Info -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-primary">
+                <strong>Analyzing:</strong> {{ scope_description }}
             </div>
         </div>
     </div>
@@ -110,7 +147,7 @@
         <div class="col-12">
             <div class="stat-card">
                 <h5 class="mb-4">
-                    <i class="bi bi-list-ol"></i> Top Products by Loss (Last {{ period }} Month{{ period|pluralize }})
+                    <i class="bi bi-list-ol"></i> Top Products by Loss
                 </h5>
 
                 {% if top_products %}
@@ -141,26 +178,9 @@
                 {% else %}
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i>
-                    No loss data available for the selected period.
+                    No loss data available for the selected filters.
                 </div>
                 {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- Actions -->
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="d-flex gap-2">
-                <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
-                    <i class="bi bi-arrow-left"></i> Back to Storage
-                </a>
-                <a href="{% url 'record-losses' supermarket_id=storage.supermarket.id %}" class="btn btn-primary">
-                    <i class="bi bi-plus-circle"></i> Record New Losses
-                </a>
-                <button onclick="window.print()" class="btn btn-outline-secondary">
-                    <i class="bi bi-printer"></i> Print Report
-                </button>
             </div>
         </div>
     </div>
@@ -244,11 +264,4 @@ new Chart(distCtx, {
     }
 });
 </script>
-
-<style>
-@media print {
-    .sidebar, .top-navbar, nav, .btn, .breadcrumb { display: none !important; }
-    .main-content { margin-left: 0 !important; }
-}
-</style>
 {% endblock %}

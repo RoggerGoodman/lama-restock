@@ -10,7 +10,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
     
     if avg_daily_sales >= 1 :
         minimum_stock += round(avg_daily_sales)
-        minimum_stock += math.floor(req_stock * 0.2)
+        minimum_stock += math.floor(req_stock * 0.1)
     elif avg_daily_sales < 0.6:
         minimum_stock -= 1
         if avg_daily_sales < 0.2:
@@ -26,7 +26,9 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
         minimum_stock = math.ceil(minimum_stock * 0.9)
     elif deviation_corrected <= -40:
         minimum_stock = math.ceil(minimum_stock * 0.7)
-    
+
+    minimum_stock = round(minimum_stock)
+
     order = (req_stock + minimum_stock - stock) / package_size
     if order >= 0:
         tollerance_threshold = avg_daily_sales/package_size

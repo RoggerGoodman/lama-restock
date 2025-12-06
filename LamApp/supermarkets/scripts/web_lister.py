@@ -151,20 +151,20 @@ class WebLister:
         self.close_ordini_popup()
 
         # Select state
-        drop_down_arrow_1 = self.driver.find_element(
-            By.XPATH, "//*[@id='idMagStatoAssort']/div[1]/div/div[1]/span[2]"
-        )
-        drop_down_arrow_1.click()
+        #drop_down_arrow_1 = self.driver.find_element(
+        #    By.XPATH, "//*[@id='idMagStatoAssort']/div[1]/div/div[1]/span[2]"
+        #)
+        #drop_down_arrow_1.click()
         time.sleep(1)
-        
-        state_element = self.driver.find_element(
-            By.XPATH, "//span[normalize-space()='SOSPESO LISTINO/NO COMUNIC.VAR']"
-        )
-        state_element.click()
+        #TODO To be re-implemented
+        #state_element = self.driver.find_element(
+        #    By.XPATH, "//span[normalize-space()='SOSPESO LISTINO/NO COMUNIC.VAR']"
+        #)
+        #state_element.click()
         
         # Apply category filters based on storage type
         self._apply_category_filters()
-        
+        time.sleep(1)
         # Confirm filters
         try:
             confirm_button = self.driver.find_element(

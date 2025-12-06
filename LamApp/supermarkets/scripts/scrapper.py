@@ -85,7 +85,7 @@ class Scrapper:
         
         timeout=10
         cur = self.db.conn.cursor()
-        if settore == "#RIANO GENERI VARI":
+        if settore == "GENERI VARI":
             cur.execute("SELECT ps.cod, ps.v FROM 'product_stats' ps LEFT JOIN 'products' p ON ps.cod = p.cod AND ps.v = p.v WHERE p.settore = ? AND ps.verified = 1", (settore,))
         else :
             cur.execute("SELECT cod, v FROM products WHERE settore = ?", (settore,))

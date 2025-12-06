@@ -68,7 +68,7 @@ class Inventory_Scrapper:
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
         
-        logger.info("✓ Login successful")
+        logger.info(" Login successful")
 
     def clean_up(self, target):
         """Clean up old inventory entries (not used for loss recording)"""
@@ -304,7 +304,7 @@ class Inventory_Scrapper:
             
             self.close_current_tab_and_switch()
             
-            logger.info(f"✓ Successfully downloaded: {target}")
+            logger.info(f" Successfully downloaded: {target}")
             
         except Exception as e:
             logger.exception(f"✗ Error downloading {target}")
@@ -346,7 +346,7 @@ class Inventory_Scrapper:
             pyautogui.write(full_path)
             pyautogui.press("enter")
 
-            logger.info(f"✓ File saved as: {full_path}")
+            logger.info(f" File saved as: {full_path}")
             
         except Exception as e:
             logger.error(f"Error in save dialog: {e}")
