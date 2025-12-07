@@ -21,29 +21,41 @@ _scheduler = None
 def start():
     """
     Start the background scheduler.
-    This is called when Django starts (in apps.py ready() method).
+    PRODUCTION-SAFE: Only starts in ONE process.
     """
     global _scheduler
     
-    # Prevent multiple scheduler instances
+    # Prevent multiple instances
     if _scheduler is not None:
         logger.warning("Scheduler already running, skipping initialization")
         return
     
-    # Check if this is a management command that shouldn't run scheduler
-    # (like makemigrations, migrate, shell, etc.)
+    # Skip for management commands (except runserver)
     import sys
     if len(sys.argv) > 1:
         command = sys.argv[1]
-        # Don't start scheduler for these commands
         if command in ['makemigrations', 'migrate', 'shell', 'createsuperuser', 
-                       'test', 'collectstatic', 'runserver']:
+                       'test', 'collectstatic']:
             logger.info(f"Skipping scheduler for command: {command}")
             return
     
-    # Check if running in reloader (Django development server spawns two processes)
-    if os.environ.get('RUN_MAIN') != 'true':
-        logger.info("Skipping scheduler in reloader process")
+    # For runserver: only start in reloader process
+    if len(sys.argv) > 1 and sys.argv[1] == 'runserver':
+        if os.environ.get('RUN_MAIN') != 'true':
+            logger.info("Skipping scheduler in main runserver process")
+            return
+    
+    # PRODUCTION SAFETY: Check if scheduler should run in this worker
+    # Only start if ENABLE_SCHEDULER is not explicitly set to 'false'
+    enable_scheduler = os.environ.get('ENABLE_SCHEDULER', 'true').lower()
+    if enable_scheduler == 'false':
+        logger.info("Scheduler disabled via ENABLE_SCHEDULER environment variable")
+        return
+    
+    # PRODUCTION SAFETY: Use worker ID to ensure only one worker runs scheduler
+    worker_id = os.environ.get('WORKER_ID', '1')
+    if worker_id != '1':
+        logger.info(f"Scheduler skipped for worker {worker_id} (only worker 1 runs scheduler)")
         return
     
     _scheduler = BackgroundScheduler()
@@ -73,9 +85,15 @@ def start():
     )
     
     _scheduler.start()
-    logger.info(" Scheduler started successfully - Orders: 6AM, Losses: 22:30, List Updates: 3AM")
+    logger.info("="*60)
+    logger.info("SCHEDULER STARTED SUCCESSFULLY")
+    logger.info("="*60)
+    logger.info("Scheduled jobs:")
+    logger.info("  - Restock Orders:    Daily at 06:00")
+    logger.info("  - Loss Recording:    Daily at 22:30")
+    logger.info("  - List Updates:      Daily at 03:00")
+    logger.info("="*60)
     
-    # Make sure the scheduler stops when Django stops
     atexit.register(lambda: shutdown_scheduler())
 
 

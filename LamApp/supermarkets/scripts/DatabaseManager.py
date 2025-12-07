@@ -186,7 +186,7 @@ class DatabaseManager:
 
         cur = self.conn.cursor()
         cur.execute("""
-            SELECT sold_last_24, bought_last_24, stock, last_update
+            SELECT sold_last_24, bought_last_24, stock, last_update, sales_sets
             FROM product_stats
             WHERE cod=? AND v=?
         """, (cod, v))
@@ -196,7 +196,7 @@ class DatabaseManager:
             # Auto-initialize if missing
             self.init_product_stats(cod, v, sold=[], bought=[], stock=0, verified=False)
             cur.execute("""
-                SELECT sold_last_24, bought_last_24, stock, last_update
+                SELECT sold_last_24, bought_last_24, stock, last_update, sales_sets
                 FROM product_stats
                 WHERE cod=? AND v=?
             """, (cod, v))
@@ -206,7 +206,7 @@ class DatabaseManager:
         sold_array = json.loads(row["sold_last_24"]) if row["sold_last_24"] else []
         bought_array = json.loads(row["bought_last_24"]) if row["bought_last_24"] else []
         stock = int(row["stock"]) if row["stock"] is not None else 0
-
+        sales_sets = json.loads(row["sales_sets"]) if row and row["sales_sets"] else []
         last_update_str = row["last_update"]
         last_update_date = datetime.strptime(last_update_str, "%Y-%m-%d").date() if last_update_str else None
         current_date = date.today()
@@ -220,6 +220,7 @@ class DatabaseManager:
         bought_delta = 0
 
         if sold_pkt is not None:
+            days_since = (current_date - last_update_date).days if last_update_date else 0
             cur_sold_val, prev_sold_val = sold_pkt
             if last_update_month == current_month:
                 old_current = sold_array[0] if sold_array else 0
@@ -227,6 +228,14 @@ class DatabaseManager:
             else:
                 old_previous_stored = sold_array[0] if sold_array else 0
                 sold_delta = cur_sold_val + (prev_sold_val - old_previous_stored)
+           
+            if days_since > 0:
+                pair = [int(sold_delta), int(days_since)]
+                sales_sets.insert(0, pair)
+                # Keep last 10
+                sales_sets = sales_sets[-10:]
+
+            
 
         if bought_pkt is not None:
             cur_bought_val, prev_bought_val = bought_pkt
@@ -256,9 +265,16 @@ class DatabaseManager:
         # --- Persist changes ---
         cur.execute("""
             UPDATE product_stats
-            SET sold_last_24=?, bought_last_24=?, stock=?, last_update=?
+            SET sold_last_24=?, bought_last_24=?, stock=?, last_update=?, sales_sets=?
             WHERE cod=? AND v=?
-        """, (json.dumps(sold_array), json.dumps(bought_array), stock, current_date.isoformat(), cod, v))
+        """, (
+            json.dumps(sold_array),
+            json.dumps(bought_array),
+            stock,
+            current_date.isoformat(),
+            json.dumps(sales_sets),
+            cod, v
+        ))
 
         self.conn.commit()
 

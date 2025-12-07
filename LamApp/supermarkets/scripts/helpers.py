@@ -164,7 +164,7 @@ class Helper:
         w_current = 1 - w_prior
         avg_daily_sales = (w_current * rate_current_obs) + (w_prior * prior_rate)
 
-        avg_sales_last_year = rate_same_month_last_year
+        avg_sales_base = rate_same_month_last_year
 
         try:
             logger.info(
@@ -176,7 +176,56 @@ class Helper:
         except Exception:
             pass
 
-        return avg_daily_sales, avg_sales_last_year
+        return avg_daily_sales, avg_sales_base
+    
+    def avg_daily_sales_from_sales_sets(self, sales_sets):
+        """
+        Compute a recency-weighted average daily sales rate from sales_sets.
+        If observed_days < min_days: fallback to old method.
+
+        Args:
+            sales_sets: list of [sold, days], oldest -> newest.
+        Returns:
+            float: estimated avg daily sales.
+        """
+
+        if not sales_sets:
+            return 0
+        
+        min_days = 20
+        half_life = 14
+
+        # Total observed days across all intervals
+        observed_days = sum(days for _, days in sales_sets)
+
+        # If not enough data → use old method
+        if observed_days < min_days:
+            return 0
+
+        # Exponential recency weighting
+        lam = math.log(2) / half_life
+
+        weighted_num = 0.0
+        weighted_den = 0.0
+        cumulative_days_from_now = 0  # used to compute age midpoint
+
+        # Process newest → oldest
+        for sold, days in sales_sets:
+            rate = sold / days  # daily rate for this interval
+
+            # age of midpoint of this interval
+            age_mid = cumulative_days_from_now + (days / 2)
+            weight = math.exp(-lam * age_mid)
+
+            # Weighted by days so long intervals matter proportionally
+            weighted_num += rate * days * weight
+            weighted_den += days * weight
+
+            cumulative_days_from_now += days
+
+        avg_daily_sales = weighted_num / weighted_den
+
+        return avg_daily_sales 
     
     def calculate_data_recent_months(self, list: list, period: int):
         weights = [0.7, 0.2, 0.1]  # You can adjust these weights
