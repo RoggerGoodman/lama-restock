@@ -53,6 +53,7 @@ urlpatterns = [
     # Restock Logs
     path('logs/<int:pk>/', views.RestockLogDetailView.as_view(), name='restock-log-detail'),
     path('logs/<int:log_id>/execute/', views.execute_order_view, name='execute-order'),
+    path('logs/<int:log_id>/retry/', views.retry_restock_view, name='retry-restock'),
     
     # Blacklists
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),

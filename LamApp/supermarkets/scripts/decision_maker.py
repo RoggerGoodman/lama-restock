@@ -38,7 +38,7 @@ class DecisionMaker:
         Returns a list of dict-like rows.
         """
         query = """
-            SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, 
+            SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
                 p.pz_x_collo, p.rapp, ps.verified, p.disponibilita
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
