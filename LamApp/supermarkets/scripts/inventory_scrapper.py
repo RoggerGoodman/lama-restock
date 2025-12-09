@@ -93,7 +93,7 @@ class Inventory_Scrapper:
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
         
-        logger.info("✓ Login successful")
+        logger.info(" Login successful")
 
     def downloader(self, target):
         """
@@ -222,13 +222,13 @@ class Inventory_Scrapper:
             if not renamed:
                 logger.error(f"✗ Could not retrieve or rename downloaded file for target: {target}")
             else:
-                logger.info(f"✓ Download saved as: {renamed}")
+                logger.info(f" Download saved as: {renamed}")
 
             time.sleep(2)
 
             self.close_current_tab_and_switch()
 
-            logger.info(f"✓ Successfully downloaded: {target}")
+            logger.info(f" Successfully downloaded: {target}")
 
         except Exception as e:
             logger.exception(f"✗ Error downloading {target}")

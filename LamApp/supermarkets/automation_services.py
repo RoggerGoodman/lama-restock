@@ -70,7 +70,7 @@ class AutomatedRestockService:
         Record product losses by downloading and processing inventory files.
         Should run the day before orders at 22:30.
         """
-        logger.info(f"Starting loss recording for {self.storage.name} (settore: {self.settore})")
+        logger.info(f"Starting loss recording for {self.supermarket.name}")
         
         try:
             inv_scrapper = Inventory_Scrapper()
@@ -91,14 +91,14 @@ class AutomatedRestockService:
                 logger.info("Processing loss files...")
                 verify_lost_stock_from_excel_combined(self.db)
                 
-                logger.info(f"Loss recording completed for {self.storage.name}")
+                logger.info(f"Loss recording completed for {self.supermarket.name}")
                 return True
                 
             finally:
                 inv_scrapper.driver.quit()
                 
         except Exception as e:
-            logger.exception(f"Error recording losses for {self.storage.name}")
+            logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
     def update_product_stats_checkpoint(self, log: RestockLog):
@@ -124,7 +124,7 @@ class AutomatedRestockService:
                 log.stats_updated_at = timezone.now()
                 log.save()
                 
-                logger.info(f"✓ [CHECKPOINT 1 COMPLETE] Stats updated for {self.storage.name}")
+                logger.info(f" [CHECKPOINT 1 COMPLETE] Stats updated for {self.storage.name}")
                 return True
                 
             finally:
@@ -196,7 +196,7 @@ class AutomatedRestockService:
             log.order_calculated_at = timezone.now()
             log.save()
             
-            logger.info(f"✓ [CHECKPOINT 2 COMPLETE] Order calculated: {len(orders_list)} products, {log.total_packages} packages")
+            logger.info(f" [CHECKPOINT 2 COMPLETE] Order calculated: {len(orders_list)} products, {log.total_packages} packages")
             return orders_list
             
         except Exception as e:
@@ -241,7 +241,7 @@ class AutomatedRestockService:
                 log.completed_at = timezone.now()
                 log.save()
                 
-                logger.info(f"✓ [CHECKPOINT 3 COMPLETE] Order executed successfully for {self.storage.name}")
+                logger.info(f" [CHECKPOINT 3 COMPLETE] Order executed successfully for {self.storage.name}")
                 return True
                 
             finally:
@@ -308,7 +308,7 @@ class AutomatedRestockService:
             else:
                 logger.info(f"[CHECKPOINT 3 SKIP] Order already executed at {log.order_executed_at}")
             
-            logger.info(f"✓ Restock workflow completed successfully for {self.storage.name}")
+            logger.info(f" Restock workflow completed successfully for {self.storage.name}")
             return log
             
         except Exception as e:
@@ -324,24 +324,43 @@ class AutomatedRestockService:
             
             raise
     
-    def retry_from_checkpoint(self, log: RestockLog, coverage=None):
-        """
-        Retry a failed restock operation from its last successful checkpoint.
+    def retry_from_checkpoint(self, log, coverage=None):
+        """Retry workflow from last successful checkpoint"""
+
+        logger.info(f"Retrying workflow from checkpoint for {self.storage.name}")
         
-        Args:
-            log: The RestockLog to retry
-            coverage: Optional coverage override
+        # Checkpoint 1: Stats update
+        if log.stats_updated_at:
+            logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated at {log.stats_updated_at}")
+        else:
+            logger.info(f"[CHECKPOINT 1 START] Updating stats...")
+            self.update_stats_checkpoint(log)
         
-        Returns:
-            RestockLog instance with updated results
-        """
-        if not log.can_retry():
-            raise ValueError(f"Cannot retry log #{log.id}: max retries reached or not in failed state")
+        # Checkpoint 2: Order calculation
+        # FIX: Only skip if timestamp exists AND is not None
+        if log.order_calculated_at:
+            logger.info(f"[CHECKPOINT 2 SKIP] Order already calculated at {log.order_calculated_at}")
+            # Retrieve existing orders from database
+            orders_list = self.get_orders_from_log(log)
+        else:
+            logger.info(f"[CHECKPOINT 2 START] Calculating order...")
+            orders_list = self.calculate_order_checkpoint(log, coverage)
+            # Make sure to save the timestamp
+            log.order_calculated_at = timezone.now()
+            log.save()
+            logger.info(f"[CHECKPOINT 2 COMPLETE] Order calculated at {log.order_calculated_at}")
         
-        logger.info(f"Retrying RestockLog #{log.id} from checkpoint: {log.current_stage}")
+        # Checkpoint 3: Order execution
+        if log.order_executed_at:
+            logger.info(f"[CHECKPOINT 3 SKIP] Order already executed at {log.order_executed_at}")
+        else:
+            logger.info(f"[CHECKPOINT 3 START] Executing order...")
+            self.execute_order_checkpoint(log, orders_list)
         
-        return self.run_full_restock_workflow(coverage=coverage, log=log)
-    
-    def close(self):
-        """Clean up resources"""
-        self.db.close()
+        logger.info(f"[SUCCESS] Restock workflow completed for {self.storage.name}")
+        return log
+
+    def get_orders_from_log(self, log):
+        """Retrieve calculated orders from log"""
+        from supermarkets.models import OrderLine
+        return list(OrderLine.objects.filter(order__restock_log=log))
