@@ -4,6 +4,45 @@
 {% block title %}Restock Log - {{ log.storage.name }}{% endblock %}
 {% block page_title %}Restock Operation Details{% endblock %}
 
+{% block extra_css %}
+<style>
+    .progress-stage {
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        border-left: 4px solid #dee2e6;
+    }
+    
+    .progress-stage.active {
+        background-color: #e7f3ff;
+        border-left-color: #0d6efd;
+    }
+    
+    .progress-stage.completed {
+        background-color: #d4edda;
+        border-left-color: #28a745;
+    }
+    
+    .progress-stage.failed {
+        background-color: #f8d7da;
+        border-left-color: #dc3545;
+    }
+    
+    .stage-icon {
+        font-size: 1.5rem;
+        margin-right: 10px;
+    }
+    
+    .retry-section {
+        background-color: #fff3cd;
+        border: 1px solid #ffc107;
+        padding: 15px;
+        border-radius: 8px;
+        margin-top: 20px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid">
     <!-- Breadcrumb -->
@@ -54,6 +93,90 @@
                     </div>
                 </div>
 
+                <!-- Progress Indicator -->
+                {% with stage_info=log.get_stage_display_info %}
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span><strong>Progress:</strong> {{ stage_info.label }}</span>
+                        <span class="text-muted">{{ stage_info.progress }}%</span>
+                    </div>
+                    <div class="progress" style="height: 25px;">
+                        <div class="progress-bar 
+                            {% if log.status == 'completed' %}bg-success
+                            {% elif log.status == 'failed' %}bg-danger
+                            {% else %}bg-primary progress-bar-striped progress-bar-animated
+                            {% endif %}" 
+                            role="progressbar" 
+                            style="width: {{ stage_info.progress }}%">
+                            {{ stage_info.progress }}%
+                        </div>
+                    </div>
+                </div>
+                {% endwith %}
+
+                <!-- Stage Breakdown -->
+                <div class="mb-4">
+                    <h6 class="mb-3">Operation Stages</h6>
+                    
+                    <!-- Stage 1: Update Stats -->
+                    <div class="progress-stage 
+                        {% if log.current_stage == 'updating_stats' %}active
+                        {% elif log.stats_updated_at %}completed
+                        {% elif log.current_stage == 'failed' and not log.stats_updated_at %}failed
+                        {% endif %}">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-{% if log.stats_updated_at %}check-circle text-success{% elif log.current_stage == 'updating_stats' %}hourglass-split text-primary{% else %}circle{% endif %} stage-icon"></i>
+                            <div class="flex-grow-1">
+                                <strong>1. Update Product Statistics</strong>
+                                {% if log.stats_updated_at %}
+                                    <br><small class="text-muted">Completed: {{ log.stats_updated_at|date:"M d, H:i" }}</small>
+                                {% elif log.current_stage == 'updating_stats' %}
+                                    <br><small class="text-warning">In progress...</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Stage 2: Calculate Order -->
+                    <div class="progress-stage 
+                        {% if log.current_stage == 'calculating_order' %}active
+                        {% elif log.order_calculated_at %}completed
+                        {% elif log.current_stage == 'failed' and log.stats_updated_at and not log.order_calculated_at %}failed
+                        {% endif %}">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-{% if log.order_calculated_at %}check-circle text-success{% elif log.current_stage == 'calculating_order' %}hourglass-split text-primary{% else %}circle{% endif %} stage-icon"></i>
+                            <div class="flex-grow-1">
+                                <strong>2. Calculate Order</strong>
+                                {% if log.order_calculated_at %}
+                                    <br><small class="text-muted">Completed: {{ log.order_calculated_at|date:"M d, H:i" }}</small>
+                                    <br><small class="text-muted">{{ log.products_ordered }} products, {{ log.total_packages }} packages</small>
+                                {% elif log.current_stage == 'calculating_order' %}
+                                    <br><small class="text-warning">In progress...</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Stage 3: Execute Order -->
+                    <div class="progress-stage 
+                        {% if log.current_stage == 'executing_order' %}active
+                        {% elif log.order_executed_at %}completed
+                        {% elif log.current_stage == 'failed' and log.order_calculated_at and not log.order_executed_at %}failed
+                        {% endif %}">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-{% if log.order_executed_at %}check-circle text-success{% elif log.current_stage == 'executing_order' %}hourglass-split text-primary{% else %}circle{% endif %} stage-icon"></i>
+                            <div class="flex-grow-1">
+                                <strong>3. Execute Order</strong>
+                                {% if log.order_executed_at %}
+                                    <br><small class="text-muted">Completed: {{ log.order_executed_at|date:"M d, H:i" }}</small>
+                                {% elif log.current_stage == 'executing_order' %}
+                                    <br><small class="text-warning">In progress...</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Time Info -->
                 <div class="row mb-4">
                     <div class="col-md-4">
@@ -91,8 +214,39 @@
                 <!-- Error Message (if failed) -->
                 {% if log.status == 'failed' and log.error_message %}
                 <div class="alert alert-danger">
-                    <h6><i class="bi bi-exclamation-triangle"></i> Error</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Error at Stage: {{ log.get_current_stage_display }}</h6>
                     <pre class="mb-0" style="white-space: pre-wrap;">{{ log.error_message }}</pre>
+                </div>
+                {% endif %}
+
+                <!-- Retry Section -->
+                {% if log.status == 'failed' %}
+                <div class="retry-section">
+                    <h6><i class="bi bi-arrow-repeat"></i> Retry from Checkpoint</h6>
+                    <p class="mb-2">
+                        This operation failed at: <strong>{{ log.get_current_stage_display }}</strong>
+                    </p>
+                    <p class="mb-2">
+                        Retry attempts: <strong>{{ log.retry_count }} / {{ log.max_retries }}</strong>
+                    </p>
+                    
+                    {% if log.can_retry %}
+                        <p class="text-muted small mb-3">
+                            The operation will resume from the last successful checkpoint, 
+                            skipping already completed stages.
+                        </p>
+                        <form method="post" action="{% url 'retry-restock' log_id=log.id %}">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-warning">
+                                <i class="bi bi-arrow-repeat"></i> Retry from Checkpoint
+                            </button>
+                        </form>
+                    {% else %}
+                        <div class="alert alert-danger mb-0">
+                            <i class="bi bi-x-circle"></i>
+                            Maximum retry attempts reached. Manual intervention required.
+                        </div>
+                    {% endif %}
                 </div>
                 {% endif %}
             </div>
@@ -126,6 +280,12 @@
                         <strong class="text-success">{{ log.total_packages }}</strong>
                     </div>
                 </div>
+                
+                {% if log.retry_count > 0 %}
+                <div class="alert alert-info mb-0 mt-3">
+                    <small><strong>Retry Count:</strong> {{ log.retry_count }}</small>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -172,31 +332,6 @@
                         </tfoot>
                     </table>
                 </div>
-
-                <!-- Additional Info -->
-                {% if results.settore %}
-                <div class="mt-3">
-                    <p class="text-muted mb-1">
-                        <strong>Settore:</strong> {{ results.settore }}
-                    </p>
-                    {% if results.coverage %}
-                    <p class="text-muted mb-0">
-                        <strong>Coverage:</strong> {{ results.coverage }} days
-                    </p>
-                    {% endif %}
-                </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-    {% else %}
-    <div class="row">
-        <div class="col-12">
-            <div class="stat-card">
-                <div class="alert alert-info mb-0">
-                    <i class="bi bi-info-circle"></i>
-                    No products were ordered in this operation.
-                </div>
             </div>
         </div>
     </div>
@@ -209,16 +344,17 @@
                 <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-outline-secondary">
                     <i class="bi bi-arrow-left"></i> Back to Storage
                 </a>
-                {% if log.status == 'completed' and results.orders %}
-                <form method="post" action="{% url 'execute-order' log_id=log.id %}" style="display: inline;">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-warning" onclick="return confirm('Are you sure you want to execute this order? This will place the order in PAC2000A.');">
-                        <i class="bi bi-play-circle"></i> Execute Order Again
-                    </button>
-                </form>
-                {% endif %}
             </div>
         </div>
     </div>
 </div>
+
+{% if log.status == 'processing' %}
+<script>
+// Auto-refresh for in-progress operations
+setTimeout(function() {
+    location.reload();
+}, 10000); // Refresh every 10 seconds
+</script>
+{% endif %}
 {% endblock %}

@@ -191,6 +191,7 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
 
             # Process each row
             processed_count = 0
+            absent_count = 0
             error_count = 0
             
             for _, row in combined.iterrows():
@@ -209,12 +210,12 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
                 except ValueError as e:
                     # Product not found in database
                     logger.debug(f"Product {cod}.{v} not in database (will be skipped)")
-                    error_count += 1
+                    absent_count += 1
                 except Exception as e:
                     logger.warning(f"Error processing {cod}.{v}: {type(e).__name__}: {e}")
                     error_count += 1
             
-            logger.info(f" Processed {file_name}: {processed_count} losses registered, {error_count} skipped")
+            logger.info(f" Processed {file_name}: {processed_count} losses registered, {absent_count} skipped. There were {error_count} errors")
             files_processed += 1
 
             # Delete file ONLY after successful processing
@@ -225,10 +226,10 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
                 logger.error(f"Could not delete file {file_path}: {e}")
 
         except Exception as e:
-            logger.exception(f"✗ Error reading or processing file {file_name}")
+            logger.exception(f" Error reading or processing file {file_name}")
             continue
     
-    logger.info(f"Loss processing complete: {files_processed} files processed, {total_losses} total losses registered")
+    logger.info(f"Loss processing complete: {files_processed} files processed, {total_losses} total units of losses registered")
 
 
 def adjust_stocks_from_excel(db: DatabaseManager):

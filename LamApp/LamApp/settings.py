@@ -185,4 +185,24 @@ LOGGING = {
 
 # Create logs directory if it doesn't exist
 (BASE_DIR / 'logs').mkdir(exist_ok=True)
+# ===== PRODUCTION SETTINGS =====
+import os
 
+# Security Settings (will be overridden by environment variables)
+SECRET_KEY = os.environ.get('SECRET_KEY', SECRET_KEY)
+#DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') if os.environ.get('ALLOWED_HOSTS') else []
+
+# Database (production should use PostgreSQL)
+if os.environ.get('DATABASE_URL'):
+    import dj_database_url
+    DATABASES['default'] = dj_database_url.config(conn_max_age=600)
+
+# Static files for production
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Logging for production
+if not DEBUG:
+    LOGGING['handlers']['console']['level'] = 'INFO'
+    LOGGING['loggers']['supermarkets']['level'] = 'INFO'

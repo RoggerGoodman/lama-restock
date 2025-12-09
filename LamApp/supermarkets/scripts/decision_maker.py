@@ -38,7 +38,7 @@ class DecisionMaker:
         Returns a list of dict-like rows.
         """
         query = """
-            SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, 
+            SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
                 p.pz_x_collo, p.rapp, ps.verified, p.disponibilita
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
@@ -157,6 +157,7 @@ class DecisionMaker:
             stock = row["stock"]
             sold_array = json.loads(row["sold_last_24"]) if row["sold_last_24"] else []
             bought_array = json.loads(row["bought_last_24"]) if row["bought_last_24"] else []
+            sales_sets = json.loads(row["sales_sets"]) if row["sales_sets"] else []
             package_size = row["pz_x_collo"]
             package_multi = row["rapp"]
             verified = row["verified"]
@@ -193,7 +194,10 @@ class DecisionMaker:
             if (product_cod, product_var) in extra_losses_lookup:
                 sold_array = self.integrate_internal_losses(product_cod, product_var, sold_array, extra_losses_list)
 
-            avg_daily_sales, avg_sales_last_year = self.helper.calculate_weighted_avg_sales_new(sold_array)
+            avg_daily_sales = self.helper.avg_daily_sales_from_sales_sets(sales_sets)
+            avg_sales_base = avg_daily_sales
+            if avg_daily_sales == 0: 
+                avg_daily_sales, avg_sales_base = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
             if len(sold_array) >= 4:                    
                 recent_months_sales = self.helper.calculate_data_recent_months(sold_array, 3)
@@ -242,7 +246,7 @@ class DecisionMaker:
                 category = "N"
                 result, check, status = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales, 
-                    avg_sales_last_year, req_stock, stock
+                    avg_sales_base, req_stock, stock
                 )
             else:
                 reason = "skipped because is not verified"

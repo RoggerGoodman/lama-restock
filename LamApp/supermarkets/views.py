@@ -300,7 +300,7 @@ class RestockScheduleDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteV
 
 @login_required
 def run_restock_view(request, storage_id):
-    """Manually trigger a restock check AND execute the order"""
+    """Manually trigger a restock check with checkpoint support"""
     storage = get_object_or_404(
         Storage, 
         id=storage_id, 
@@ -314,13 +314,13 @@ def run_restock_view(request, storage_id):
             if coverage:
                 coverage = float(coverage)
             
-            # Use the automation service which includes order execution
+            # Use the automation service with checkpoint support
             from .automation_services import AutomatedRestockService
             
             service = AutomatedRestockService(storage)
             
             try:
-                # This will: update stats → calculate orders → execute order
+                # This will create a new log with checkpoint tracking
                 log = service.run_full_restock_workflow(coverage)
                 
                 messages.success(
@@ -337,11 +337,66 @@ def run_restock_view(request, storage_id):
             
         except Exception as e:
             logger.exception("Error running restock check")
-            messages.error(request, f"Error: {str(e)}")
+            messages.error(
+                request, 
+                f"Error: {str(e)}. Check the log for details and retry options."
+            )
+            
+            # Try to find the failed log to redirect to it
+            failed_log = RestockLog.objects.filter(
+                storage=storage,
+                status='failed'
+            ).order_by('-started_at').first()
+            
+            if failed_log:
+                return redirect('restock-log-detail', pk=failed_log.id)
+            
             return redirect('storage-detail', pk=storage_id)
     
     return render(request, 'storages/run_restock.html', {'storage': storage})
 
+@login_required
+@require_POST
+def retry_restock_view(request, log_id):
+    """Retry a failed restock operation from its last checkpoint"""
+    log = get_object_or_404(
+        RestockLog, 
+        id=log_id, 
+        storage__supermarket__owner=request.user
+    )
+    
+    if not log.can_retry():
+        messages.error(
+            request, 
+            f"Cannot retry: Maximum retries ({log.max_retries}) reached or operation not in failed state"
+        )
+        return redirect('restock-log-detail', pk=log_id)
+    
+    try:
+        from .automation_services import AutomatedRestockService
+        
+        service = AutomatedRestockService(log.storage)
+        
+        try:
+            # Retry from checkpoint
+            logger.info(f"User-initiated retry for RestockLog #{log_id} from checkpoint {log.current_stage}")
+            
+            updated_log = service.retry_from_checkpoint(log)
+            
+            messages.success(
+                request, 
+                f"Retry successful! Operation completed from checkpoint: {log.get_current_stage_display()}"
+            )
+            
+            return redirect('restock-log-detail', pk=updated_log.id)
+            
+        finally:
+            service.close()
+        
+    except Exception as e:
+        logger.exception(f"Error retrying restock from checkpoint")
+        messages.error(request, f"Retry failed: {str(e)}")
+        return redirect('restock-log-detail', pk=log_id)
 
 @login_required
 @require_POST
@@ -1345,3 +1400,5 @@ def losses_analytics_unified_view(request):
     }
     
     return render(request, 'losses_analytics_unified.html', context)
+
+
