@@ -207,6 +207,10 @@ def retry_failed_operations():
             service = AutomatedRestockService(log.storage)
             
             try:
+                # FIX: Pass coverage from log if it exists
+                coverage = float(log.coverage_used) if log.coverage_used else None
+            
+                logger.info(f"Auto-initiated retry for RestockLog #{log.id} from checkpoint {log.current_stage} with coverage={coverage}")
                 updated_log = service.retry_from_checkpoint(log)
                 
                 if updated_log.status == 'completed':

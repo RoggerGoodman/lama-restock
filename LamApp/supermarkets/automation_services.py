@@ -326,29 +326,29 @@ class AutomatedRestockService:
     
     def retry_from_checkpoint(self, log, coverage=None):
         """Retry workflow from last successful checkpoint"""
-
-        logger.info(f"Retrying workflow from checkpoint for {self.storage.name}")
+        from django.utils import timezone
+        
+        logger.info(f"Retrying workflow from checkpoint for {self.storage.name} with coverage={coverage}")
         
         # Checkpoint 1: Stats update
         if log.stats_updated_at:
             logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated at {log.stats_updated_at}")
         else:
             logger.info(f"[CHECKPOINT 1 START] Updating stats...")
-            self.update_stats_checkpoint(log)
+            self.update_product_stats_checkpoint(log)
         
         # Checkpoint 2: Order calculation
-        # FIX: Only skip if timestamp exists AND is not None
         if log.order_calculated_at:
             logger.info(f"[CHECKPOINT 2 SKIP] Order already calculated at {log.order_calculated_at}")
-            # Retrieve existing orders from database
-            orders_list = self.get_orders_from_log(log)
+            # Retrieve existing orders from log
+            results = log.get_results()
+            orders_list = [
+                (o['cod'], o['var'], o['qty'])
+                for o in results.get('orders', [])
+            ]
         else:
-            logger.info(f"[CHECKPOINT 2 START] Calculating order...")
+            logger.info(f"[CHECKPOINT 2 START] Calculating order with coverage={coverage}...")
             orders_list = self.calculate_order_checkpoint(log, coverage)
-            # Make sure to save the timestamp
-            log.order_calculated_at = timezone.now()
-            log.save()
-            logger.info(f"[CHECKPOINT 2 COMPLETE] Order calculated at {log.order_calculated_at}")
         
         # Checkpoint 3: Order execution
         if log.order_executed_at:
@@ -359,8 +359,3 @@ class AutomatedRestockService:
         
         logger.info(f"[SUCCESS] Restock workflow completed for {self.storage.name}")
         return log
-
-    def get_orders_from_log(self, log):
-        """Retrieve calculated orders from log"""
-        from supermarkets.models import OrderLine
-        return list(OrderLine.objects.filter(order__restock_log=log))

@@ -118,26 +118,6 @@ class DatabaseManager:
 
         self.conn.commit()
 
-    def purge_settore(self, settore):
-        """
-        Permanently deletes all products belonging to the given settore.
-        """
-        cur = self.conn.cursor()
-        cur.execute("DELETE FROM products WHERE settore = ?", (settore,))
-        self.conn.commit()
-        
-    
-    def purge_orphan_stats(self):
-        """
-        Permanently deletes all stats belonging to products without a math in the products table.
-        """
-        cur = self.conn.cursor()
-        cur.execute("""
-            DELETE FROM product_stats
-            WHERE (cod, v) NOT IN (SELECT cod, v FROM products)
-        """)
-        self.conn.commit()
-
     # ---------- ARRAY UPDATE LOGIC ----------
 
     def _update_array_variable_length(self, array_data:list, current_value, previous_value, current_month, last_update_month):
@@ -741,4 +721,181 @@ class DatabaseManager:
                 category = category
         """, filtered_list)
 
+        self.conn.commit()
+
+    # ---------- Cleaners ----------
+
+    def flag_for_purge(self, cod: int, v: int):
+        """
+        Mark a product for purging.
+        - If stock > 0: Add to blacklist and set purge_flag
+        - If stock = 0: Delete immediately
+        """
+        cur = self.conn.cursor()
+        
+        # Check if product exists and get stock
+        cur.execute("""
+            SELECT ps.stock 
+            FROM product_stats ps
+            WHERE ps.cod = ? AND ps.v = ?
+        """, (cod, v))
+        
+        row = cur.fetchone()
+        
+        if not row:
+            raise ValueError(f"Product {cod}.{v} not found in database")
+        
+        stock = row['stock'] if row['stock'] is not None else 0
+        
+        if stock > 0:
+            # Has stock - flag for purging
+            # First, check if purge_flag column exists, add if not
+            try:
+                cur.execute("ALTER TABLE products ADD COLUMN purge_flag BOOLEAN DEFAULT 0")
+                self.conn.commit()
+            except:
+                pass  # Column already exists
+            
+            # Set purge flag
+            cur.execute("""
+                UPDATE products 
+                SET purge_flag = 1 
+                WHERE cod = ? AND v = ?
+            """, (cod, v))
+            
+            # Set verified to false so it doesn't get ordered
+            cur.execute("""
+                UPDATE product_stats
+                SET verified = 0
+                WHERE cod = ? AND v = ?
+            """, (cod, v))
+            
+            self.conn.commit()
+            
+            return {
+                'action': 'flagged',
+                'cod': cod,
+                'v': v,
+                'stock': stock,
+                'message': f'Product {cod}.{v} flagged for purging (current stock: {stock})'
+            }
+        else:
+            # No stock - delete immediately
+            return self.purge_product(cod, v)
+        
+    def purge_product(self, cod: int, v: int):
+        """
+        Permanently delete a product from all tables.
+        Returns dict with deletion details.
+        """
+        cur = self.conn.cursor()
+        
+        deleted_from = []
+        
+        # Delete from product_stats
+        cur.execute("DELETE FROM product_stats WHERE cod = ? AND v = ?", (cod, v))
+        if cur.rowcount > 0:
+            deleted_from.append('product_stats')
+        
+        # Delete from economics
+        cur.execute("DELETE FROM economics WHERE cod = ? AND v = ?", (cod, v))
+        if cur.rowcount > 0:
+            deleted_from.append('economics')
+        
+        # Delete from extra_losses
+        cur.execute("DELETE FROM extra_losses WHERE cod = ? AND v = ?", (cod, v))
+        if cur.rowcount > 0:
+            deleted_from.append('extra_losses')
+        
+        # Delete from products (main table)
+        cur.execute("DELETE FROM products WHERE cod = ? AND v = ?", (cod, v))
+        if cur.rowcount > 0:
+            deleted_from.append('products')
+        
+        self.conn.commit()
+        
+        return {
+            'action': 'purged',
+            'cod': cod,
+            'v': v,
+            'deleted_from': deleted_from,
+            'message': f'Product {cod}.{v} permanently deleted from: {", ".join(deleted_from)}'
+        }
+    
+    def check_and_purge_flagged(self):
+        """
+        Check all flagged products and purge those with stock = 0.
+        Call this periodically or after stock adjustments.
+        Returns list of purged products.
+        """
+        cur = self.conn.cursor()
+        
+        # Check if purge_flag column exists
+        try:
+            cur.execute("""
+                SELECT p.cod, p.v, ps.stock
+                FROM products p
+                JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                WHERE p.purge_flag = 1 AND ps.stock = 0
+            """)
+        except:
+            # purge_flag column doesn't exist yet
+            return []
+        
+        flagged_products = cur.fetchall()
+        purged = []
+        
+        for row in flagged_products:
+            cod = row['cod']
+            v = row['v']
+            
+            result = self.purge_product(cod, v)
+            purged.append(result)
+        
+        return purged
+    
+    def get_purge_pending(self):
+        """Get all products flagged for purging (with stock > 0)"""
+        cur = self.conn.cursor()
+        
+        try:
+            cur.execute("""
+                SELECT p.cod, p.v, p.descrizione, ps.stock
+                FROM products p
+                JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                WHERE p.purge_flag = 1 AND ps.stock > 0
+                ORDER BY ps.stock DESC
+            """)
+            
+            results = []
+            for row in cur.fetchall():
+                results.append({
+                    'cod': row['cod'],
+                    'v': row['v'],
+                    'name': row['descrizione'],
+                    'stock': row['stock']
+                })
+            
+            return results
+        except:
+            return []
+        
+    def purge_settore(self, settore):
+        """
+        Permanently deletes all products belonging to the given settore.
+        """
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM products WHERE settore = ?", (settore,))
+        self.conn.commit()
+        
+    
+    def purge_orphan_stats(self):
+        """
+        Permanently deletes all stats belonging to products without a math in the products table.
+        """
+        cur = self.conn.cursor()
+        cur.execute("""
+            DELETE FROM product_stats
+            WHERE (cod, v) NOT IN (SELECT cod, v FROM products)
+        """)
         self.conn.commit()

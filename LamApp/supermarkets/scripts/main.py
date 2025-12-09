@@ -71,9 +71,6 @@ def losess_recorder():
     #Inv_S.clean_up(target)
     verify_lost_stock_from_excel_combined(db)
 
-def estimate():
-   db.estimate_and_update_stock_for_settore(settore)
-
 def verify():
     verify_stocks_from_excel(db)
 
@@ -89,7 +86,6 @@ def make_order():
 
 #list_import()
 #offers_finder()
-#estimate()
 #losess_recorder()
 update()
 #verify()
