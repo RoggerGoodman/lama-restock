@@ -20,8 +20,10 @@ class Orderer:
         chrome_options.add_argument("--no-sandbox")  # Required for some environments
         chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
         chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_argument('--log-level=3')  # Suppress console logs
 
-        self.driver = webdriver.Chrome()
+        self.driver = webdriver.Chrome(options=chrome_options)
         self.wait = WebDriverWait(self.driver, 300)
         self.actions = ActionChains(self.driver)
         

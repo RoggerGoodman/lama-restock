@@ -154,7 +154,7 @@ def check_and_run_restock_orders():
                 # This now uses checkpoint-based execution
                 log = service.run_full_restock_workflow(coverage=None)
                 logger.info(
-                    f"✓ Successfully completed restock for {schedule.storage.name} "
+                    f" Successfully completed restock for {schedule.storage.name} "
                     f"(Log #{log.id}: {log.products_ordered} products, {log.total_packages} packages)"
                 )
             except Exception as e:
@@ -212,7 +212,7 @@ def retry_failed_operations():
                 if updated_log.status == 'completed':
                     success_count += 1
                     logger.info(
-                        f"✓ [SCHEDULER] Retry successful for log #{log.id} "
+                        f" [SCHEDULER] Retry successful for log #{log.id} "
                         f"({updated_log.products_ordered} products, "
                         f"{updated_log.total_packages} packages)"
                     )
@@ -279,7 +279,7 @@ def run_losses_recording():
             service.record_losses()
             service.close()
             
-            logger.info(f"✓ [SCHEDULER] Losses recorded for {supermarket.name}")
+            logger.info(f" [SCHEDULER] Losses recorded for {supermarket.name}")
             
         except Exception as e:
             logger.exception(f" [SCHEDULER] Failed to record losses for {supermarket.name}")

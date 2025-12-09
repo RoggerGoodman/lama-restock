@@ -75,5 +75,4 @@ def purge_entry():
 
     db.conn.commit()
 
-Articolo Profumi è in bloccato
-Costo / rapporto * stock
+retry_from_checkpoint(self, log, coverage=7):

@@ -4,19 +4,22 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.options import Options
 import time
 
 class Finder:
 
     def __init__(self) -> None:
         # Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
-        # chrome_options = Options()
-        # chrome_options.add_argument("--headless")  # Run Chrome in headless mode
-        # chrome_options.add_argument("--no-sandbox")  # Required for some environments
-        # chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-        # chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")  # Run Chrome in headless mode
+        chrome_options.add_argument("--no-sandbox")  # Required for some environments
+        chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
+        chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_argument('--log-level=3')  # Suppress console logs
 
-        self.driver = webdriver.Chrome()
+        self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)
         self.wait = WebDriverWait(self.driver, 10)
         
