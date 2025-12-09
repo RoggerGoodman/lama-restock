@@ -20,7 +20,7 @@ from .models import (
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, 
-    BlacklistEntryForm, StorageForm, PromoUploadForm, ListUpdateScheduleForm,
+    BlacklistEntryForm, AddProductsForm, PromoUploadForm, ListUpdateScheduleForm,
     StockAdjustmentForm, BulkStockAdjustmentForm, RecordLossesForm, SingleProductVerificationForm
 )
 from .services import RestockService, StorageService
@@ -378,10 +378,13 @@ def retry_restock_view(request, log_id):
         service = AutomatedRestockService(log.storage)
         
         try:
-            # Retry from checkpoint
-            logger.info(f"User-initiated retry for RestockLog #{log_id} from checkpoint {log.current_stage}")
+            # FIX: Pass coverage from log if it exists
+            coverage = float(log.coverage_used) if log.coverage_used else None
             
-            updated_log = service.retry_from_checkpoint(log)
+            logger.info(f"User-initiated retry for RestockLog #{log_id} from checkpoint {log.current_stage} with coverage={coverage}")
+            
+            # Pass coverage to retry method
+            updated_log = service.retry_from_checkpoint(log, coverage=coverage)
             
             messages.success(
                 request, 
@@ -440,7 +443,95 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['results'] = self.object.get_results()
+        results = self.object.get_results()
+        
+        # Get orders from JSON
+        orders = results.get('orders', [])
+        
+        # Enrich orders with product details from database
+        enriched_orders = []
+        service = RestockService(self.object.storage)
+        
+        try:
+            # Group by cluster for organization
+            clusters = {}
+            
+            for order in orders:
+                cod = order['cod']
+                var = order['var']
+                qty = order['qty']
+                
+                # Get product details from database
+                try:
+                    cur = service.db.conn.cursor()
+                    cur.execute("""
+                        SELECT p.descrizione, p.cluster, e.cost_std, e.price_std
+                        FROM products p
+                        LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
+                        WHERE p.cod = ? AND p.v = ?
+                    """, (cod, var))
+                    
+                    row = cur.fetchone()
+                    
+                    if row:
+                        descrizione = row[0]
+                        cluster = row[1] or 'Uncategorized'
+                        cost = row[2] or 0
+                        price = row[3] or 0
+                    else:
+                        descrizione = f"Product {cod}.{var}"
+                        cluster = 'Uncategorized'
+                        cost = 0
+                        price = 0
+                    
+                    order_item = {
+                        'cod': cod,
+                        'var': var,
+                        'qty': qty,
+                        'name': descrizione,
+                        'cluster': cluster,
+                        'cost': cost,
+                        'price': price,
+                        'total_cost': cost * qty,
+                        'total_price': price * qty,
+                    }
+                    
+                    enriched_orders.append(order_item)
+                    
+                    # Group by cluster
+                    if cluster not in clusters:
+                        clusters[cluster] = {
+                            'items': [],
+                            'total_packages': 0,
+                            'total_cost': 0,
+                            'count': 0
+                        }
+                    
+                    clusters[cluster]['items'].append(order_item)
+                    clusters[cluster]['total_packages'] += qty
+                    clusters[cluster]['total_cost'] += cost * qty
+                    clusters[cluster]['count'] += 1
+                    
+                except Exception as e:
+                    logger.warning(f"Could not enrich order {cod}.{var}: {e}")
+                    continue
+            
+            # Calculate summary
+            summary = {
+                'total_items': len(enriched_orders),
+                'total_packages': sum(o['qty'] for o in enriched_orders),
+                'total_clusters': len(clusters),
+                'total_cost': sum(o['total_cost'] for o in enriched_orders),
+            }
+            
+            context['enriched_orders'] = enriched_orders
+            context['clusters'] = clusters
+            context['summary'] = summary
+            context['results'] = results
+            
+        finally:
+            service.close()
+        
         return context
 
 
@@ -1402,3 +1493,54 @@ def losses_analytics_unified_view(request):
     return render(request, 'losses_analytics_unified.html', context)
 
 
+@login_required
+def add_products_view(request, storage_id):
+    """View to add products by code"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    if request.method == 'POST':
+        form = AddProductsForm(storage, request.POST)
+        
+        if form.is_valid():
+            products_list = form.cleaned_data['products']
+            settore = form.cleaned_data['settore']
+            
+            try:
+                # Use scrapper to initialize products
+                from .scripts.scrapper import Scrapper
+                from .scripts.helpers import Helper
+                from .services import RestockService
+                
+                service = RestockService(storage)
+                helper = Helper()
+                scrapper = Scrapper(helper, service.db)
+                
+                try:
+                    scrapper.navigate()
+                    scrapper.init_products_and_stats_from_list(products_list, settore)
+                    
+                    messages.success(
+                        request,
+                        f"Successfully registered {len(products_list)} product(s) in settore {settore}"
+                    )
+                    
+                    return redirect('storage-detail', pk=storage_id)
+                    
+                finally:
+                    scrapper.driver.quit()
+                    service.close()
+                    
+            except Exception as e:
+                logger.exception("Error adding products")
+                messages.error(request, f"Error adding products: {str(e)}")
+    else:
+        form = AddProductsForm(storage)
+    
+    return render(request, 'storages/add_products.html', {
+        'storage': storage,
+        'form': form
+    })

@@ -277,3 +277,114 @@ class SingleProductVerificationForm(forms.Form):
         max_length=100,
         widget=forms.TextInput(attrs={'class': 'form-control'})
     )
+
+class AddProductsForm(forms.Form):
+    """Form for adding products by code"""
+    settore = forms.ChoiceField(
+        label="Settore",
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        help_text="Select the settore for these products"
+    )
+    
+    products = forms.CharField(
+        label="Product Codes",
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 10,
+            'placeholder': 'Enter product codes, one per line:\n12345.1\n67890.1\n11111.2'
+        }),
+        help_text="Enter product codes in format: cod.var (one per line)"
+    )
+    
+    def __init__(self, storage, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Set settore choices based on storage's supermarket
+        self.storage = storage
+        storages = storage.supermarket.storages.all()
+        self.fields['settore'].choices = [(s.settore, s.settore) for s in storages]
+        self.fields['settore'].initial = storage.settore
+    
+    def clean_products(self):
+        """Parse and validate product codes"""
+        products_text = self.cleaned_data['products']
+        products = []
+        errors = []
+        
+        for line_num, line in enumerate(products_text.strip().split('\n'), 1):
+            line = line.strip()
+            if not line:
+                continue
+            
+            try:
+                # Parse cod.var
+                if '.' not in line:
+                    errors.append(f"Line {line_num}: Missing variant (use format cod.var)")
+                    continue
+                
+                parts = line.split('.')
+                if len(parts) != 2:
+                    errors.append(f"Line {line_num}: Invalid format (use cod.var)")
+                    continue
+                
+                cod = int(parts[0])
+                var = int(parts[1])
+                products.append((cod, var))
+                
+            except ValueError:
+                errors.append(f"Line {line_num}: Invalid numbers in '{line}'")
+        
+        if errors:
+            raise forms.ValidationError('\n'.join(errors))
+        
+        if not products:
+            raise forms.ValidationError("No valid product codes found")
+        
+        return products
+    
+class PurgeProductsForm(forms.Form):
+    """Form for purging products"""
+    products = forms.CharField(
+        label="Product Codes to Purge",
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 10,
+            'placeholder': 'Enter product codes to purge, one per line:\n12345.1\n67890.1'
+        }),
+        help_text="Products with stock will be blacklisted and flagged. Products without stock will be deleted immediately."
+    )
+    
+    def clean_products(self):
+        """Parse and validate product codes"""
+        products_text = self.cleaned_data['products']
+        products = []
+        errors = []
+        
+        for line_num, line in enumerate(products_text.strip().split('\n'), 1):
+            line = line.strip()
+            if not line:
+                continue
+            
+            try:
+                if '.' not in line:
+                    errors.append(f"Line {line_num}: Missing variant (use format cod.var)")
+                    continue
+                
+                parts = line.split('.')
+                if len(parts) != 2:
+                    errors.append(f"Line {line_num}: Invalid format (use cod.var)")
+                    continue
+                
+                cod = int(parts[0])
+                var = int(parts[1])
+                products.append((cod, var))
+                
+            except ValueError:
+                errors.append(f"Line {line_num}: Invalid numbers in '{line}'")
+        
+        if errors:
+            raise forms.ValidationError('\n'.join(errors))
+        
+        if not products:
+            raise forms.ValidationError("No valid product codes found")
+        
+        return products

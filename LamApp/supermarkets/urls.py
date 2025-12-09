@@ -32,6 +32,7 @@ urlpatterns = [
     # List Updates
     path('storages/<int:storage_id>/configure-updates/', views.configure_list_updates_view, name='configure-list-updates'),
     path('storages/<int:storage_id>/update-list/', views.manual_list_update_view, name='manual-list-update'),
+    path('storages/<int:storage_id>/add-products/', views.add_products_view, name='add-products'),
     
     # Stock Verification
     path('storages/<int:storage_id>/verify/', views.verify_stock_view, name='verify-stock'),
@@ -54,7 +55,7 @@ urlpatterns = [
     path('logs/<int:pk>/', views.RestockLogDetailView.as_view(), name='restock-log-detail'),
     path('logs/<int:log_id>/execute/', views.execute_order_view, name='execute-order'),
     path('logs/<int:log_id>/retry/', views.retry_restock_view, name='retry-restock'),
-    
+
     # Blacklists
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),
     path('blacklists/add/', views.BlacklistCreateView.as_view(), name='blacklist-add'),
