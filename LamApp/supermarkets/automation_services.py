@@ -104,6 +104,7 @@ class AutomatedRestockService:
     def update_product_stats_checkpoint(self, log: RestockLog):
         """
         CHECKPOINT 1: Update product statistics from PAC2000A.
+        NEW: Also runs auto-purge check after update!
         Returns True on success, raises exception on failure.
         """
         logger.info(f"[CHECKPOINT 1] Updating product stats for {self.storage.name}")
@@ -118,6 +119,17 @@ class AutomatedRestockService:
             try:
                 scrapper.navigate()
                 scrapper.init_product_stats_for_settore(self.settore)
+                
+                # NEW: Auto-purge check after successful update
+                logger.info(f"[AUTO-PURGE] Checking for products ready to purge...")
+                purged_products = self.db.check_and_purge_flagged()
+                
+                if purged_products:
+                    logger.info(f"[AUTO-PURGE] Purged {len(purged_products)} products with zero stock")
+                    for result in purged_products:
+                        logger.info(f"  - {result['cod']}.{result['v']}: {result['message']}")
+                else:
+                    logger.info(f"[AUTO-PURGE] No products ready for purging")
                 
                 # Mark checkpoint as complete
                 log.current_stage = 'stats_updated'
@@ -141,6 +153,7 @@ class AutomatedRestockService:
     def calculate_order_checkpoint(self, log: RestockLog, coverage=None):
         """
         CHECKPOINT 2: Calculate what needs to be ordered.
+        NEW: Now includes skipped products in results!
         Returns orders_list on success, raises exception on failure.
         """
         logger.info(f"[CHECKPOINT 2] Calculating order for {self.storage.name}")
@@ -173,20 +186,22 @@ class AutomatedRestockService:
             logger.info(f"Running decision maker with coverage={coverage} for settore={self.settore}")
             decision_maker.decide_orders_for_settore(self.settore, coverage)
             
-            # Get orders list
+            # Get orders list AND skipped products
             orders_list = decision_maker.orders_list
+            skipped_products = decision_maker.skipped_products  # NEW!
             
             # Update log statistics
             log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
             log.products_ordered = len(orders_list)
             log.total_packages = sum(qty for _, _, qty in orders_list)
             
-            # Store detailed results
+            # Store detailed results INCLUDING skipped products
             log.set_results({
                 'orders': [
                     {'cod': cod, 'var': var, 'qty': qty}
                     for cod, var, qty in orders_list
                 ],
+                'skipped_products': skipped_products,  # NEW!
                 'settore': self.settore,
                 'coverage': float(coverage)
             })
@@ -196,7 +211,12 @@ class AutomatedRestockService:
             log.order_calculated_at = timezone.now()
             log.save()
             
-            logger.info(f" [CHECKPOINT 2 COMPLETE] Order calculated: {len(orders_list)} products, {log.total_packages} packages")
+            logger.info(
+                f" [CHECKPOINT 2 COMPLETE] Order calculated: "
+                f"{len(orders_list)} products ordered, "
+                f"{len(skipped_products)} products skipped, "
+                f"{log.total_packages} packages"
+            )
             return orders_list
             
         except Exception as e:

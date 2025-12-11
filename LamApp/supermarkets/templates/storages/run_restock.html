@@ -40,16 +40,13 @@
                 <div class="alert alert-warning">
                     <h6><i class="bi bi-exclamation-triangle"></i> What This Will Do</h6>
                     <ol class="mb-0">
-                        <li>Update product statistics from PAC2000A (may take 5-10 minutes)</li>
+                        <li>Update product statistics from PAC2000A (5-10 minutes)</li>
                         <li>Calculate which products need to be ordered</li>
                         <li><strong>Place the actual order in the system</strong></li>
                     </ol>
-                    <p class="mt-2 mb-0">
-                        <strong>Note:</strong> This will open browser windows and perform automated actions.
-                    </p>
                 </div>
 
-                <!-- Form -->
+                <!-- Form (hidden after submission) -->
                 <form method="post" id="restockForm">
                     {% csrf_token %}
                     
@@ -68,7 +65,6 @@
                             placeholder="Leave empty to use schedule calculation"
                         >
                         <div class="form-text">
-                            How many days worth of products to order. 
                             {% if storage.schedule %}
                                 Schedule base coverage: <strong>{{ storage.schedule.base_coverage }} days</strong>
                             {% else %}
@@ -89,17 +85,76 @@
                 </form>
 
                 <!-- Progress indicator (hidden by default) -->
-                <div id="progressIndicator" class="mt-4" style="display: none;">
-                    <div class="alert alert-info">
-                        <div class="d-flex align-items-center">
-                            <div class="spinner-border spinner-border-sm me-3" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <div>
-                                <strong>Restock check in progress...</strong><br>
-                                <small>This may take several minutes. Please do not close this page.</small>
+                <div id="progressContainer" class="mt-4" style="display: none;">
+                    <h5 class="mb-3">
+                        <i class="bi bi-hourglass-split"></i> Restock in Progress
+                    </h5>
+                    
+                    <!-- Overall Progress Bar -->
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span id="stageLabel">Initializing...</span>
+                            <span class="text-muted" id="progressPercent">0%</span>
+                        </div>
+                        <div class="progress" style="height: 30px;">
+                            <div 
+                                id="progressBar" 
+                                class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                                role="progressbar" 
+                                style="width: 0%">
+                                0%
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Stage Details -->
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="card border-0 bg-light" id="stage1Card">
+                                <div class="card-body text-center">
+                                    <i class="bi bi-download" style="font-size: 2rem;" id="stage1Icon"></i>
+                                    <h6 class="mt-2 mb-1">Update Stats</h6>
+                                    <small class="text-muted" id="stage1Status">Waiting...</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card border-0 bg-light" id="stage2Card">
+                                <div class="card-body text-center">
+                                    <i class="bi bi-calculator" style="font-size: 2rem;" id="stage2Icon"></i>
+                                    <h6 class="mt-2 mb-1">Calculate Order</h6>
+                                    <small class="text-muted" id="stage2Status">Waiting...</small>
+                                    <div id="stage2Details" style="display: none;" class="mt-2">
+                                        <span class="badge bg-success" id="productsCount"></span>
+                                        <span class="badge bg-info" id="packagesCount"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card border-0 bg-light" id="stage3Card">
+                                <div class="card-body text-center">
+                                    <i class="bi bi-send" style="font-size: 2rem;" id="stage3Icon"></i>
+                                    <h6 class="mt-2 mb-1">Execute Order</h6>
+                                    <small class="text-muted" id="stage3Status">Waiting...</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Error Display -->
+                    <div id="errorContainer" class="alert alert-danger mt-3" style="display: none;">
+                        <h6><i class="bi bi-x-circle"></i> Error</h6>
+                        <p class="mb-0" id="errorMessage"></p>
+                    </div>
+
+                    <!-- Success Display -->
+                    <div id="successContainer" class="alert alert-success mt-3" style="display: none;">
+                        <h6><i class="bi bi-check-circle"></i> Completed Successfully!</h6>
+                        <p class="mb-2" id="successMessage"></p>
+                        <a href="#" id="viewLogLink" class="btn btn-sm btn-success">
+                            <i class="bi bi-eye"></i> View Detailed Log
+                        </a>
                     </div>
                 </div>
             </div>
@@ -135,16 +190,134 @@
 </div>
 
 <script>
+let pollingInterval;
+let currentLogId;
+
 document.getElementById('restockForm').addEventListener('submit', function(e) {
-    // Show progress indicator
-    document.getElementById('progressIndicator').style.display = 'block';
+    e.preventDefault();
     
-    // Disable submit button
-    const submitBtn = document.getElementById('submitBtn');
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+    // Hide form, show progress
+    document.getElementById('restockForm').style.display = 'none';
+    document.getElementById('progressContainer').style.display = 'block';
     
-    // The form will submit normally, just with visual feedback
+    // Submit form via AJAX to get log ID
+    const formData = new FormData(this);
+    
+    fetch(this.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.log_id) {
+            currentLogId = data.log_id;
+            startProgressPolling(data.log_id);
+        } else {
+            showError('Failed to start restock process');
+        }
+    })
+    .catch(error => {
+        showError('Error starting restock: ' + error);
+    });
 });
+
+function startProgressPolling(logId) {
+    // Poll every 2 seconds
+    pollingInterval = setInterval(() => {
+        fetch(`/logs/${logId}/progress/`)
+            .then(response => response.json())
+            .then(data => updateProgress(data))
+            .catch(error => console.error('Polling error:', error));
+    }, 2000);
+}
+
+function updateProgress(data) {
+    // Update progress bar
+    document.getElementById('progressBar').style.width = data.progress + '%';
+    document.getElementById('progressBar').textContent = data.progress + '%';
+    document.getElementById('progressPercent').textContent = data.progress + '%';
+    document.getElementById('stageLabel').textContent = data.stage_label;
+    
+    // Update stage cards
+    updateStageCard(1, data.current_stage, data.stats_updated_at);
+    updateStageCard(2, data.current_stage, data.order_calculated_at, data.products_ordered, data.total_packages);
+    updateStageCard(3, data.current_stage, data.order_executed_at);
+    
+    // Handle completion
+    if (data.status === 'completed') {
+        clearInterval(pollingInterval);
+        showSuccess(data.products_ordered, data.total_packages, currentLogId);
+        document.getElementById('progressBar').classList.remove('progress-bar-animated');
+        document.getElementById('progressBar').classList.add('bg-success');
+    }
+    
+    // Handle failure
+    if (data.status === 'failed') {
+        clearInterval(pollingInterval);
+        showError(data.error_message || 'Restock failed');
+        document.getElementById('progressBar').classList.remove('progress-bar-animated');
+        document.getElementById('progressBar').classList.add('bg-danger');
+    }
+}
+
+function updateStageCard(stageNum, currentStage, completedAt, productsOrdered, totalPackages) {
+    const card = document.getElementById(`stage${stageNum}Card`);
+    const icon = document.getElementById(`stage${stageNum}Icon`);
+    const status = document.getElementById(`stage${stageNum}Status`);
+    
+    const stages = {
+        1: ['updating_stats', 'stats_updated'],
+        2: ['calculating_order', 'order_calculated'],
+        3: ['executing_order', 'completed']
+    };
+    
+    const isActive = stages[stageNum].includes(currentStage);
+    const isCompleted = completedAt !== null;
+    
+    // Update card styling
+    if (isCompleted) {
+        card.classList.remove('bg-light');
+        card.classList.add('bg-success', 'text-white');
+        icon.classList.remove('bi-download', 'bi-calculator', 'bi-send', 'bi-hourglass-split');
+        icon.classList.add('bi-check-circle-fill', 'text-white');
+        status.textContent = 'Completed';
+        status.classList.remove('text-muted');
+        status.classList.add('text-white');
+    } else if (isActive) {
+        card.classList.remove('bg-light');
+        card.classList.add('bg-warning');
+        icon.classList.add('text-dark');
+        status.textContent = 'In Progress...';
+        status.classList.remove('text-muted');
+    }
+    
+    // Show order details for stage 2
+    if (stageNum === 2 && isCompleted && productsOrdered) {
+        document.getElementById('stage2Details').style.display = 'block';
+        document.getElementById('productsCount').textContent = `${productsOrdered} products`;
+        document.getElementById('packagesCount').textContent = `${totalPackages} packages`;
+    }
+}
+
+function showSuccess(products, packages, logId) {
+    const successContainer = document.getElementById('successContainer');
+    const successMessage = document.getElementById('successMessage');
+    const viewLogLink = document.getElementById('viewLogLink');
+    
+    successMessage.textContent = `Successfully ordered ${products} products (${packages} packages total)`;
+    viewLogLink.href = `/logs/${logId}/`;
+    successContainer.style.display = 'block';
+}
+
+function showError(message) {
+    const errorContainer = document.getElementById('errorContainer');
+    const errorMessage = document.getElementById('errorMessage');
+    
+    errorMessage.textContent = message;
+    errorContainer.style.display = 'block';
+}
 </script>
 {% endblock %}

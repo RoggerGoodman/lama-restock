@@ -1,4 +1,4 @@
-<!-- LamApp/supermarkets/templates/restock_logs/detail.html -->
+<!-- LamApp/supermarkets/templates/restock_logs/detail.html - Enhanced version -->
 {% extends 'base.html' %}
 
 {% block title %}Restock Log - {{ log.storage.name }}{% endblock %}
@@ -28,17 +28,28 @@
         border-left-color: #dc3545;
     }
     
-    .stage-icon {
-        font-size: 1.5rem;
-        margin-right: 10px;
+    .cluster-section {
+        border-left: 3px solid #0d6efd;
+        padding-left: 15px;
+        margin-bottom: 20px;
     }
     
-    .retry-section {
-        background-color: #fff3cd;
-        border: 1px solid #ffc107;
-        padding: 15px;
-        border-radius: 8px;
-        margin-top: 20px;
+    .sortable-header {
+        cursor: pointer;
+        user-select: none;
+    }
+    
+    .sortable-header:hover {
+        background-color: #f8f9fa;
+    }
+    
+    .sort-icon {
+        opacity: 0.3;
+        font-size: 0.8rem;
+    }
+    
+    .sort-icon.active {
+        opacity: 1;
     }
 </style>
 {% endblock %}
@@ -114,69 +125,6 @@
                 </div>
                 {% endwith %}
 
-                <!-- Stage Breakdown -->
-                <div class="mb-4">
-                    <h6 class="mb-3">Operation Stages</h6>
-                    
-                    <!-- Stage 1: Update Stats -->
-                    <div class="progress-stage 
-                        {% if log.current_stage == 'updating_stats' %}active
-                        {% elif log.stats_updated_at %}completed
-                        {% elif log.current_stage == 'failed' and not log.stats_updated_at %}failed
-                        {% endif %}">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-{% if log.stats_updated_at %}check-circle text-success{% elif log.current_stage == 'updating_stats' %}hourglass-split text-primary{% else %}circle{% endif %} stage-icon"></i>
-                            <div class="flex-grow-1">
-                                <strong>1. Update Product Statistics</strong>
-                                {% if log.stats_updated_at %}
-                                    <br><small class="text-muted">Completed: {{ log.stats_updated_at|date:"M d, H:i" }}</small>
-                                {% elif log.current_stage == 'updating_stats' %}
-                                    <br><small class="text-warning">In progress...</small>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Stage 2: Calculate Order -->
-                    <div class="progress-stage 
-                        {% if log.current_stage == 'calculating_order' %}active
-                        {% elif log.order_calculated_at %}completed
-                        {% elif log.current_stage == 'failed' and log.stats_updated_at and not log.order_calculated_at %}failed
-                        {% endif %}">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-{% if log.order_calculated_at %}check-circle text-success{% elif log.current_stage == 'calculating_order' %}hourglass-split text-primary{% else %}circle{% endif %} stage-icon"></i>
-                            <div class="flex-grow-1">
-                                <strong>2. Calculate Order</strong>
-                                {% if log.order_calculated_at %}
-                                    <br><small class="text-muted">Completed: {{ log.order_calculated_at|date:"M d, H:i" }}</small>
-                                    <br><small class="text-muted">{{ log.products_ordered }} products, {{ log.total_packages }} packages</small>
-                                {% elif log.current_stage == 'calculating_order' %}
-                                    <br><small class="text-warning">In progress...</small>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Stage 3: Execute Order -->
-                    <div class="progress-stage 
-                        {% if log.current_stage == 'executing_order' %}active
-                        {% elif log.order_executed_at %}completed
-                        {% elif log.current_stage == 'failed' and log.order_calculated_at and not log.order_executed_at %}failed
-                        {% endif %}">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-{% if log.order_executed_at %}check-circle text-success{% elif log.current_stage == 'executing_order' %}hourglass-split text-primary{% else %}circle{% endif %} stage-icon"></i>
-                            <div class="flex-grow-1">
-                                <strong>3. Execute Order</strong>
-                                {% if log.order_executed_at %}
-                                    <br><small class="text-muted">Completed: {{ log.order_executed_at|date:"M d, H:i" }}</small>
-                                {% elif log.current_stage == 'executing_order' %}
-                                    <br><small class="text-warning">In progress...</small>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Time Info -->
                 <div class="row mb-4">
                     <div class="col-md-4">
@@ -220,33 +168,18 @@
                 {% endif %}
 
                 <!-- Retry Section -->
-                {% if log.status == 'failed' %}
+                {% if log.status == 'failed' and log.can_retry %}
                 <div class="retry-section">
                     <h6><i class="bi bi-arrow-repeat"></i> Retry from Checkpoint</h6>
                     <p class="mb-2">
-                        This operation failed at: <strong>{{ log.get_current_stage_display }}</strong>
-                    </p>
-                    <p class="mb-2">
                         Retry attempts: <strong>{{ log.retry_count }} / {{ log.max_retries }}</strong>
                     </p>
-                    
-                    {% if log.can_retry %}
-                        <p class="text-muted small mb-3">
-                            The operation will resume from the last successful checkpoint, 
-                            skipping already completed stages.
-                        </p>
-                        <form method="post" action="{% url 'retry-restock' log_id=log.id %}">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-warning">
-                                <i class="bi bi-arrow-repeat"></i> Retry from Checkpoint
-                            </button>
-                        </form>
-                    {% else %}
-                        <div class="alert alert-danger mb-0">
-                            <i class="bi bi-x-circle"></i>
-                            Maximum retry attempts reached. Manual intervention required.
-                        </div>
-                    {% endif %}
+                    <form method="post" action="{% url 'retry-restock' log_id=log.id %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-warning">
+                            <i class="bi bi-arrow-repeat"></i> Retry from Checkpoint
+                        </button>
+                    </form>
                 </div>
                 {% endif %}
             </div>
@@ -281,9 +214,17 @@
                     </div>
                 </div>
                 
-                {% if log.retry_count > 0 %}
-                <div class="alert alert-info mb-0 mt-3">
-                    <small><strong>Retry Count:</strong> {{ log.retry_count }}</small>
+                {% if summary %}
+                <hr>
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="text-muted">Clusters</span>
+                        <strong>{{ summary.total_clusters }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-muted">Total Cost</span>
+                        <strong class="text-info">€{{ summary.total_cost|floatformat:2 }}</strong>
+                    </div>
                 </div>
                 {% endif %}
             </div>
@@ -291,46 +232,114 @@
     </div>
 
     <!-- Order Details -->
-    {% if results.orders %}
+    {% if enriched_orders %}
     <div class="row">
         <div class="col-12">
             <div class="stat-card">
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-4">
                     <h5 class="mb-0">
                         <i class="bi bi-list-check"></i> Order Details
                     </h5>
-                    <span class="badge bg-primary">{{ results.orders|length }} item{{ results.orders|length|pluralize }}</span>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="showView('table')">
+                            <i class="bi bi-table"></i> Table View
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary active" onclick="showView('cluster')">
+                            <i class="bi bi-grid-3x3"></i> By Cluster
+                        </button>
+                    </div>
                 </div>
 
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th>Product Code</th>
-                                <th>Variant</th>
-                                <th class="text-end">Quantity</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for order in results.orders %}
-                            <tr>
-                                <td><code>{{ order.cod }}</code></td>
-                                <td><code>{{ order.var }}</code></td>
-                                <td class="text-end">
-                                    <span class="badge bg-success">{{ order.qty }} package{{ order.qty|pluralize:"s" }}</span>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                        <tfoot>
-                            <tr class="table-light">
-                                <td colspan="2"><strong>Total</strong></td>
-                                <td class="text-end">
-                                    <strong>{{ log.total_packages }} package{{ log.total_packages|pluralize:"s" }}</strong>
-                                </td>
-                            </tr>
-                        </tfoot>
-                    </table>
+                <!-- Table View -->
+                <div id="tableView" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="ordersTable">
+                            <thead>
+                                <tr>
+                                    <th class="sortable-header" onclick="sortTable(0)">
+                                        Product Code 
+                                        <i class="bi bi-arrow-down-up sort-icon"></i>
+                                    </th>
+                                    <th>Variant</th>
+                                    <th>Product Name</th>
+                                    <th>Cluster</th>
+                                    <th class="text-end sortable-header" onclick="sortTable(4)">
+                                        Quantity 
+                                        <i class="bi bi-arrow-down-up sort-icon"></i>
+                                    </th>
+                                    <th class="text-end">Unit Cost</th>
+                                    <th class="text-end sortable-header" onclick="sortTable(6)">
+                                        Total Cost 
+                                        <i class="bi bi-arrow-down-up sort-icon"></i>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for order in enriched_orders %}
+                                <tr>
+                                    <td><code>{{ order.cod }}</code></td>
+                                    <td><code>{{ order.var }}</code></td>
+                                    <td>{{ order.name|truncatewords:5 }}</td>
+                                    <td><span class="badge bg-secondary">{{ order.cluster }}</span></td>
+                                    <td class="text-end">
+                                        <span class="badge bg-success">{{ order.qty }} pkg</span>
+                                    </td>
+                                    <td class="text-end">€{{ order.cost|floatformat:2 }}</td>
+                                    <td class="text-end"><strong>€{{ order.total_cost|floatformat:2 }}</strong></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-light">
+                                    <td colspan="4"><strong>Total</strong></td>
+                                    <td class="text-end"><strong>{{ log.total_packages }} pkg</strong></td>
+                                    <td></td>
+                                    <td class="text-end"><strong>€{{ summary.total_cost|floatformat:2 }}</strong></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Cluster View -->
+                <div id="clusterView">
+                    {% for cluster_name, cluster_data in clusters.items %}
+                    <div class="cluster-section mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="mb-0">
+                                <i class="bi bi-folder"></i> {{ cluster_name }}
+                            </h6>
+                            <div>
+                                <span class="badge bg-primary">{{ cluster_data.count }} items</span>
+                                <span class="badge bg-success">{{ cluster_data.total_packages }} packages</span>
+                                <span class="badge bg-info">€{{ cluster_data.total_cost|floatformat:2 }}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Code</th>
+                                        <th>Product Name</th>
+                                        <th class="text-end">Qty</th>
+                                        <th class="text-end">Cost</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in cluster_data.items %}
+                                    <tr>
+                                        <td><code>{{ item.cod }}.{{ item.var }}</code></td>
+                                        <td>{{ item.name|truncatewords:6 }}</td>
+                                        <td class="text-end">{{ item.qty }}</td>
+                                        <td class="text-end">€{{ item.total_cost|floatformat:2 }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -344,17 +353,95 @@
                 <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-outline-secondary">
                     <i class="bi bi-arrow-left"></i> Back to Storage
                 </a>
+                <button onclick="window.print()" class="btn btn-outline-secondary">
+                    <i class="bi bi-printer"></i> Print
+                </button>
             </div>
         </div>
     </div>
 </div>
 
-{% if log.status == 'processing' %}
 <script>
+let currentSortColumn = -1;
+let currentSortDirection = 'asc';
+
+function showView(viewType) {
+    const tableView = document.getElementById('tableView');
+    const clusterView = document.getElementById('clusterView');
+    const buttons = document.querySelectorAll('.btn-group button');
+    
+    if (viewType === 'table') {
+        tableView.style.display = 'block';
+        clusterView.style.display = 'none';
+        buttons[0].classList.add('active');
+        buttons[1].classList.remove('active');
+    } else {
+        tableView.style.display = 'none';
+        clusterView.style.display = 'block';
+        buttons[0].classList.remove('active');
+        buttons[1].classList.add('active');
+    }
+}
+
+function sortTable(columnIndex) {
+    const table = document.getElementById('ordersTable');
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    
+    // Toggle direction if same column
+    if (currentSortColumn === columnIndex) {
+        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortDirection = 'asc';
+        currentSortColumn = columnIndex;
+    }
+    
+    // Update sort icons
+    document.querySelectorAll('.sort-icon').forEach(icon => {
+        icon.classList.remove('active');
+        icon.classList.remove('bi-arrow-up', 'bi-arrow-down');
+        icon.classList.add('bi-arrow-down-up');
+    });
+    
+    const currentIcon = table.querySelectorAll('.sortable-header')[columnIndex === 0 ? 0 : columnIndex === 4 ? 1 : 2].querySelector('.sort-icon');
+    currentIcon.classList.add('active');
+    currentIcon.classList.remove('bi-arrow-down-up');
+    currentIcon.classList.add(currentSortDirection === 'asc' ? 'bi-arrow-up' : 'bi-arrow-down');
+    
+    // Sort rows
+    rows.sort((a, b) => {
+        let aValue, bValue;
+        
+        if (columnIndex === 0) {
+            // Product code
+            aValue = parseInt(a.cells[0].textContent);
+            bValue = parseInt(b.cells[0].textContent);
+        } else if (columnIndex === 4) {
+            // Quantity
+            aValue = parseInt(a.cells[4].textContent);
+            bValue = parseInt(b.cells[4].textContent);
+        } else if (columnIndex === 6) {
+            // Total cost
+            aValue = parseFloat(a.cells[6].textContent.replace('€', ''));
+            bValue = parseFloat(b.cells[6].textContent.replace('€', ''));
+        }
+        
+        if (currentSortDirection === 'asc') {
+            return aValue - bValue;
+        } else {
+            return bValue - aValue;
+        }
+    });
+    
+    // Reattach sorted rows
+    rows.forEach(row => tbody.appendChild(row));
+}
+
 // Auto-refresh for in-progress operations
+{% if log.status == 'processing' %}
 setTimeout(function() {
     location.reload();
 }, 10000); // Refresh every 10 seconds
-</script>
 {% endif %}
+</script>
 {% endblock %}

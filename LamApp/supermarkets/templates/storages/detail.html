@@ -66,6 +66,12 @@
                 <!-- Data Management Actions -->
                 <h6 class="mb-2 mt-4"><i class="bi bi-database"></i> Data Management</h6>
                 <div class="d-flex gap-2 mb-3 flex-wrap">
+                    <a href="{% url 'add-products' storage_id=storage.id %}" class="btn btn-success">
+                        <i class="bi bi-plus-circle"></i> Add Products
+                    </a>
+                    <a href="{% url 'purge-products' storage_id=storage.id %}" class="btn btn-danger">
+                        <i class="bi bi-trash"></i> Purge Products
+                    </a>
                     <a href="{% url 'adjust-stock' storage_id=storage.id %}" class="btn btn-warning">
                         <i class="bi bi-pencil-square"></i> Adjust Stock
                     </a>
