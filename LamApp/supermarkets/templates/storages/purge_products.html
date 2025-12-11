@@ -1,0 +1,148 @@
+<!-- templates/storages/purge_products.html -->
+{% extends 'base.html' %}
+{% block title %}Purge Products - {{ storage.name }}{% endblock %}
+{% block page_title %}Purge Products{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Purge Products</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-trash text-danger"></i>
+                    Purge Products from Database
+                </h4>
+
+                <div class="alert alert-danger">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Warning: Permanent Action</h6>
+                    <p class="mb-2">This action has two outcomes:</p>
+                    <ul class="mb-0">
+                        <li><strong>Stock = 0:</strong> Product will be <strong>immediately deleted</strong> from database</li>
+                        <li><strong>Stock > 0:</strong> Product will be <strong>flagged for purging</strong> and automatically deleted when stock reaches zero</li>
+                    </ul>
+                </div>
+
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> When to Use This</h6>
+                    <ul class="mb-0">
+                        <li>Discontinu products no longer sold</li>
+                        <li>Products accidentally added to wrong storage</li>
+                        <li>Duplicates or incorrect entries</li>
+                        <li>Database cleanup and maintenance</li>
+                    </ul>
+                </div>
+
+                <form method="post">
+                    {% csrf_token %}
+                    
+                    <div class="mb-4">
+                        {{ form.products.label_tag }}
+                        {{ form.products }}
+                        {% if form.products.help_text %}
+                        <div class="form-text">{{ form.products.help_text }}</div>
+                        {% endif %}
+                        {% if form.products.errors %}
+                        <div class="alert alert-danger mt-2">
+                            <pre class="mb-0" style="white-space: pre-wrap;">{{ form.products.errors }}</pre>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure? Products with stock=0 will be immediately deleted!')">
+                            <i class="bi bi-trash"></i> Purge Products
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Pending Purges -->
+            {% if pending_purges %}
+            <div class="stat-card mt-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="mb-0">
+                        <i class="bi bi-clock-history"></i> Products Pending Purge
+                    </h6>
+                    <form method="post" action="{% url 'check-purge-flagged' storage_id=storage.id %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-warning">
+                            <i class="bi bi-arrow-repeat"></i> Check & Purge Ready Items
+                        </button>
+                    </form>
+                </div>
+                
+                <p class="text-muted small mb-3">
+                    These products are flagged for deletion and will be automatically purged when their stock reaches zero.
+                </p>
+                
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Product Name</th>
+                                <th class="text-end">Current Stock</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in pending_purges %}
+                            <tr>
+                                <td><code>{{ product.cod }}.{{ product.v }}</code></td>
+                                <td>{{ product.name|truncatewords:8 }}</td>
+                                <td class="text-end">
+                                    <span class="badge bg-warning">{{ product.stock }} units</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">
+                                        <i class="bi bi-hourglass-split"></i> Waiting for stock=0
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="alert alert-secondary mt-3 mb-0">
+                    <small>
+                        <strong>Tip:</strong> Products flagged for purging won't appear in restock orders. 
+                        Click "Check & Purge Ready Items" to immediately remove any that have reached zero stock.
+                    </small>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Format Example -->
+            <div class="stat-card mt-3">
+                <h6 class="mb-3"><i class="bi bi-code-square"></i> Format Example</h6>
+                <div class="bg-light p-3 rounded">
+                    <code style="display: block; white-space: pre;">12345.1
+67890.1
+11111.2
+22222.1</code>
+                </div>
+                <p class="text-muted small mb-0 mt-2">
+                    <strong>Format:</strong> <code>product_code.variant</code> (one per line)
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

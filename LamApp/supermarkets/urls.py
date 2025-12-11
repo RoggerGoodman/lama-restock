@@ -69,4 +69,11 @@ urlpatterns = [
     path('supermarkets/<int:supermarket_id>/record-losses/', views.record_losses_view, name='record-losses'),
     path('losses-analytics/', views.losses_analytics_unified_view, name='losses-analytics-unified'),
 
+    # Restock progress endpoint (add after restock logs section)
+    path('logs/<int:log_id>/progress/', views.restock_progress_view, name='restock-progress'),
+    
+    # Purge endpoints (add after stock adjustment section)
+    path('storages/<int:storage_id>/purge/', views.purge_products_view, name='purge-products'),
+    path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),
+
 ]

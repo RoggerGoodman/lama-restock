@@ -9,6 +9,7 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib import messages
+from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from pathlib import Path
 from django.conf import settings
@@ -333,7 +334,8 @@ def run_restock_view(request, storage_id):
                 return redirect('restock-log-detail', pk=log.id)
                 
             finally:
-                service.close()
+                #service.close() #TODO Does it actually need it?
+                service = 0
             
         except Exception as e:
             logger.exception("Error running restock check")
@@ -448,6 +450,9 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         # Get orders from JSON
         orders = results.get('orders', [])
         
+        # NEW: Get skipped products from results
+        skipped_products = results.get('skipped_products', [])
+        
         # Enrich orders with product details from database
         enriched_orders = []
         service = RestockService(self.object.storage)
@@ -465,10 +470,22 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 try:
                     cur = service.db.conn.cursor()
                     cur.execute("""
-                        SELECT p.descrizione, p.cluster, e.cost_std, e.price_std
+                        SELECT 
+                            p.descrizione,
+                            p.cluster,
+                            p.pz_x_collo,
+                            p.rapp,
+                            CASE
+                                WHEN e.sale_start IS NOT NULL
+                                AND e.sale_end IS NOT NULL
+                                AND DATE('now') BETWEEN e.sale_start AND e.sale_end
+                                THEN e.cost_s
+                                ELSE e.cost_std
+                            END AS cost
                         FROM products p
-                        LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
-                        WHERE p.cod = ? AND p.v = ?
+                        LEFT JOIN economics e 
+                            ON p.cod = e.cod AND p.v = e.v
+                        WHERE p.cod = ? AND p.v = ?;
                     """, (cod, var))
                     
                     row = cur.fetchone()
@@ -476,13 +493,16 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     if row:
                         descrizione = row[0]
                         cluster = row[1] or 'Uncategorized'
-                        cost = row[2] or 0
-                        price = row[3] or 0
+                        package_size = row[2] or 0
+                        rapp = row[3] or 1
+                        cost = row[4] or 0
+                        cost = cost/rapp
                     else:
                         descrizione = f"Product {cod}.{var}"
                         cluster = 'Uncategorized'
-                        cost = 0
-                        price = 0
+                        package_size = 0
+                        rapp = 1
+                        cost = cost/rapp
                     
                     order_item = {
                         'cod': cod,
@@ -491,9 +511,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         'name': descrizione,
                         'cluster': cluster,
                         'cost': cost,
-                        'price': price,
-                        'total_cost': cost * qty,
-                        'total_price': price * qty,
+                        'total_cost': cost * qty * package_size,
                     }
                     
                     enriched_orders.append(order_item)
@@ -509,11 +527,42 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     
                     clusters[cluster]['items'].append(order_item)
                     clusters[cluster]['total_packages'] += qty
-                    clusters[cluster]['total_cost'] += cost * qty
+                    clusters[cluster]['total_cost'] += cost * qty * package_size
                     clusters[cluster]['count'] += 1
                     
                 except Exception as e:
                     logger.warning(f"Could not enrich order {cod}.{var}: {e}")
+                    continue
+            
+            # NEW: Enrich skipped products with details
+            enriched_skipped = []
+            for skipped in skipped_products:
+                cod = skipped.get('cod')
+                var = skipped.get('var')
+                reason = skipped.get('reason', 'Unknown')
+                
+                try:
+                    cur = service.db.conn.cursor()
+                    cur.execute("""
+                        SELECT p.descrizione, ps.stock, p.disponibilita
+                        FROM products p
+                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.cod = ? AND p.v = ?
+                    """, (cod, var))
+                    
+                    row = cur.fetchone()
+                    
+                    if row:
+                        enriched_skipped.append({
+                            'cod': cod,
+                            'var': var,
+                            'name': row[0],
+                            'stock': row[1] or 0,
+                            'disponibilita': row[2],
+                            'reason': reason
+                        })
+                except Exception as e:
+                    logger.warning(f"Could not enrich skipped product {cod}.{var}: {e}")
                     continue
             
             # Calculate summary
@@ -522,18 +571,50 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 'total_packages': sum(o['qty'] for o in enriched_orders),
                 'total_clusters': len(clusters),
                 'total_cost': sum(o['total_cost'] for o in enriched_orders),
+                'total_skipped': len(enriched_skipped)
             }
             
             context['enriched_orders'] = enriched_orders
             context['clusters'] = clusters
             context['summary'] = summary
             context['results'] = results
+            context['skipped_products'] = enriched_skipped
             
         finally:
             service.close()
         
         return context
 
+@login_required
+@require_POST
+def flag_product_for_purge_view(request, log_id, product_cod, product_var):
+    """Flag a skipped product for purging"""
+    log = get_object_or_404(
+        RestockLog,
+        id=log_id,
+        storage__supermarket__owner=request.user
+    )
+    
+    try:
+        service = RestockService(log.storage)
+        result = service.db.flag_for_purge(product_cod, product_var)
+        service.close()
+        
+        if result['action'] == 'flagged':
+            messages.success(
+                request,
+                f"Product {product_cod}.{product_var} flagged for purging (current stock: {result['stock']})"
+            )
+        elif result['action'] == 'purged':
+            messages.success(
+                request,
+                f"Product {product_cod}.{product_var} purged immediately (no stock)"
+            )
+    except Exception as e:
+        logger.exception("Error flagging product for purge")
+        messages.error(request, f"Error: {str(e)}")
+    
+    return redirect('restock-log-detail', pk=log_id)
 
 # ============ Blacklist Views ============
 
@@ -1160,7 +1241,7 @@ def bulk_adjust_stock_view(request, storage_id):
 
 @login_required
 def stock_value_unified_view(request):
-    """Unified stock value view with flexible filtering"""
+    """Unified stock value view with flexible filtering - FIXED CLUSTER SORTING"""
     
     # Get user's supermarkets
     supermarkets = Supermarket.objects.filter(owner=request.user)
@@ -1193,14 +1274,19 @@ def stock_value_unified_view(request):
     if storage_id:
         storages = storages.filter(id=storage_id)
     
-    # Get available clusters (for the selected storage if any)
+    # Get available clusters (for the selected storage if any) - FIXED: SORTED ALPHABETICALLY
     clusters = []
     if storage_id:
         storage = Storage.objects.get(id=storage_id)
         service = RestockService(storage)
         settore = storage.settore
         cursor = service.db.conn.cursor()
-        cursor.execute("SELECT DISTINCT cluster FROM products WHERE cluster IS NOT NULL AND cluster != '' AND settore = ? ", (settore,))
+        cursor.execute("""
+            SELECT DISTINCT cluster 
+            FROM products 
+            WHERE cluster IS NOT NULL AND cluster != '' AND settore = ? 
+            ORDER BY cluster ASC
+        """, (settore,))
         clusters = [row[0] for row in cursor.fetchall()]
         service.close()
     
@@ -1358,7 +1444,7 @@ def record_losses_view(request, supermarket_id):
 
 @login_required
 def losses_analytics_unified_view(request):
-    """Unified loss analytics with flexible filtering"""
+    """Unified loss analytics with flexible filtering - FIXED"""
     
     # Get user's supermarkets
     supermarkets = Supermarket.objects.filter(owner=request.user)
@@ -1391,6 +1477,19 @@ def losses_analytics_unified_view(request):
     if storage_id:
         storages = storages.filter(id=storage_id)
     
+    # FIX: Use a single database connection per supermarket to avoid duplicates
+    # Group storages by supermarket
+    supermarkets_to_process = {}
+    for storage in storages:
+        if storage.supermarket.id not in supermarkets_to_process:
+            supermarkets_to_process[storage.supermarket.id] = {
+                'supermarket': storage.supermarket,
+                'storages': [],
+                'settores': set()
+            }
+        supermarkets_to_process[storage.supermarket.id]['storages'].append(storage)
+        supermarkets_to_process[storage.supermarket.id]['settores'].add(storage.settore)
+    
     # Aggregate loss statistics
     stats = {
         'broken': {'total': 0, 'products': 0, 'monthly': [0]*24},
@@ -1400,19 +1499,37 @@ def losses_analytics_unified_view(request):
     
     top_products_dict = {}
     
-    for storage in storages:
+    # Process each supermarket's database ONCE
+    for sm_id, sm_data in supermarkets_to_process.items():
         try:
-            service = RestockService(storage)
+            # Use first storage to get DB connection (they share same DB per supermarket)
+            first_storage = sm_data['storages'][0]
+            service = RestockService(first_storage)
             cursor = service.db.conn.cursor()
             
-            cursor.execute("""
+            # Build WHERE clause based on selected storage
+            if storage_id:
+                # Specific storage selected - filter by settore
+                settore_filter = f"WHERE p.settore = '{first_storage.settore}'"
+            elif len(sm_data['settores']) < len(sm_data['supermarket'].storages.all()):
+                # Multiple but not all storages selected - filter by settores
+                settores_list = "', '".join(sm_data['settores'])
+                settore_filter = f"WHERE p.settore IN ('{settores_list}')"
+            else:
+                # All storages - no filter
+                settore_filter = ""
+            
+            query = f"""
                 SELECT 
                     el.cod, el.v,
                     el.broken, el.expired, el.internal,
                     p.descrizione
                 FROM extra_losses el
                 LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
-            """)
+                {settore_filter}
+            """
+            
+            cursor.execute(query)
             
             loss_types = ['broken', 'expired', 'internal']
             
@@ -1451,7 +1568,7 @@ def losses_analytics_unified_view(request):
             
             service.close()
         except Exception as e:
-            logger.exception(f"Error processing losses for {storage.name}")
+            logger.exception(f"Error processing losses for supermarket {sm_id}")
             continue
     
     # Convert top products dict to list
@@ -1544,3 +1661,138 @@ def add_products_view(request, storage_id):
         'storage': storage,
         'form': form
     })
+
+@login_required
+def purge_products_view(request, storage_id):
+    """View to flag/purge products"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    if request.method == 'POST':
+        from .forms import PurgeProductsForm
+        form = PurgeProductsForm(request.POST)
+        
+        if form.is_valid():
+            products_list = form.cleaned_data['products']
+            
+            try:
+                service = RestockService(storage)
+                
+                flagged = []
+                purged = []
+                errors = []
+                
+                for cod, var in products_list:
+                    try:
+                        result = service.db.flag_for_purge(cod, var)
+                        
+                        if result['action'] == 'flagged':
+                            flagged.append(result)
+                        elif result['action'] == 'purged':
+                            purged.append(result)
+                    
+                    except ValueError as e:
+                        errors.append(f"Product {cod}.{var}: {str(e)}")
+                    except Exception as e:
+                        logger.exception(f"Error processing {cod}.{var}")
+                        errors.append(f"Product {cod}.{var}: {str(e)}")
+                
+                service.close()
+                
+                # Show results
+                if purged:
+                    messages.success(
+                        request,
+                        f"Immediately purged {len(purged)} products with zero stock"
+                    )
+                
+                if flagged:
+                    messages.warning(
+                        request,
+                        f"Flagged {len(flagged)} products for purging (they have stock > 0). "
+                        f"They will be automatically purged when stock reaches zero."
+                    )
+                
+                if errors:
+                    for error in errors[:5]:
+                        messages.error(request, error)
+                
+                return redirect('storage-detail', pk=storage_id)
+                
+            except Exception as e:
+                logger.exception("Error in purge operation")
+                messages.error(request, f"Error: {str(e)}")
+    else:
+        from .forms import PurgeProductsForm
+        form = PurgeProductsForm()
+    
+    # Get pending purges
+    service = RestockService(storage)
+    pending_purges = service.db.get_purge_pending()
+    service.close()
+    
+    return render(request, 'storages/purge_products.html', {
+        'storage': storage,
+        'form': form,
+        'pending_purges': pending_purges
+    })
+
+
+@login_required
+@require_POST
+def check_purge_flagged_view(request, storage_id):
+    """Check and purge all flagged products with zero stock"""
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    try:
+        service = RestockService(storage)
+        purged = service.db.check_and_purge_flagged()
+        service.close()
+        
+        if purged:
+            messages.success(
+                request,
+                f"Automatically purged {len(purged)} flagged products that reached zero stock"
+            )
+        else:
+            messages.info(request, "No flagged products ready for purging")
+        
+    except Exception as e:
+        logger.exception("Error checking flagged products")
+        messages.error(request, f"Error: {str(e)}")
+    
+    return redirect('purge-products', storage_id=storage_id)
+
+@login_required
+def restock_progress_view(request, log_id):
+    """AJAX endpoint to check restock progress"""
+    log = get_object_or_404(
+        RestockLog,
+        id=log_id,
+        storage__supermarket__owner=request.user
+    )
+    
+    stage_info = log.get_stage_display_info()
+    
+    data = {
+        'status': log.status,
+        'current_stage': log.current_stage,
+        'stage_label': stage_info['label'],
+        'progress': stage_info['progress'],
+        'icon': stage_info['icon'],
+        'products_ordered': log.products_ordered,
+        'total_packages': log.total_packages,
+        'error_message': log.error_message if log.status == 'failed' else None,
+        'stats_updated_at': log.stats_updated_at.isoformat() if log.stats_updated_at else None,
+        'order_calculated_at': log.order_calculated_at.isoformat() if log.order_calculated_at else None,
+        'order_executed_at': log.order_executed_at.isoformat() if log.order_executed_at else None,
+    }
+    
+    return JsonResponse(data)

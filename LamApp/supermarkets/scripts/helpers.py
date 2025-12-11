@@ -114,7 +114,7 @@ class Helper:
             logger.info(f"Avg. Sales this month of the previous year= {avg_sales_last_year:.2f}")                       
         return avg_daily_sales, avg_sales_last_year
     
-    def calculate_weighted_avg_sales_new(self, final_array_sold: list, alpha: float = 2.0):
+    def calculate_weighted_avg_sales_new(self, final_array_sold: list, alpha: float = 3.0):
         """
         Returns (avg_daily_sales, avg_sales_last_year)
 
@@ -153,7 +153,7 @@ class Helper:
 
         # --- Adjust prior using growth ratio ---
         if rate_same_month_last_year > 0:
-            prior_rate = growth_ratio * rate_same_month_last_year
+            prior_rate = rate_prev_month
         elif rate_prev_month > 0:
             prior_rate = rate_prev_month
         else:
