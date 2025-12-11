@@ -230,6 +230,7 @@ class AutomatedRestockService:
     def execute_order_checkpoint(self, log: RestockLog, orders_list):
         """
         CHECKPOINT 3: Execute the order in PAC2000A.
+        NOW: Merges skipped products from stage 3 with stage 2 skipped list!
         Returns True on success, raises exception on failure.
         """
         logger.info(f"[CHECKPOINT 3] Executing order for {self.storage.name}")
@@ -252,7 +253,32 @@ class AutomatedRestockService:
             
             try:
                 orderer.login()
-                orderer.make_orders(self.storage.name, orders_list)
+                successful_orders, stage3_skipped = orderer.make_orders(self.storage.name, orders_list)
+                
+                # NEW: Merge stage 3 skipped products with existing results
+                results = log.get_results()
+                stage2_skipped = results.get('skipped_products', [])
+                
+                # Combine both skip lists
+                all_skipped = stage2_skipped + stage3_skipped
+                
+                logger.info(
+                    f"Total skipped: {len(all_skipped)} "
+                    f"(Stage 2: {len(stage2_skipped)}, Stage 3: {len(stage3_skipped)})"
+                )
+                
+                # Update results with merged skip list
+                results['skipped_products'] = all_skipped
+                
+                # Update successful orders count
+                results['orders'] = [
+                    {'cod': cod, 'var': var, 'qty': qty}
+                    for cod, var, qty in successful_orders
+                ]
+                
+                log.products_ordered = len(successful_orders)
+                log.total_packages = sum(qty for _, _, qty in successful_orders)
+                log.set_results(results)
                 
                 # Mark checkpoint as complete
                 log.current_stage = 'completed'
@@ -261,7 +287,10 @@ class AutomatedRestockService:
                 log.completed_at = timezone.now()
                 log.save()
                 
-                logger.info(f" [CHECKPOINT 3 COMPLETE] Order executed successfully for {self.storage.name}")
+                logger.info(
+                    f" [CHECKPOINT 3 COMPLETE] Order executed for {self.storage.name}: "
+                    f"{len(successful_orders)} successful, {len(all_skipped)} total skipped"
+                )
                 return True
                 
             finally:

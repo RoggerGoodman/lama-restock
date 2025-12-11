@@ -1,3 +1,4 @@
+# LamApp/supermarkets/scripts/orderer.py - WITH SKIP TRACKING
 from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -26,6 +27,9 @@ class Orderer:
         self.driver = webdriver.Chrome(options=chrome_options)
         self.wait = WebDriverWait(self.driver, 300)
         self.actions = ActionChains(self.driver)
+        
+        # NEW: Track skipped products during order execution
+        self.skipped_products = []
         
     # Load the webpage
     def login(self):
@@ -98,6 +102,10 @@ class Orderer:
         time.sleep(1)
 
     def make_orders(self, storage: str, order_list: tuple):
+        """
+        Make orders with skip tracking.
+        Returns: (successful_orders, skipped_products)
+        """
 
         desired_value = re.sub(r'^\d+\s+', '', storage)
 
@@ -192,8 +200,6 @@ class Orderer:
 
         time.sleep(1)
 
-        # if part1 == 32052:
-        # time.sleep(0.3) #TODO testing only DELETE
         # Locate the parent div element by its ID
         parent_div1 = self.driver.find_element(By.ID, "codArt")
         parent_div2 = self.driver.find_element(By.ID, "varArt")
@@ -202,29 +208,40 @@ class Orderer:
         cod_art_field = parent_div1.find_element(By.TAG_NAME, "input")
         var_art_field = parent_div2.find_element(By.TAG_NAME, "input")
         stock_size = parent_div3.find_element(By.TAG_NAME, "input")
-
+        search_button = self.driver.find_element(By.XPATH, '/html/body/div[66]/div[2]/form/div[4]/div[2]/div[3]/div')
+        successful_orders = []
+        
         for cod_part, var_part, qty_part in order_list:
             # Clear the input field and insert the desired number
-            cod_art_field.clear()  # If you need to clear any existing value
+            cod_art_field.clear()
             var_art_field.clear()
 
             cod_art_field.send_keys(cod_part)
             var_art_field.send_keys(var_part)
 
-            time.sleep(0.8)
-            #TODO fix here
+            time.sleep(0.4)
+
+            search_button.click()
+            
+            time.sleep(0.4)
+            # Check if product doesn't accept orders
             is_off = self.driver.find_elements(
                 By.XPATH,
                 "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]"
             )
             if is_off:
-                time.sleep(1.5)
-                is_off_really = self.driver.find_elements(
-                By.XPATH,
-                "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]")
-                if is_off_really:
-                    logger.info(f"Article {cod_part}.{var_part} doesn't accept orders. Skipping.")
-                    continue
+                logger.info(f"Article {cod_part}.{var_part} doesn't accept orders. Skipping.")
+                
+                # NEW: Track skipped product with reason
+                self.skipped_products.append({
+                    'cod': cod_part,
+                    'var': var_part,
+                    'qty': qty_part,
+                    'reason': 'Product does not accept orders (disabled in system)'
+                })
+                continue
+
+            
             stock_size.clear()
             stock_size.send_keys(qty_part)
 
@@ -235,7 +252,14 @@ class Orderer:
 
             # Click the button
             confirm_button_order.click()
+            
+            # Track successful order
+            successful_orders.append((cod_part, var_part, qty_part))
 
 
         # Switch to the previous tab
         self.driver.switch_to.window(self.driver.window_handles[-2])
+        
+        logger.info(f"Order execution complete: {len(successful_orders)} successful, {len(self.skipped_products)} skipped")
+        
+        return successful_orders, self.skipped_products

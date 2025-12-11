@@ -75,5 +75,6 @@ urlpatterns = [
     # Purge endpoints (add after stock adjustment section)
     path('storages/<int:storage_id>/purge/', views.purge_products_view, name='purge-products'),
     path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),
+    path('logs/<int:log_id>/flag-products/', views.flag_products_for_purge_view, name='flag-products-for-purge'),
 
 ]
