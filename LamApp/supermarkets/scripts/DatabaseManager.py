@@ -6,10 +6,12 @@ from .helpers import Helper
 
 class DatabaseManager:
     def __init__(self, helper: Helper, db_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Database\supermarket.db"):
-        self.conn = sqlite3.connect(db_path)
+        # CRITICAL: check_same_thread=False allows multi-thread access
+        # BUT caller must ensure proper connection management!
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.helper = helper
-        self.conn.row_factory = sqlite3.Row  # allow dict-like access
-        self.conn.execute("PRAGMA foreign_keys = ON")  # enforce relationships
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA foreign_keys = ON")
 
     # ---------- TABLE CREATION ----------
 
@@ -669,10 +671,6 @@ class DatabaseManager:
                     THEN economics.cost_std
                     ELSE excluded.cost_std
                 END,
-                price_s = excluded.price_s,
-                cost_s = excluded.cost_s,
-                sale_start = excluded.sale_start,
-                sale_end = excluded.sale_end,
                 category = excluded.category
         """, econ_rows)
 

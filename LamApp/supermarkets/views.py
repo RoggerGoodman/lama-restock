@@ -1,5 +1,5 @@
 # LamApp/supermarkets/views.py
-from datetime import timezone
+from django.utils import timezone
 import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
@@ -304,7 +304,7 @@ class RestockScheduleDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteV
 
 @login_required
 def run_restock_view(request, storage_id):
-    """Manually trigger a restock check with checkpoint support - ASYNC FRIENDLY"""
+    """Manually trigger a restock check with checkpoint support - ASYNC FRIENDLY - THREAD-SAFE"""
     storage = get_object_or_404(
         Storage, 
         id=storage_id, 
@@ -321,12 +321,7 @@ def run_restock_view(request, storage_id):
             if coverage:
                 coverage = float(coverage)
             
-            # Use the automation service with checkpoint support
-            
-            
-            service = AutomatedRestockService(storage)
-            
-            # Create log immediately
+            # CRITICAL: Create log BEFORE starting thread
             log = RestockLog.objects.create(
                 storage=storage,
                 status='processing',
@@ -335,13 +330,23 @@ def run_restock_view(request, storage_id):
             )
             
             if is_ajax:
-                # Return log ID immediately for AJAX polling
-                # Run workflow in background thread
+                # CRITICAL FIX: Create service INSIDE background thread to avoid SQLite threading issues
+                import threading
+                
                 def run_workflow():
+                    """Background thread worker - creates its own DB connection"""
+                    from .automation_services import AutomatedRestockService
+                    
+                    # CRITICAL: Service (and DB connection) created in THIS thread
+                    service = AutomatedRestockService(storage)
+                    
                     try:
                         service.run_full_restock_workflow(coverage, log=log)
                     except Exception as e:
                         logger.exception(f"Error in background restock for log #{log.id}")
+                    finally:
+                        # Clean up DB connection
+                        service.close()
                 
                 thread = threading.Thread(target=run_workflow)
                 thread.daemon = True
@@ -350,6 +355,9 @@ def run_restock_view(request, storage_id):
                 return JsonResponse({'log_id': log.id})
             else:
                 # Synchronous execution for non-AJAX
+                from .automation_services import AutomatedRestockService
+                service = AutomatedRestockService(storage)
+                
                 try:
                     log = service.run_full_restock_workflow(coverage, log=log)
                     
@@ -363,7 +371,7 @@ def run_restock_view(request, storage_id):
                     return redirect('restock-log-detail', pk=log.id)
                     
                 finally:
-                    service = 0
+                    service.close()
             
         except Exception as e:
             logger.exception("Error running restock check")
@@ -392,7 +400,7 @@ def run_restock_view(request, storage_id):
 @login_required
 @require_POST
 def retry_restock_view(request, log_id):
-    """Retry a failed restock operation from its last checkpoint - AJAX FRIENDLY"""
+    """Retry a failed restock operation from its last checkpoint - AJAX FRIENDLY - THREAD-SAFE"""
     log = get_object_or_404(
         RestockLog, 
         id=log_id, 
@@ -410,17 +418,24 @@ def retry_restock_view(request, log_id):
         messages.error(request, error_msg)
         return redirect('restock-log-detail', pk=log_id)
     
-    try:      
-        service = AutomatedRestockService(log.storage)
-        
+    try:
         # Get coverage from log
         coverage = float(log.coverage_used) if log.coverage_used else None
+        storage = log.storage
         
         logger.info(f"User-initiated retry for RestockLog #{log_id} from checkpoint {log.current_stage} with coverage={coverage}")
         
         if is_ajax:
-            # Run retry in background thread
+            # CRITICAL FIX: Create service in background thread
+            import threading
+            
             def run_retry():
+                """Background thread worker - creates its own DB connection"""
+                from .automation_services import AutomatedRestockService
+                
+                # CRITICAL: Service created in THIS thread
+                service = AutomatedRestockService(storage)
+                
                 try:
                     service.retry_from_checkpoint(log, coverage=coverage)
                 except Exception as e:
@@ -435,6 +450,9 @@ def retry_restock_view(request, log_id):
             return JsonResponse({'success': True, 'log_id': log_id})
         else:
             # Synchronous retry
+            from .automation_services import AutomatedRestockService
+            service = AutomatedRestockService(storage)
+            
             try:
                 updated_log = service.retry_from_checkpoint(log, coverage=coverage)
                 
@@ -456,7 +474,7 @@ def retry_restock_view(request, log_id):
         
         messages.error(request, f"Retry failed: {str(e)}")
         return redirect('restock-log-detail', pk=log_id)
-
+    
 @login_required
 @require_POST
 def execute_order_view(request, log_id):

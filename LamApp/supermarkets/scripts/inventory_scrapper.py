@@ -151,7 +151,7 @@ class Inventory_Scrapper:
             try:
                 self.wait.until(EC.presence_of_element_located((By.XPATH, target_xpath)))
             except TimeoutException:
-                logger.error(f"✗ Target '{target}' not found in results after filtering")
+                logger.error(f" Target '{target}' not found in results after filtering")
                 self.close_current_tab_and_switch()
                 return
 
@@ -170,7 +170,7 @@ class Inventory_Scrapper:
                     continue
 
             if row_index is None:
-                logger.error(f"✗ Could not find row for target: {target}")
+                logger.error(f" Could not find row for target: {target}")
                 self.close_current_tab_and_switch()
                 return
 
@@ -220,7 +220,7 @@ class Inventory_Scrapper:
             renamed = self.wait_for_new_download_and_rename(preexisting, target, save_path, timeout=45)
 
             if not renamed:
-                logger.error(f"✗ Could not retrieve or rename downloaded file for target: {target}")
+                logger.error(f" Could not retrieve or rename downloaded file for target: {target}")
             else:
                 logger.info(f" Download saved as: {renamed}")
 
@@ -231,7 +231,7 @@ class Inventory_Scrapper:
             logger.info(f" Successfully downloaded: {target}")
 
         except Exception as e:
-            logger.exception(f"✗ Error downloading {target}")
+            logger.exception(f" Error downloading {target}")
             try:
                 self.close_current_tab_and_switch()
             except:
@@ -290,7 +290,7 @@ class Inventory_Scrapper:
             time.sleep(1)
 
         # timeout - report contents for debugging
-        logger.error(f"✗ Download timeout after {timeout}s for expected target: {target}")
+        logger.error(f" Download timeout after {timeout}s for expected target: {target}")
         try:
             logger.info(f"Files in {save_dir}:")
             for f in os.listdir(save_dir):
