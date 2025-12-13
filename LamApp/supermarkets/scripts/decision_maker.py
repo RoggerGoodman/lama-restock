@@ -1,5 +1,5 @@
 # LamApp/supermarkets/scripts/decision_maker.py
-import sqlite3
+from .DatabaseManager import DatabaseManager
 import json
 from datetime import datetime
 from .helpers import Helper
@@ -9,19 +9,12 @@ from .processor_N import process_N_sales
 
 
 class DecisionMaker:
-    def __init__(self, helper: Helper, db_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Database\supermarket.db", blacklist_set=None):
+    def __init__(self, db: DatabaseManager, helper: Helper, blacklist_set=None):
         """
-        Initialize the decision maker.
-
-        Args:
-            db_path (str): Path to your SQLite database.
-            helper: Your Helper instance (for calculations, utilities, etc.).
-            blacklist_set (set): Set of (cod, var) tuples to exclude from ordering
+        Initialize decision maker with PostgreSQL support.
         """
-        self.db_path = db_path
-        self.helper = helper
-        self.conn = sqlite3.connect(db_path)
-        self.conn.row_factory = sqlite3.Row
+        self.helper = helper        
+        self.conn = db.conn
         self.cursor = self.conn.cursor()
 
         self.orders_list = []

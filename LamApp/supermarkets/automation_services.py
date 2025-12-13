@@ -38,9 +38,11 @@ class AutomatedRestockService:
         self.supermarket = storage.supermarket
         self.helper = Helper()
         
-        # Get database path for this supermarket
-        self.db_path = self.get_db_path()
-        self.db = DatabaseManager(self.helper, db_path=self.db_path)
+        # NEW: Pass supermarket name instead of db_path
+        self.db = DatabaseManager(
+            self.helper, 
+            supermarket_name=self.supermarket.name
+        )
 
     def close(self):
         """Clean up database connection - CRITICAL for thread safety"""
@@ -186,32 +188,24 @@ class AutomatedRestockService:
             
             log.coverage_used = coverage
             log.save()
-            
-            # Get blacklist
-            blacklist_set = self.get_blacklist_set()
-            
-            # CRITICAL: Create fresh DB connection for THIS thread
-            from .scripts.DatabaseManager import DatabaseManager
-            thread_db = DatabaseManager(self.helper, db_path=self.db_path)
-            
+                        
             try:
-                # Initialize decision maker with thread-specific DB
-                decision_maker = DecisionMaker(
-                    self.helper, 
-                    db_path=self.db_path,
-                    blacklist_set=blacklist_set
+                self.decision_maker = DecisionMaker(
+                self.helper,
+                supermarket_name=self.supermarket.name,  # NEW parameter
+                blacklist_set=self.get_blacklist_set()
                 )
                 
                 # Run decision logic
                 logger.info(f"Running decision maker with coverage={coverage} for settore={self.settore}")
-                decision_maker.decide_orders_for_settore(self.settore, coverage)
+                self.decision_maker.decide_orders_for_settore(self.settore, coverage)
                 
                 # Get orders list AND skipped products
-                orders_list = decision_maker.orders_list
-                skipped_products = decision_maker.skipped_products
+                orders_list = self.decision_maker.orders_list
+                skipped_products = self.decision_maker.skipped_products
                 
                 # Update log statistics
-                log.total_products = len(thread_db.get_all_stats_by_settore(self.settore))
+                log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
                 log.products_ordered = len(orders_list)
                 log.total_packages = sum(qty for _, _, qty in orders_list)
                 
@@ -240,8 +234,8 @@ class AutomatedRestockService:
                 return orders_list
                 
             finally:
-                decision_maker.close()
-                thread_db.close()  # CRITICAL: Close thread-specific connection
+                self.decision_maker.close()
+                self.db.close()
             
         except Exception as e:
             log.current_stage = 'failed'

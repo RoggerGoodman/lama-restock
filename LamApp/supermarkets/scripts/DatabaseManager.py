@@ -1,17 +1,48 @@
-import sqlite3
+import re
+from pathlib import Path
 import json
 import pandas as pd
+import psycopg2
+import psycopg2.extras
+import os
 from datetime import datetime, date
 from .helpers import Helper
 
 class DatabaseManager:
-    def __init__(self, helper: Helper, db_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Database\supermarket.db"):
-        # CRITICAL: check_same_thread=False allows multi-thread access
-        # BUT caller must ensure proper connection management!
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+    def __init__(self, helper: Helper, supermarket_name=None):
+        """
+        Initialize DatabaseManager with PostgreSQL.
+        
+        Args:
+            helper: Helper instance
+            db_path: (deprecated) kept for compatibility
+            supermarket_name: Name of supermarket (determines schema)
+        """
         self.helper = helper
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
+        
+        # Determine schema name
+        if supermarket_name:
+            self.schema = self._sanitize_schema_name(supermarket_name)
+        else:
+            self.schema = "public"
+        
+        self.conn = psycopg2.connect(
+            host=os.environ.get('PG_HOST', 'localhost'),
+            database=os.environ.get('PG_DATABASE', 'lamarestock_products'),
+            user=os.environ.get('PG_USER', 'lamauser'),
+            password=os.environ.get('PG_PASSWORD', ''),
+            options=f'-c search_path={self.schema},public'
+        )
+        
+        # Use RealDictCursor for dict-like row access
+        self.conn.cursor_factory = psycopg2.extras.RealDictCursor
+        self.conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+
+    def _sanitize_schema_name(self, name):
+        """Convert name to valid PostgreSQL schema name."""
+        clean = re.sub(r'[^\w\s-]', '', name.lower())
+        clean = re.sub(r'[-\s]+', '_', clean)
+        return clean
 
     # ---------- TABLE CREATION ----------
 
@@ -749,7 +780,7 @@ class DatabaseManager:
             # Has stock - flag for purging
             # First, check if purge_flag column exists, add if not
             try:
-                cur.execute("ALTER TABLE products ADD COLUMN purge_flag BOOLEAN DEFAULT 0")
+                cur.execute("ALTER TABLE products ADD COLUMN purge_flag BOOLEAN DEFAULT FALSE")
                 self.conn.commit()
             except:
                 pass  # Column already exists

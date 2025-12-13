@@ -3,6 +3,8 @@ New Featuere: Delivery check ask for more details
 
 
 .\env\Scripts\python.exe -m pip install package_name
+.\env\Scripts\python.exe -m pip install -r requirements.txt
+
 
 SELECT *
 FROM 'product_stats' ps
@@ -80,3 +82,5 @@ def run_restock_view will need to be modified
 38198 wtf
 
 Decision maker skipped list to orderer (be more selective on what to put on list)   
+
+INTEGER TO BOOLEAN BACK TO THE FUTURE
