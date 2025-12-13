@@ -228,16 +228,12 @@ class DecisionMaker:
 
             if len(sold_array) >= 4:                    
                 recent_months_sales = self.helper.calculate_data_recent_months(sold_array, 3)
-                expected_packages = self.helper.calculate_expectd_packages(bought_array, package_size)
                 deviation_corrected = self.helper.calculate_deviation(sold_array, recent_months_sales, True)               
                 trend = self.helper.find_trend(sold_array, bought_array)
-                turnover = self.helper.calculate_turnover(sold_array, bought_array, package_size, trend)
             else:
                 recent_months_sales = -1
-                expected_packages = 0
                 deviation_corrected = 0
                 trend = 0
-                turnover = 0
                 logger.info(f"Deviation and recent months sales are not available for this article") 
             
             if len(sold_array) >= 16:

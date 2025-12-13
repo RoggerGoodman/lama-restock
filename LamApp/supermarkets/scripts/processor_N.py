@@ -39,12 +39,12 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
             order = math.ceil(order)
 
         if order >= 1:
-            return order, 1, "N_success"
+            return order, 1, True
         
     if leftover_stock <= minimum_stock:
         order = 1
-        return order, 2, "N_success"
+        return order, 2, True
        
-    return None, 0, "N_fail"
+    return None, 0, False
 
     

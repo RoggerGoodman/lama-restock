@@ -46,18 +46,6 @@ class Helper:
         cleaned_values.reverse()
         return cleaned_values
 
-    def detect_dead_periods(self, final_array_bought, final_array_sold):
-        for i in range(1, len(final_array_bought) - 2):
-            if final_array_bought[i] == 0 and final_array_sold[i] == 0 and final_array_bought[i-1] > 0:
-                if (final_array_bought[i+1] == 0 and final_array_bought[i+2] == 0 and
-                    final_array_sold[i+1] == 0 and final_array_sold[i+2] == 0):
-                    # Return lists sliced up to the start of the "3 zero combo"
-                    logger.info("Dead period detected")
-                    return final_array_bought[:i], final_array_sold[:i]
-        
-        # If no "3 zero combo" found, return the original lists
-        return final_array_bought, final_array_sold
-
     def prepare_array(self, final_array_bought:list, final_array_sold:list):
         # Remove the first elements based on current month
         i = 0
@@ -72,47 +60,6 @@ class Helper:
             final_array_sold.pop()
 
         return final_array_bought, final_array_sold
-
-    def calculate_weighted_avg_sales(self, final_array_sold:list):
-        
-        sales_period = 2
-        if len(final_array_sold) > 12:
-            array_previous_year_sold = final_array_sold[self.current_month:]
-        else : array_previous_year_sold = [0]
-        sales_period = min(sales_period, len(final_array_sold))
-        sold_this_month = final_array_sold[0]
-        if len(final_array_sold) >= 2:
-            sold_previous_month = final_array_sold[1]
-        else:
-            sold_previous_month = 0
-        sold_tot = sold_this_month + sold_previous_month
-        if sold_tot == 0:
-            return sold_tot , 0
-        if len(final_array_sold) > 12:
-            position = 12 - self.current_month
-            last_year_current_month = array_previous_year_sold[position]
-            avg_sales_last_year = last_year_current_month/self.days_this_month
-            sold_tot += last_year_current_month 
-        else:
-            sales_period -= 1
-            avg_sales_last_year = 0
-        
-        if self.current_day <= 15:
-            avg_daily_sales = sold_tot / max(((sales_period*30)+(self.current_day-1)), 1)
-        else:
-            avg_sold_previous_month = sold_previous_month * ((self.days_previous_month - self.current_day) / self.days_previous_month)
-            if sales_period > 1:
-                avg_daily_sales = (sold_this_month + avg_sold_previous_month + last_year_current_month) / (sales_period*30)
-            elif sales_period > 0:
-                avg_daily_sales = (sold_this_month + avg_sold_previous_month) / (sales_period*30)
-            else: 
-                avg_daily_sales = sold_this_month / (self.current_day-1)
-
-
-        if (avg_daily_sales != 0):
-            logger.info(f"Avg. Daily Sales = {avg_daily_sales:.2f}")
-            logger.info(f"Avg. Sales this month of the previous year= {avg_sales_last_year:.2f}")                       
-        return avg_daily_sales, avg_sales_last_year
     
     def calculate_weighted_avg_sales_new(self, final_array_sold: list, alpha: float = 3.0):
         """
@@ -236,12 +183,6 @@ class Helper:
         recent_months = weighted_sum / sum(weights)
         return recent_months
 
-    def calculate_avg_monthly_sales(self,final_array_sold):
-        sold_yearly = sum(final_array_sold[1:12])
-        avg_monthly_sales = sold_yearly / 12
-        logger.info(f"Avg. Monthly Sales = {avg_monthly_sales:.2f}")
-        return avg_monthly_sales
-
     def calculate_deviation(self, final_array_sold, recent_months, present_time : bool):
         this_month = final_array_sold[0]
         if present_time:
@@ -264,126 +205,6 @@ class Helper:
         blended = round(alpha * ly_deviation + (1.0 - alpha) * deviation, 2)
 
         return blended
-    
-    def calculate_stock_oscillation(self, final_array_bought, final_array_sold, avg_daily_sales):
-        previous_index = 0
-        oscillation = 0
-        minimum_stock = 0
-        positive_combo = False
-        combo_breaker = False
-        prevision = math.ceil(avg_daily_sales)
-        change = 0
-        for index, value in enumerate(final_array_bought):
-            if value > 0:
-                bought = 0
-                bought += value
-                sold_since_last_restock = sum(final_array_sold[previous_index:index+1])
-                stock = bought - sold_since_last_restock
-                if stock > 0 and index == 0:
-                    change += stock
-                    previous_index = index + 1
-                    minimum_stock = stock
-                    continue 
-                if stock == 0:
-                    previous_index = index + 1
-                    continue
-                elif (oscillation * stock > 0 or oscillation == 0):
-                    if combo_breaker == True and stock < 0: # or previous_index < index) to limit the ammount of month he can check
-                        break
-                    oscillation += stock
-                    previous_index = index + 1
-                    if stock > 0:
-                        positive_combo = True
-                else:
-                    if oscillation < 0:
-                        oscillation += stock
-                    if oscillation - prevision == 0 and positive_combo == False:
-                        change += oscillation
-                        oscillation = 0
-                        previous_index = index + 1
-                        continue 
-                    if combo_breaker == False and positive_combo == False:
-                        combo_breaker = True
-                        change += oscillation
-                        oscillation = 0
-                        previous_index = index + 1
-                        continue 
-                    break
-        if minimum_stock > 0 and (oscillation + change) < minimum_stock:
-            oscillation = minimum_stock
-        else:
-            oscillation += change
-        oscillation -= prevision
-        logger.info(f"Stock Oscillation = {oscillation}")
-        return oscillation
-
-    def calculate_biggest_gap(self, final_array_bought, final_array_sold, avg_daily_sales):
-            gaps = [b - s for b, s in zip(final_array_bought, final_array_sold)]
-            max_abs_gap = max(abs(g) for g in gaps)          
-            candidate_indexes = [i for i, g in enumerate(gaps) if abs(g) == max_abs_gap]
-            best_stock = 0
-            selected_index = 0
-
-            for idx in candidate_indexes:
-                    signed_gap = gaps[idx]
-                    end = idx + 1 if signed_gap > 0 else idx
-
-                    Stot = sum(final_array_sold[:end])
-                    Btot = sum(final_array_bought[:end])
-                    stock = Btot - Stot
-                    if stock > best_stock:
-                            selected_index = idx
-                            best_stock = stock
-
-            best_stock -= math.ceil(avg_daily_sales)
-            if best_stock > 4 :
-                best_stock = best_stock - math.floor(selected_index/5)
-            logger.info(f"Biggest gap Stock = {best_stock} and the selected index was {selected_index}")
-            return best_stock
-    
-    def calculate_max_stock(self, final_array_bought:list, final_array_sold:list):    
-        
-        bought = final_array_bought
-        sold = final_array_sold
-        
-        max_stock = 0
-        best_index = -1
-        current_index = len(bought) - 1
-        
-        while bought and sold:
-            # Calculate current stock
-            tot_bought = sum(bought)
-            tot_sold = sum(sold)
-            stock = tot_bought - tot_sold
-            
-            # Update maximum if current stock is better
-            if stock > max_stock:
-                max_stock = stock
-                best_index = current_index
-            
-            # Remove last elements and continue
-            bought.pop()
-            sold.pop()
-            current_index -= 1
-
-        if max_stock > 4:
-            max_stock = max_stock - math.ceil(best_index/3)
-
-        logger.info(f"Max Stock = {max_stock} and the selected index was {best_index}")
-        return max_stock
-    
-    def calculate_expectd_packages(self, final_array_bought:list, package_size:int):
-        monthly_packages = (sum(final_array_bought[1:4]) / package_size)/3
-        daily_packages = monthly_packages / 30
-        expected_packages = daily_packages * (self.current_day - 1)
-        if final_array_bought[0] == 0:
-            for x in range(1, 4):
-                if final_array_bought[x] != 0:
-                    break
-                expected_packages += daily_packages * 30
-        expected_packages -= final_array_bought[0]/package_size
-        logger.info(f"Expected packages = {expected_packages:.2f}")
-        return expected_packages
 
     def calculate_stock(self, final_array_sold, final_array_bought):
         tot_sold = sum(final_array_sold)
@@ -394,13 +215,6 @@ class Helper:
             true_stock = true_stock - math.floor(period/5)
         logger.info(f"True Stock = {true_stock}")
         return true_stock
-
-    def find_current_gap(self, final_array_sold, final_array_bought):
-        if final_array_sold[0] == 0 and final_array_bought[0] == 0:
-            current_gap = final_array_bought[1] - final_array_sold[1]
-        else:
-            current_gap = final_array_bought[0] - final_array_sold[0]
-        return current_gap
 
     def find_trend(self, final_array_sold, final_array_bought):
         diffs = []
@@ -446,33 +260,6 @@ class Helper:
             return 0        
         logger.info(f"Trend value is {total}")
         return total
-        
-    def calculate_turnover(self, final_array_sold:list, final_array_bought:list, package_size:int, trend):
-        bonus = 0.05
-        if any(x == 0 for x in final_array_sold[1:4]) or any(x == 0 for x in final_array_bought[1:4]):
-            turnover = 0.0
-        else :
-            diffs = [abs(b - s) / package_size for s, b in zip(final_array_sold[1:4], final_array_bought[1:4])]
-            turnover = 1.0 - sum(diffs) / len(diffs)
-        if turnover > 0.7:
-            if trend < 0:
-                turnover += bonus
-            elif trend > 0:
-                turnover -= bonus
-                
-        logger.info(f"Turnover coefficient is {round(turnover, 3)}")
-        return turnover       
-
-    def custom_round(self, value, threshold):
-        # Get the integer part and the decimal part
-        integer_part = int(value)
-        decimal_part = value - integer_part
-
-        # Apply the rounding logic
-        if decimal_part <= threshold:
-            return integer_part  # Round down
-        else:
-            return integer_part + 1  # Round up
 
     def next_article(self, product_cod, product_var, package_size, product_name, reason):
         logger.info(f"Will NOT order {product_name}: {product_cod}.{product_var}.{package_size}!")
