@@ -1,4 +1,4 @@
-<!-- LamApp/supermarkets/templates/storages/run_restock.html -->
+<!-- LamApp/supermarkets/templates/storages/run_restock.html - ENHANCED -->
 {% extends 'base.html' %}
 
 {% block title %}Run Restock - {{ storage.name }}{% endblock %}
@@ -44,6 +44,7 @@
                         <li>Calculate which products need to be ordered</li>
                         <li><strong>Place the actual order in the system</strong></li>
                     </ol>
+                    <p class="mt-2 mb-0"><strong>Total estimated time: 10-15 minutes</strong></p>
                 </div>
 
                 <!-- Form (hidden after submission) -->
@@ -66,7 +67,7 @@
                         >
                         <div class="form-text">
                             {% if storage.schedule %}
-                                Schedule base coverage: <strong>{{ storage.schedule.base_coverage }} days</strong>
+                                Schedule will calculate coverage automatically based on next order day
                             {% else %}
                                 <span class="text-warning">No schedule configured - you must specify coverage</span>
                             {% endif %}
@@ -90,6 +91,11 @@
                         <i class="bi bi-hourglass-split"></i> Restock in Progress
                     </h5>
                     
+                    <!-- Stage Details Text -->
+                    <div class="alert alert-info mb-3" id="stageDetailsAlert">
+                        <strong id="stageDetailsText">Initializing...</strong>
+                    </div>
+                    
                     <!-- Overall Progress Bar -->
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -107,7 +113,7 @@
                         </div>
                     </div>
 
-                    <!-- Stage Details -->
+                    <!-- Stage Cards -->
                     <div class="row">
                         <div class="col-md-4">
                             <div class="card border-0 bg-light" id="stage1Card">
@@ -115,6 +121,7 @@
                                     <i class="bi bi-download" style="font-size: 2rem;" id="stage1Icon"></i>
                                     <h6 class="mt-2 mb-1">Update Stats</h6>
                                     <small class="text-muted" id="stage1Status">Waiting...</small>
+                                    <div id="stage1Time" class="text-muted small mt-1" style="display:none;"></div>
                                 </div>
                             </div>
                         </div>
@@ -128,6 +135,7 @@
                                         <span class="badge bg-success" id="productsCount"></span>
                                         <span class="badge bg-info" id="packagesCount"></span>
                                     </div>
+                                    <div id="stage2Time" class="text-muted small mt-1" style="display:none;"></div>
                                 </div>
                             </div>
                         </div>
@@ -137,6 +145,7 @@
                                     <i class="bi bi-send" style="font-size: 2rem;" id="stage3Icon"></i>
                                     <h6 class="mt-2 mb-1">Execute Order</h6>
                                     <small class="text-muted" id="stage3Status">Waiting...</small>
+                                    <div id="stage3Time" class="text-muted small mt-1" style="display:none;"></div>
                                 </div>
                             </div>
                         </div>
@@ -145,7 +154,15 @@
                     <!-- Error Display -->
                     <div id="errorContainer" class="alert alert-danger mt-3" style="display: none;">
                         <h6><i class="bi bi-x-circle"></i> Error</h6>
-                        <p class="mb-0" id="errorMessage"></p>
+                        <p class="mb-2" id="errorMessage"></p>
+                        <div id="retrySection" style="display: none;">
+                            <p class="mb-2">
+                                <strong>Retry:</strong> <span id="retryInfo"></span>
+                            </p>
+                            <button onclick="retryFromCheckpoint()" class="btn btn-warning btn-sm">
+                                <i class="bi bi-arrow-repeat"></i> Retry from Checkpoint
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Success Display -->
@@ -158,33 +175,6 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Schedule Info (if exists) -->
-            {% if storage.schedule %}
-            <div class="stat-card mt-3">
-                <h6 class="mb-3">
-                    <i class="bi bi-calendar-check"></i> Current Schedule
-                </h6>
-                <div class="row">
-                    <div class="col-md-6">
-                        <p class="mb-1"><strong>Base Coverage:</strong> {{ storage.schedule.base_coverage }} days</p>
-                        <p class="mb-1"><strong>Check Time:</strong> {{ storage.schedule.restock_time|time:"H:i" }}</p>
-                    </div>
-                    <div class="col-md-6">
-                        <p class="mb-1"><strong>Active Days:</strong></p>
-                        <div class="d-flex gap-1 flex-wrap">
-                            {% if storage.schedule.monday != '0' %}<span class="badge bg-primary">Mon</span>{% endif %}
-                            {% if storage.schedule.tuesday != '0' %}<span class="badge bg-primary">Tue</span>{% endif %}
-                            {% if storage.schedule.wednesday != '0' %}<span class="badge bg-primary">Wed</span>{% endif %}
-                            {% if storage.schedule.thursday != '0' %}<span class="badge bg-primary">Thu</span>{% endif %}
-                            {% if storage.schedule.friday != '0' %}<span class="badge bg-primary">Fri</span>{% endif %}
-                            {% if storage.schedule.saturday != '0' %}<span class="badge bg-primary">Sat</span>{% endif %}
-                            {% if storage.schedule.sunday != '0' %}<span class="badge bg-primary">Sun</span>{% endif %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
         </div>
     </div>
 </div>
@@ -192,6 +182,10 @@
 <script>
 let pollingInterval;
 let currentLogId;
+let pollCount = 0;
+const MAX_POLLS = 900; // 30 minutes at 2 sec intervals (was 10 min - too short!)
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 5;
 
 document.getElementById('restockForm').addEventListener('submit', function(e) {
     e.preventDefault();
@@ -225,12 +219,64 @@ document.getElementById('restockForm').addEventListener('submit', function(e) {
 });
 
 function startProgressPolling(logId) {
+    pollCount = 0;
+    consecutiveErrors = 0;
+    
+    console.log(`Starting polling for log ${logId}, max polls: ${MAX_POLLS}`);
+    
     // Poll every 2 seconds
     pollingInterval = setInterval(() => {
+        pollCount++;
+        
+        if (pollCount > MAX_POLLS) {
+            clearInterval(pollingInterval);
+            console.error('Max polls reached, checking final status...');
+            
+            // Do one final check before timing out
+            fetch(`/logs/${logId}/progress/`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'completed' || data.status === 'failed') {
+                        updateProgress(data);
+                    } else {
+                        showError('Operation timed out. Refreshing to check final status...');
+                        setTimeout(() => window.location.reload(), 2000);
+                    }
+                })
+                .catch(() => {
+                    showError('Operation timed out. Please refresh the page to check status.');
+                });
+            return;
+        }
+        
+        // Show progress indicator every 30 seconds
+        if (pollCount % 15 === 0) {
+            console.log(`Poll ${pollCount}/${MAX_POLLS} - Still checking...`);
+        }
+        
         fetch(`/logs/${logId}/progress/`)
-            .then(response => response.json())
-            .then(data => updateProgress(data))
-            .catch(error => console.error('Polling error:', error));
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                consecutiveErrors = 0; // Reset error counter on success
+                updateProgress(data);
+            })
+            .catch(error => {
+                consecutiveErrors++;
+                console.error(`Polling error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, error);
+                
+                // Only stop after multiple consecutive errors
+                if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                    clearInterval(pollingInterval);
+                    showError('Lost connection to server. Refreshing page...');
+                    setTimeout(() => window.location.reload(), 2000);
+                }
+                // Otherwise just log and continue polling
+            });
     }, 2000);
 }
 
@@ -241,7 +287,12 @@ function updateProgress(data) {
     document.getElementById('progressPercent').textContent = data.progress + '%';
     document.getElementById('stageLabel').textContent = data.stage_label;
     
-    // Update stage cards
+    // Update stage details text
+    if (data.stage_details) {
+        document.getElementById('stageDetailsText').textContent = data.stage_details;
+    }
+    
+    // Update stage cards with animation
     updateStageCard(1, data.current_stage, data.stats_updated_at);
     updateStageCard(2, data.current_stage, data.order_calculated_at, data.products_ordered, data.total_packages);
     updateStageCard(3, data.current_stage, data.order_executed_at);
@@ -257,7 +308,12 @@ function updateProgress(data) {
     // Handle failure
     if (data.status === 'failed') {
         clearInterval(pollingInterval);
-        showError(data.error_message || 'Restock failed');
+        showError(
+            data.error_message || 'Restock failed',
+            data.can_retry,
+            data.retry_count,
+            data.max_retries
+        );
         document.getElementById('progressBar').classList.remove('progress-bar-animated');
         document.getElementById('progressBar').classList.add('bg-danger');
     }
@@ -267,6 +323,7 @@ function updateStageCard(stageNum, currentStage, completedAt, productsOrdered, t
     const card = document.getElementById(`stage${stageNum}Card`);
     const icon = document.getElementById(`stage${stageNum}Icon`);
     const status = document.getElementById(`stage${stageNum}Status`);
+    const timeDiv = document.getElementById(`stage${stageNum}Time`);
     
     const stages = {
         1: ['updating_stats', 'stats_updated'],
@@ -277,21 +334,33 @@ function updateStageCard(stageNum, currentStage, completedAt, productsOrdered, t
     const isActive = stages[stageNum].includes(currentStage);
     const isCompleted = completedAt !== null;
     
-    // Update card styling
+    // Update card styling with smooth transitions
     if (isCompleted) {
-        card.classList.remove('bg-light');
+        card.classList.remove('bg-light', 'bg-warning');
         card.classList.add('bg-success', 'text-white');
-        icon.classList.remove('bi-download', 'bi-calculator', 'bi-send', 'bi-hourglass-split');
-        icon.classList.add('bi-check-circle-fill', 'text-white');
+        icon.className = 'bi bi-check-circle-fill text-white';
+        icon.style.fontSize = '2rem';
         status.textContent = 'Completed';
         status.classList.remove('text-muted');
         status.classList.add('text-white');
+        
+        // Show completion time
+        if (completedAt) {
+            const time = new Date(completedAt).toLocaleTimeString();
+            timeDiv.textContent = `at ${time}`;
+            timeDiv.style.display = 'block';
+        }
     } else if (isActive) {
         card.classList.remove('bg-light');
         card.classList.add('bg-warning');
         icon.classList.add('text-dark');
+        
+        // Add pulsing animation
+        icon.style.animation = 'pulse 1.5s infinite';
+        
         status.textContent = 'In Progress...';
         status.classList.remove('text-muted');
+        status.classList.add('text-dark');
     }
     
     // Show order details for stage 2
@@ -307,17 +376,72 @@ function showSuccess(products, packages, logId) {
     const successMessage = document.getElementById('successMessage');
     const viewLogLink = document.getElementById('viewLogLink');
     
-    successMessage.textContent = `Successfully ordered ${products} products (${packages} packages total)`;
+    successMessage.innerHTML = `
+        Successfully ordered ${products} products (${packages} packages total)<br>
+        <small class="text-white">Redirecting to detailed log in 3 seconds...</small>
+    `;
     viewLogLink.href = `/logs/${logId}/`;
     successContainer.style.display = 'block';
+    
+    // Auto-redirect after 3 seconds
+    setTimeout(() => {
+        window.location.href = `/logs/${logId}/`;
+    }, 3000);
 }
 
-function showError(message) {
+function showError(message, canRetry, retryCount, maxRetries) {
     const errorContainer = document.getElementById('errorContainer');
     const errorMessage = document.getElementById('errorMessage');
+    const retrySection = document.getElementById('retrySection');
+    const retryInfo = document.getElementById('retryInfo');
     
     errorMessage.textContent = message;
+    
+    if (canRetry) {
+        retryInfo.textContent = `Attempt ${retryCount} of ${maxRetries}`;
+        retrySection.style.display = 'block';
+    }
+    
     errorContainer.style.display = 'block';
 }
+
+function retryFromCheckpoint() {
+    if (!currentLogId) return;
+    
+    // Hide error, show progress again
+    document.getElementById('errorContainer').style.display = 'none';
+    
+    // Reset UI
+    pollCount = 0;
+    
+    // Submit retry request
+    fetch(`/logs/${currentLogId}/retry/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            startProgressPolling(currentLogId);
+        } else {
+            showError(data.message || 'Retry failed');
+        }
+    })
+    .catch(error => {
+        showError('Error initiating retry: ' + error);
+    });
+}
+
+// Add CSS for pulse animation
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.7; transform: scale(1.1); }
+    }
+`;
+document.head.appendChild(style);
 </script>
 {% endblock %}

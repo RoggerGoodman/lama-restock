@@ -122,10 +122,13 @@ class RestockService:
         """
         Execute the actual order placement using Orderer
         """
-        orderer = Orderer()
+        orderer = Orderer(
+            username=self.supermarket.username,
+            password=self.supermarket.password
+        )
+        
         try:
             orderer.login()
-            # Use storage.name for orderer (this is what dropdown expects)
             orderer.make_orders(self.storage.name, orders_list)
             return True
         except Exception as e:
@@ -139,8 +142,17 @@ class RestockService:
         self.db.import_from_excel(file_path, self.settore)
     
     def update_product_stats(self):
-        """Update product statistics from PAC2000A"""
-        scrapper = Scrapper(self.helper, self.db)
+        """
+        Update product statistics from PAC2000A
+        """
+        
+        scrapper = Scrapper(
+            username=self.supermarket.username,
+            password=self.supermarket.password,
+            helper=self.helper,
+            db=self.db
+        )
+        
         try:
             scrapper.navigate()
             scrapper.init_product_stats_for_settore(self.settore)
@@ -173,9 +185,14 @@ class StorageService:
         """
         from .scripts.finder import Finder 
         
-        finder = Finder()
+        
+        finder = Finder(
+            username=supermarket.username,
+            password=supermarket.password
+        )
+        
         try:
-            finder.login(supermarket.username, supermarket.password)
+            finder.login()
             return finder.find_storages()
         finally:
             finder.driver.quit()

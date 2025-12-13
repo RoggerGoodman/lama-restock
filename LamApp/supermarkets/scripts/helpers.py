@@ -224,7 +224,10 @@ class Helper:
             cumulative_days_from_now += days
 
         avg_daily_sales = weighted_num / weighted_den
-
+        try:
+            logger.info(f"avg_daily_sales={avg_daily_sales:.2f}")
+        except Exception:
+            pass
         return avg_daily_sales 
     
     def calculate_data_recent_months(self, list: list, period: int):

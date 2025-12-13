@@ -1,3 +1,4 @@
+# LamApp/supermarkets/scripts/orderer.py - WITH SKIP TRACKING
 from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -7,28 +8,39 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 import time
 import re
-from .constants import PASSWORD, USERNAME
 from .logger import logger
 
 
 class Orderer:
 
-    def __init__(self) -> None:
-        #Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
+    def __init__(self, username: str, password: str) -> None:
+        """
+        Initialize orderer with credentials.
+        
+        Args:
+            username: PAC2000A username
+            password: PAC2000A password
+        """
+        self.username = username
+        self.password = password
+        
+        # Set up the Selenium WebDriver
         chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Run Chrome in headless mode
-        chrome_options.add_argument("--no-sandbox")  # Required for some environments
-        chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-        chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        chrome_options.add_argument('--log-level=3')  # Suppress console logs
+        chrome_options.add_argument('--log-level=3')
 
         self.driver = webdriver.Chrome(options=chrome_options)
         self.wait = WebDriverWait(self.driver, 300)
         self.actions = ActionChains(self.driver)
         
-    # Load the webpage
+        self.skipped_products = []
+        
     def login(self):
+        """Login to PAC2000A"""
         self.driver.get('https://dropzone.pac2000a.it/')
 
         # Wait for the page to fully load
@@ -39,8 +51,8 @@ class Orderer:
         # Login
         username_field = self.driver.find_element(By.ID, "username")
         password_field = self.driver.find_element(By.ID, "password")
-        username_field.send_keys(USERNAME)
-        password_field.send_keys(PASSWORD)
+        username_field.send_keys(self.username)
+        password_field.send_keys(self.password)
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
 
@@ -62,7 +74,7 @@ class Orderer:
             lambda driver: len(driver.window_handles) > 1
         )
 
-        self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
+        self.driver.switch_to.window(self.driver.window_handles[-1])
 
         self.wait.until(
             EC.presence_of_element_located((By.ID, "Ordini"))
@@ -77,13 +89,11 @@ class Orderer:
             EC.element_to_be_clickable((By.XPATH, "//a[@href='./lista']"))
         )
 
-        # Click the "Lista" link
         lista_link.click()
 
-        # Wait for the modal to be present
         modal = self.wait.until(
             EC.presence_of_element_located((By.CLASS_NAME, "modal-content"))
-)
+        )
 
         self.wait.until(
             EC.presence_of_element_located((By.XPATH, "//button[text()='Chiudi']"))
@@ -94,10 +104,13 @@ class Orderer:
         close_button = self.driver.find_element(By.XPATH, "//button[text()='Chiudi']")
         close_button.click()
 
-
         time.sleep(1)
 
     def make_orders(self, storage: str, order_list: tuple):
+        """
+        Make orders with skip tracking.
+        Returns: (successful_orders, skipped_products)
+        """
 
         desired_value = re.sub(r'^\d+\s+', '', storage)
 
@@ -192,8 +205,6 @@ class Orderer:
 
         time.sleep(1)
 
-        # if part1 == 32052:
-        # time.sleep(0.3) #TODO testing only DELETE
         # Locate the parent div element by its ID
         parent_div1 = self.driver.find_element(By.ID, "codArt")
         parent_div2 = self.driver.find_element(By.ID, "varArt")
@@ -202,29 +213,40 @@ class Orderer:
         cod_art_field = parent_div1.find_element(By.TAG_NAME, "input")
         var_art_field = parent_div2.find_element(By.TAG_NAME, "input")
         stock_size = parent_div3.find_element(By.TAG_NAME, "input")
-
+        search_button = self.driver.find_element(By.XPATH, '/html/body/div[66]/div[2]/form/div[4]/div[2]/div[3]/div')
+        successful_orders = []
+        
         for cod_part, var_part, qty_part in order_list:
             # Clear the input field and insert the desired number
-            cod_art_field.clear()  # If you need to clear any existing value
+            cod_art_field.clear()
             var_art_field.clear()
 
             cod_art_field.send_keys(cod_part)
             var_art_field.send_keys(var_part)
 
-            time.sleep(0.8)
-            #TODO fix here
+            time.sleep(0.4)
+
+            search_button.click()
+            
+            time.sleep(0.4)
+            # Check if product doesn't accept orders
             is_off = self.driver.find_elements(
                 By.XPATH,
                 "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]"
             )
             if is_off:
-                time.sleep(1.5)
-                is_off_really = self.driver.find_elements(
-                By.XPATH,
-                "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]")
-                if is_off_really:
-                    logger.info(f"Article {cod_part}.{var_part} doesn't accept orders. Skipping.")
-                    continue
+                logger.info(f"Article {cod_part}.{var_part} doesn't accept orders. Skipping.")
+                
+                # NEW: Track skipped product with reason
+                self.skipped_products.append({
+                    'cod': cod_part,
+                    'var': var_part,
+                    'qty': qty_part,
+                    'reason': 'Product does not accept orders (disabled in system)'
+                })
+                continue
+
+            
             stock_size.clear()
             stock_size.send_keys(qty_part)
 
@@ -235,7 +257,14 @@ class Orderer:
 
             # Click the button
             confirm_button_order.click()
+            
+            # Track successful order
+            successful_orders.append((cod_part, var_part, qty_part))
 
 
         # Switch to the previous tab
         self.driver.switch_to.window(self.driver.window_handles[-2])
+        
+        logger.info(f"Order execution complete: {len(successful_orders)} successful, {len(self.skipped_products)} skipped")
+        
+        return successful_orders, self.skipped_products

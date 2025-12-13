@@ -1,5 +1,5 @@
 # LamApp/supermarkets/views.py
-from datetime import timezone
+from django.utils import timezone
 import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
@@ -12,19 +12,25 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from pathlib import Path
+import csv
+import io
 from django.conf import settings
 import os
+from .automation_services import AutomatedRestockService
+import threading
+import pandas as pd
 
 from .models import (
     Supermarket, Storage, RestockSchedule, 
     Blacklist, BlacklistEntry, RestockLog, ListUpdateSchedule
 )
 from .forms import (
-    RestockScheduleForm, BlacklistForm, 
+    RestockScheduleForm, BlacklistForm, PurgeProductsForm,
     BlacklistEntryForm, AddProductsForm, PromoUploadForm, ListUpdateScheduleForm,
     StockAdjustmentForm, BulkStockAdjustmentForm, RecordLossesForm, SingleProductVerificationForm
 )
 from .services import RestockService, StorageService
+from .scripts.scrapper import Scrapper
 import logging
 
 logger = logging.getLogger(__name__)
@@ -301,7 +307,7 @@ class RestockScheduleDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteV
 
 @login_required
 def run_restock_view(request, storage_id):
-    """Manually trigger a restock check with checkpoint support"""
+    """Manually trigger a restock check with checkpoint support - ASYNC FRIENDLY - THREAD-SAFE"""
     storage = get_object_or_404(
         Storage, 
         id=storage_id, 
@@ -309,36 +315,72 @@ def run_restock_view(request, storage_id):
     )
     
     if request.method == 'POST':
+        # Check if this is an AJAX request
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        
         try:
             # Get coverage from form or use default
             coverage = request.POST.get('coverage')
             if coverage:
                 coverage = float(coverage)
             
-            # Use the automation service with checkpoint support
-            from .automation_services import AutomatedRestockService
+            # CRITICAL: Create log BEFORE starting thread
+            log = RestockLog.objects.create(
+                storage=storage,
+                status='processing',
+                current_stage='pending',
+                started_at=timezone.now()
+            )
             
-            service = AutomatedRestockService(storage)
-            
-            try:
-                # This will create a new log with checkpoint tracking
-                log = service.run_full_restock_workflow(coverage)
+            if is_ajax:
+                # CRITICAL FIX: Create service INSIDE background thread to avoid SQLite threading issues
                 
-                messages.success(
-                    request, 
-                    f"Restock completed successfully! "
-                    f"{log.products_ordered} products ordered, "
-                    f"{log.total_packages} total packages."
-                )
+                def run_workflow():
+                    """Background thread worker - creates its own DB connection"""
+                    
+                    
+                    # CRITICAL: Service (and DB connection) created in THIS thread
+                    service = AutomatedRestockService(storage)
+                    
+                    try:
+                        service.run_full_restock_workflow(coverage, log=log)
+                    except Exception as e:
+                        logger.exception(f"Error in background restock for log #{log.id}")
+                    finally:
+                        # Clean up DB connection
+                        service.close()
                 
-                return redirect('restock-log-detail', pk=log.id)
+                thread = threading.Thread(target=run_workflow)
+                thread.daemon = True
+                thread.start()
                 
-            finally:
-                #service.close() #TODO Does it actually need it?
-                service = 0
+                return JsonResponse({'log_id': log.id})
+            else:
+                # Synchronous execution for non-AJAX
+                
+                service = AutomatedRestockService(storage)
+                
+                try:
+                    log = service.run_full_restock_workflow(coverage, log=log)
+                    
+                    messages.success(
+                        request, 
+                        f"Restock completed successfully! "
+                        f"{log.products_ordered} products ordered, "
+                        f"{log.total_packages} total packages."
+                    )
+                    
+                    return redirect('restock-log-detail', pk=log.id)
+                    
+                finally:
+                    service.close()
             
         except Exception as e:
             logger.exception("Error running restock check")
+            
+            if is_ajax:
+                return JsonResponse({'error': str(e)}, status=500)
+            
             messages.error(
                 request, 
                 f"Error: {str(e)}. Check the log for details and retry options."
@@ -360,49 +402,80 @@ def run_restock_view(request, storage_id):
 @login_required
 @require_POST
 def retry_restock_view(request, log_id):
-    """Retry a failed restock operation from its last checkpoint"""
+    """Retry a failed restock operation from its last checkpoint - AJAX FRIENDLY - THREAD-SAFE"""
     log = get_object_or_404(
         RestockLog, 
         id=log_id, 
         storage__supermarket__owner=request.user
     )
     
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
     if not log.can_retry():
-        messages.error(
-            request, 
-            f"Cannot retry: Maximum retries ({log.max_retries}) reached or operation not in failed state"
-        )
+        error_msg = f"Cannot retry: Maximum retries ({log.max_retries}) reached or operation not in failed state"
+        
+        if is_ajax:
+            return JsonResponse({'success': False, 'message': error_msg}, status=400)
+        
+        messages.error(request, error_msg)
         return redirect('restock-log-detail', pk=log_id)
     
     try:
-        from .automation_services import AutomatedRestockService
+        # Get coverage from log
+        coverage = float(log.coverage_used) if log.coverage_used else None
+        storage = log.storage
         
-        service = AutomatedRestockService(log.storage)
+        logger.info(f"User-initiated retry for RestockLog #{log_id} from checkpoint {log.current_stage} with coverage={coverage}")
         
-        try:
-            # FIX: Pass coverage from log if it exists
-            coverage = float(log.coverage_used) if log.coverage_used else None
+        if is_ajax:
+            # CRITICAL FIX: Create service in background thread
             
-            logger.info(f"User-initiated retry for RestockLog #{log_id} from checkpoint {log.current_stage} with coverage={coverage}")
+            def run_retry():
+                """Background thread worker - creates its own DB connection"""
+                
+                
+                # CRITICAL: Service created in THIS thread
+                service = AutomatedRestockService(storage)
+                
+                try:
+                    service.retry_from_checkpoint(log, coverage=coverage)
+                except Exception as e:
+                    logger.exception(f"Error in background retry for log #{log_id}")
+                finally:
+                    service.close()
             
-            # Pass coverage to retry method
-            updated_log = service.retry_from_checkpoint(log, coverage=coverage)
+            thread = threading.Thread(target=run_retry)
+            thread.daemon = True
+            thread.start()
             
-            messages.success(
-                request, 
-                f"Retry successful! Operation completed from checkpoint: {log.get_current_stage_display()}"
-            )
+            return JsonResponse({'success': True, 'log_id': log_id})
+        else:
+            # Synchronous retry
             
-            return redirect('restock-log-detail', pk=updated_log.id)
+            service = AutomatedRestockService(storage)
             
-        finally:
-            service.close()
+            try:
+                updated_log = service.retry_from_checkpoint(log, coverage=coverage)
+                
+                messages.success(
+                    request, 
+                    f"Retry successful! Operation completed from checkpoint: {log.get_current_stage_display()}"
+                )
+                
+                return redirect('restock-log-detail', pk=updated_log.id)
+                
+            finally:
+                service.close()
         
     except Exception as e:
         logger.exception(f"Error retrying restock from checkpoint")
+        
+        if is_ajax:
+            return JsonResponse({'success': False, 'message': str(e)}, status=500)
+        
         messages.error(request, f"Retry failed: {str(e)}")
         return redirect('restock-log-detail', pk=log_id)
-
+    
 @login_required
 @require_POST
 def execute_order_view(request, log_id):
@@ -534,7 +607,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     logger.warning(f"Could not enrich order {cod}.{var}: {e}")
                     continue
             
-            # NEW: Enrich skipped products with details
+             # NEW: Enrich skipped products with details
             enriched_skipped = []
             for skipped in skipped_products:
                 cod = skipped.get('cod')
@@ -556,14 +629,34 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         enriched_skipped.append({
                             'cod': cod,
                             'var': var,
-                            'name': row[0],
+                            'name': row[0] or f"Product {cod}.{var}",
                             'stock': row[1] or 0,
-                            'disponibilita': row[2],
+                            'disponibilita': row[2] or 'Unknown',
+                            'reason': reason
+                        })
+                    else:
+                        # Product not in database
+                        enriched_skipped.append({
+                            'cod': cod,
+                            'var': var,
+                            'name': f"Product {cod}.{var}",
+                            'stock': 0,
+                            'disponibilita': 'Unknown',
                             'reason': reason
                         })
                 except Exception as e:
                     logger.warning(f"Could not enrich skipped product {cod}.{var}: {e}")
-                    continue
+                    # Add anyway with minimal info
+                    enriched_skipped.append({
+                        'cod': cod,
+                        'var': var,
+                        'name': f"Product {cod}.{var}",
+                        'stock': 0,
+                        'disponibilita': 'Unknown',
+                        'reason': reason
+                    })
+            
+            logger.info(f"Enriched {len(enriched_skipped)} skipped products for display")
             
             # Calculate summary
             summary = {
@@ -578,7 +671,9 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             context['clusters'] = clusters
             context['summary'] = summary
             context['results'] = results
-            context['skipped_products'] = enriched_skipped
+            context['skipped_products'] = enriched_skipped  # Make sure this is set!
+            
+            logger.info(f"Context prepared: {len(enriched_orders)} orders, {len(enriched_skipped)} skipped")
             
         finally:
             service.close()
@@ -741,8 +836,6 @@ def verify_stock_view(request, storage_id):
                     destination.write(chunk)
             
             # IMPORTANT: Update stats and record losses BEFORE verification
-            # Use AutomatedRestockService which has these methods
-            from .automation_services import AutomatedRestockService
             
             service = AutomatedRestockService(storage)
             
@@ -764,7 +857,7 @@ def verify_stock_view(request, storage_id):
                 }
                 
                 # Read CSV and get product list before verification
-                import pandas as pd
+
                 df = pd.read_csv(file_path)
                 
                 # Clean column names
@@ -1006,7 +1099,10 @@ def manual_list_update_view(request, storage_id):
 
 @login_required
 def upload_promos_view(request, supermarket_id):
-    """Upload and process promo PDF file - SUPERMARKET LEVEL"""
+    """
+    Upload and process promo PDF file - SUPERMARKET LEVEL
+    FIXED: Now passes credentials to Scrapper
+    """
     supermarket = get_object_or_404(
         Supermarket,
         id=supermarket_id,
@@ -1030,9 +1126,7 @@ def upload_promos_view(request, supermarket_id):
                     for chunk in pdf_file.chunks():
                         destination.write(chunk)
                 
-                # Get database path for this supermarket
-                from .services import RestockService
-                # Use first storage to get db connection (they share same supermarket DB)
+                # Get database connection
                 first_storage = supermarket.storages.first()
                 
                 if not first_storage:
@@ -1041,9 +1135,17 @@ def upload_promos_view(request, supermarket_id):
                 
                 service = RestockService(first_storage)
                 
+                
+                
+                scrapper = Scrapper(
+                    username=supermarket.username,
+                    password=supermarket.password,
+                    helper=service.helper,
+                    db=service.db
+                )
+                
                 # Parse and update promos
-                from .scripts.scrapper import Scrapper
-                promo_list = Scrapper(service.helper, service.db).parse_promo_pdf(str(file_path))
+                promo_list = scrapper.parse_promo_pdf(str(file_path))
                 
                 service.db.update_promos(promo_list)
                 service.close()
@@ -1160,10 +1262,7 @@ def bulk_adjust_stock_view(request, storage_id):
             csv_file = request.FILES['csv_file']
             default_reason = form.cleaned_data['reason']
             
-            try:
-                import csv
-                import io
-                
+            try:                
                 # Read CSV
                 decoded_file = csv_file.read().decode('utf-8')
                 csv_reader = csv.DictReader(io.StringIO(decoded_file))
@@ -1612,7 +1711,10 @@ def losses_analytics_unified_view(request):
 
 @login_required
 def add_products_view(request, storage_id):
-    """View to add products by code"""
+    """
+    View to add products by code
+    FIXED: Now passes credentials to Scrapper
+    """
     storage = get_object_or_404(
         Storage,
         id=storage_id,
@@ -1627,14 +1729,17 @@ def add_products_view(request, storage_id):
             settore = form.cleaned_data['settore']
             
             try:
-                # Use scrapper to initialize products
-                from .scripts.scrapper import Scrapper
-                from .scripts.helpers import Helper
-                from .services import RestockService
                 
+                from .scripts.helpers import Helper                
                 service = RestockService(storage)
                 helper = Helper()
-                scrapper = Scrapper(helper, service.db)
+                
+                scrapper = Scrapper(
+                    username=storage.supermarket.username,
+                    password=storage.supermarket.password,
+                    helper=helper,
+                    db=service.db
+                )
                 
                 try:
                     scrapper.navigate()
@@ -1672,7 +1777,6 @@ def purge_products_view(request, storage_id):
     )
     
     if request.method == 'POST':
-        from .forms import PurgeProductsForm
         form = PurgeProductsForm(request.POST)
         
         if form.is_valid():
@@ -1725,8 +1829,7 @@ def purge_products_view(request, storage_id):
             except Exception as e:
                 logger.exception("Error in purge operation")
                 messages.error(request, f"Error: {str(e)}")
-    else:
-        from .forms import PurgeProductsForm
+    else:        
         form = PurgeProductsForm()
     
     # Get pending purges
@@ -1772,7 +1875,7 @@ def check_purge_flagged_view(request, storage_id):
 
 @login_required
 def restock_progress_view(request, log_id):
-    """AJAX endpoint to check restock progress"""
+    """AJAX endpoint to check restock progress - ENHANCED with detailed stage info"""
     log = get_object_or_404(
         RestockLog,
         id=log_id,
@@ -1781,10 +1884,23 @@ def restock_progress_view(request, log_id):
     
     stage_info = log.get_stage_display_info()
     
+    # Get current stage details for better UX
+    stage_details = {
+        'pending': 'Initializing...',
+        'updating_stats': 'Downloading product statistics from PAC2000A... This may take 5-10 minutes.',
+        'stats_updated': 'Statistics updated successfully!',
+        'calculating_order': 'Analyzing stock levels and calculating order quantities...',
+        'order_calculated': 'Order calculation complete!',
+        'executing_order': 'Placing order in PAC2000A system...',
+        'completed': 'All operations completed successfully!',
+        'failed': 'Operation failed. See error details below.'
+    }
+    
     data = {
         'status': log.status,
         'current_stage': log.current_stage,
         'stage_label': stage_info['label'],
+        'stage_details': stage_details.get(log.current_stage, ''),
         'progress': stage_info['progress'],
         'icon': stage_info['icon'],
         'products_ordered': log.products_ordered,
@@ -1793,6 +1909,59 @@ def restock_progress_view(request, log_id):
         'stats_updated_at': log.stats_updated_at.isoformat() if log.stats_updated_at else None,
         'order_calculated_at': log.order_calculated_at.isoformat() if log.order_calculated_at else None,
         'order_executed_at': log.order_executed_at.isoformat() if log.order_executed_at else None,
+        'retry_count': log.retry_count,
+        'can_retry': log.can_retry(),
     }
     
     return JsonResponse(data)
+
+@login_required
+@require_POST
+def flag_products_for_purge_view(request, log_id):
+    """Flag multiple skipped products for purging"""
+    log = get_object_or_404(
+        RestockLog,
+        id=log_id,
+        storage__supermarket__owner=request.user
+    )
+    
+    try:
+        data = json.loads(request.body)
+        products = data.get('products', [])
+        
+        if not products:
+            return JsonResponse({'success': False, 'message': 'No products provided'}, status=400)
+        
+        service = RestockService(log.storage)
+        
+        flagged_count = 0
+        purged_count = 0
+        errors = []
+        
+        for product in products:
+            cod = product['cod']
+            var = product['var']
+            
+            try:
+                result = service.db.flag_for_purge(cod, var)
+                
+                if result['action'] == 'flagged':
+                    flagged_count += 1
+                elif result['action'] == 'purged':
+                    purged_count += 1
+            except Exception as e:
+                logger.warning(f"Error flagging {cod}.{var}: {e}")
+                errors.append(f"{cod}.{var}: {str(e)}")
+        
+        service.close()
+        
+        return JsonResponse({
+            'success': True,
+            'flagged': flagged_count,
+            'purged': purged_count,
+            'errors': errors
+        })
+        
+    except Exception as e:
+        logger.exception("Error flagging products")
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
