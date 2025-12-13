@@ -7,7 +7,6 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
-from .constants import PASSWORD, USERNAME
 from .DatabaseManager import DatabaseManager
 from .helpers import Helper
 import pdfplumber
@@ -16,40 +15,51 @@ import re
 
 class Scrapper:
 
-    def __init__(self, helper: Helper, db: DatabaseManager) -> None:
-        # Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Run Chrome in headless mode
-        chrome_options.add_argument("--no-sandbox")  # Required for some environments
-        chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-        chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        chrome_options.add_argument('--log-level=3')  # Suppress console logs
-
+    def __init__(self, username: str, password: str, helper: Helper, db: DatabaseManager) -> None:
+        """
+        Initialize scrapper with credentials.
+        
+        Args:
+            username: PAC2000A username
+            password: PAC2000A password
+            helper: Helper instance
+            db: DatabaseManager instance
+        """
+        self.username = username
+        self.password = password
         self.helper = helper
+        self.db = db
+        
+        # Set up the Selenium WebDriver
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_argument('--log-level=3')
+
         self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)
-        self.db = db
-        self.offers_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Offers"
+        self.offers_path = r"C:\Users\rugge\Documents\GitHub\lama-restock\Offers"
         self.current_day = datetime.now().day
 
     def login(self):
-
+        """Login to PAC2000A"""
         self.driver.get('https://www.pac2000a.it/PacApplicationUserPanel/faces/home.jsf')
     
-
-        # Wait for the username field to be present, indicating that the page has loaded
+        # Wait for the username field to be present
         WebDriverWait(self.driver, 10).until(
             EC.presence_of_element_located((By.ID, "username"))
         )
 
-        # Log in by entering the username and password, then clicking the login button
+        # Log in
         username_field = self.driver.find_element(By.ID, "username")
         password_field = self.driver.find_element(By.ID, "Password")
         login_button = self.driver.find_element(By.CLASS_NAME, "btn-primary")
 
-        username_field.send_keys(USERNAME)
-        password_field.send_keys(PASSWORD)
+        username_field.send_keys(self.username)
+        password_field.send_keys(self.password)
         login_button.click()
 
     def navigate(self):

@@ -12,6 +12,8 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from pathlib import Path
+import csv
+import io
 from django.conf import settings
 import os
 from .automation_services import AutomatedRestockService
@@ -28,6 +30,7 @@ from .forms import (
     StockAdjustmentForm, BulkStockAdjustmentForm, RecordLossesForm, SingleProductVerificationForm
 )
 from .services import RestockService, StorageService
+from .scripts.scrapper import Scrapper
 import logging
 
 logger = logging.getLogger(__name__)
@@ -331,11 +334,10 @@ def run_restock_view(request, storage_id):
             
             if is_ajax:
                 # CRITICAL FIX: Create service INSIDE background thread to avoid SQLite threading issues
-                import threading
                 
                 def run_workflow():
                     """Background thread worker - creates its own DB connection"""
-                    from .automation_services import AutomatedRestockService
+                    
                     
                     # CRITICAL: Service (and DB connection) created in THIS thread
                     service = AutomatedRestockService(storage)
@@ -355,7 +357,7 @@ def run_restock_view(request, storage_id):
                 return JsonResponse({'log_id': log.id})
             else:
                 # Synchronous execution for non-AJAX
-                from .automation_services import AutomatedRestockService
+                
                 service = AutomatedRestockService(storage)
                 
                 try:
@@ -427,11 +429,10 @@ def retry_restock_view(request, log_id):
         
         if is_ajax:
             # CRITICAL FIX: Create service in background thread
-            import threading
             
             def run_retry():
                 """Background thread worker - creates its own DB connection"""
-                from .automation_services import AutomatedRestockService
+                
                 
                 # CRITICAL: Service created in THIS thread
                 service = AutomatedRestockService(storage)
@@ -450,7 +451,7 @@ def retry_restock_view(request, log_id):
             return JsonResponse({'success': True, 'log_id': log_id})
         else:
             # Synchronous retry
-            from .automation_services import AutomatedRestockService
+            
             service = AutomatedRestockService(storage)
             
             try:
@@ -606,7 +607,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     logger.warning(f"Could not enrich order {cod}.{var}: {e}")
                     continue
             
-            # NEW: Enrich skipped products with details
+             # NEW: Enrich skipped products with details
             enriched_skipped = []
             for skipped in skipped_products:
                 cod = skipped.get('cod')
@@ -628,14 +629,34 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         enriched_skipped.append({
                             'cod': cod,
                             'var': var,
-                            'name': row[0],
+                            'name': row[0] or f"Product {cod}.{var}",
                             'stock': row[1] or 0,
-                            'disponibilita': row[2],
+                            'disponibilita': row[2] or 'Unknown',
+                            'reason': reason
+                        })
+                    else:
+                        # Product not in database
+                        enriched_skipped.append({
+                            'cod': cod,
+                            'var': var,
+                            'name': f"Product {cod}.{var}",
+                            'stock': 0,
+                            'disponibilita': 'Unknown',
                             'reason': reason
                         })
                 except Exception as e:
                     logger.warning(f"Could not enrich skipped product {cod}.{var}: {e}")
-                    continue
+                    # Add anyway with minimal info
+                    enriched_skipped.append({
+                        'cod': cod,
+                        'var': var,
+                        'name': f"Product {cod}.{var}",
+                        'stock': 0,
+                        'disponibilita': 'Unknown',
+                        'reason': reason
+                    })
+            
+            logger.info(f"Enriched {len(enriched_skipped)} skipped products for display")
             
             # Calculate summary
             summary = {
@@ -650,7 +671,9 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             context['clusters'] = clusters
             context['summary'] = summary
             context['results'] = results
-            context['skipped_products'] = enriched_skipped
+            context['skipped_products'] = enriched_skipped  # Make sure this is set!
+            
+            logger.info(f"Context prepared: {len(enriched_orders)} orders, {len(enriched_skipped)} skipped")
             
         finally:
             service.close()
@@ -1076,7 +1099,10 @@ def manual_list_update_view(request, storage_id):
 
 @login_required
 def upload_promos_view(request, supermarket_id):
-    """Upload and process promo PDF file - SUPERMARKET LEVEL"""
+    """
+    Upload and process promo PDF file - SUPERMARKET LEVEL
+    FIXED: Now passes credentials to Scrapper
+    """
     supermarket = get_object_or_404(
         Supermarket,
         id=supermarket_id,
@@ -1100,9 +1126,7 @@ def upload_promos_view(request, supermarket_id):
                     for chunk in pdf_file.chunks():
                         destination.write(chunk)
                 
-                # Get database path for this supermarket
-                from .services import RestockService
-                # Use first storage to get db connection (they share same supermarket DB)
+                # Get database connection
                 first_storage = supermarket.storages.first()
                 
                 if not first_storage:
@@ -1111,9 +1135,17 @@ def upload_promos_view(request, supermarket_id):
                 
                 service = RestockService(first_storage)
                 
+                
+                
+                scrapper = Scrapper(
+                    username=supermarket.username,
+                    password=supermarket.password,
+                    helper=service.helper,
+                    db=service.db
+                )
+                
                 # Parse and update promos
-                from .scripts.scrapper import Scrapper
-                promo_list = Scrapper(service.helper, service.db).parse_promo_pdf(str(file_path))
+                promo_list = scrapper.parse_promo_pdf(str(file_path))
                 
                 service.db.update_promos(promo_list)
                 service.close()
@@ -1230,10 +1262,7 @@ def bulk_adjust_stock_view(request, storage_id):
             csv_file = request.FILES['csv_file']
             default_reason = form.cleaned_data['reason']
             
-            try:
-                import csv
-                import io
-                
+            try:                
                 # Read CSV
                 decoded_file = csv_file.read().decode('utf-8')
                 csv_reader = csv.DictReader(io.StringIO(decoded_file))
@@ -1682,7 +1711,10 @@ def losses_analytics_unified_view(request):
 
 @login_required
 def add_products_view(request, storage_id):
-    """View to add products by code"""
+    """
+    View to add products by code
+    FIXED: Now passes credentials to Scrapper
+    """
     storage = get_object_or_404(
         Storage,
         id=storage_id,
@@ -1697,14 +1729,17 @@ def add_products_view(request, storage_id):
             settore = form.cleaned_data['settore']
             
             try:
-                # Use scrapper to initialize products
-                from .scripts.scrapper import Scrapper
-                from .scripts.helpers import Helper
-                from .services import RestockService
                 
+                from .scripts.helpers import Helper                
                 service = RestockService(storage)
                 helper = Helper()
-                scrapper = Scrapper(helper, service.db)
+                
+                scrapper = Scrapper(
+                    username=storage.supermarket.username,
+                    password=storage.supermarket.password,
+                    helper=helper,
+                    db=service.db
+                )
                 
                 try:
                     scrapper.navigate()
@@ -1884,8 +1919,6 @@ def restock_progress_view(request, log_id):
 @require_POST
 def flag_products_for_purge_view(request, log_id):
     """Flag multiple skipped products for purging"""
-    import json
-    
     log = get_object_or_404(
         RestockLog,
         id=log_id,

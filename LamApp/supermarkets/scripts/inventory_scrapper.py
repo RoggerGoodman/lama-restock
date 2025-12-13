@@ -1,8 +1,7 @@
 # LamApp/supermarkets/scripts/inventory_scrapper.py
 """
 CRITICAL FIX: File saving now works reliably on both Windows and Linux servers.
-- Windows: Uses pyautogui for Save As dialog
-- Linux/Server: Uses direct download with Chrome preferences
+SECURITY FIX: Credentials now passed as parameters instead of imported from constants
 """
 from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
@@ -15,7 +14,6 @@ from selenium.common.exceptions import TimeoutException
 import time
 import os
 import sys
-from .constants import PASSWORD, USERNAME
 from django.conf import settings
 import logging
 
@@ -31,12 +29,21 @@ IS_LINUX = sys.platform.startswith('linux')
 
 class Inventory_Scrapper:
 
-    def __init__(self) -> None:
+    def __init__(self, username: str, password: str) -> None:
+        """
+        Initialize inventory scrapper with credentials.
+        
+        Args:
+            username: PAC2000A username
+            password: PAC2000A password
+        """
+        self.username = username
+        self.password = password
+        
         # Set up the Selenium WebDriver
         chrome_options = Options()
 
         # Make direct download the default on all platforms (no prompt).
-        # Headless etc. still used on Linux servers.
         if IS_LINUX:
             logger.info("Configuring Chrome for server/headless mode (direct download)")
             chrome_options.add_argument("--headless")
@@ -56,11 +63,11 @@ class Inventory_Scrapper:
             "profile.default_content_setting_values.automatic_downloads": 1,
         }
         chrome_options.add_experimental_option("prefs", prefs)
-        self.use_save_dialog = False  # prefer automatic direct download for both OSes
+        self.use_save_dialog = False
 
         # Suppress Chrome DevTools and other noise
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        chrome_options.add_argument('--log-level=3')  # Suppress console logs
+        chrome_options.add_argument('--log-level=3')
 
         self.driver = webdriver.Chrome(options=chrome_options)
         self.wait = WebDriverWait(self.driver, 10)
@@ -88,8 +95,8 @@ class Inventory_Scrapper:
         # Enter credentials
         username_field = self.driver.find_element(By.ID, "username")
         password_field = self.driver.find_element(By.ID, "password")
-        username_field.send_keys(USERNAME)
-        password_field.send_keys(PASSWORD)
+        username_field.send_keys(self.username)
+        password_field.send_keys(self.password)
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
         
@@ -98,9 +105,6 @@ class Inventory_Scrapper:
     def downloader(self, target):
         """
         Download loss files from PAC2000A.
-
-        Unified approach: trigger export, then watch save_path for new file(s),
-        rename the downloaded file to the requested 'target' filename.
         """
         logger.info(f"Starting download for: {target}")
 
@@ -151,7 +155,7 @@ class Inventory_Scrapper:
             try:
                 self.wait.until(EC.presence_of_element_located((By.XPATH, target_xpath)))
             except TimeoutException:
-                logger.error(f" Target '{target}' not found in results after filtering")
+                logger.error(f"Target '{target}' not found in results after filtering")
                 self.close_current_tab_and_switch()
                 return
 
@@ -170,7 +174,7 @@ class Inventory_Scrapper:
                     continue
 
             if row_index is None:
-                logger.error(f" Could not find row for target: {target}")
+                logger.error(f"Could not find row for target: {target}")
                 self.close_current_tab_and_switch()
                 return
 
@@ -203,7 +207,7 @@ class Inventory_Scrapper:
 
             time.sleep(1)
 
-            # Final export click: snapshot download dir BEFORE clicking so we can detect new files
+            # Final export click
             preexisting = set()
             try:
                 preexisting = set(os.listdir(save_path))
@@ -216,11 +220,11 @@ class Inventory_Scrapper:
             # Trigger export/download
             expo_button3.click()
 
-            # Wait for the new download to appear and rename it to the target name
+            # Wait for the new download to appear and rename it
             renamed = self.wait_for_new_download_and_rename(preexisting, target, save_path, timeout=45)
 
             if not renamed:
-                logger.error(f" Could not retrieve or rename downloaded file for target: {target}")
+                logger.error(f"Could not retrieve or rename downloaded file for target: {target}")
             else:
                 logger.info(f" Download saved as: {renamed}")
 
@@ -231,18 +235,14 @@ class Inventory_Scrapper:
             logger.info(f" Successfully downloaded: {target}")
 
         except Exception as e:
-            logger.exception(f" Error downloading {target}")
+            logger.exception(f"Error downloading {target}")
             try:
                 self.close_current_tab_and_switch()
             except:
                 pass
     
     def wait_for_new_download_and_rename(self, preexisting_files, target: str, save_dir: str, timeout: int = 30):
-        """
-        Wait for a new file to appear in save_dir (compared to preexisting_files).
-        When a completed CSV is detected, rename it to `target` (adding .csv if needed).
-        Returns the final path if success, or False on timeout/error.
-        """
+        """Wait for download and rename to target filename"""
         if not target.lower().endswith(".csv"):
             target = target + ".csv"
 
@@ -259,45 +259,35 @@ class Inventory_Scrapper:
                 current_files = set()
 
             new_files = current_files - set(preexisting_files)
-            # Filter out transient files we don't care about (optionally)
+            
             if new_files:
-                # If there are completed CSV(s) among new files, pick the newest
                 csv_candidates = [f for f in new_files if f.lower().endswith(".csv")]
                 if csv_candidates:
-                    # choose newest by mtime
                     csv_paths = [os.path.join(save_dir, f) for f in csv_candidates]
                     csv_paths.sort(key=lambda p: os.path.getmtime(p), reverse=True)
                     src = csv_paths[0]
-                    # Decide final name (avoid overwriting)
+                    
                     final = expected_path
                     if os.path.exists(final):
                         base, ext = os.path.splitext(expected_path)
                         final = f"{base}_{int(time.time())}{ext}"
                         logger.info(f"Target exists, using unique final name: {final}")
+                    
                     try:
-                        os.replace(src, final)  # atomic on many platforms
+                        os.replace(src, final)
                         logger.info(f"Renamed downloaded file '{src}' -> '{final}'")
                         return final
                     except Exception as e:
                         logger.exception(f"Failed to rename download file {src} -> {final}: {e}")
                         return False
 
-                # If only .crdownload present, wait for it to finish and become .csv
                 crdownloads = [f for f in new_files if f.lower().endswith(".crdownload")]
                 if crdownloads:
-                    # if crdownload present, just wait a bit and loop
                     logger.info(f"Download in progress (.crdownload present): {crdownloads}")
+            
             time.sleep(1)
 
-        # timeout - report contents for debugging
-        logger.error(f" Download timeout after {timeout}s for expected target: {target}")
-        try:
-            logger.info(f"Files in {save_dir}:")
-            for f in os.listdir(save_dir):
-                logger.info(f"  - {f}")
-        except Exception as e:
-            logger.error(f"Could not list directory: {e}")
-
+        logger.error(f"Download timeout after {timeout}s for expected target: {target}")
         return False
         
     def close_current_tab_and_switch(self):
@@ -305,10 +295,8 @@ class Inventory_Scrapper:
         handles = self.driver.window_handles
         current = self.driver.current_window_handle
 
-        # Close the current tab
         self.driver.close()
 
-        # Switch to another open tab (if any remain)
         remaining = [h for h in handles if h != current]
         if remaining:
             self.driver.switch_to.window(remaining[0])

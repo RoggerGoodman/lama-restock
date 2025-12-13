@@ -877,23 +877,3 @@ class DatabaseManager:
             return results
         except:
             return []
-        
-    def purge_settore(self, settore):
-        """
-        Permanently deletes all products belonging to the given settore.
-        """
-        cur = self.conn.cursor()
-        cur.execute("DELETE FROM products WHERE settore = ?", (settore,))
-        self.conn.commit()
-        
-    
-    def purge_orphan_stats(self):
-        """
-        Permanently deletes all stats belonging to products without a math in the products table.
-        """
-        cur = self.conn.cursor()
-        cur.execute("""
-            DELETE FROM product_stats
-            WHERE (cod, v) NOT IN (SELECT cod, v FROM products)
-        """)
-        self.conn.commit()

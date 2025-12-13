@@ -183,7 +183,9 @@
 let pollingInterval;
 let currentLogId;
 let pollCount = 0;
-const MAX_POLLS = 300; // 10 minutes at 2 sec intervals
+const MAX_POLLS = 900; // 30 minutes at 2 sec intervals (was 10 min - too short!)
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 5;
 
 document.getElementById('restockForm').addEventListener('submit', function(e) {
     e.preventDefault();
@@ -218,6 +220,9 @@ document.getElementById('restockForm').addEventListener('submit', function(e) {
 
 function startProgressPolling(logId) {
     pollCount = 0;
+    consecutiveErrors = 0;
+    
+    console.log(`Starting polling for log ${logId}, max polls: ${MAX_POLLS}`);
     
     // Poll every 2 seconds
     pollingInterval = setInterval(() => {
@@ -225,16 +230,52 @@ function startProgressPolling(logId) {
         
         if (pollCount > MAX_POLLS) {
             clearInterval(pollingInterval);
-            showError('Operation timed out. Please check the log for details.');
+            console.error('Max polls reached, checking final status...');
+            
+            // Do one final check before timing out
+            fetch(`/logs/${logId}/progress/`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'completed' || data.status === 'failed') {
+                        updateProgress(data);
+                    } else {
+                        showError('Operation timed out. Refreshing to check final status...');
+                        setTimeout(() => window.location.reload(), 2000);
+                    }
+                })
+                .catch(() => {
+                    showError('Operation timed out. Please refresh the page to check status.');
+                });
             return;
         }
         
+        // Show progress indicator every 30 seconds
+        if (pollCount % 15 === 0) {
+            console.log(`Poll ${pollCount}/${MAX_POLLS} - Still checking...`);
+        }
+        
         fetch(`/logs/${logId}/progress/`)
-            .then(response => response.json())
-            .then(data => updateProgress(data))
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                consecutiveErrors = 0; // Reset error counter on success
+                updateProgress(data);
+            })
             .catch(error => {
-                console.error('Polling error:', error);
-                // Don't stop polling on network errors, just log
+                consecutiveErrors++;
+                console.error(`Polling error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, error);
+                
+                // Only stop after multiple consecutive errors
+                if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                    clearInterval(pollingInterval);
+                    showError('Lost connection to server. Refreshing page...');
+                    setTimeout(() => window.location.reload(), 2000);
+                }
+                // Otherwise just log and continue polling
             });
     }, 2000);
 }
@@ -335,9 +376,17 @@ function showSuccess(products, packages, logId) {
     const successMessage = document.getElementById('successMessage');
     const viewLogLink = document.getElementById('viewLogLink');
     
-    successMessage.textContent = `Successfully ordered ${products} products (${packages} packages total)`;
+    successMessage.innerHTML = `
+        Successfully ordered ${products} products (${packages} packages total)<br>
+        <small class="text-white">Redirecting to detailed log in 3 seconds...</small>
+    `;
     viewLogLink.href = `/logs/${logId}/`;
     successContainer.style.display = 'block';
+    
+    // Auto-redirect after 3 seconds
+    setTimeout(() => {
+        window.location.href = `/logs/${logId}/`;
+    }, 3000);
 }
 
 function showError(message, canRetry, retryCount, maxRetries) {

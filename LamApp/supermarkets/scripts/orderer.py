@@ -8,31 +8,39 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 import time
 import re
-from .constants import PASSWORD, USERNAME
 from .logger import logger
 
 
 class Orderer:
 
-    def __init__(self) -> None:
-        #Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
+    def __init__(self, username: str, password: str) -> None:
+        """
+        Initialize orderer with credentials.
+        
+        Args:
+            username: PAC2000A username
+            password: PAC2000A password
+        """
+        self.username = username
+        self.password = password
+        
+        # Set up the Selenium WebDriver
         chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Run Chrome in headless mode
-        chrome_options.add_argument("--no-sandbox")  # Required for some environments
-        chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-        chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        chrome_options.add_argument('--log-level=3')  # Suppress console logs
+        chrome_options.add_argument('--log-level=3')
 
         self.driver = webdriver.Chrome(options=chrome_options)
         self.wait = WebDriverWait(self.driver, 300)
         self.actions = ActionChains(self.driver)
         
-        # NEW: Track skipped products during order execution
         self.skipped_products = []
         
-    # Load the webpage
     def login(self):
+        """Login to PAC2000A"""
         self.driver.get('https://dropzone.pac2000a.it/')
 
         # Wait for the page to fully load
@@ -43,8 +51,8 @@ class Orderer:
         # Login
         username_field = self.driver.find_element(By.ID, "username")
         password_field = self.driver.find_element(By.ID, "password")
-        username_field.send_keys(USERNAME)
-        password_field.send_keys(PASSWORD)
+        username_field.send_keys(self.username)
+        password_field.send_keys(self.password)
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
 
@@ -66,7 +74,7 @@ class Orderer:
             lambda driver: len(driver.window_handles) > 1
         )
 
-        self.driver.switch_to.window(self.driver.window_handles[-1])  # Switch to the new tab
+        self.driver.switch_to.window(self.driver.window_handles[-1])
 
         self.wait.until(
             EC.presence_of_element_located((By.ID, "Ordini"))
@@ -81,13 +89,11 @@ class Orderer:
             EC.element_to_be_clickable((By.XPATH, "//a[@href='./lista']"))
         )
 
-        # Click the "Lista" link
         lista_link.click()
 
-        # Wait for the modal to be present
         modal = self.wait.until(
             EC.presence_of_element_located((By.CLASS_NAME, "modal-content"))
-)
+        )
 
         self.wait.until(
             EC.presence_of_element_located((By.XPATH, "//button[text()='Chiudi']"))
@@ -97,7 +103,6 @@ class Orderer:
 
         close_button = self.driver.find_element(By.XPATH, "//button[text()='Chiudi']")
         close_button.click()
-
 
         time.sleep(1)
 

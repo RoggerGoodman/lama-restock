@@ -7,39 +7,51 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 import time
 
+
 class Finder:
-
-    def __init__(self) -> None:
-        # Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Run Chrome in headless mode
-        chrome_options.add_argument("--no-sandbox")  # Required for some environments
-        chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-        chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        chrome_options.add_argument('--log-level=3')  # Suppress console logs
-
-        self.driver = webdriver.Chrome(options=chrome_options)
-        self.actions = ActionChains(self.driver)
-        self.wait = WebDriverWait(self.driver, 10)
+    """
+    Discovers available storages for a supermarket
+    FIXED: Now accepts credentials as parameters
+    """
+    
+    def __init__(self, username: str, password: str):
+        """
+        Initialize finder with credentials.
         
-    # Load the webpage
-    def login(self, USERNAME, PASSWORD):
+        Args:
+            username: PAC2000A username
+            password: PAC2000A password
+        """
+        self.username = username
+        self.password = password
+        
+        # Set up Chrome
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_argument('--log-level=3')
+        
+        self.driver = webdriver.Chrome(options=chrome_options)
+        self.wait = WebDriverWait(self.driver, 10)
+        self.actions = ActionChains(self.driver)
+    
+    def login(self):
+        """Login to PAC2000A"""
         self.driver.get('https://dropzone.pac2000a.it/')
-
-        # Wait for the page to fully load
-        WebDriverWait(self.driver, 10).until(
+        
+        self.wait.until(
             EC.presence_of_element_located((By.ID, "username"))
         )
-
-        # Login
+        
         username_field = self.driver.find_element(By.ID, "username")
         password_field = self.driver.find_element(By.ID, "password")
-        username_field.send_keys(USERNAME)
-        password_field.send_keys(PASSWORD)
+        username_field.send_keys(self.username)
+        password_field.send_keys(self.password)
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
-
         WebDriverWait(self.driver, 10).until(
             EC.presence_of_element_located((By.ID, "carta31"))
         )
