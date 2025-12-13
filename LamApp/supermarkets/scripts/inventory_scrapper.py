@@ -1,8 +1,4 @@
 # LamApp/supermarkets/scripts/inventory_scrapper.py
-"""
-CRITICAL FIX: File saving now works reliably on both Windows and Linux servers.
-SECURITY FIX: Credentials now passed as parameters instead of imported from constants
-"""
 from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
 from selenium.webdriver.common.by import By

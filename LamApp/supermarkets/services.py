@@ -20,33 +20,27 @@ logger = logging.getLogger(__name__)
 class RestockService:
     """Service to handle restock operations"""
     
+    def get_db_path(self):
+        """Get database path - now returns supermarket name for PostgreSQL."""
+        return self.supermarket.name
+
     def __init__(self, storage: Storage):
         self.storage = storage
         self.settore = storage.settore
         self.supermarket = storage.supermarket
-        
-        # Initialize your existing classes
         self.helper = Helper()
         
-        # Use storage-specific database path
-        db_path = self.get_db_path()
-        self.db = DatabaseManager(self.helper, db_path=db_path)
-        self.decision_maker = DecisionMaker(
+        # NEW: Pass supermarket name instead of db_path
+        self.db = DatabaseManager(
             self.helper, 
-            db_path=db_path,
-            blacklist_set=self.get_blacklist_set()  # ADD BLACKLIST
+            supermarket_name=self.supermarket.name
         )
-    
-    def get_db_path(self):
-        """Get database path for this storage"""
-        db_dir = Path(settings.BASE_DIR) / 'databases'
-        db_dir.mkdir(exist_ok=True)
         
-        # Sanitize supermarket name for filename
-        safe_name = "".join(c for c in self.supermarket.name if c.isalnum() or c in (' ', '_')).strip()
-        safe_name = safe_name.replace(' ', '_')
-        
-        return str(db_dir / f"{safe_name}.db")
+        self.decision_maker = DecisionMaker(
+            self.helper,
+            supermarket_name=self.supermarket.name,  # NEW parameter
+            blacklist_set=self.get_blacklist_set()
+        )
     
     def get_blacklist_set(self):
         """

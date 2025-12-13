@@ -1,5 +1,5 @@
 # LamApp/supermarkets/scripts/decision_maker.py
-import sqlite3
+from .DatabaseManager import DatabaseManager
 import json
 from datetime import datetime
 from .helpers import Helper
@@ -9,19 +9,12 @@ from .processor_N import process_N_sales
 
 
 class DecisionMaker:
-    def __init__(self, helper: Helper, db_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Database\supermarket.db", blacklist_set=None):
+    def __init__(self, db: DatabaseManager, helper: Helper, blacklist_set=None):
         """
-        Initialize the decision maker.
-
-        Args:
-            db_path (str): Path to your SQLite database.
-            helper: Your Helper instance (for calculations, utilities, etc.).
-            blacklist_set (set): Set of (cod, var) tuples to exclude from ordering
+        Initialize decision maker with PostgreSQL support.
         """
-        self.db_path = db_path
-        self.helper = helper
-        self.conn = sqlite3.connect(db_path)
-        self.conn.row_factory = sqlite3.Row
+        self.helper = helper        
+        self.conn = db.conn
         self.cursor = self.conn.cursor()
 
         self.orders_list = []
@@ -228,16 +221,12 @@ class DecisionMaker:
 
             if len(sold_array) >= 4:                    
                 recent_months_sales = self.helper.calculate_data_recent_months(sold_array, 3)
-                expected_packages = self.helper.calculate_expectd_packages(bought_array, package_size)
                 deviation_corrected = self.helper.calculate_deviation(sold_array, recent_months_sales, True)               
                 trend = self.helper.find_trend(sold_array, bought_array)
-                turnover = self.helper.calculate_turnover(sold_array, bought_array, package_size, trend)
             else:
                 recent_months_sales = -1
-                expected_packages = 0
                 deviation_corrected = 0
                 trend = 0
-                turnover = 0
                 logger.info(f"Deviation and recent months sales are not available for this article") 
             
             if len(sold_array) >= 16:
