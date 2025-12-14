@@ -1,7 +1,7 @@
 # LamApp/supermarkets/scripts/decision_maker.py
 from .DatabaseManager import DatabaseManager
 import json
-from datetime import datetime
+from datetime import datetime, date
 from .helpers import Helper
 from .logger import logger
 from .analyzer import analyzer
@@ -15,7 +15,7 @@ class DecisionMaker:
         """
         self.helper = helper        
         self.conn = db.conn
-        self.cursor = self.conn.cursor()
+        self.cursor = db.cursor()
 
         self.orders_list = []
         self.skipped_products = []  # NEW: Track skipped products
@@ -48,7 +48,7 @@ class DecisionMaker:
         query = """
             SELECT cod, v, internal, internal_updated
             FROM extra_losses
-            WHERE json_valid(internal) = 1
+            WHERE internal IS NOT NULL
             AND internal_updated IS NOT NULL;
         """
         self.cursor.execute(query)
@@ -60,7 +60,7 @@ class DecisionMaker:
             extra_losses.append({
                 "cod": row["cod"],
                 "v": row["v"],
-                "internal": json.loads(row["internal"]),
+                "internal": row["internal"] or [],
                 "internal_updated": row["internal_updated"]
             })
         
@@ -74,9 +74,8 @@ class DecisionMaker:
         match = next((r for r in extra_losses if r["cod"] == cod and r["v"] == v), None)
     
         # Compute months passed since internal_updated
-        updated_date = datetime.strptime(match["internal_updated"], "%Y-%m-%d")
-        today = datetime.today()
-
+        updated_date:date = match["internal_updated"]
+        today = date.today()
         months_passed = (today.year - updated_date.year) * 12 + (today.month - updated_date.month)
 
         # Pad internal list with zeros
@@ -92,7 +91,7 @@ class DecisionMaker:
         return summed
     
     def retrive_products_on_sale(self):
-        today = datetime.now().date().isoformat()  # 'YYYY-MM-DD'
+        today = date.today() 
 
         self.cursor.execute("""
             SELECT cod, v, price_std, price_s
@@ -105,10 +104,15 @@ class DecisionMaker:
         rows = self.cursor.fetchall()
         sale_discounts = {}
 
-        for cod, v, price_std, price_s in rows:
-            price_std = float(price_std)
-            price_s   = float(price_s)
+        for row in rows:
+            cod = row["cod"]
+            v = row["v"]
 
+            price_std = row["price_std"]
+            price_s = row["price_s"]
+
+            if price_std is None or price_s is None:
+                continue
             # avoid division errors
             if price_std > price_s:
                 discount_pct = round((price_std - price_s) / price_std * 100, 2)
@@ -155,9 +159,9 @@ class DecisionMaker:
             
             descrizione = row["descrizione"]
             stock = row["stock"]
-            sold_array = json.loads(row["sold_last_24"]) if row["sold_last_24"] else []
-            bought_array = json.loads(row["bought_last_24"]) if row["bought_last_24"] else []
-            sales_sets = json.loads(row["sales_sets"]) if row["sales_sets"] else []
+            sold_array = row["sold_last_24"] or []
+            bought_array = row["bought_last_24"] or []
+            sales_sets = row["sales_sets"] or []
             package_size = row["pz_x_collo"]
             package_multi = row["rapp"]
             verified = row["verified"]
@@ -165,7 +169,7 @@ class DecisionMaker:
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
             
-            if verified == 0 and disponibilita == "No":
+            if verified == False and disponibilita == "No":
                 logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not verified and not available")
                 skipped_list.append({
                     'cod': product_cod,
@@ -185,7 +189,7 @@ class DecisionMaker:
                 })
                 continue
             
-            if stock < 0 and verified == 1:
+            if stock < 0 and verified == True:
                 analyzer.anomalous_stock_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
             
             if len(bought_array) == 0 and len(sold_array) == 0:
@@ -255,7 +259,7 @@ class DecisionMaker:
 
                 req_stock += (req_stock * discount/100)
 
-            if verified == 1:
+            if verified == True:
                 category = "N"
                 result, check, status = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales, 

@@ -541,7 +541,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 
                 # Get product details from database
                 try:
-                    cur = service.db.conn.cursor()
+                    cur = service.db.cursor()
                     cur.execute("""
                         SELECT 
                             p.descrizione,
@@ -551,7 +551,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                             CASE
                                 WHEN e.sale_start IS NOT NULL
                                 AND e.sale_end IS NOT NULL
-                                AND DATE('now') BETWEEN e.sale_start AND e.sale_end
+                                AND CURRENT_DATE BETWEEN e.sale_start AND e.sale_end
                                 THEN e.cost_s
                                 ELSE e.cost_std
                             END AS cost
@@ -564,17 +564,18 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     row = cur.fetchone()
                     
                     if row:
-                        descrizione = row[0]
-                        cluster = row[1] or 'Uncategorized'
-                        package_size = row[2] or 0
-                        rapp = row[3] or 1
-                        cost = row[4] or 0
+                        descrizione = row['descrizione']
+                        cluster = row['cluster'] or 'Uncategorized'
+                        package_size = row['pz_x_collo'] or 0
+                        rapp = row['rapp'] or 1
+                        cost = row['cost'] or 0
                         cost = cost/rapp
                     else:
                         descrizione = f"Product {cod}.{var}"
                         cluster = 'Uncategorized'
                         package_size = 0
                         rapp = 1
+                        cost = 0
                         cost = cost/rapp
                     
                     order_item = {
@@ -615,7 +616,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 reason = skipped.get('reason', 'Unknown')
                 
                 try:
-                    cur = service.db.conn.cursor()
+                    cur = service.db.cursor()
                     cur.execute("""
                         SELECT p.descrizione, ps.stock, p.disponibilita
                         FROM products p
@@ -629,9 +630,9 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         enriched_skipped.append({
                             'cod': cod,
                             'var': var,
-                            'name': row[0] or f"Product {cod}.{var}",
-                            'stock': row[1] or 0,
-                            'disponibilita': row[2] or 'Unknown',
+                            'name': row['descrizione'] or f"Product {cod}.{var}",
+                            'stock': row['stock'] or 0,
+                            'disponibilita': row['disponibilita'] or 'Unknown',
                             'reason': reason
                         })
                     else:
@@ -1379,15 +1380,14 @@ def stock_value_unified_view(request):
         storage = Storage.objects.get(id=storage_id)
         service = RestockService(storage)
         settore = storage.settore
-        cursor = service.db.conn.cursor()
+        cursor = service.db.cursor()
         cursor.execute("""
             SELECT DISTINCT cluster 
             FROM products 
             WHERE cluster IS NOT NULL AND cluster != '' AND settore = %s 
             ORDER BY cluster ASC
         """, (settore,))
-        print(len(cursor.fetchall()))
-        clusters = [row[0] for row in cursor.fetchall()]
+        clusters = [row['cluster'] for row in cursor.fetchall()]
         service.close()
     
     # Calculate values
@@ -1398,7 +1398,7 @@ def stock_value_unified_view(request):
         try:
             service = RestockService(storage)
             settore = storage.settore
-            cursor = service.db.conn.cursor()
+            cursor = service.db.cursor()
             
             # Build query based on filters
             query = """
@@ -1424,8 +1424,8 @@ def stock_value_unified_view(request):
             
             for row in cursor.fetchall():
                 print(f"row in cursor {row}")
-                category_name = row[0]
-                value = row[1] or 0
+                category_name = row['category']
+                value = row['value'] or 0
                 
                 if category_name in category_totals:
                     category_totals[category_name] += value
@@ -1606,7 +1606,7 @@ def losses_analytics_unified_view(request):
             # Use first storage to get DB connection (they share same DB per supermarket)
             first_storage = sm_data['storages'][0]
             service = RestockService(first_storage)
-            cursor = service.db.conn.cursor()
+            cursor = service.db.cursor()
             
             # Build WHERE clause based on selected storage
             if storage_id:
@@ -1635,20 +1635,20 @@ def losses_analytics_unified_view(request):
             loss_types = ['broken', 'expired', 'internal']
             
             for row in cursor.fetchall():
-                cod = row[0]
-                v = row[1]
-                description = row[5] or f"Product {cod}.{v}"
+                cod = row['cod']
+                v = row['v']
+                description = row['descrizione'] or f"Product {cod}.{v}"
                 
                 product_key = (cod, v, description)
                 if product_key not in top_products_dict:
                     top_products_dict[product_key] = 0
                 
-                for i, loss_type in enumerate(loss_types):
-                    loss_json = row[2 + i]
+                for loss_type in loss_types:
+                    loss_json = row[loss_type] or []
                     
                     if loss_json:
                         try:
-                            loss_array = json.loads(loss_json)
+                            loss_array = loss_json
                             
                             # Calculate for period
                             months_to_include = min(period_months, len(loss_array))
@@ -1664,7 +1664,7 @@ def losses_analytics_unified_view(request):
                                 
                                 # Add to top products
                                 top_products_dict[product_key] += period_losses
-                        except:
+                        except (ValueError, TypeError):
                             continue
             
             service.close()
