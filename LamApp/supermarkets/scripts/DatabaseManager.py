@@ -1,11 +1,10 @@
 import re
-from pathlib import Path
-import json
 import pandas as pd
 import psycopg2
 import psycopg2.extras
 import os
-from datetime import datetime, date
+from psycopg2.extras import Json
+from datetime import date
 from .helpers import Helper
 
 class DatabaseManager:
@@ -34,9 +33,11 @@ class DatabaseManager:
             options=f'-c search_path={self.schema},public'
         )
         
-        # Use RealDictCursor for dict-like row access
-        #self.conn.cursor_factory = psycopg2.extras.RealDictCursor #TODO shoud be removed maybe
         self.conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+
+    def cursor(self):
+        """Get a RealDictCursor for dict-like row access"""
+        return self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     def _sanitize_schema_name(self, name):
         """Convert name to valid PostgreSQL schema name."""
@@ -47,8 +48,8 @@ class DatabaseManager:
     # ---------- TABLE CREATION ----------
 
     def create_tables(self):
-        cur = self.conn.cursor()
-
+        cur = self.cursor()
+        cur.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
         # Main product table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS products (
@@ -59,20 +60,22 @@ class DatabaseManager:
                 pz_x_collo INTEGER,
                 settore TEXT NOT NULL,
                 disponibilita TEXT CHECK(disponibilita IN ('Si','No')) DEFAULT 'Si',
+                cluster TEXT,
+                purge_flag BOOLEAN DEFAULT FALSE,
                 PRIMARY KEY (cod, v)
             )
         """)
 
-        # Stats table linked by cod + v
-        # No ON DELETE CASCADE — orphans will be cleaned manually
+        # Stats table - Remove json_valid, PostgreSQL validates JSON automatically
         cur.execute("""
             CREATE TABLE IF NOT EXISTS product_stats (
                 cod INTEGER NOT NULL,
                 v INTEGER NOT NULL,
-                sold_last_24 TEXT CHECK(json_valid(sold_last_24)),
-                bought_last_24 TEXT CHECK(json_valid(bought_last_24)),
+                sold_last_24 JSONB,
+                bought_last_24 JSONB,
+                sales_sets JSONB,
                 stock INTEGER DEFAULT 0,
-                verified BOOLEAN DEFAULT 0,
+                verified BOOLEAN DEFAULT FALSE,
                 last_update DATE,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)
@@ -99,26 +102,23 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS extra_losses (
                 cod INTEGER NOT NULL,
                 v INTEGER NOT NULL,
-                
-                broken TEXT CHECK(json_valid(broken)),
+                broken JSONB,
                 broken_updated DATE,
-                
-                expired TEXT CHECK(json_valid(expired)),
+                expired JSONB,
                 expired_updated DATE,
-                
-                internal TEXT CHECK(json_valid(internal)),
+                internal JSONB,
                 internal_updated DATE,
-                
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)
             )
         """)
-
-        # helpful indexes
+        # Indexes
         cur.execute("CREATE INDEX IF NOT EXISTS idx_products_settore ON products(settore)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_products_cluster ON products(cluster)")
 
         self.conn.commit()
-        print("Tables created or verified.")
+        print(f"Tables created/verified in schema: {self.schema}")
+
 
     def close(self):
         self.conn.close()
@@ -126,10 +126,11 @@ class DatabaseManager:
     # ---------- PRODUCT MANAGEMENT ----------
 
     def add_product(self, cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita="Si"):
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.execute("""
-            INSERT OR IGNORE INTO products (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
+            INSERT INTO products (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (cod, v) DO NOTHING
         """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
         self.conn.commit()
 
@@ -137,17 +138,18 @@ class DatabaseManager:
         """
         Initialize with variable-length arrays (empty if not provided).
         """
-        sold_json = json.dumps(sold or [])
-        bought_json = json.dumps(bought or [])
-        today = date.today().isoformat()  # e.g. "2025-10-28"
+        sold_array = sold or []
+        bought_array = bought or []
+        today = date.today() 
 
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.execute("""
-            INSERT OR IGNORE INTO product_stats (
+            INSERT INTO product_stats (
                 cod, v, sold_last_24, bought_last_24, stock, verified, last_update
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (cod, v, sold_json, bought_json, stock, int(verified), today))
+            ON CONFLICT (cod, v) DO NOTHING
+        """, (cod, v, sold_array, bought_array, stock, bool(verified), today))
 
         self.conn.commit()
 
@@ -197,7 +199,7 @@ class DatabaseManager:
         sold_pkt = _prepare_packet(sold_update)
         bought_pkt = _prepare_packet(bought_update)
 
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.execute("""
             SELECT sold_last_24, bought_last_24, stock, last_update, sales_sets
             FROM product_stats
@@ -216,12 +218,11 @@ class DatabaseManager:
             row = cur.fetchone()
 
         # --- Load arrays and previous metadata ---
-        sold_array = json.loads(row["sold_last_24"]) if row["sold_last_24"] else []
-        bought_array = json.loads(row["bought_last_24"]) if row["bought_last_24"] else []
+        sold_array = row["sold_last_24"] or []
+        bought_array = row["bought_last_24"] or []
         stock = int(row["stock"]) if row["stock"] is not None else 0
-        sales_sets = json.loads(row["sales_sets"]) if row and row["sales_sets"] else []
-        last_update_str = row["last_update"]
-        last_update_date = datetime.strptime(last_update_str, "%Y-%m-%d").date() if last_update_str else None
+        sales_sets = row["sales_sets"] or []
+        last_update_date = row["last_update"]
         current_date = date.today()
 
         # Use month numbers for continuity in your delta logic
@@ -281,11 +282,11 @@ class DatabaseManager:
             SET sold_last_24=%s, bought_last_24=%s, stock=%s, last_update=%s, sales_sets=%s
             WHERE cod=%s AND v=%s
         """, (
-            json.dumps(sold_array),
-            json.dumps(bought_array),
+            Json(sold_array),
+            Json(bought_array),
             stock,
-            current_date.isoformat(),
-            json.dumps(sales_sets),
+            current_date,
+            Json(sales_sets),
             cod, v
         ))
 
@@ -294,7 +295,7 @@ class DatabaseManager:
     # ---------- GETTERS ----------
 
     def get_product_stats(self, cod, v):
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.execute("""
             SELECT *
             FROM product_stats
@@ -303,16 +304,17 @@ class DatabaseManager:
         row = cur.fetchone()
         if not row:
             return None
+
         return {
-            "sold": json.loads(row["sold_last_24"]),
-            "bought": json.loads(row["bought_last_24"]),
-            "stock": row["stock"],
+            "sold": row["sold_last_24"] or [],
+            "bought": row["bought_last_24"] or [],
+            "stock": row["stock"] or 0,
             "verified": bool(row["verified"]),
             "last_update": row["last_update"],
         }
     
     def get_stock(self, cod, v):
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
         row = cur.fetchone()
         if not row:
@@ -330,7 +332,7 @@ class DatabaseManager:
         Returns:
             list[dict]: Each entry contains product details and corresponding stats.
         """
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.execute("""
             SELECT 
                 p.cod,
@@ -361,8 +363,8 @@ class DatabaseManager:
                 "rapp": row["rapp"],
                 "pz_x_collo": row["pz_x_collo"],
                 "disponibilita": row["disponibilita"],
-                "sold": json.loads(row["sold_last_24"]) if row["sold_last_24"] else [],
-                "bought": json.loads(row["bought_last_24"]) if row["bought_last_24"] else [],
+                "sold": row["sold_last_24"] or [],
+                "bought": row["bought_last_24"] or [],
                 "stock": row["stock"] if row["stock"] is not None else 0,
                 "verified": bool(row["verified"]) if row["verified"] is not None else False,
                 "last_update": row["last_update"],
@@ -371,7 +373,7 @@ class DatabaseManager:
         return results
     
     def get_category_stock_value(self, category: str):
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.execute("""
             SELECT e.cod, e.v, e.cost_std, ps.stock
             FROM economics e
@@ -399,7 +401,7 @@ class DatabaseManager:
         Update the stock quantity without changing the 'verified' flag.
         Use verify_stock() if this is a human-confirmed correction.
         """
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.execute("UPDATE product_stats SET stock=%s WHERE cod=%s AND v=%s", new_stock, cod, v)
         if cur.rowcount == 0:
             raise ValueError(f"No product_stats found for {cod}.{v}")
@@ -409,8 +411,8 @@ class DatabaseManager:
         """
         Update the 'verified' flag to false.
         """
-        cur = self.conn.cursor()
-        cur.execute("UPDATE product_stats SET verified=0 WHERE cod=%s AND v=%s", (cod, v))
+        cur = self.cursor()
+        cur.execute("UPDATE product_stats SET verified=FALSE WHERE cod=%s AND v=%s", (cod, v))
         if cur.rowcount == 0:
             raise ValueError(f"No product_stats found for {cod}.{v}")
         self.conn.commit()
@@ -425,7 +427,7 @@ class DatabaseManager:
         if type not in allowed:
             raise ValueError(f"Invalid type '{type}'. Allowed: {allowed}")
 
-        cur = self.conn.cursor()
+        cur = self.cursor()
 
         # 1) Check product exists in products table
         cur.execute("SELECT 1 FROM products WHERE cod=%s AND v=%s", (cod, v))
@@ -440,45 +442,46 @@ class DatabaseManager:
         row = cur.fetchone()
 
         today = date.today()
-        today_iso = today.isoformat()
+
 
         # If no entry exists, create it
         if row is None:
-            json_array = json.dumps([delta])
+            json_array = Json([delta])
             cur.execute(
-                f"""INSERT INTO extra_losses (cod, v, {type}, {type}_updated, 
-                    broken, broken_updated, expired, expired_updated, internal, internal_updated)
-                    VALUES (%s, %s, %s, %s, NULL, NULL, NULL, NULL, NULL, NULL)""",
-                (cod, v, json_array, today_iso)
+                f"""
+                INSERT INTO extra_losses (cod, v, {type}, {type}_updated)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (cod, v, Json([delta]), today)
             )
             self.conn.commit()
             self.adjust_stock(cod, v, -delta)
             return {"action": "new_entry", "cod": cod, "v": v, "delta": delta}
 
         # 3) Entry exists - get current data
-        existing_json = row[0]
-        existing_updated = row[1]
+        existing_json = row[type]
+        existing_updated:date = row[f"{type}_updated"]
 
         # Handle case where column exists but is NULL
         if existing_json is None:
             # Column is NULL - treat as new entry
-            json_array = json.dumps([delta])
+            json_array = Json([delta])
             cur.execute(
                 f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
-                (json_array, today_iso, cod, v)
+                (json_array, today, cod, v)
             )
             self.conn.commit()
             self.adjust_stock(cod, v, -delta)
             return {"action": "initialized_null", "cod": cod, "v": v, "delta": delta}
 
         # Parse existing JSON
-        arr = json.loads(existing_json)
+        arr = existing_json
         if not isinstance(arr, list):
             raise ValueError(f"extra_losses.{type} for {cod}.{v} is not a JSON array")
 
         # Parse last update date
-        if isinstance(existing_updated, str):
-            last_update = datetime.fromisoformat(existing_updated).date()
+        if isinstance(existing_updated, date):
+            last_update = existing_updated
         else:
             raise ValueError(f"extra_losses.{type}_updated for {cod}.{v} has unexpected type")
 
@@ -495,10 +498,10 @@ class DatabaseManager:
                 difference = new_first - int(old_first)
                 self.adjust_stock(cod, v, -int(difference))
                 
-                json_out = json.dumps(arr[:24])
+                json_out = Json(arr[:24])
                 cur.execute(
                     f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
-                    (json_out, today_iso, cod, v)
+                    (json_out, today, cod, v)
                 )
                 self.conn.commit()
                 
@@ -518,10 +521,10 @@ class DatabaseManager:
             new_arr = [new_delta] + zeros + arr
             new_arr = new_arr[:24]  # Trim to 24 months
             
-            json_out = json.dumps(new_arr)
+            json_out = Json(new_arr)
             cur.execute(
                 f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
-                (json_out, today_iso, cod, v)
+                (json_out, today, cod, v)
             )
             self.conn.commit()
             
@@ -539,7 +542,7 @@ class DatabaseManager:
         """
         Increment or decrement the stock by 'delta' (can be negative).
         """
-        cur = self.conn.cursor()
+        cur = self.cursor()
         # Fetch current stock
         cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
         row = cur.fetchone()
@@ -562,8 +565,8 @@ class DatabaseManager:
         Called when a human inspects and corrects stock. Optionally set a new stock value.
         This sets verified = True. (Does not change last_update.)
         """
-        cur = self.conn.cursor()
-        cur.execute("UPDATE product_stats SET stock=%s, verified=1 WHERE cod=%s AND v=%s", (new_stock, cod, v))
+        cur = self.cursor()
+        cur.execute("UPDATE product_stats SET stock=%s, verified=TRUE WHERE cod=%s AND v=%s", (new_stock, cod, v))
         if cur.rowcount == 0:
             raise ValueError(f"No product_stats found for {cod}.{v}")
         
@@ -576,7 +579,7 @@ class DatabaseManager:
 
     def register_internal_sales(self, delta, cod, v):
         
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.execute("""
             SELECT sold_last_24
             FROM product_stats
@@ -585,9 +588,9 @@ class DatabaseManager:
         row = cur.fetchone()
 
         if row:
-            sold_json = row[0]
+            sold_json = row['sold_last_24']
             if sold_json:
-                sold_arr = json.loads(sold_json)
+                sold_arr = sold_json
             else:
                 sold_arr = []
 
@@ -603,7 +606,7 @@ class DatabaseManager:
                 UPDATE product_stats
                 SET sold_last_24 = %s
                 WHERE cod=%s AND v=%s
-            """, (json.dumps(sold_arr), cod, v))
+            """, (Json(sold_arr), cod, v))
 
     def import_from_excel(self, file_path: str, settore: str):
         """
@@ -671,7 +674,7 @@ class DatabaseManager:
 
 
         # Step 5: Insert or update all at once
-        cur = self.conn.cursor()
+        cur = self.cursor()
         cur.executemany("""
             INSERT INTO products 
             (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
@@ -691,14 +694,14 @@ class DatabaseManager:
                 price_std = CASE
                     WHEN excluded.sale_start IS NOT NULL
                     AND excluded.sale_end IS NOT NULL
-                    AND DATE('now') BETWEEN excluded.sale_start AND excluded.sale_end
+                    AND CURRENT_DATE BETWEEN excluded.sale_start AND excluded.sale_end
                     THEN economics.price_std    -- keep existing
                     ELSE excluded.price_std     -- update
                 END,
                 cost_std = CASE
                     WHEN excluded.sale_start IS NOT NULL
                     AND excluded.sale_end IS NOT NULL
-                    AND DATE('now') BETWEEN excluded.sale_start AND excluded.sale_end
+                    AND CURRENT_DATE BETWEEN excluded.sale_start AND excluded.sale_end
                     THEN economics.cost_std
                     ELSE excluded.cost_std
                 END,
@@ -721,11 +724,11 @@ class DatabaseManager:
         if not promo_list:
             return  # nothing to do
 
-        cur = self.conn.cursor()
+        cur = self.cursor()
 
         # Step 1: get all existing (cod, v) combinations in the DB
         cur.execute("SELECT cod, v FROM economics")
-        existing = set((int(cod), int(v)) for cod, v in cur.fetchall())
+        existing = set((int(row["cod"]), int(row["v"])) for row in cur.fetchall())
 
         # Filter promo_list using same type normalization
         filtered_list = [
@@ -744,10 +747,7 @@ class DatabaseManager:
                 price_s   = excluded.price_s,
                 cost_s    = excluded.cost_s,
                 sale_start = excluded.sale_start,
-                sale_end   = excluded.sale_end,
-                price_std  = price_std,
-                cost_std   = cost_std,
-                category = category
+                sale_end   = excluded.sale_end
         """, filtered_list)
 
         self.conn.commit()
@@ -760,7 +760,7 @@ class DatabaseManager:
         - If stock > 0: Add to blacklist and set purge_flag
         - If stock = 0: Delete immediately
         """
-        cur = self.conn.cursor()
+        cur = self.cursor()
         
         # Check if product exists and get stock
         cur.execute("""
@@ -795,7 +795,7 @@ class DatabaseManager:
             # Set verified to false so it doesn't get ordered
             cur.execute("""
                 UPDATE product_stats
-                SET verified = 0
+                SET verified = FALSE
                 WHERE cod = %s AND v = %s
             """, (cod, v))
             
@@ -817,7 +817,7 @@ class DatabaseManager:
         Permanently delete a product from all tables.
         Returns dict with deletion details.
         """
-        cur = self.conn.cursor()
+        cur = self.cursor()
         
         deleted_from = []
         
@@ -857,7 +857,7 @@ class DatabaseManager:
         Call this periodically or after stock adjustments.
         Returns list of purged products.
         """
-        cur = self.conn.cursor()
+        cur = self.cursor()
         
         # Check if purge_flag column exists
         try:
@@ -885,7 +885,7 @@ class DatabaseManager:
     
     def get_purge_pending(self):
         """Get all products flagged for purging (with stock > 0)"""
-        cur = self.conn.cursor()
+        cur = self.cursor()
         
         try:
             cur.execute("""

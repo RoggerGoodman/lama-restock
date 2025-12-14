@@ -96,9 +96,17 @@ class Scrapper:
         """
         
         timeout=10
-        cur = self.db.conn.cursor()
+        cur = self.db.cursor()
         if settore == "GENERI VARI":
-            cur.execute("SELECT ps.cod, ps.v FROM 'product_stats' ps LEFT JOIN 'products' p ON ps.cod = p.cod AND ps.v = p.v WHERE p.settore = %s AND ps.verified = 1", (settore,))
+            cur.execute("""
+                SELECT ps.cod, ps.v
+                FROM product_stats ps
+                LEFT JOIN products p
+                ON ps.cod = p.cod
+                AND ps.v   = p.v
+                AND p.settore = %s
+                WHERE ps.verified = TRUE
+            """, (settore,))
         else :
             cur.execute("SELECT cod, v FROM products WHERE settore = %s", (settore,))
 
@@ -315,7 +323,7 @@ class Scrapper:
 
                 pz_x_collo = self.determine_pz_x_collo(final_array_bought)
 
-                cur = self.db.conn.cursor()
+                cur = self.db.cursor()
                 cur.execute("""
                     INSERT INTO products 
                     (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)

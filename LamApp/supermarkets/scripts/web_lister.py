@@ -54,7 +54,7 @@ class WebLister:
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
+            #chrome_options.add_argument("--disable-gpu")
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
             chrome_options.add_argument('--log-level=3')  # Suppress console logs
         
@@ -267,7 +267,7 @@ class WebLister:
         self.actions.move_to_element(menu_element).perform()
         time.sleep(0.3)
         
-        export_element = self.driver.find_element(By.XPATH, '//*[@id="exportGridStrumenti"]')
+        export_element = self.driver.find_element(By.XPATH, '/html/body/div[1]/nav[2]/div[1]/ul/li[5]/button') 
         export_element.click()
         time.sleep(0.3)
         
