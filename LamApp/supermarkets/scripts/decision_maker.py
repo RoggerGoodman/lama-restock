@@ -18,7 +18,8 @@ class DecisionMaker:
         self.cursor = db.cursor()
 
         self.orders_list = []
-        self.new_products = []  # NEW: Track new products
+        self.new_products = []
+        self.zombie_products = []
         self.sale_discounts = self.retrive_products_on_sale()
         
         # Store blacklist - if None, create empty set
@@ -141,7 +142,8 @@ class DecisionMaker:
         extra_losses_lookup = {(item["cod"], item["v"]) for item in extra_losses_list}
 
         order_list = []
-        new_products = []  # NEW: Track new products
+        new_products = []  
+        zombie_products = []
 
         for row in products:
             product_cod = row["cod"]
@@ -170,6 +172,11 @@ class DecisionMaker:
 
             if stock == 0 and verified == True and disponibilita == "No":
                 logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not available and has a verified stock equal to 0")
+                zombie_products.append({
+                        'cod': product_cod,
+                        'var': product_var,
+                        'reason': 'Is finished and not restockable'
+                })
                 continue
                         
             package_size *= package_multi
@@ -268,8 +275,9 @@ class DecisionMaker:
 
         analyzer.log_statistics()
         self.orders_list = order_list
-        self.new_products = new_products  # NEW: Store new products
-        logger.info(f"Finished settore '{settore}'. Total orders: {len(order_list)}, Total new products: {len(new_products)}")
+        self.new_products = new_products 
+        self.zombie_products = zombie_products
+        logger.info(f"Finished settore '{settore}'. Total orders: {len(order_list)}, Total new products: {len(new_products)}, Total zombie products: {len(zombie_products)}")
 
     def close(self):
         """Cleanly close the database connection."""
