@@ -18,8 +18,12 @@ class DecisionMaker:
         self.cursor = db.cursor()
 
         self.orders_list = []
-        self.new_products = []
-        self.zombie_products = []
+        
+        # NEW: Three separate tracking lists
+        self.new_products = []      # Brand new products never in system
+        self.skipped_products = []  # Products skipped for various reasons
+        self.zombie_products = []   # Products that are finished/not restockable
+        
         self.sale_discounts = self.retrive_products_on_sale()
         
         # Store blacklist - if None, create empty set
@@ -130,7 +134,7 @@ class DecisionMaker:
     def decide_orders_for_settore(self, settore, coverage):
         """
         Main method — iterate over all products in a settore and decide what to order.
-        Now tracks skipped products!
+        Now tracks THREE lists: new_products, skipped_products, zombie_products
         """
         logger.info(f"Processing settore: {settore} with coverage: {coverage} days")
         logger.info(f"Active blacklist has {len(self.blacklist)} products")
@@ -143,6 +147,7 @@ class DecisionMaker:
 
         order_list = []
         new_products = []  
+        skipped_products = []
         zombie_products = []
 
         for row in products:
@@ -171,11 +176,11 @@ class DecisionMaker:
                 continue
 
             if stock == 0 and verified == True and disponibilita == "No":
-                logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not available and has a verified stock equal to 0")
+                logger.info(f"{product_cod}.{product_var} - {descrizione} marked as zombie because is not available and has verified stock of 0")
                 zombie_products.append({
-                        'cod': product_cod,
-                        'var': product_var,
-                        'reason': 'Is finished and not restockable'
+                    'cod': product_cod,
+                    'var': product_var,
+                    'reason': 'Finished and not restockable (disponibilita=No, stock=0)'
                 })
                 continue
                         
@@ -190,18 +195,18 @@ class DecisionMaker:
             
             if len(bought_array) == 0 and len(sold_array) == 0:
                 if disponibilita == "Si":
-                    reason = "The product has never been in the system"
+                    reason = "Never been in system (brand new product)"
                     analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     self.helper.line_breaker()
                     new_products.append({
                         'cod': product_cod,
                         'var': product_var,
-                        'reason': 'Never been in system (brand new)'
+                        'reason': reason
                     })
                     continue
                 elif disponibilita == "No":
-                    reason = "The article is NOT available for restocking and hasn't been bought or sold for the last 3 months" 
+                    reason = "Not available for restocking and no sales history"
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     self.helper.line_breaker()
                     continue
@@ -257,7 +262,7 @@ class DecisionMaker:
                     avg_sales_base, req_stock, stock
                 )
             else:
-                reason = "skipped because is not verified"
+                reason = "Not verified in system"
                 self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                 self.helper.line_breaker()
                 continue
@@ -274,10 +279,18 @@ class DecisionMaker:
                 self.helper.line_breaker()
 
         analyzer.log_statistics()
+        
+        # Store all three lists
         self.orders_list = order_list
         self.new_products = new_products 
+        self.skipped_products = skipped_products
         self.zombie_products = zombie_products
-        logger.info(f"Finished settore '{settore}'. Total orders: {len(order_list)}, Total new products: {len(new_products)}, Total zombie products: {len(zombie_products)}")
+        
+        logger.info(f"Finished settore '{settore}':")
+        logger.info(f"  - Orders: {len(order_list)}")
+        logger.info(f"  - New products: {len(new_products)}")
+        logger.info(f"  - Skipped products: {len(skipped_products)}")
+        logger.info(f"  - Zombie products: {len(zombie_products)}")
 
     def close(self):
         """Cleanly close the database connection."""
