@@ -169,13 +169,11 @@ class AutomatedRestockService:
     def calculate_order_checkpoint(self, log: RestockLog, coverage=None):
         """
         CHECKPOINT 2: Calculate what needs to be ordered.
-        THREAD-SAFE: Uses fresh DB connection.
-        Includes skipped products in results!
+        ENHANCED: Now tracks THREE lists (new, skipped, zombie)
         Returns orders_list on success, raises exception on failure.
         """
         logger.info(f"[CHECKPOINT 2] Calculating order for {self.storage.name}")
         
-        # Update log stage
         log.current_stage = 'calculating_order'
         log.save()
         
@@ -196,22 +194,26 @@ class AutomatedRestockService:
                 logger.info(f"Running decision maker with coverage={coverage} for settore={self.settore}")
                 self.decision_maker.decide_orders_for_settore(self.settore, coverage)
                 
-                # Get orders list AND skipped products
+                # Get all THREE lists from decision maker
                 orders_list = self.decision_maker.orders_list
+                new_products = self.decision_maker.new_products
                 skipped_products = self.decision_maker.skipped_products
+                zombie_products = self.decision_maker.zombie_products
                 
                 # Update log statistics
                 log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
                 log.products_ordered = len(orders_list)
                 log.total_packages = sum(qty for _, _, qty in orders_list)
                 
-                # Store detailed results INCLUDING skipped products
+                # Store detailed results INCLUDING ALL THREE LISTS
                 log.set_results({
                     'orders': [
                         {'cod': cod, 'var': var, 'qty': qty}
                         for cod, var, qty in orders_list
                     ],
+                    'new_products': new_products,
                     'skipped_products': skipped_products,
+                    'zombie_products': zombie_products,
                     'settore': self.settore,
                     'coverage': float(coverage)
                 })
@@ -224,7 +226,9 @@ class AutomatedRestockService:
                 logger.info(
                     f" [CHECKPOINT 2 COMPLETE] Order calculated: "
                     f"{len(orders_list)} products ordered, "
-                    f"{len(skipped_products)} products skipped, "
+                    f"{len(new_products)} new products, "
+                    f"{len(skipped_products)} skipped, "
+                    f"{len(zombie_products)} zombie products, "
                     f"{log.total_packages} packages"
                 )
                 return orders_list
@@ -240,10 +244,11 @@ class AutomatedRestockService:
             
             logger.exception(f" [CHECKPOINT 2 FAILED] Error calculating order for {self.storage.name}")
             raise
-    
+   
     def execute_order_checkpoint(self, log: RestockLog, orders_list):
         """
         CHECKPOINT 3: Execute the order in PAC2000A.
+        ENHANCED: Now also tracks products skipped during ordering
         """
         logger.info(f"[CHECKPOINT 3] Executing order for {self.storage.name}")
         
@@ -268,7 +273,18 @@ class AutomatedRestockService:
             
             try:
                 orderer.login()
-                orderer.make_orders(self.storage.name, orders_list)
+                successful_orders, order_skipped = orderer.make_orders(self.storage.name, orders_list)
+                
+                # Add order-skipped products to existing results
+                results = log.get_results()
+                if 'order_skipped_products' not in results:
+                    results['order_skipped_products'] = []
+                results['order_skipped_products'].extend(order_skipped)
+                log.set_results(results)
+                
+                # Update statistics
+                log.products_ordered = len(successful_orders)
+                log.total_packages = sum(qty for _, _, qty in successful_orders)
                 
                 log.current_stage = 'completed'
                 log.status = 'completed'
@@ -276,7 +292,10 @@ class AutomatedRestockService:
                 log.completed_at = timezone.now()
                 log.save()
                 
-                logger.info(f" [CHECKPOINT 3 COMPLETE] Order executed successfully for {self.storage.name}")
+                logger.info(
+                    f" [CHECKPOINT 3 COMPLETE] Order executed successfully: "
+                    f"{len(successful_orders)} ordered, {len(order_skipped)} skipped during ordering"
+                )
                 return True
                 
             finally:

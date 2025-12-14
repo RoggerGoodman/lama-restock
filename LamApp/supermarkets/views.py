@@ -39,7 +39,18 @@ logger = logging.getLogger(__name__)
 # ============ Authentication Views ============
 
 def signup(request):
-    """User registration"""
+    """
+    User registration with optional closure control.
+    Set REGISTRATION_CLOSED=True in settings to disable public registration.
+    """
+    # Check if registration is closed
+    if getattr(settings, 'REGISTRATION_CLOSED', False):
+        messages.error(
+            request,
+            "Registration is currently closed. Please contact the administrator for access."
+        )
+        return redirect('login')
+    
     if request.method == "POST":
         form = UserCreationForm(request.POST)
         if form.is_valid():
@@ -49,7 +60,33 @@ def signup(request):
             return redirect("dashboard")
     else:
         form = UserCreationForm()
+    
     return render(request, "registration/signup.html", {"form": form})
+
+from django.contrib.admin.views.decorators import staff_member_required
+
+@staff_member_required
+def admin_create_user(request):
+    """
+    Admin-only view to create new users when registration is closed.
+    Only accessible by Django admin users.
+    """
+    if request.method == "POST":
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            messages.success(
+                request,
+                f"User '{user.username}' created successfully!"
+            )
+            return redirect('admin:index')
+    else:
+        form = UserCreationForm()
+    
+    return render(request, "admin/create_user.html", {
+        "form": form,
+        "title": "Create New User"
+    })
 
 
 # ============ Dashboard Views ============
@@ -520,18 +557,18 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         context = super().get_context_data(**kwargs)
         results = self.object.get_results()
         
-        # Get orders from JSON
+        # Get all lists from results
         orders = results.get('orders', [])
-        
-        # NEW: Get skipped products from results
+        new_products = results.get('new_products', [])
         skipped_products = results.get('skipped_products', [])
+        zombie_products = results.get('zombie_products', [])
+        order_skipped_products = results.get('order_skipped_products', [])
         
-        # Enrich orders with product details from database
+        # Enrich orders with product details
         enriched_orders = []
         service = RestockService(self.object.storage)
         
         try:
-            # Group by cluster for organization
             clusters = {}
             
             for order in orders:
@@ -539,7 +576,6 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 var = order['var']
                 qty = order['qty']
                 
-                # Get product details from database
                 try:
                     cur = service.db.cursor()
                     cur.execute("""
@@ -576,7 +612,6 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         package_size = 0
                         rapp = 1
                         cost = 0
-                        cost = cost/rapp
                     
                     order_item = {
                         'cod': cod,
@@ -590,7 +625,6 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     
                     enriched_orders.append(order_item)
                     
-                    # Group by cluster
                     if cluster not in clusters:
                         clusters[cluster] = {
                             'items': [],
@@ -608,56 +642,11 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     logger.warning(f"Could not enrich order {cod}.{var}: {e}")
                     continue
             
-             # NEW: Enrich skipped products with details
-            enriched_skipped = []
-            for skipped in skipped_products:
-                cod = skipped.get('cod')
-                var = skipped.get('var')
-                reason = skipped.get('reason', 'Unknown')
-                
-                try:
-                    cur = service.db.cursor()
-                    cur.execute("""
-                        SELECT p.descrizione, ps.stock, p.disponibilita
-                        FROM products p
-                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                        WHERE p.cod = %s AND p.v = %s
-                    """, (cod, var))
-                    
-                    row = cur.fetchone()
-                    
-                    if row:
-                        enriched_skipped.append({
-                            'cod': cod,
-                            'var': var,
-                            'name': row['descrizione'] or f"Product {cod}.{var}",
-                            'stock': row['stock'] or 0,
-                            'disponibilita': row['disponibilita'] or 'Unknown',
-                            'reason': reason
-                        })
-                    else:
-                        # Product not in database
-                        enriched_skipped.append({
-                            'cod': cod,
-                            'var': var,
-                            'name': f"Product {cod}.{var}",
-                            'stock': 0,
-                            'disponibilita': 'Unknown',
-                            'reason': reason
-                        })
-                except Exception as e:
-                    logger.warning(f"Could not enrich skipped product {cod}.{var}: {e}")
-                    # Add anyway with minimal info
-                    enriched_skipped.append({
-                        'cod': cod,
-                        'var': var,
-                        'name': f"Product {cod}.{var}",
-                        'stock': 0,
-                        'disponibilita': 'Unknown',
-                        'reason': reason
-                    })
-            
-            logger.info(f"Enriched {len(enriched_skipped)} skipped products for display")
+            # Enrich all three product lists
+            enriched_new = self._enrich_product_list(service, new_products)
+            enriched_skipped = self._enrich_product_list(service, skipped_products)
+            enriched_zombie = self._enrich_product_list(service, zombie_products)
+            enriched_order_skipped = self._enrich_product_list(service, order_skipped_products)
             
             # Calculate summary
             summary = {
@@ -665,21 +654,86 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 'total_packages': sum(o['qty'] for o in enriched_orders),
                 'total_clusters': len(clusters),
                 'total_cost': sum(o['total_cost'] for o in enriched_orders),
-                'total_skipped': len(enriched_skipped)
+                'total_new': len(enriched_new),
+                'total_skipped': len(enriched_skipped),
+                'total_zombie': len(enriched_zombie),
+                'total_order_skipped': len(enriched_order_skipped),
             }
             
             context['enriched_orders'] = enriched_orders
             context['clusters'] = clusters
             context['summary'] = summary
             context['results'] = results
-            context['skipped_products'] = enriched_skipped  # Make sure this is set!
             
-            logger.info(f"Context prepared: {len(enriched_orders)} orders, {len(enriched_skipped)} skipped")
+            # Add all three lists to context
+            context['enriched_new'] = enriched_new
+            context['enriched_skipped'] = enriched_skipped
+            context['enriched_zombie'] = enriched_zombie
+            context['enriched_order_skipped'] = enriched_order_skipped
+            
+            logger.info(
+                f"Context prepared: {len(enriched_orders)} orders, "
+                f"{len(enriched_new)} new, {len(enriched_skipped)} skipped, "
+                f"{len(enriched_zombie)} zombie, {len(enriched_order_skipped)} order-skipped"
+            )
             
         finally:
             service.close()
         
         return context
+    
+    def _enrich_product_list(self, service, product_list):
+        """
+        Helper to enrich a list of products with database details.
+        """
+        enriched = []
+        
+        for item in product_list:
+            cod = item.get('cod')
+            var = item.get('var')
+            reason = item.get('reason', 'Unknown')
+            
+            try:
+                cur = service.db.cursor()
+                cur.execute("""
+                    SELECT p.descrizione, ps.stock, p.disponibilita
+                    FROM products p
+                    LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    WHERE p.cod = %s AND p.v = %s
+                """, (cod, var))
+                
+                row = cur.fetchone()
+                
+                if row:
+                    enriched.append({
+                        'cod': cod,
+                        'var': var,
+                        'name': row['descrizione'] or f"Product {cod}.{var}",
+                        'stock': row['stock'] or 0,
+                        'disponibilita': row['disponibilita'] or 'Unknown',
+                        'reason': reason
+                    })
+                else:
+                    enriched.append({
+                        'cod': cod,
+                        'var': var,
+                        'name': f"Product {cod}.{var}",
+                        'stock': 0,
+                        'disponibilita': 'Unknown',
+                        'reason': reason
+                    })
+            except Exception as e:
+                logger.warning(f"Could not enrich product {cod}.{var}: {e}")
+                enriched.append({
+                    'cod': cod,
+                    'var': var,
+                    'name': f"Product {cod}.{var}",
+                    'stock': 0,
+                    'disponibilita': 'Unknown',
+                    'reason': reason
+                })
+        
+        return enriched
 
 @login_required
 @require_POST
