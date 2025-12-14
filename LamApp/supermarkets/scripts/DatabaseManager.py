@@ -35,7 +35,7 @@ class DatabaseManager:
         )
         
         # Use RealDictCursor for dict-like row access
-        self.conn.cursor_factory = psycopg2.extras.RealDictCursor
+        #self.conn.cursor_factory = psycopg2.extras.RealDictCursor #TODO shoud be removed maybe
         self.conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
 
     def _sanitize_schema_name(self, name):
@@ -129,7 +129,7 @@ class DatabaseManager:
         cur = self.conn.cursor()
         cur.execute("""
             INSERT OR IGNORE INTO products (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
         self.conn.commit()
 
@@ -146,7 +146,7 @@ class DatabaseManager:
             INSERT OR IGNORE INTO product_stats (
                 cod, v, sold_last_24, bought_last_24, stock, verified, last_update
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (cod, v, sold_json, bought_json, stock, int(verified), today))
 
         self.conn.commit()
@@ -201,7 +201,7 @@ class DatabaseManager:
         cur.execute("""
             SELECT sold_last_24, bought_last_24, stock, last_update, sales_sets
             FROM product_stats
-            WHERE cod=? AND v=?
+            WHERE cod=%s AND v=%s
         """, (cod, v))
         row = cur.fetchone()
 
@@ -211,7 +211,7 @@ class DatabaseManager:
             cur.execute("""
                 SELECT sold_last_24, bought_last_24, stock, last_update, sales_sets
                 FROM product_stats
-                WHERE cod=? AND v=?
+                WHERE cod=%s AND v=%s
             """, (cod, v))
             row = cur.fetchone()
 
@@ -278,8 +278,8 @@ class DatabaseManager:
         # --- Persist changes ---
         cur.execute("""
             UPDATE product_stats
-            SET sold_last_24=?, bought_last_24=?, stock=?, last_update=?, sales_sets=?
-            WHERE cod=? AND v=?
+            SET sold_last_24=%s, bought_last_24=%s, stock=%s, last_update=%s, sales_sets=%s
+            WHERE cod=%s AND v=%s
         """, (
             json.dumps(sold_array),
             json.dumps(bought_array),
@@ -298,7 +298,7 @@ class DatabaseManager:
         cur.execute("""
             SELECT *
             FROM product_stats
-            WHERE cod=? AND v=?
+            WHERE cod=%s AND v=%s
         """, (cod, v))
         row = cur.fetchone()
         if not row:
@@ -313,7 +313,7 @@ class DatabaseManager:
     
     def get_stock(self, cod, v):
         cur = self.conn.cursor()
-        cur.execute("SELECT stock FROM product_stats WHERE cod=? AND v=?", (cod, v))
+        cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
         row = cur.fetchone()
         if not row:
             raise ValueError(f"No product_stats found for {cod}.{v}")
@@ -347,7 +347,7 @@ class DatabaseManager:
             FROM products AS p
             LEFT JOIN product_stats AS ps
                 ON p.cod = ps.cod AND p.v = ps.v
-            WHERE p.settore = ?
+            WHERE p.settore = %s
         """, (settore,))
 
         rows = cur.fetchall()
@@ -377,7 +377,7 @@ class DatabaseManager:
             FROM economics e
             JOIN product_stats ps
             ON e.cod = ps.cod AND e.v = ps.v
-            WHERE e.category = ?;
+            WHERE e.category = %s;
         """, (category,))
         
         rows = cur.fetchall()
@@ -400,7 +400,7 @@ class DatabaseManager:
         Use verify_stock() if this is a human-confirmed correction.
         """
         cur = self.conn.cursor()
-        cur.execute("UPDATE product_stats SET stock=? WHERE cod=? AND v=?", new_stock, cod, v)
+        cur.execute("UPDATE product_stats SET stock=%s WHERE cod=%s AND v=%s", new_stock, cod, v)
         if cur.rowcount == 0:
             raise ValueError(f"No product_stats found for {cod}.{v}")
         self.conn.commit()
@@ -410,7 +410,7 @@ class DatabaseManager:
         Update the 'verified' flag to false.
         """
         cur = self.conn.cursor()
-        cur.execute("UPDATE product_stats SET verified=0 WHERE cod=? AND v=?", (cod, v))
+        cur.execute("UPDATE product_stats SET verified=0 WHERE cod=%s AND v=%s", (cod, v))
         if cur.rowcount == 0:
             raise ValueError(f"No product_stats found for {cod}.{v}")
         self.conn.commit()
@@ -428,13 +428,13 @@ class DatabaseManager:
         cur = self.conn.cursor()
 
         # 1) Check product exists in products table
-        cur.execute("SELECT 1 FROM products WHERE cod=? AND v=?", (cod, v))
+        cur.execute("SELECT 1 FROM products WHERE cod=%s AND v=%s", (cod, v))
         if cur.fetchone() is None:
             raise ValueError(f"Product {cod}.{v} not found in products table")
 
         # 2) Get or create extra_losses entry
         cur.execute(
-            f"SELECT {type}, {type}_updated FROM extra_losses WHERE cod=? AND v=?",
+            f"SELECT {type}, {type}_updated FROM extra_losses WHERE cod=%s AND v=%s",
             (cod, v)
         )
         row = cur.fetchone()
@@ -448,7 +448,7 @@ class DatabaseManager:
             cur.execute(
                 f"""INSERT INTO extra_losses (cod, v, {type}, {type}_updated, 
                     broken, broken_updated, expired, expired_updated, internal, internal_updated)
-                    VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL)""",
+                    VALUES (%s, %s, %s, %s, NULL, NULL, NULL, NULL, NULL, NULL)""",
                 (cod, v, json_array, today_iso)
             )
             self.conn.commit()
@@ -464,7 +464,7 @@ class DatabaseManager:
             # Column is NULL - treat as new entry
             json_array = json.dumps([delta])
             cur.execute(
-                f"UPDATE extra_losses SET {type} = ?, {type}_updated = ? WHERE cod = ? AND v = ?",
+                f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
                 (json_array, today_iso, cod, v)
             )
             self.conn.commit()
@@ -497,7 +497,7 @@ class DatabaseManager:
                 
                 json_out = json.dumps(arr[:24])
                 cur.execute(
-                    f"UPDATE extra_losses SET {type} = ?, {type}_updated = ? WHERE cod = ? AND v = ?",
+                    f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
                     (json_out, today_iso, cod, v)
                 )
                 self.conn.commit()
@@ -520,7 +520,7 @@ class DatabaseManager:
             
             json_out = json.dumps(new_arr)
             cur.execute(
-                f"UPDATE extra_losses SET {type} = ?, {type}_updated = ? WHERE cod = ? AND v = ?",
+                f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
                 (json_out, today_iso, cod, v)
             )
             self.conn.commit()
@@ -541,7 +541,7 @@ class DatabaseManager:
         """
         cur = self.conn.cursor()
         # Fetch current stock
-        cur.execute("SELECT stock FROM product_stats WHERE cod=? AND v=?", (cod, v))
+        cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
         row = cur.fetchone()
         if not row:
             print(f"No product_stats found for {cod}.{v}")
@@ -552,7 +552,7 @@ class DatabaseManager:
 
         # Update stock and mark as verified
         cur.execute(
-            "UPDATE product_stats SET stock=? WHERE cod=? AND v=?",
+            "UPDATE product_stats SET stock=%s WHERE cod=%s AND v=%s",
             (new_stock, cod, v)
         )
         self.conn.commit()
@@ -563,12 +563,12 @@ class DatabaseManager:
         This sets verified = True. (Does not change last_update.)
         """
         cur = self.conn.cursor()
-        cur.execute("UPDATE product_stats SET stock=?, verified=1 WHERE cod=? AND v=?", (new_stock, cod, v))
+        cur.execute("UPDATE product_stats SET stock=%s, verified=1 WHERE cod=%s AND v=%s", (new_stock, cod, v))
         if cur.rowcount == 0:
             raise ValueError(f"No product_stats found for {cod}.{v}")
         
         if cluster != None:
-            cur.execute("UPDATE products SET cluster = ? WHERE cod=? AND v=?", (cluster, cod, v))
+            cur.execute("UPDATE products SET cluster = %s WHERE cod=%s AND v=%s", (cluster, cod, v))
             if cur.rowcount == 0:
                 raise ValueError(f"No products found for {cod}.{v}")
         
@@ -580,7 +580,7 @@ class DatabaseManager:
         cur.execute("""
             SELECT sold_last_24
             FROM product_stats
-            WHERE cod=? AND v=?
+            WHERE cod=%s AND v=%s
         """, (cod, v))
         row = cur.fetchone()
 
@@ -601,8 +601,8 @@ class DatabaseManager:
             # Update database
             cur.execute("""
                 UPDATE product_stats
-                SET sold_last_24 = ?
-                WHERE cod=? AND v=?
+                SET sold_last_24 = %s
+                WHERE cod=%s AND v=%s
             """, (json.dumps(sold_arr), cod, v))
 
     def import_from_excel(self, file_path: str, settore: str):
@@ -675,7 +675,7 @@ class DatabaseManager:
         cur.executemany("""
             INSERT INTO products 
             (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(cod, v) DO UPDATE SET
                 descrizione = excluded.descrizione,
                 rapp = excluded.rapp,
@@ -686,7 +686,7 @@ class DatabaseManager:
         cur.executemany("""
             INSERT INTO economics
             (cod, v, price_std, cost_std, price_s, cost_s, sale_start, sale_end, category)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(cod, v) DO UPDATE SET
                 price_std = CASE
                     WHEN excluded.sale_start IS NOT NULL
@@ -739,7 +739,7 @@ class DatabaseManager:
         # Step 3: perform the upsert on the filtered list
         cur.executemany("""
             INSERT INTO economics (cod, v, price_s, cost_s, sale_start, sale_end, price_std, cost_std, category)
-            VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0)
+            VALUES (%s, %s, %s, %s, %s, %s, 0, 0, 0)
             ON CONFLICT(cod, v) DO UPDATE SET
                 price_s   = excluded.price_s,
                 cost_s    = excluded.cost_s,
@@ -766,7 +766,7 @@ class DatabaseManager:
         cur.execute("""
             SELECT ps.stock 
             FROM product_stats ps
-            WHERE ps.cod = ? AND ps.v = ?
+            WHERE ps.cod = %s AND ps.v = %s
         """, (cod, v))
         
         row = cur.fetchone()
@@ -789,14 +789,14 @@ class DatabaseManager:
             cur.execute("""
                 UPDATE products 
                 SET purge_flag = 1 
-                WHERE cod = ? AND v = ?
+                WHERE cod = %s AND v = %s
             """, (cod, v))
             
             # Set verified to false so it doesn't get ordered
             cur.execute("""
                 UPDATE product_stats
                 SET verified = 0
-                WHERE cod = ? AND v = ?
+                WHERE cod = %s AND v = %s
             """, (cod, v))
             
             self.conn.commit()
@@ -822,22 +822,22 @@ class DatabaseManager:
         deleted_from = []
         
         # Delete from product_stats
-        cur.execute("DELETE FROM product_stats WHERE cod = ? AND v = ?", (cod, v))
+        cur.execute("DELETE FROM product_stats WHERE cod = %s AND v = %s", (cod, v))
         if cur.rowcount > 0:
             deleted_from.append('product_stats')
         
         # Delete from economics
-        cur.execute("DELETE FROM economics WHERE cod = ? AND v = ?", (cod, v))
+        cur.execute("DELETE FROM economics WHERE cod = %s AND v = %s", (cod, v))
         if cur.rowcount > 0:
             deleted_from.append('economics')
         
         # Delete from extra_losses
-        cur.execute("DELETE FROM extra_losses WHERE cod = ? AND v = ?", (cod, v))
+        cur.execute("DELETE FROM extra_losses WHERE cod = %s AND v = %s", (cod, v))
         if cur.rowcount > 0:
             deleted_from.append('extra_losses')
         
         # Delete from products (main table)
-        cur.execute("DELETE FROM products WHERE cod = ? AND v = ?", (cod, v))
+        cur.execute("DELETE FROM products WHERE cod = %s AND v = %s", (cod, v))
         if cur.rowcount > 0:
             deleted_from.append('products')
         

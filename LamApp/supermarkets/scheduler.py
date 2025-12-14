@@ -281,7 +281,7 @@ def run_losses_recording():
             
             service = AutomatedRestockService(first_storage)
             service.record_losses()
-            #service.close TODO Does it actually need a close method?
+            service.close()
             
             logger.info(f" [SCHEDULER] Losses recorded for {supermarket.name}")
             

@@ -190,11 +190,7 @@ class AutomatedRestockService:
             log.save()
                         
             try:
-                self.decision_maker = DecisionMaker(
-                self.helper,
-                supermarket_name=self.supermarket.name,  # NEW parameter
-                blacklist_set=self.get_blacklist_set()
-                )
+                self.decision_maker = DecisionMaker(self.db, self.helper, blacklist_set=self.get_blacklist_set())
                 
                 # Run decision logic
                 logger.info(f"Running decision maker with coverage={coverage} for settore={self.settore}")
