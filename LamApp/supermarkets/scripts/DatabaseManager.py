@@ -26,10 +26,10 @@ class DatabaseManager:
             self.schema = "public"
         
         self.conn = psycopg2.connect(
-            host=os.environ.get('PG_HOST', 'localhost'),
-            database=os.environ.get('PG_DATABASE', 'lamarestock_products'),
-            user=os.environ.get('PG_USER', 'lamauser'),
-            password=os.environ.get('PG_PASSWORD', ''),
+            host=os.environ.get('PG_HOST'),
+            database=os.environ.get('PG_DATABASE'),
+            user=os.environ.get('PG_USER'),
+            password=os.environ.get('PG_PASSWORD'),
             options=f'-c search_path={self.schema},public'
         )
         
