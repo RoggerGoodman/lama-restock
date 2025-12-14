@@ -18,7 +18,7 @@ class DecisionMaker:
         self.cursor = db.cursor()
 
         self.orders_list = []
-        self.skipped_products = []  # NEW: Track skipped products
+        self.new_products = []  # NEW: Track new products
         self.sale_discounts = self.retrive_products_on_sale()
         
         # Store blacklist - if None, create empty set
@@ -141,7 +141,7 @@ class DecisionMaker:
         extra_losses_lookup = {(item["cod"], item["v"]) for item in extra_losses_list}
 
         order_list = []
-        skipped_list = []  # NEW: Track skipped products
+        new_products = []  # NEW: Track new products
 
         for row in products:
             product_cod = row["cod"]
@@ -150,11 +150,6 @@ class DecisionMaker:
             # CHECK BLACKLIST FIRST!
             if (product_cod, product_var) in self.blacklist:
                 logger.info(f"Skipping blacklisted product: {product_cod}.{product_var}")
-                skipped_list.append({
-                    'cod': product_cod,
-                    'var': product_var,
-                    'reason': 'Blacklisted'
-                })
                 continue
             
             descrizione = row["descrizione"]
@@ -171,22 +166,16 @@ class DecisionMaker:
             
             if verified == False and disponibilita == "No":
                 logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not verified and not available")
-                skipped_list.append({
-                    'cod': product_cod,
-                    'var': product_var,
-                    'reason': 'Not verified and not available'
-                })
+                continue
+
+            if stock == 0 and verified == True and disponibilita == "No":
+                logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not available and has a verified stock equal to 0")
                 continue
                         
             package_size *= package_multi
 
             if stock == None:
                 logger.info(f"Skipping Article: {product_cod}.{product_var}. Because has no registered stock")
-                skipped_list.append({
-                    'cod': product_cod,
-                    'var': product_var,
-                    'reason': 'No registered stock'
-                })
                 continue
             
             if stock < 0 and verified == True:
@@ -198,7 +187,7 @@ class DecisionMaker:
                     analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     self.helper.line_breaker()
-                    skipped_list.append({
+                    new_products.append({
                         'cod': product_cod,
                         'var': product_var,
                         'reason': 'Never been in system (brand new)'
@@ -208,11 +197,6 @@ class DecisionMaker:
                     reason = "The article is NOT available for restocking and hasn't been bought or sold for the last 3 months" 
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     self.helper.line_breaker()
-                    skipped_list.append({
-                        'cod': product_cod,
-                        'var': product_var,
-                        'reason': 'Not available and no activity for 3+ months'
-                    })
                     continue
             
             if (product_cod, product_var) in extra_losses_lookup:
@@ -269,11 +253,6 @@ class DecisionMaker:
                 reason = "skipped because is not verified"
                 self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                 self.helper.line_breaker()
-                skipped_list.append({
-                    'cod': product_cod,
-                    'var': product_var,
-                    'reason': 'Not verified'
-                })
                 continue
 
             if result:
@@ -286,16 +265,11 @@ class DecisionMaker:
                 analyzer.stat_recorder(0, status)
                 self.helper.order_denied(product_cod, product_var, package_size, descrizione, category, check)
                 self.helper.line_breaker()
-                skipped_list.append({
-                    'cod': product_cod,
-                    'var': product_var,
-                    'reason': f'Order denied: {category}{check}'
-                })
 
         analyzer.log_statistics()
         self.orders_list = order_list
-        self.skipped_products = skipped_list  # NEW: Store skipped products
-        logger.info(f"Finished settore '{settore}'. Total orders: {len(order_list)}, Total skipped: {len(skipped_list)}")
+        self.new_products = new_products  # NEW: Store new products
+        logger.info(f"Finished settore '{settore}'. Total orders: {len(order_list)}, Total new products: {len(new_products)}")
 
     def close(self):
         """Cleanly close the database connection."""
