@@ -36,7 +36,7 @@ class DecisionMaker:
                 p.pz_x_collo, p.rapp, ps.verified, p.disponibilita
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-            WHERE p.settore = ?
+            WHERE p.settore = %s
         """
         self.cursor.execute(query, (settore,))
         return self.cursor.fetchall()
@@ -99,7 +99,7 @@ class DecisionMaker:
             FROM economics
             WHERE sale_start IS NOT NULL
             AND sale_end IS NOT NULL
-            AND DATE(?) BETWEEN sale_start AND sale_end;
+            AND %s BETWEEN sale_start AND sale_end;
         """, (today,))
 
         rows = self.cursor.fetchall()

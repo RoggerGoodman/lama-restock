@@ -36,11 +36,7 @@ class RestockService:
             supermarket_name=self.supermarket.name
         )
         
-        self.decision_maker = DecisionMaker(
-            self.helper,
-            supermarket_name=self.supermarket.name,  # NEW parameter
-            blacklist_set=self.get_blacklist_set()
-        )
+        self.decision_maker = DecisionMaker(self.db, self.helper, blacklist_set=self.get_blacklist_set())
     
     def get_blacklist_set(self):
         """

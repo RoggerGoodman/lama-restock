@@ -98,9 +98,9 @@ class Scrapper:
         timeout=10
         cur = self.db.conn.cursor()
         if settore == "GENERI VARI":
-            cur.execute("SELECT ps.cod, ps.v FROM 'product_stats' ps LEFT JOIN 'products' p ON ps.cod = p.cod AND ps.v = p.v WHERE p.settore = ? AND ps.verified = 1", (settore,))
+            cur.execute("SELECT ps.cod, ps.v FROM 'product_stats' ps LEFT JOIN 'products' p ON ps.cod = p.cod AND ps.v = p.v WHERE p.settore = %s AND ps.verified = 1", (settore,))
         else :
-            cur.execute("SELECT cod, v FROM products WHERE settore = ?", (settore,))
+            cur.execute("SELECT cod, v FROM products WHERE settore = %s", (settore,))
 
         products = cur.fetchall()
 
@@ -182,7 +182,7 @@ class Scrapper:
 
                 # --- write to DB ---
                 # If row exists and force=True -> update; else init (INSERT)
-                cur.execute("SELECT 1 FROM product_stats WHERE cod=? AND v=?", (cod, v))
+                cur.execute("SELECT 1 FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
                 exists = cur.fetchone() is not None
 
                 if not exists:
@@ -319,14 +319,14 @@ class Scrapper:
                 cur.execute("""
                     INSERT INTO products 
                     (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
 
                 self.db.conn.commit()
 
                 # --- write to DB ---
                 # If row exists and force=True -> update; else init (INSERT)
-                cur.execute("SELECT 1 FROM product_stats WHERE cod=? AND v=?", (cod, v))
+                cur.execute("SELECT 1 FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
                 exists = cur.fetchone() is not None
 
                 if not exists:

@@ -558,7 +558,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         FROM products p
                         LEFT JOIN economics e 
                             ON p.cod = e.cod AND p.v = e.v
-                        WHERE p.cod = ? AND p.v = ?;
+                        WHERE p.cod = %s AND p.v = %s;
                     """, (cod, var))
                     
                     row = cur.fetchone()
@@ -620,7 +620,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         SELECT p.descrizione, ps.stock, p.disponibilita
                         FROM products p
                         LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                        WHERE p.cod = ? AND p.v = ?
+                        WHERE p.cod = %s AND p.v = %s
                     """, (cod, var))
                     
                     row = cur.fetchone()
@@ -1383,9 +1383,10 @@ def stock_value_unified_view(request):
         cursor.execute("""
             SELECT DISTINCT cluster 
             FROM products 
-            WHERE cluster IS NOT NULL AND cluster != '' AND settore = ? 
+            WHERE cluster IS NOT NULL AND cluster != '' AND settore = %s 
             ORDER BY cluster ASC
         """, (settore,))
+        print(len(cursor.fetchall()))
         clusters = [row[0] for row in cursor.fetchall()]
         service.close()
     
@@ -1413,15 +1414,16 @@ def stock_value_unified_view(request):
             params = []
             
             if cluster:
-                query += " AND p.cluster = ?"
+                query += " AND p.cluster = %s"
                 params.append(cluster)
-            query += " AND p.settore = ?"
+            query += " AND p.settore = %s"
             params.append(settore)
             query += " GROUP BY e.category"
             
             cursor.execute(query, params)
             
             for row in cursor.fetchall():
+                print(f"row in cursor {row}")
                 category_name = row[0]
                 value = row[1] or 0
                 
