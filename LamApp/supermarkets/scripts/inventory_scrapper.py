@@ -39,7 +39,7 @@ class Inventory_Scrapper:
         
         # Set up the Selenium WebDriver
         chrome_options = Options()
-        chrome_options.binary_location = "/snap/bin/chromium"   # or /usr/bin/google-chrome-stable
+        chrome_options.binary_location = "/usr/bin/chromium-browser"   # or /usr/bin/google-chrome-stable
         # Make direct download the default on all platforms (no prompt).
         if IS_LINUX:
             logger.info("Configuring Chrome for server/headless mode (direct download)")

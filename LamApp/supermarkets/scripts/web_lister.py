@@ -49,7 +49,7 @@ class WebLister:
         
         # Setup Chrome options
         chrome_options = Options()
-        chrome_options.binary_location = "/snap/bin/chromium"   # or /usr/bin/google-chrome-stable
+        chrome_options.binary_location = "/usr/bin/chromium-browser"   # or /usr/bin/google-chrome-stable
         chrome_options.add_argument("--kiosk-printing")
         
         if headless:
