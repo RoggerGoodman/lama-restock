@@ -1,0 +1,61 @@
+<!-- LamApp/supermarkets/templates/storages/update_stats_only.html -->
+{% extends 'base.html' %}
+{% block title %}Update Stats - {{ storage.name }}{% endblock %}
+{% block page_title %}Update Product Statistics{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Update Stats</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-arrow-repeat text-info"></i>
+                    Update Product Statistics
+                </h4>
+
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> What This Does</h6>
+                    <p class="mb-2">This will update sales and purchase statistics for all products in <strong>{{ storage.name }}</strong>:</p>
+                    <ul class="mb-0">
+                        <li>Downloads latest data from PAC2000A</li>
+                        <li>Updates sold/bought arrays</li>
+                        <li>Recalculates stock levels</li>
+                        <li><strong>Does NOT place any orders</strong></li>
+                    </ul>
+                </div>
+
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-clock"></i> Estimated Time</h6>
+                    <p class="mb-0">5-10 minutes depending on number of products</p>
+                </div>
+
+                <form method="post">
+                    {% csrf_token %}
+                    
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-info">
+                            <i class="bi bi-arrow-repeat"></i> Update Statistics
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -66,29 +66,17 @@
                 <!-- Data Management Actions -->
                 <h6 class="mb-2 mt-4"><i class="bi bi-database"></i> Data Management</h6>
                 <div class="d-flex gap-2 mb-3 flex-wrap">
-                    <a href="{% url 'add-products' storage_id=storage.id %}" class="btn btn-success">
-                        <i class="bi bi-plus-circle"></i> Add Products
-                    </a>
-                    <a href="{% url 'purge-products' storage_id=storage.id %}" class="btn btn-danger">
-                        <i class="bi bi-trash"></i> Purge Products
-                    </a>
-                    <a href="{% url 'adjust-stock' storage_id=storage.id %}" class="btn btn-warning">
-                        <i class="bi bi-pencil-square"></i> Adjust Stock
-                    </a>
-                    <a href="{% url 'bulk-adjust-stock' storage_id=storage.id %}" class="btn btn-outline-warning">
-                        <i class="bi bi-file-earmark-spreadsheet"></i> Bulk Adjust Stock
-                    </a>
-                    <a href="{% url 'verify-stock' storage_id=storage.id %}" class="btn btn-outline-info">
-                        <i class="bi bi-clipboard-check"></i> Verify Stock
-                    </a>
-                    <a href="{% url 'verify-single-product' storage_id=storage.id %}" class="btn btn-outline-success">
-                        <i class="bi bi-check2-square"></i> Verify Single Product
+                    <a href="{% url 'update-stats-only' storage_id=storage.id %}" class="btn btn-info">
+                        <i class="bi bi-arrow-repeat"></i> Update Stats Only
                     </a>
                     <a href="{% url 'manual-list-update' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-download"></i> Update Product List
                     </a>
                     <a href="{% url 'configure-list-updates' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-gear"></i> Configure Auto Updates
+                    </a>
+                    <a href="{% url 'blacklist-add' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-plus-circle"></i> Add Blacklist
                     </a>
                 </div>
 

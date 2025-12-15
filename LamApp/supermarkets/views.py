@@ -12,8 +12,6 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from pathlib import Path
-import csv
-import io
 from django.conf import settings
 import os
 from .automation_services import AutomatedRestockService
@@ -25,9 +23,9 @@ from .models import (
     Blacklist, BlacklistEntry, RestockLog, ListUpdateSchedule
 )
 from .forms import (
-    RestockScheduleForm, BlacklistForm, PurgeProductsForm,
+    RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
     BlacklistEntryForm, AddProductsForm, PromoUploadForm, ListUpdateScheduleForm,
-    StockAdjustmentForm, BulkStockAdjustmentForm, RecordLossesForm, SingleProductVerificationForm
+    StockAdjustmentForm, RecordLossesForm, SingleProductVerificationForm
 )
 from .services import RestockService, StorageService
 from .scripts.scrapper import Scrapper
@@ -1300,97 +1298,6 @@ def adjust_stock_view(request, storage_id):
         'form': form
     })
 
-
-@login_required
-def bulk_adjust_stock_view(request, storage_id):
-    """Bulk adjust stock via CSV upload"""
-    storage = get_object_or_404(
-        Storage,
-        id=storage_id,
-        supermarket__owner=request.user
-    )
-    
-    if request.method == 'POST':
-        form = BulkStockAdjustmentForm(request.POST, request.FILES)
-        
-        if form.is_valid():
-            csv_file = request.FILES['csv_file']
-            default_reason = form.cleaned_data['reason']
-            
-            try:                
-                # Read CSV
-                decoded_file = csv_file.read().decode('utf-8')
-                csv_reader = csv.DictReader(io.StringIO(decoded_file))
-                
-                service = RestockService(storage)
-                
-                adjustments_made = []
-                errors = []
-                
-                for row_num, row in enumerate(csv_reader, start=2):
-                    try:
-                        # Parse row
-                        product_code = int(row.get('Product Code', row.get('product_code', 0)))
-                        product_var = int(row.get('Variant', row.get('variant', row.get('Product Variant', 1))))
-                        adjustment = int(row.get('Adjustment', row.get('adjustment', 0)))
-                        
-                        if adjustment == 0:
-                            continue
-                        
-                        # Get current stock
-                        try:
-                            current_stock = service.db.get_stock(product_code, product_var)
-                        except ValueError:
-                            errors.append(f"Row {row_num}: Product {product_code}.{product_var} not found")
-                            continue
-                        
-                        # Apply adjustment
-                        service.db.adjust_stock(product_code, product_var, adjustment)
-                        new_stock = service.db.get_stock(product_code, product_var)
-                        
-                        adjustments_made.append({
-                            'code': product_code,
-                            'var': product_var,
-                            'old': current_stock,
-                            'new': new_stock,
-                            'adjustment': adjustment
-                        })
-                        
-                    except (KeyError, ValueError) as e:
-                        errors.append(f"Row {row_num}: Invalid data - {str(e)}")
-                        continue
-                
-                service.close()
-                
-                # Show results
-                if adjustments_made:
-                    messages.success(
-                        request,
-                        f"Successfully adjusted {len(adjustments_made)} products!"
-                    )
-                
-                if errors:
-                    messages.warning(
-                        request,
-                        f"Encountered {len(errors)} errors. Check logs for details."
-                    )
-                    for error in errors[:5]:  # Show first 5 errors
-                        messages.error(request, error)
-                
-                return redirect('storage-detail', pk=storage_id)
-                
-            except Exception as e:
-                logger.exception("Error in bulk stock adjustment")
-                messages.error(request, f"Error processing CSV: {str(e)}")
-    else:
-        form = BulkStockAdjustmentForm()
-    
-    return render(request, 'storages/bulk_adjust_stock.html', {
-        'storage': storage,
-        'form': form
-    })
-
-
 # ============ Stock Value Analysis Views ============
 
 @login_required
@@ -2021,3 +1928,442 @@ def flag_products_for_purge_view(request, log_id):
     except Exception as e:
         logger.exception("Error flagging products")
         return JsonResponse({'success': False, 'message': str(e)}, status=500)
+    
+# ============ Inventory Management Views ============
+
+@login_required
+def inventory_search_view(request):
+    """Main inventory search interface"""
+    
+    if request.method == 'POST':
+        form = InventorySearchForm(request.user, request.POST)
+        
+        if form.is_valid():
+            search_type = form.cleaned_data['search_type']
+            
+            if search_type == 'cod_var':
+                cod = form.cleaned_data['product_code']
+                var = form.cleaned_data['product_var']
+                return redirect(f'/inventory/results/cod_var/?cod={cod}&var={var}')
+            
+            elif search_type == 'cod_all':
+                cod = form.cleaned_data['product_code']
+                return redirect(f'/inventory/results/cod_all/?cod={cod}')
+            
+            elif search_type == 'settore_cluster':
+                supermarket_id = form.cleaned_data['supermarket']
+                settore = form.cleaned_data['settore']
+                cluster = form.cleaned_data.get('cluster') or ''
+                
+                if cluster:
+                    return redirect(f'/inventory/results/settore_cluster/?supermarket_id={supermarket_id}&settore={settore}&cluster={cluster}')
+                else:
+                    return redirect(f'/inventory/results/settore_cluster/?supermarket_id={supermarket_id}&settore={settore}')
+        else:
+            # Form has errors - re-render with errors
+            return render(request, 'inventory/search.html', {'form': form})
+    else:
+        form = InventorySearchForm(request.user)
+    
+    return render(request, 'inventory/search.html', {'form': form})
+
+
+@login_required  
+def inventory_results_view(request, search_type):
+    """Display inventory search results"""
+    
+    results = []
+    search_description = ""
+    supermarket = None
+    settore_name = None
+    
+    try:
+        if search_type == 'cod_var':
+            # Search for specific product
+            cod = int(request.GET.get('cod'))
+            var = int(request.GET.get('var'))
+            search_description = f"Product {cod}.{var}"
+            
+            # Search across all supermarkets
+            found = False
+            for sm in Supermarket.objects.filter(owner=request.user):
+                storage = sm.storages.first()
+                if not storage:
+                    continue
+                
+                service = RestockService(storage)
+                try:
+                    cur = service.db.cursor()
+                    cur.execute("""
+                        SELECT 
+                            p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita, 
+                            p.settore, p.cluster,
+                            ps.stock, ps.last_update, ps.verified
+                        FROM products p
+                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.cod = %s AND p.v = %s AND ps.verified = TRUE
+                    """, (cod, var))
+                    
+                    row = cur.fetchone()
+                    if row:
+                        found = True
+                        result = dict(row)
+                        result['supermarket_name'] = sm.name
+                        results.append(result)
+                except Exception as e:
+                    logger.exception(f"Error searching in {sm.name}")
+                finally:
+                    service.close()
+            
+            # If not found, redirect to not found page
+            if not found:
+                return redirect('inventory-product-not-found', cod=cod, var=var)
+        
+        elif search_type == 'settore_cluster':
+            # Search by settore and optionally cluster
+            supermarket_id = request.GET.get('supermarket_id')
+            settore = request.GET.get('settore')
+            cluster = request.GET.get('cluster', '')
+            
+            logger.info(f"Settore search: supermarket={supermarket_id}, settore={settore}, cluster={cluster}")
+            
+            if not supermarket_id or not settore:
+                messages.error(request, "Missing search parameters")
+                return redirect('inventory-search')
+            
+            try:
+                supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+            except Exception as e:
+                logger.exception("Supermarket not found")
+                messages.error(request, f"Supermarket not found: {e}")
+                return redirect('inventory-search')
+            
+            settore_name = settore
+            
+            if cluster:
+                search_description = f"{supermarket.name} - {settore} - Cluster: {cluster}"
+            else:
+                search_description = f"{supermarket.name} - {settore} (All Clusters)"
+            
+            storage = supermarket.storages.filter(settore=settore).first()
+            
+            if not storage:
+                messages.warning(request, f"No storage found for settore: {settore}")
+                return redirect('inventory-search')
+            
+            service = RestockService(storage)
+            try:
+                cur = service.db.cursor()
+                
+                if cluster:
+                    logger.info(f"Querying with cluster filter: {cluster}")
+                    cur.execute("""
+                        SELECT 
+                            p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
+                            p.settore, p.cluster,
+                            ps.stock, ps.last_update, ps.verified
+                        FROM products p
+                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.settore = %s AND p.cluster = %s AND ps.verified = TRUE
+                        ORDER BY p.descrizione
+                    """, (settore, cluster))
+                else:
+                    logger.info(f"Querying all clusters for settore: {settore}")
+                    cur.execute("""
+                        SELECT 
+                            p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
+                            p.settore, p.cluster,
+                            ps.stock, ps.last_update, ps.verified
+                        FROM products p
+                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.settore = %s AND ps.verified = TRUE
+                        ORDER BY p.cluster, p.descrizione
+                    """, (settore,))
+                
+                for row in cur.fetchall():
+                    result = dict(row)
+                    result['supermarket_name'] = supermarket.name
+                    results.append(result)
+                
+                logger.info(f"Found {len(results)} results for settore search")
+                
+            except Exception as e:
+                logger.exception(f"Database error in settore search")
+                messages.error(request, f"Database error: {e}")
+                return redirect('inventory-search')
+            finally:
+                service.close()
+        
+        elif search_type == 'settore_cluster':
+            # Search by settore and optionally cluster
+            supermarket_id = request.GET.get('supermarket_id')
+            settore = request.GET.get('settore')
+            cluster = request.GET.get('cluster', '')
+            
+            supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+            settore_name = settore
+            
+            if cluster:
+                search_description = f"{supermarket.name} - {settore} - Cluster: {cluster}"
+            else:
+                search_description = f"{supermarket.name} - {settore} (All Clusters)"
+            
+            storage = supermarket.storages.filter(settore=settore).first()
+            if storage:
+                service = RestockService(storage)
+                try:
+                    cur = service.db.cursor()
+                    
+                    if cluster:
+                        cur.execute("""
+                            SELECT 
+                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
+                                p.settore, p.cluster,
+                                ps.stock, ps.last_update, ps.verified
+                            FROM products p
+                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                            WHERE p.settore = %s AND p.cluster = %s AND ps.verified = TRUE
+                            ORDER BY p.descrizione
+                        """, (settore, cluster))
+                    else:
+                        cur.execute("""
+                            SELECT 
+                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
+                                p.settore, p.cluster,
+                                ps.stock, ps.last_update, ps.verified
+                            FROM products p
+                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                            WHERE p.settore = %s AND ps.verified = TRUE
+                            ORDER BY p.cluster, p.descrizione
+                        """, (settore,))
+                    
+                    for row in cur.fetchall():
+                        result = dict(row)
+                        result['supermarket_name'] = supermarket.name
+                        results.append(result)
+                except Exception as e:
+                    logger.exception(f"Error searching settore/cluster")
+                finally:
+                    service.close()
+    
+    except Exception as e:
+        logger.exception("Error in inventory search")
+        messages.error(request, f"Search error: {str(e)}")
+        return redirect('inventory-search')
+    
+    context = {
+        'results': results,
+        'search_description': search_description,
+        'search_type': search_type,
+        'supermarket': supermarket,
+        'settore': settore_name,
+    }
+    
+    return render(request, 'inventory/results.html', context)
+
+
+
+@login_required
+def inventory_product_not_found_view(request, cod, var):
+    """Handle case when product not found"""
+    
+    # Check all databases to determine why not found
+    product_exists = False
+    is_verified = False
+    supermarket_name = None
+    
+    for sm in Supermarket.objects.filter(owner=request.user):
+        storage = sm.storages.first()
+        if not storage:
+            continue
+        
+        service = RestockService(storage)
+        try:
+            cur = service.db.cursor()
+            cur.execute("""
+                SELECT ps.verified
+                FROM products p
+                LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                WHERE p.cod = %s AND p.v = %s
+            """, (cod, var))
+            
+            row = cur.fetchone()
+            if row:
+                product_exists = True
+                is_verified = row['verified']
+                supermarket_name = sm.name
+                break
+        finally:
+            service.close()
+    
+    context = {
+        'cod': cod,
+        'var': var,
+        'product_exists': product_exists,
+        'is_verified': is_verified,
+        'supermarket_name': supermarket_name,
+    }
+    
+    return render(request, 'inventory/product_not_found.html', context)
+
+
+@login_required
+def get_settores_for_supermarket_view(request, supermarket_id):
+    """AJAX endpoint to get settores for a supermarket"""
+    try:
+        supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+        
+        settores = list(
+            supermarket.storages.values_list('settore', flat=True)
+            .distinct()
+            .order_by('settore')
+        )
+        
+        logger.info(f"API: Loaded {len(settores)} settores for {supermarket.name}")
+        return JsonResponse({'settores': settores})
+    
+    except Exception as e:
+        logger.exception("Error loading settores")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+def get_clusters_for_settore_view(request, supermarket_id, settore):
+    """AJAX endpoint to get clusters for a settore"""
+    try:
+        supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+        storage = supermarket.storages.filter(settore=settore).first()
+        
+        if not storage:
+            logger.warning(f"No storage found for settore: {settore}")
+            return JsonResponse({'clusters': []})
+        
+        service = RestockService(storage)
+        try:
+            cur = service.db.cursor()
+            cur.execute("""
+                SELECT DISTINCT cluster
+                FROM products
+                WHERE settore = %s 
+                  AND cluster IS NOT NULL 
+                  AND cluster != ''
+                ORDER BY cluster
+            """, (settore,))
+            
+            clusters = [row['cluster'] for row in cur.fetchall()]
+            logger.info(f"API: Loaded {len(clusters)} clusters for settore {settore}")
+            
+            return JsonResponse({'clusters': clusters})
+        finally:
+            service.close()
+    
+    except Exception as e:
+        logger.exception("Error loading clusters")
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
+@require_POST
+def inventory_adjust_stock_ajax_view(request):
+    """AJAX endpoint to adjust stock from inventory view"""
+    try:
+        cod = int(request.POST.get('cod'))
+        var = int(request.POST.get('var'))
+        adjustment = int(request.POST.get('adjustment'))
+        reason = request.POST.get('reason')
+        supermarket_name = request.POST.get('supermarket')
+        
+        # Find the supermarket
+        supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
+        storage = supermarket.storages.first()
+        
+        if not storage:
+            return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)
+        
+        service = RestockService(storage)
+        try:
+            current_stock = service.db.get_stock(cod, var)
+            service.db.adjust_stock(cod, var, adjustment)
+            new_stock = service.db.get_stock(cod, var)
+            
+            logger.info(
+                f"Inventory adjustment: {supermarket_name} - "
+                f"Product {cod}.{var}: {current_stock} → {new_stock} ({adjustment:+d}) "
+                f"Reason: {reason}"
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Stock adjusted: {current_stock} → {new_stock}',
+                'new_stock': new_stock
+            })
+        finally:
+            service.close()
+            
+    except Exception as e:
+        logger.exception("Error in inventory stock adjustment")
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+
+@login_required
+@require_POST  
+def inventory_flag_for_purge_ajax_view(request):
+    """AJAX endpoint to flag product for purge from inventory view"""
+    try:
+        data = json.loads(request.body)
+        cod = data['cod']
+        var = data['var']
+        supermarket_name = data['supermarket']
+        
+        supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
+        storage = supermarket.storages.first()
+        
+        if not storage:
+            return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)
+        
+        service = RestockService(storage)
+        try:
+            result = service.db.flag_for_purge(cod, var)
+            return JsonResponse({'success': True, 'message': result['message']})
+        finally:
+            service.close()
+            
+    except Exception as e:
+        logger.exception("Error flagging product for purge")
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+
+@login_required
+def update_stats_only_view(request, storage_id):
+    """Update product stats without running full restock"""
+    storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+    
+    if request.method == 'POST':
+        try:
+            service = AutomatedRestockService(storage)
+            
+            try:
+                # Create a minimal log for tracking
+                log = RestockLog.objects.create(
+                    storage=storage,
+                    status='processing',
+                    current_stage='updating_stats'
+                )
+                
+                service.update_product_stats_checkpoint(log)
+                
+                log.status = 'completed'
+                log.completed_at = timezone.now()
+                log.save()
+                
+                messages.success(request, f"Product statistics updated successfully for {storage.name}!")
+                
+            finally:
+                service.close()
+                
+        except Exception as e:
+            logger.exception("Error updating stats")
+            messages.error(request, f"Error updating stats: {str(e)}")
+        
+        return redirect('storage-detail', pk=storage_id)
+    
+    return render(request, 'storages/update_stats_only.html', {'storage': storage})

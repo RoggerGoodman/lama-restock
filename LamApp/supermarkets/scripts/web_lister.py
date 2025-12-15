@@ -11,6 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import ElementClickInterceptedException, NoSuchElementException, TimeoutException
 import time
 from selenium.webdriver.chrome.options import Options
@@ -48,6 +49,7 @@ class WebLister:
         
         # Setup Chrome options
         chrome_options = Options()
+        chrome_options.binary_location = "/snap/bin/chromium"   # or /usr/bin/google-chrome-stable
         chrome_options.add_argument("--kiosk-printing")
         
         if headless:
@@ -55,6 +57,7 @@ class WebLister:
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             #chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
             chrome_options.add_argument('--log-level=3')  # Suppress console logs
         
@@ -66,8 +69,8 @@ class WebLister:
             "safebrowsing.enabled": True
         }
         chrome_options.add_experimental_option("prefs", prefs)
-        
-        self.driver = webdriver.Chrome(options=chrome_options)
+        service = Service("/usr/bin/chromedriver")
+        self.driver = webdriver.Chrome(service=service, options=chrome_options)
         self.actions = ActionChains(self.driver)
         self.wait = WebDriverWait(self.driver, 300)
         

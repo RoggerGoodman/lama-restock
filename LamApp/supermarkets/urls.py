@@ -44,8 +44,7 @@ urlpatterns = [
     
     # Stock Adjustments
     path('storages/<int:storage_id>/adjust-stock/', views.adjust_stock_view, name='adjust-stock'),
-    path('storages/<int:storage_id>/bulk-adjust-stock/', views.bulk_adjust_stock_view, name='bulk-adjust-stock'),
-    
+        
     # Restock Schedules
     path('schedules/', views.RestockScheduleListView.as_view(), name='restock_schedule_list'),
     path('schedules/<int:storage_id>/edit/', views.RestockScheduleView.as_view(), name='restock_schedule'),
@@ -56,13 +55,25 @@ urlpatterns = [
     path('logs/<int:log_id>/execute/', views.execute_order_view, name='execute-order'),
     path('logs/<int:log_id>/retry/', views.retry_restock_view, name='retry-restock'),
 
-    # Blacklists
+    # Blacklists (moved from sidebar - accessed via storage detail)
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),
     path('blacklists/add/', views.BlacklistCreateView.as_view(), name='blacklist-add'),
     path('blacklists/<int:pk>/', views.BlacklistDetailView.as_view(), name='blacklist-detail'),
     path('blacklists/<int:pk>/delete/', views.BlacklistDeleteView.as_view(), name='blacklist-delete'),
     path('blacklists/<int:blacklist_pk>/entries/add/', views.BlacklistEntryCreateView.as_view(), name='blacklistentry-add'),
     path('blacklists/entries/<int:pk>/delete/', views.BlacklistEntryDeleteView.as_view(), name='blacklistentry-delete'),
+
+    # Inventory Management
+    path('inventory/', views.inventory_search_view, name='inventory-search'),
+    path('inventory/results/<str:search_type>/', views.inventory_results_view, name='inventory-results'),
+    path('inventory/not-found/<int:cod>/<int:var>/', views.inventory_product_not_found_view, name='inventory-product-not-found'),
+    path('inventory/api/settores/<int:supermarket_id>/', views.get_settores_for_supermarket_view, name='api-settores'),
+    path('inventory/api/clusters/<int:supermarket_id>/<str:settore>/', views.get_clusters_for_settore_view, name='api-clusters'),
+    path('inventory/adjust-stock/', views.inventory_adjust_stock_ajax_view, name='inventory-adjust-stock'),
+    path('inventory/flag-for-purge/', views.inventory_flag_for_purge_ajax_view, name='inventory-flag-purge'),
+    
+    # Stats update only
+    path('storages/<int:storage_id>/update-stats/', views.update_stats_only_view, name='update-stats-only'),
 
     # Loss Management
     # SUPERMARKET LEVEL - Recording (one CSV for all storages)

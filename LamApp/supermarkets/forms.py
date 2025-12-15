@@ -388,3 +388,87 @@ class PurgeProductsForm(forms.Form):
             raise forms.ValidationError("No valid product codes found")
         
         return products
+    
+class InventorySearchForm(forms.Form):
+    """Form for searching inventory"""
+    
+    SEARCH_TYPE_CHOICES = [
+        ('cod_var', 'Specific Product (Code + Variant)'),
+        ('cod_all', 'All Variants of Code'),
+        ('settore_cluster', 'Settore + Cluster'),
+    ]
+    
+    search_type = forms.ChoiceField(
+        choices=SEARCH_TYPE_CHOICES,
+        widget=forms.RadioSelect(attrs={'class': 'form-check-input'}),
+        initial='cod_var'
+    )
+    
+    # Fields for cod_var and cod_all
+    product_code = forms.IntegerField(
+        required=False,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'e.g., 12345'
+        })
+    )
+    
+    product_var = forms.IntegerField(
+        required=False,
+        initial=1,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'value': '1'
+        })
+    )
+    
+    # Fields for settore_cluster
+    supermarket = forms.ChoiceField(
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_supermarket'})
+    )
+    
+    settore = forms.ChoiceField(
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_settore'})
+    )
+    
+    cluster = forms.ChoiceField(
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_cluster'})
+    )
+    
+    def __init__(self, user, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Import here to avoid circular import
+        from .models import Supermarket
+        
+        # Populate supermarket choices
+        supermarkets = Supermarket.objects.filter(owner=user)
+        self.fields['supermarket'].choices = [('', '-- Select Supermarket --')] + [
+            (str(sm.id), sm.name) for sm in supermarkets
+        ]
+        
+        # Settore and cluster populated via JavaScript
+        self.fields['settore'].choices = [('', '-- Select Settore --')]
+        self.fields['cluster'].choices = [('', '-- All Clusters --')]
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        search_type = cleaned_data.get('search_type')
+        
+        if search_type in ['cod_var', 'cod_all']:
+            if not cleaned_data.get('product_code'):
+                raise forms.ValidationError("Product code is required for this search type")
+            
+            if search_type == 'cod_var' and not cleaned_data.get('product_var'):
+                raise forms.ValidationError("Product variant is required for specific product search")
+        
+        elif search_type == 'settore_cluster':
+            if not cleaned_data.get('supermarket'):
+                raise forms.ValidationError("Supermarket is required for settore/cluster search")
+            if not cleaned_data.get('settore'):
+                raise forms.ValidationError("Settore is required for this search type")
+        
+        return cleaned_data

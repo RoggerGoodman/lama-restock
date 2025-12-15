@@ -1,7 +1,6 @@
 # LamApp/supermarkets/scripts/decision_maker.py
 from .DatabaseManager import DatabaseManager
-import json
-from datetime import datetime, date
+from datetime import date
 from .helpers import Helper
 from .logger import logger
 from .analyzer import analyzer

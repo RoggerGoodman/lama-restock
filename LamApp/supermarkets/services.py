@@ -2,14 +2,12 @@
 """
 Service layer to integrate existing DatabaseManager with Django models
 """
-from pathlib import Path
 import re
 from .scripts.DatabaseManager import DatabaseManager
 from .scripts.decision_maker import DecisionMaker
 from .scripts.helpers import Helper
 from .scripts.scrapper import Scrapper
 from .scripts.orderer import Orderer
-from django.conf import settings
 from .models import Storage, RestockLog
 from django.utils import timezone
 import logging

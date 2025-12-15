@@ -7,6 +7,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.chrome.service import Service
 import time
 import os
 import sys
@@ -38,7 +39,7 @@ class Inventory_Scrapper:
         
         # Set up the Selenium WebDriver
         chrome_options = Options()
-
+        chrome_options.binary_location = "/snap/bin/chromium"   # or /usr/bin/google-chrome-stable
         # Make direct download the default on all platforms (no prompt).
         if IS_LINUX:
             logger.info("Configuring Chrome for server/headless mode (direct download)")
@@ -64,8 +65,9 @@ class Inventory_Scrapper:
         # Suppress Chrome DevTools and other noise
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
         chrome_options.add_argument('--log-level=3')
+        service = Service("/usr/bin/chromedriver")
 
-        self.driver = webdriver.Chrome(options=chrome_options)
+        self.driver = webdriver.Chrome(service=service, options=chrome_options)
         self.wait = WebDriverWait(self.driver, 10)
         self.actions = ActionChains(self.driver)
         

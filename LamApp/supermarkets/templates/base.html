@@ -228,22 +228,19 @@
                 </a>
             </li>
             <li class="nav-item">
+                <a class="nav-link {% if 'inventory' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'inventory-search' %}">
+                    <i class="bi bi-box-seam"></i> Inventory
+                </a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link {% if 'restock_schedule' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'restock_schedule_list' %}">
                     <i class="bi bi-calendar-check"></i> Schedules
                 </a>
             </li>
-            <li class="nav-item">
-                <a class="nav-link {% if 'blacklist' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'blacklist-list' %}">
-                    <i class="bi bi-slash-circle"></i> Blacklists
-                </a>
-            </li>
             <li class="nav-item mt-4">
-                <form method="post" action="{% url 'logout' %}" class="logout-form">
-                    {% csrf_token %}
-                    <button type="submit" class="nav-link logout-btn">
-                        <i class="bi bi-box-arrow-right"></i> Logout
-                    </button>
-                </form>
+                <a class="nav-link" href="{% url 'logout' %}">
+                    <i class="bi bi-box-arrow-right"></i> Logout
+                </a>
             </li>
         </ul>
     </nav>

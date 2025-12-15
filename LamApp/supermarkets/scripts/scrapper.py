@@ -1,5 +1,6 @@
 from datetime import datetime
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -32,14 +33,16 @@ class Scrapper:
         
         # Set up the Selenium WebDriver
         chrome_options = Options()
+        chrome_options.binary_location = "/snap/bin/chromium"   # or /usr/bin/google-chrome-stable
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
         chrome_options.add_argument('--log-level=3')
+        service = Service("/usr/bin/chromedriver")
+        self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
-        self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)
         self.offers_path = r"C:\Users\rugge\Documents\GitHub\lama-restock\Offers"
         self.current_day = datetime.now().day

@@ -1,0 +1,263 @@
+<!-- LamApp/supermarkets/templates/inventory/search.html -->
+{% extends 'base.html' %}
+{% block title %}Inventory Search{% endblock %}
+{% block page_title %}Inventory Search{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-search text-primary"></i>
+                    Search Inventory
+                </h4>
+
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> Search Options</h6>
+                    <ul class="mb-0">
+                        <li><strong>Specific Product:</strong> Find exact product by code and variant</li>
+                        <li><strong>All Variants:</strong> Find all variants of a product code</li>
+                        <li><strong>Settore + Cluster:</strong> Browse products by location</li>
+                    </ul>
+                </div>
+
+                <form method="post" id="searchForm">
+                    {% csrf_token %}
+                    
+                    <!-- Search Type Selection -->
+                    <div class="mb-4">
+                        <label class="form-label"><strong>Search Type</strong></label>
+                        {% for radio in form.search_type %}
+                        <div class="form-check">
+                            {{ radio.tag }}
+                            <label class="form-check-label" for="{{ radio.id_for_label }}">
+                                {{ radio.choice_label }}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <!-- Code + Variant Fields -->
+                    <div id="codVarFields" class="search-fields">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="{{ form.product_code.id_for_label }}" class="form-label">
+                                    Product Code
+                                </label>
+                                {{ form.product_code }}
+                            </div>
+                            <div class="col-md-6 mb-3" id="varField">
+                                <label for="{{ form.product_var.id_for_label }}" class="form-label">
+                                    Variant
+                                </label>
+                                {{ form.product_var }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settore/Cluster Fields -->
+                    <div id="settoreFields" class="search-fields" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label for="{{ form.supermarket.id_for_label }}" class="form-label">
+                                    Supermarket
+                                </label>
+                                {{ form.supermarket }}
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="{{ form.settore.id_for_label }}" class="form-label">
+                                    Settore
+                                </label>
+                                {{ form.settore }}
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="{{ form.cluster.id_for_label }}" class="form-label">
+                                    Cluster (Optional)
+                                </label>
+                                {{ form.cluster }}
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if form.errors %}
+                    <div class="alert alert-danger">
+                        {{ form.errors }}
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'dashboard' %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Operations Section -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-tools"></i> Inventory Operations
+                </h5>
+                
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <a href="{% url 'stock-value-unified' %}" class="btn btn-success w-100">
+                            <i class="bi bi-cash-stack"></i> View Stock Value
+                        </a>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <a href="{% url 'losses-analytics-unified' %}" class="btn btn-warning w-100">
+                            <i class="bi bi-graph-up"></i> Loss Analytics
+                        </a>
+                    </div>
+                    <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <a href="/supermarkets/" class="btn btn-info w-100">
+                            <i class="bi bi-clipboard-data"></i> Record Losses
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <a href="/supermarkets/" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-clipboard-check"></i> Verify Stock (Bulk)
+                        </a>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <a href="/supermarkets/" class="btn btn-outline-danger w-100">
+                            <i class="bi bi-trash"></i> Manage Purge
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchTypeRadios = document.querySelectorAll('input[name="search_type"]');
+    const codVarFields = document.getElementById('codVarFields');
+    const settoreFields = document.getElementById('settoreFields');
+    const varField = document.getElementById('varField');
+    const supermarketSelect = document.getElementById('id_supermarket');
+    const settoreSelect = document.getElementById('id_settore');
+    const clusterSelect = document.getElementById('id_cluster');
+
+    function updateFieldsVisibility() {
+        const selectedType = document.querySelector('input[name="search_type"]:checked').value;
+        
+        if (selectedType === 'cod_var') {
+            codVarFields.style.display = 'block';
+            varField.style.display = 'block';
+            settoreFields.style.display = 'none';
+        } else if (selectedType === 'cod_all') {
+            codVarFields.style.display = 'block';
+            varField.style.display = 'none';
+            settoreFields.style.display = 'none';
+        } else if (selectedType === 'settore_cluster') {
+            codVarFields.style.display = 'none';
+            settoreFields.style.display = 'block';
+        }
+    }
+
+    searchTypeRadios.forEach(radio => {
+        radio.addEventListener('change', updateFieldsVisibility);
+    });
+
+    // Load settores when supermarket changes
+    supermarketSelect.addEventListener('change', function() {
+        const supermarketId = this.value;
+        
+        console.log('Supermarket changed:', supermarketId);
+        
+        if (!supermarketId) {
+            settoreSelect.innerHTML = '<option value="">-- Select Settore --</option>';
+            clusterSelect.innerHTML = '<option value="">-- All Clusters --</option>';
+            return;
+        }
+
+        console.log('Fetching settores for supermarket:', supermarketId);
+        
+        fetch(`/inventory/api/settores/${supermarketId}/`)
+            .then(response => {
+                console.log('Settores response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Settores data:', data);
+                settoreSelect.innerHTML = '<option value="">-- Select Settore --</option>';
+                
+                if (data.error) {
+                    alert('Error loading settores: ' + data.error);
+                    return;
+                }
+                
+                data.settores.forEach(settore => {
+                    const option = document.createElement('option');
+                    option.value = settore;
+                    option.textContent = settore;
+                    settoreSelect.appendChild(option);
+                });
+                clusterSelect.innerHTML = '<option value="">-- All Clusters --</option>';
+            })
+            .catch(error => {
+                console.error('Error loading settores:', error);
+                alert('Error loading settores. Check console for details.');
+            });
+    });
+
+    // Load clusters when settore changes
+    settoreSelect.addEventListener('change', function() {
+        const supermarketId = supermarketSelect.value;
+        const settore = this.value;
+        
+        console.log('Settore changed:', settore);
+        
+        if (!supermarketId || !settore) {
+            clusterSelect.innerHTML = '<option value="">-- All Clusters --</option>';
+            return;
+        }
+
+        console.log('Fetching clusters for:', supermarketId, settore);
+
+        fetch(`/inventory/api/clusters/${supermarketId}/${encodeURIComponent(settore)}/`)
+            .then(response => {
+                console.log('Clusters response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Clusters data:', data);
+                clusterSelect.innerHTML = '<option value="">-- All Clusters --</option>';
+                
+                if (data.error) {
+                    alert('Error loading clusters: ' + data.error);
+                    return;
+                }
+                
+                data.clusters.forEach(cluster => {
+                    const option = document.createElement('option');
+                    option.value = cluster;
+                    option.textContent = cluster;
+                    clusterSelect.appendChild(option);
+                });
+            })
+            .catch(error => {
+                console.error('Error loading clusters:', error);
+                alert('Error loading clusters. Check console for details.');
+            });
+    });
+
+    // Initialize visibility
+    updateFieldsVisibility();
+});
+</script>
+{% endblock %}
