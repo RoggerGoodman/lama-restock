@@ -34,7 +34,7 @@ jobs:
             git pull origin main
 
             echo "Activating virtualenv..."
-            source venv/bin/activate
+            source /var/www/lamarestock/venv/bin/activate
 
             echo "Installing dependencies..."
             pip install -r requirements.txt
