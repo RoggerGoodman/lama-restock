@@ -1,0 +1,128 @@
+<!-- templates/inventory/assign_clusters.html -->
+{% extends 'base.html' %}
+{% block title %}Assign Clusters{% endblock %}
+{% block page_title %}Assign Product Clusters{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventory</a></li>
+                    <li class="breadcrumb-item active">Assign Clusters</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-folder text-info"></i>
+                    Assign Clusters to Products
+                </h4>
+
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> How It Works</h6>
+                    <ol class="mb-0">
+                        <li>Upload a CSV with product codes (Codice, Variante)</li>
+                        <li>Filename (without .csv) becomes the cluster name</li>
+                        <li>All products in the file are assigned to that cluster</li>
+                    </ol>
+                </div>
+
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Example</h6>
+                    <p class="mb-0">
+                        File: <code>Freezer_Section.csv</code> → Products assigned to cluster "Freezer_Section"
+                    </p>
+                </div>
+
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="supermarket_id" class="form-label">Supermarket</label>
+                            <select name="supermarket_id" id="supermarket_id" class="form-select" required onchange="loadStorages()">
+                                <option value="">-- Select Supermarket --</option>
+                                {% for sm in supermarkets %}
+                                <option value="{{ sm.id }}">{{ sm.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="storage_id" class="form-label">Storage (Settore)</label>
+                            <select name="storage_id" id="storage_id" class="form-select" required disabled>
+                                <option value="">-- Select Supermarket First --</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="csv_file" class="form-label">
+                            <i class="bi bi-file-earmark-spreadsheet"></i> CSV File
+                        </label>
+                        <input type="file" class="form-control" id="csv_file" name="csv_file" accept=".csv" required>
+                        <div class="form-text">Filename will become the cluster name</div>
+                    </div>
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-upload"></i> Upload and Assign
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- CSV Format -->
+            <div class="stat-card mt-3">
+                <h6 class="mb-3"><i class="bi bi-file-text"></i> CSV Format</h6>
+                <div class="bg-light p-3 rounded">
+                    <code style="display: block; white-space: pre;">Codice,Variante
+12345,1
+67890,1
+...</code>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function loadStorages() {
+    const supermarketId = document.getElementById('supermarket_id').value;
+    const storageSelect = document.getElementById('storage_id');
+    
+    if (!supermarketId) {
+        storageSelect.disabled = true;
+        storageSelect.innerHTML = '<option value="">-- Select Supermarket First --</option>';
+        return;
+    }
+    
+    fetch(`/inventory/api/storages/${supermarketId}/`)
+        .then(response => response.json())
+        .then(data => {
+            storageSelect.innerHTML = '<option value="">-- Select Storage --</option>';
+            data.storages.forEach(storage => {
+                const option = document.createElement('option');
+                option.value = storage.id;
+                option.textContent = storage.settore;
+                storageSelect.appendChild(option);
+            });
+            storageSelect.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error loading storages');
+        });
+}
+</script>
+{% endblock %}

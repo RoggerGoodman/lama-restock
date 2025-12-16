@@ -52,14 +52,8 @@
                     <a href="{% url 'run-restock' storage_id=storage.id %}" class="btn btn-primary">
                         <i class="bi bi-play-circle"></i> Run Restock Check
                     </a>
-                    <a href="{% url 'stock-value-unified' %}?storage_id={{ storage.id }}" class="btn btn-success">
-                        <i class="bi bi-cash-stack"></i> View Stock Value
-                    </a>
                     <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="btn btn-outline-primary">
                         <i class="bi bi-calendar-check"></i> {% if schedule %}Edit Schedule{% else %}Create Schedule{% endif %}
-                    </a>
-                    <a href="{% url 'blacklist-add' %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-plus-circle"></i> Add Blacklist
                     </a>
                 </div>
 
@@ -74,9 +68,6 @@
                     </a>
                     <a href="{% url 'configure-list-updates' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-gear"></i> Configure Auto Updates
-                    </a>
-                    <a href="{% url 'blacklist-add' %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-plus-circle"></i> Add Blacklist
                     </a>
                 </div>
 

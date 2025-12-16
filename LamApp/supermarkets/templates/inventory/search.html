@@ -68,22 +68,18 @@
                                 <label for="settore_display" class="form-label">
                                     Settore
                                 </label>
-                                <!-- Visible select for user -->
                                 <select id="settore_display" class="form-select">
                                     <option value="">-- Select Settore --</option>
                                 </select>
-                                <!-- Hidden input for form submission -->
                                 <input type="hidden" name="settore" id="id_settore">
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label for="cluster_display" class="form-label">
                                     Cluster (Optional)
                                 </label>
-                                <!-- Visible select for user -->
                                 <select id="cluster_display" class="form-select">
                                     <option value="">-- All Clusters --</option>
                                 </select>
-                                <!-- Hidden input for form submission -->
                                 <input type="hidden" name="cluster" id="id_cluster">
                             </div>
                         </div>
@@ -113,29 +109,42 @@
         <div class="col-12">
             <div class="stat-card">
                 <h5 class="mb-3">
-                    <i class="bi bi-tools"></i> Quick Actions
+                    <i class="bi bi-tools"></i> Inventory Operations
                 </h5>
                 
                 <div class="row">
-                    <div class="col-md-3 mb-3">
-                        <a href="{% url 'stock-value-unified' %}" class="btn btn-success w-100">
-                            <i class="bi bi-cash-stack"></i> View Stock Value
-                        </a>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <a href="{% url 'losses-analytics-unified' %}" class="btn btn-warning w-100">
-                            <i class="bi bi-graph-up"></i> Loss Analytics
-                        </a>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <a href="{% url 'supermarket-list' %}" class="btn btn-info w-100">
-                            <i class="bi bi-clipboard-data"></i> Manage Supermarkets
-                        </a>
-                    </div>
+                    <!-- Row 1: Primary Operations -->
                     <div class="col-md-3 mb-3">
                         <button onclick="showVerifySingleProduct()" class="btn btn-primary w-100">
                             <i class="bi bi-check-circle"></i> Verify Single Product
                         </button>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{% url 'verify-stock-unified' %}" class="btn btn-success w-100">
+                            <i class="bi bi-clipboard-check"></i> Verify Stock (Bulk)
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{% url 'assign-clusters' %}" class="btn btn-info w-100">
+                            <i class="bi bi-folder"></i> Assign Clusters
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{% url 'record-losses-unified' %}" class="btn btn-warning w-100">
+                            <i class="bi bi-clipboard-data"></i> Record Losses
+                        </a>
+                    </div>
+                    
+                    <!-- Row 2: Analytics -->
+                    <div class="col-md-6 mb-3">
+                        <a href="{% url 'stock-value-unified' %}" class="btn btn-outline-success w-100">
+                            <i class="bi bi-cash-stack"></i> Stock Value Analysis
+                        </a>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <a href="{% url 'losses-analytics-unified' %}" class="btn btn-outline-warning w-100">
+                            <i class="bi bi-graph-up"></i> Loss Analytics
+                        </a>
                     </div>
                 </div>
             </div>
@@ -143,7 +152,7 @@
     </div>
 </div>
 
-<!-- Verify Single Product Modal -->
+<!-- Verify Single Product Modal - FIXED -->
 <div class="modal fade" id="verifySingleModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -153,7 +162,7 @@
             </div>
             <div class="modal-body">
                 <div class="alert alert-info">
-                    <strong>Note:</strong> Select a supermarket first, then enter product details.
+                    <strong>Note:</strong> Select supermarket and storage, then enter product details.
                 </div>
                 
                 <form id="verifySingleForm">
@@ -170,7 +179,7 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Storage</label>
+                        <label class="form-label">Storage (Settore)</label>
                         <select id="verify_storage" class="form-select" required disabled>
                             <option value="">-- Select Supermarket First --</option>
                         </select>
@@ -194,7 +203,7 @@
                     
                     <div class="mb-3">
                         <label class="form-label">Cluster (Optional)</label>
-                        <input type="text" id="verify_cluster" class="form-control">
+                        <input type="text" id="verify_cluster" class="form-control" placeholder="Leave empty to skip">
                     </div>
                 </form>
             </div>
@@ -224,17 +233,15 @@ function loadStoragesForVerify() {
         return;
     }
     
-    // Use the existing supermarkets data to get storages
-    fetch(`/inventory/api/settores/${supermarketId}/`)
+    fetch(`/inventory/api/storages/${supermarketId}/`)
         .then(response => response.json())
         .then(data => {
             storageSelect.innerHTML = '<option value="">-- Select Storage --</option>';
-            // For now, just use settore names as storage IDs
-            // You might need to create a new API endpoint to get actual storage IDs
-            data.settores.forEach(settore => {
+            data.storages.forEach(storage => {
                 const option = document.createElement('option');
-                option.value = settore;
-                option.textContent = settore;
+                option.value = storage.settore;
+                option.textContent = `${storage.settore}`;
+                option.dataset.storageId = storage.id;
                 storageSelect.appendChild(option);
             });
             storageSelect.disabled = false;
@@ -251,16 +258,46 @@ function submitVerifySingle() {
     const code = document.getElementById('verify_code').value;
     const var_ = document.getElementById('verify_var').value;
     const stock = document.getElementById('verify_stock').value;
-    const cluster = document.getElementById('verify_cluster').value;
+    const cluster = document.getElementById('verify_cluster').value || null;
     
     if (!supermarketId || !settore || !code || !var_ || stock === '') {
         alert('Please fill in all required fields');
         return;
     }
     
-    // TODO: You'll need to add this endpoint or modify to use supermarket+settore instead of storage_id
-    alert('This feature requires a new endpoint. For now, please navigate to the storage detail page and use the verify stock feature there.');
-    verifySingleModal.hide();
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    
+    fetch('/inventory/verify-single/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            supermarket_id: supermarketId,
+            settore: settore,
+            cod: parseInt(code),
+            var: parseInt(var_),
+            stock: parseInt(stock),
+            cluster: cluster
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            verifySingleModal.hide();
+            // Reset form
+            document.getElementById('verifySingleForm').reset();
+            document.getElementById('verify_storage').disabled = true;
+        } else {
+            alert('Error: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error verifying product: ' + error);
+    });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -295,11 +332,8 @@ document.addEventListener('DOMContentLoaded', function() {
         radio.addEventListener('change', updateFieldsVisibility);
     });
 
-    // Load settores when supermarket changes
     supermarketSelect.addEventListener('change', function() {
         const supermarketId = this.value;
-        
-        console.log('Supermarket changed:', supermarketId);
         
         if (!supermarketId) {
             settoreDisplay.innerHTML = '<option value="">-- Select Settore --</option>';
@@ -308,22 +342,11 @@ document.addEventListener('DOMContentLoaded', function() {
             clusterHidden.value = '';
             return;
         }
-
-        console.log('Fetching settores for supermarket:', supermarketId);
         
         fetch(`/inventory/api/settores/${supermarketId}/`)
-            .then(response => {
-                console.log('Settores response status:', response.status);
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
-                console.log('Settores data:', data);
                 settoreDisplay.innerHTML = '<option value="">-- Select Settore --</option>';
-                
-                if (data.error) {
-                    alert('Error loading settores: ' + data.error);
-                    return;
-                }
                 
                 data.settores.forEach(settore => {
                     const option = document.createElement('option');
@@ -332,25 +355,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     settoreDisplay.appendChild(option);
                 });
                 
-                // Clear cluster
                 clusterDisplay.innerHTML = '<option value="">-- All Clusters --</option>';
                 clusterHidden.value = '';
             })
             .catch(error => {
                 console.error('Error loading settores:', error);
-                alert('Error loading settores. Check console for details.');
             });
     });
 
-    // Update hidden field when settore display changes
     settoreDisplay.addEventListener('change', function() {
         const supermarketId = supermarketSelect.value;
         const settore = this.value;
         
-        // Update hidden field
         settoreHidden.value = settore;
-        
-        console.log('Settore changed:', settore);
         
         if (!supermarketId || !settore) {
             clusterDisplay.innerHTML = '<option value="">-- All Clusters --</option>';
@@ -358,21 +375,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        console.log('Fetching clusters for:', supermarketId, settore);
-
         fetch(`/inventory/api/clusters/${supermarketId}/${encodeURIComponent(settore)}/`)
-            .then(response => {
-                console.log('Clusters response status:', response.status);
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
-                console.log('Clusters data:', data);
                 clusterDisplay.innerHTML = '<option value="">-- All Clusters --</option>';
-                
-                if (data.error) {
-                    alert('Error loading clusters: ' + data.error);
-                    return;
-                }
                 
                 data.clusters.forEach(cluster => {
                     const option = document.createElement('option');
@@ -383,16 +389,13 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 console.error('Error loading clusters:', error);
-                alert('Error loading clusters. Check console for details.');
             });
     });
 
-    // Update hidden field when cluster display changes
     clusterDisplay.addEventListener('change', function() {
         clusterHidden.value = this.value;
     });
 
-    // Initialize visibility
     updateFieldsVisibility();
 });
 </script>

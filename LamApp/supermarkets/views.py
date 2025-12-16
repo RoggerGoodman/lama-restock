@@ -859,224 +859,6 @@ class BlacklistEntryDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteVi
 # ============ Data Management Views ============
 
 @login_required
-def verify_stock_view(request, storage_id):
-    """Verify stock from inventory CSV file"""
-    storage = get_object_or_404(
-        Storage, 
-        id=storage_id, 
-        supermarket__owner=request.user
-    )
-    
-    if request.method == 'POST':
-        if 'csv_file' not in request.FILES:
-            messages.error(request, "No file uploaded")
-            return redirect('storage-detail', pk=storage_id)
-        
-        csv_file = request.FILES['csv_file']
-        
-        # Validate file extension
-        if not csv_file.name.endswith('.csv'):
-            messages.error(request, "File must be .csv format")
-            return redirect('storage-detail', pk=storage_id)
-        
-        try:
-            # Save file to INVENTORY_FOLDER
-            inventory_folder = Path(settings.INVENTORY_FOLDER)
-            file_path = inventory_folder / csv_file.name
-            
-            with open(file_path, 'wb+') as destination:
-                for chunk in csv_file.chunks():
-                    destination.write(chunk)
-            
-            # IMPORTANT: Update stats and record losses BEFORE verification
-            
-            service = AutomatedRestockService(storage)
-            
-            try:
-                logger.info(f"Updating product stats for {storage.name}...")
-                service.update_product_stats()
-                
-                logger.info(f"Recording losses for {storage.name}...")
-                service.record_losses()
-                
-                # Track changes for report
-                verification_report = {
-                    'total_products': 0,
-                    'products_verified': 0,
-                    'stock_changes': [],
-                    'total_stock_before': 0,
-                    'total_stock_after': 0,
-                    'verified_at': timezone.now()
-                }
-                
-                # Read CSV and get product list before verification
-
-                df = pd.read_csv(file_path)
-                
-                # Clean column names
-                COD_COL = "Codice"
-                V_COL = "Variante"
-                STOCK_COL = "Qta Originale"
-                
-                # Get stock levels BEFORE verification
-                stock_before = {}
-                for _, row in df.iterrows():
-                    try:
-                        cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        v_str = str(row[V_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        cod = int(cod_str)
-                        v = int(v_str)
-                        
-                        try:
-                            stock_before[(cod, v)] = service.db.get_stock(cod, v)
-                        except:
-                            stock_before[(cod, v)] = None
-                    except:
-                        continue
-                
-                # Now verify stock
-                logger.info(f"Verifying stock from CSV for {storage.name}...")
-                from .scripts.inventory_reader import verify_stocks_from_excel
-                verify_stocks_from_excel(service.db)
-                
-                # Get stock levels AFTER verification and calculate changes
-                for _, row in df.iterrows():
-                    try:
-                        cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        v_str = str(row[V_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        stock_str = str(row[STOCK_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        
-                        cod = int(cod_str)
-                        v = int(v_str)
-                        new_stock = int(stock_str)
-                        
-                        old_stock = stock_before.get((cod, v))
-                        
-                        if old_stock is not None:
-                            verification_report['total_products'] += 1
-                            verification_report['total_stock_before'] += old_stock
-                            verification_report['total_stock_after'] += new_stock
-                            
-                            if old_stock != new_stock:
-                                verification_report['products_verified'] += 1
-                                verification_report['stock_changes'].append({
-                                    'cod': cod,
-                                    'var': v,
-                                    'old_stock': old_stock,
-                                    'new_stock': new_stock,
-                                    'difference': new_stock - old_stock
-                                })
-                    except:
-                        continue
-                
-                # Store report in session for display
-                request.session['verification_report'] = {
-                    'total_products': verification_report['total_products'],
-                    'products_verified': verification_report['products_verified'],
-                    'stock_changes': verification_report['stock_changes'][:50],  # Limit to 50 for display
-                    'total_stock_before': verification_report['total_stock_before'],
-                    'total_stock_after': verification_report['total_stock_after'],
-                    'verified_at': verification_report['verified_at'].isoformat(),
-                    'storage_name': storage.name
-                }
-                
-                messages.success(
-                    request, 
-                    f"Stock verification completed for {storage.name}! "
-                    f"{verification_report['products_verified']} products updated out of {verification_report['total_products']} verified."
-                )
-                
-                return redirect('verification-report', storage_id=storage_id)
-                
-            finally:
-                service.close()
-            
-        except Exception as e:
-            logger.exception("Error verifying stock")
-            messages.error(request, f"Error verifying stock: {str(e)}")
-            return redirect('storage-detail', pk=storage_id)
-    
-    return render(request, 'storages/verify_stock.html', {'storage': storage})
-
-@login_required
-def verify_single_product_view(request, storage_id):
-    """Verify a single product's stock"""
-    storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
-    
-    if request.method == 'POST':
-        form = SingleProductVerificationForm(request.POST)
-        
-        if form.is_valid():
-            cod = form.cleaned_data['product_code']
-            var = form.cleaned_data['product_var']
-            new_stock = form.cleaned_data['stock']
-            cluster = form.cleaned_data.get('cluster') or None
-            
-            try:
-                service = RestockService(storage)
-                service.db.verify_stock(cod, var, new_stock, cluster)
-                service.close()
-                
-                messages.success(request, f"Product {cod}.{var} verified! Stock set to {new_stock}")
-                
-                if 'verify_another' in request.POST:
-                    return redirect('verify-single-product', storage_id=storage_id)
-                else:
-                    return redirect('storage-detail', pk=storage_id)
-                    
-            except ValueError as e:
-                messages.error(request, f"Product not found: {str(e)}")
-            except Exception as e:
-                logger.exception("Error verifying product")
-                messages.error(request, f"Error: {str(e)}")
-    else:
-        form = SingleProductVerificationForm()
-    
-    return render(request, 'storages/verify_single_product.html', {
-        'storage': storage,
-        'form': form
-    })
-
-
-@login_required
-def verification_report_view(request, storage_id):
-    """Display verification report"""
-    storage = get_object_or_404(
-        Storage,
-        id=storage_id,
-        supermarket__owner=request.user
-    )
-    
-    report = request.session.get('verification_report')
-    
-    if not report:
-        messages.warning(request, "No verification report available")
-        return redirect('storage-detail', pk=storage_id)
-    
-    # Calculate statistics
-    if report['stock_changes']:
-        total_difference = sum(change['difference'] for change in report['stock_changes'])
-        avg_difference = total_difference / len(report['stock_changes'])
-        
-        increases = [c for c in report['stock_changes'] if c['difference'] > 0]
-        decreases = [c for c in report['stock_changes'] if c['difference'] < 0]
-        
-        report['total_difference'] = total_difference
-        report['avg_difference'] = avg_difference
-        report['increases_count'] = len(increases)
-        report['decreases_count'] = len(decreases)
-        report['total_increase'] = sum(c['difference'] for c in increases)
-        report['total_decrease'] = sum(c['difference'] for c in decreases)
-    
-    context = {
-        'storage': storage,
-        'report': report
-    }
-    
-    return render(request, 'storages/verification_report.html', context)
-
-
-@login_required
 def configure_list_updates_view(request, storage_id):
     """Configure automatic list updates for a storage"""
     storage = get_object_or_404(
@@ -1424,85 +1206,6 @@ def stock_value_unified_view(request):
     }
     
     return render(request, 'stock_value_unified.html', context)
-
-@login_required
-def record_losses_view(request, supermarket_id):
-    """Manually record losses for ALL storages in supermarket"""
-    supermarket = get_object_or_404(
-        Supermarket,
-        id=supermarket_id,
-        owner=request.user
-    )
-    
-    if request.method == 'POST':
-        form = RecordLossesForm(request.POST, request.FILES)
-        
-        if form.is_valid():
-            loss_type = form.cleaned_data['loss_type']
-            csv_file = request.FILES['csv_file']
-            
-            # Map to filename
-            filename_mapping = {
-                'broken': 'ROTTURE.csv',
-                'expired': 'SCADUTO.csv',
-                'internal': 'UTILIZZO INTERNO.csv'
-            }
-            expected_filename = filename_mapping[loss_type]
-            
-            try:
-                # Save file to LOSSES_FOLDER
-                losses_folder = Path(settings.LOSSES_FOLDER)
-                losses_folder.mkdir(exist_ok=True)
-                
-                file_path = losses_folder / expected_filename
-                
-                if file_path.exists():
-                    file_path.unlink()
-                
-                with open(file_path, 'wb+') as destination:
-                    for chunk in csv_file.chunks():
-                        destination.write(chunk)
-                
-                # Process for FIRST storage (they share same DB)
-                first_storage = supermarket.storages.first()
-                
-                if not first_storage:
-                    messages.error(request, "No storages found for this supermarket")
-                    return redirect('supermarket-detail', pk=supermarket_id)
-                
-                service = RestockService(first_storage)
-                
-                try:
-                    from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
-                    
-                    # This processes ALL storages' data from the CSV
-                    verify_lost_stock_from_excel_combined(service.db)
-                    
-                    messages.success(
-                        request,
-                        f"Successfully recorded {loss_type} losses for {supermarket.name}! "
-                        f"All storages have been updated."
-                    )
-                    
-                except Exception as e:
-                    logger.exception("Error processing loss file")
-                    messages.error(request, f"Error processing losses: {str(e)}")
-                finally:
-                    service.close()
-                
-                return redirect('supermarket-detail', pk=supermarket_id)
-                
-            except Exception as e:
-                logger.exception("Error saving loss file")
-                messages.error(request, f"Error saving file: {str(e)}")
-    else:
-        form = RecordLossesForm()
-    
-    return render(request, 'supermarkets/record_losses.html', {
-        'supermarket': supermarket,
-        'form': form
-    })
-
 
 @login_required
 def losses_analytics_unified_view(request):
@@ -2353,3 +2056,406 @@ def update_stats_only_view(request, storage_id):
         return redirect('storage-detail', pk=storage_id)
     
     return render(request, 'storages/update_stats_only.html', {'storage': storage})
+
+# ============ NEW: Unified Inventory Operations ============
+
+@login_required
+def verify_stock_unified_view(request):
+    """
+    Unified stock verification - select supermarket/storage from within view
+    Accessible from inventory panel without pre-selecting storage
+    """
+    supermarkets = Supermarket.objects.filter(owner=request.user)
+    
+    if request.method == 'POST':
+        supermarket_id = request.POST.get('supermarket_id')
+        storage_id = request.POST.get('storage_id')
+        
+        if not supermarket_id or not storage_id:
+            messages.error(request, "Please select both supermarket and storage")
+            return redirect('verify-stock-unified')
+        
+        storage = get_object_or_404(
+            Storage,
+            id=storage_id,
+            supermarket_id=supermarket_id,
+            supermarket__owner=request.user
+        )
+        
+        if 'csv_file' not in request.FILES:
+            messages.error(request, "No file uploaded")
+            return redirect('verify-stock-unified')
+        
+        csv_file = request.FILES['csv_file']
+        
+        if not csv_file.name.endswith('.csv'):
+            messages.error(request, "File must be .csv format")
+            return redirect('verify-stock-unified')
+        
+        try:
+            # Save file to INVENTORY_FOLDER
+            inventory_folder = Path(settings.INVENTORY_FOLDER)
+            file_path = inventory_folder / csv_file.name
+            
+            with open(file_path, 'wb+') as destination:
+                for chunk in csv_file.chunks():
+                    destination.write(chunk)
+            
+            service = AutomatedRestockService(storage)
+            
+            try:
+                logger.info(f"Updating product stats for {storage.name}...")
+                service.update_product_stats()
+                
+                logger.info(f"Recording losses for {storage.name}...")
+                service.record_losses()
+                
+                # Track changes for report
+                verification_report = {
+                    'total_products': 0,
+                    'products_verified': 0,
+                    'stock_changes': [],
+                    'total_stock_before': 0,
+                    'total_stock_after': 0,
+                    'verified_at': timezone.now()
+                }
+                
+                # Read CSV and get stock before
+                df = pd.read_csv(file_path)
+                
+                COD_COL = "Codice"
+                V_COL = "Variante"
+                STOCK_COL = "Qta Originale"
+                
+                stock_before = {}
+                for _, row in df.iterrows():
+                    try:
+                        cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        v_str = str(row[V_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        cod = int(cod_str)
+                        v = int(v_str)
+                        
+                        try:
+                            stock_before[(cod, v)] = service.db.get_stock(cod, v)
+                        except:
+                            stock_before[(cod, v)] = None
+                    except:
+                        continue
+                
+                logger.info(f"Verifying stock from CSV for {storage.name}...")
+                from .scripts.inventory_reader import verify_stocks_from_excel
+                verify_stocks_from_excel(service.db, cluster_mode=False)
+                
+                # Calculate changes
+                for _, row in df.iterrows():
+                    try:
+                        cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        v_str = str(row[V_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        stock_str = str(row[STOCK_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        
+                        cod = int(cod_str)
+                        v = int(v_str)
+                        new_stock = int(stock_str)
+                        
+                        old_stock = stock_before.get((cod, v))
+                        
+                        if old_stock is not None:
+                            verification_report['total_products'] += 1
+                            verification_report['total_stock_before'] += old_stock
+                            verification_report['total_stock_after'] += new_stock
+                            
+                            if old_stock != new_stock:
+                                verification_report['products_verified'] += 1
+                                verification_report['stock_changes'].append({
+                                    'cod': cod,
+                                    'var': v,
+                                    'old_stock': old_stock,
+                                    'new_stock': new_stock,
+                                    'difference': new_stock - old_stock
+                                })
+                    except:
+                        continue
+                
+                request.session['verification_report'] = {
+                    'total_products': verification_report['total_products'],
+                    'products_verified': verification_report['products_verified'],
+                    'stock_changes': verification_report['stock_changes'][:50],
+                    'total_stock_before': verification_report['total_stock_before'],
+                    'total_stock_after': verification_report['total_stock_after'],
+                    'verified_at': verification_report['verified_at'].isoformat(),
+                    'storage_name': storage.name
+                }
+                
+                messages.success(
+                    request,
+                    f"Stock verification completed! {verification_report['products_verified']} products updated."
+                )
+                
+                return redirect('verification-report-unified')
+                
+            finally:
+                service.close()
+            
+        except Exception as e:
+            logger.exception("Error verifying stock")
+            messages.error(request, f"Error: {str(e)}")
+            return redirect('verify-stock-unified')
+    
+    return render(request, 'inventory/verify_stock_unified.html', {
+        'supermarkets': supermarkets
+    })
+
+
+@login_required
+def assign_clusters_view(request):
+    """
+    Assign clusters to products via CSV upload
+    CSV filename (without .csv) becomes the cluster name
+    """
+    supermarkets = Supermarket.objects.filter(owner=request.user)
+    
+    if request.method == 'POST':
+        supermarket_id = request.POST.get('supermarket_id')
+        storage_id = request.POST.get('storage_id')
+        
+        if not supermarket_id or not storage_id:
+            messages.error(request, "Please select both supermarket and storage")
+            return redirect('assign-clusters')
+        
+        storage = get_object_or_404(
+            Storage,
+            id=storage_id,
+            supermarket_id=supermarket_id,
+            supermarket__owner=request.user
+        )
+        
+        if 'csv_file' not in request.FILES:
+            messages.error(request, "No file uploaded")
+            return redirect('assign-clusters')
+        
+        csv_file = request.FILES['csv_file']
+        
+        if not csv_file.name.endswith('.csv'):
+            messages.error(request, "File must be .csv format")
+            return redirect('assign-clusters')
+        
+        try:
+            # Save file to INVENTORY_FOLDER (filename = cluster name)
+            inventory_folder = Path(settings.INVENTORY_FOLDER)
+            file_path = inventory_folder / csv_file.name
+            
+            with open(file_path, 'wb+') as destination:
+                for chunk in csv_file.chunks():
+                    destination.write(chunk)
+            
+            cluster_name = os.path.splitext(csv_file.name)[0]
+            
+            service = RestockService(storage)
+            
+            try:
+                logger.info(f"Assigning cluster '{cluster_name}' for {storage.name}...")
+                from .scripts.inventory_reader import verify_stocks_from_excel
+                verify_stocks_from_excel(service.db, cluster_mode=True)
+                
+                messages.success(
+                    request,
+                    f"Successfully assigned cluster '{cluster_name}' to products!"
+                )
+                
+            finally:
+                service.close()
+            
+            return redirect('inventory-search')
+            
+        except Exception as e:
+            logger.exception("Error assigning clusters")
+            messages.error(request, f"Error: {str(e)}")
+            return redirect('assign-clusters')
+    
+    return render(request, 'inventory/assign_clusters.html', {
+        'supermarkets': supermarkets
+    })
+
+
+@login_required
+def record_losses_unified_view(request):
+    """
+    Unified loss recording - select supermarket from within view
+    """
+    supermarkets = Supermarket.objects.filter(owner=request.user)
+    
+    if request.method == 'POST':
+        form = RecordLossesForm(request.POST, request.FILES)
+        supermarket_id = request.POST.get('supermarket_id')
+        
+        if not supermarket_id:
+            messages.error(request, "Please select a supermarket")
+            return redirect('record-losses-unified')
+        
+        supermarket = get_object_or_404(
+            Supermarket,
+            id=supermarket_id,
+            owner=request.user
+        )
+        
+        if form.is_valid():
+            loss_type = form.cleaned_data['loss_type']
+            csv_file = request.FILES['csv_file']
+            
+            filename_mapping = {
+                'broken': 'ROTTURE.csv',
+                'expired': 'SCADUTO.csv',
+                'internal': 'UTILIZZO INTERNO.csv'
+            }
+            expected_filename = filename_mapping[loss_type]
+            
+            try:
+                losses_folder = Path(settings.LOSSES_FOLDER)
+                losses_folder.mkdir(exist_ok=True)
+                
+                file_path = losses_folder / expected_filename
+                
+                if file_path.exists():
+                    file_path.unlink()
+                
+                with open(file_path, 'wb+') as destination:
+                    for chunk in csv_file.chunks():
+                        destination.write(chunk)
+                
+                first_storage = supermarket.storages.first()
+                
+                if not first_storage:
+                    messages.error(request, "No storages found for this supermarket")
+                    return redirect('record-losses-unified')
+                
+                service = RestockService(first_storage)
+                
+                try:
+                    from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
+                    verify_lost_stock_from_excel_combined(service.db)
+                    
+                    messages.success(
+                        request,
+                        f"Successfully recorded {loss_type} losses for {supermarket.name}!"
+                    )
+                    
+                except Exception as e:
+                    logger.exception("Error processing loss file")
+                    messages.error(request, f"Error: {str(e)}")
+                finally:
+                    service.close()
+                
+                return redirect('inventory-search')
+                
+            except Exception as e:
+                logger.exception("Error saving loss file")
+                messages.error(request, f"Error: {str(e)}")
+    else:
+        form = RecordLossesForm()
+    
+    return render(request, 'inventory/record_losses_unified.html', {
+        'supermarkets': supermarkets,
+        'form': form
+    })
+
+
+@login_required
+def verification_report_unified_view(request):
+    """Display verification report (unified version)"""
+    report = request.session.get('verification_report')
+    
+    if not report:
+        messages.warning(request, "No verification report available")
+        return redirect('inventory-search')
+    
+    # Calculate statistics
+    if report['stock_changes']:
+        total_difference = sum(change['difference'] for change in report['stock_changes'])
+        
+        increases = [c for c in report['stock_changes'] if c['difference'] > 0]
+        decreases = [c for c in report['stock_changes'] if c['difference'] < 0]
+        
+        report['total_difference'] = total_difference
+        report['increases_count'] = len(increases)
+        report['decreases_count'] = len(decreases)
+        report['total_increase'] = sum(c['difference'] for c in increases)
+        report['total_decrease'] = sum(c['difference'] for c in decreases)
+    
+    return render(request, 'inventory/verification_report_unified.html', {
+        'report': report
+    })
+
+
+@login_required
+@require_POST
+def verify_single_product_ajax_view(request):
+    """
+    AJAX endpoint for verifying single product from inventory modal
+    Uses supermarket + settore instead of storage_id
+    """
+    try:
+        data = json.loads(request.body)
+        
+        supermarket_id = data.get('supermarket_id')
+        settore = data.get('settore')
+        cod = int(data.get('cod'))
+        var = int(data.get('var'))
+        stock = int(data.get('stock'))
+        cluster = data.get('cluster', None) or None
+        
+        # Find storage by supermarket + settore
+        storage = get_object_or_404(
+            Storage,
+            supermarket_id=supermarket_id,
+            settore=settore,
+            supermarket__owner=request.user
+        )
+        
+        service = RestockService(storage)
+        
+        try:
+            service.db.verify_stock(cod, var, stock, cluster)
+            
+            logger.info(
+                f"Single product verified: {storage.supermarket.name} - {settore} - "
+                f"{cod}.{var} = {stock}" + (f" (cluster: {cluster})" if cluster else "")
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Product {cod}.{var} verified successfully!'
+            })
+            
+        finally:
+            service.close()
+            
+    except Exception as e:
+        logger.exception("Error verifying single product")
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+# ============ API Endpoints for Dynamic Loading ============
+
+@login_required
+def get_storages_for_supermarket_ajax_view(request, supermarket_id):
+    """AJAX endpoint to get storages for a supermarket"""
+    try:
+        supermarket = get_object_or_404(
+            Supermarket,
+            id=supermarket_id,
+            owner=request.user
+        )
+        
+        storages = list(
+            supermarket.storages.values('id', 'settore', 'name')
+            .order_by('settore')
+        )
+        
+        return JsonResponse({'storages': storages})
+    
+    except Exception as e:
+        logger.exception("Error loading storages")
+        return JsonResponse({'error': str(e)}, status=500)

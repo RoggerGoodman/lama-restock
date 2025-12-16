@@ -1,0 +1,126 @@
+<!-- templates/inventory/verification_report_unified.html -->
+{% extends 'base.html' %}
+{% block title %}Verification Report{% endblock %}
+{% block page_title %}Stock Verification Report{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventory</a></li>
+                    <li class="breadcrumb-item active">Verification Report</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-blue">
+                    <i class="bi bi-box-seam"></i>
+                </div>
+                <h3 class="mb-1">{{ report.total_products }}</h3>
+                <p class="text-muted mb-0">Total Products</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-orange">
+                    <i class="bi bi-arrow-left-right"></i>
+                </div>
+                <h3 class="mb-1">{{ report.products_verified }}</h3>
+                <p class="text-muted mb-0">Changes Made</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-green">
+                    <i class="bi bi-check-circle"></i>
+                </div>
+                <h3 class="mb-1">{{ report.total_stock_after }}</h3>
+                <p class="text-muted mb-0">Total Stock After</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-red">
+                    <i class="bi bi-clipboard-data"></i>
+                </div>
+                <h3 class="mb-1">
+                    {% if report.total_difference >= 0 %}+{% endif %}{{ report.total_difference }}
+                </h3>
+                <p class="text-muted mb-0">Net Change</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detailed Changes -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-4">
+                    <i class="bi bi-list-ul"></i> Detailed Changes
+                </h5>
+
+                {% if report.stock_changes %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Product Code</th>
+                                <th>Variant</th>
+                                <th class="text-end">Before</th>
+                                <th class="text-center">→</th>
+                                <th class="text-end">After</th>
+                                <th class="text-end">Difference</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for change in report.stock_changes %}
+                            <tr>
+                                <td><code>{{ change.cod }}</code></td>
+                                <td><code>{{ change.var }}</code></td>
+                                <td class="text-end">{{ change.old_stock }}</td>
+                                <td class="text-center"><i class="bi bi-arrow-right"></i></td>
+                                <td class="text-end"><strong>{{ change.new_stock }}</strong></td>
+                                <td class="text-end">
+                                    {% if change.difference >= 0 %}
+                                    <span class="text-success">+{{ change.difference }}</span>
+                                    {% else %}
+                                    <span class="text-danger">{{ change.difference }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-success">
+                    <i class="bi bi-check-circle"></i>
+                    Perfect match! No changes needed.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="d-flex gap-2">
+                <a href="{% url 'inventory-search' %}" class="btn btn-primary">
+                    <i class="bi bi-arrow-left"></i> Back to Inventory
+                </a>
+                <button onclick="window.print()" class="btn btn-outline-secondary">
+                    <i class="bi bi-printer"></i> Print Report
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
