@@ -178,12 +178,13 @@
         </div>
     </div>
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script>
 let pollingInterval;
 let currentLogId;
 let pollCount = 0;
-const MAX_POLLS = 900; // 30 minutes at 2 sec intervals (was 10 min - too short!)
+const MAX_POLLS = 600; // 50 minutes at 5 sec intervals (was 10 min - too short!)
 let consecutiveErrors = 0;
 const MAX_CONSECUTIVE_ERRORS = 5;
 
@@ -224,7 +225,7 @@ function startProgressPolling(logId) {
     
     console.log(`Starting polling for log ${logId}, max polls: ${MAX_POLLS}`);
     
-    // Poll every 2 seconds
+    // Poll every 5 seconds
     pollingInterval = setInterval(() => {
         pollCount++;
         
@@ -277,7 +278,7 @@ function startProgressPolling(logId) {
                 }
                 // Otherwise just log and continue polling
             });
-    }, 2000);
+    }, 5000);
 }
 
 function updateProgress(data) {

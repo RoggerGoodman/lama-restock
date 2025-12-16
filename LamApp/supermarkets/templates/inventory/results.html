@@ -116,7 +116,7 @@
     </div>
 </div>
 
-<!-- Adjust Stock Modal -->
+<!-- Adjust Stock Modal - FIXED VERSION -->
 <div class="modal fade" id="adjustStockModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -168,11 +168,15 @@
         </div>
     </div>
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script>
+// Initialize modal - CRITICAL!
 const adjustModal = new bootstrap.Modal(document.getElementById('adjustStockModal'));
 
 function adjustStock(cod, var_, supermarket, currentStock) {
+    console.log('adjustStock called:', cod, var_, supermarket, currentStock);
+    
     document.getElementById('adjust_cod').value = cod;
     document.getElementById('adjust_var').value = var_;
     document.getElementById('adjust_supermarket').value = supermarket;
@@ -180,6 +184,7 @@ function adjustStock(cod, var_, supermarket, currentStock) {
     document.getElementById('adjust_current_stock').textContent = currentStock;
     document.getElementById('adjustment').value = '';
     
+    // Show the modal
     adjustModal.show();
 }
 
@@ -193,23 +198,37 @@ function submitAdjustment() {
         return;
     }
     
+    // Get CSRF token
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    
+    // Create URLSearchParams for POST data
+    const data = new URLSearchParams();
+    data.append('cod', formData.get('cod'));
+    data.append('var', formData.get('var'));
+    data.append('adjustment', formData.get('adjustment'));
+    data.append('reason', formData.get('reason'));
+    data.append('supermarket', formData.get('supermarket'));
+    data.append('csrfmiddlewaretoken', csrfToken);
+    
     fetch('/inventory/adjust-stock/', {
         method: 'POST',
-        body: formData,
         headers: {
-            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
-        }
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: data
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
             alert(data.message);
+            adjustModal.hide();
             location.reload();
         } else {
             alert('Error: ' + data.message);
         }
     })
     .catch(error => {
+        console.error('Error:', error);
         alert('Error: ' + error);
     });
 }
@@ -219,11 +238,13 @@ function flagForPurge(cod, var_, supermarket) {
         return;
     }
     
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    
     fetch('/inventory/flag-for-purge/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}'
+            'X-CSRFToken': csrfToken
         },
         body: JSON.stringify({
             cod: cod,
@@ -241,6 +262,7 @@ function flagForPurge(cod, var_, supermarket) {
         }
     })
     .catch(error => {
+        console.error('Error:', error);
         alert('Error: ' + error);
     });
 }

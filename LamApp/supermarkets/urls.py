@@ -77,7 +77,7 @@ urlpatterns = [
 
     # Loss Management
     # SUPERMARKET LEVEL - Recording (one CSV for all storages)
-    path('supermarkets/<int:supermarket_id>/record-losses/', views.record_losses_view, name='record-losses'),
+    path('inventory/<int:supermarket_id>/record-losses/', views.record_losses_view, name='record-losses'),
     path('losses-analytics/', views.losses_analytics_unified_view, name='losses-analytics-unified'),
 
     # Restock progress endpoint (add after restock logs section)

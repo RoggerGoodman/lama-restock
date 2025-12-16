@@ -87,7 +87,8 @@
         </div>
     </div>
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const frequencySelect = document.getElementById('{{ form.frequency.id_for_label }}');

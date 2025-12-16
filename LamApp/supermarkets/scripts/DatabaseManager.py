@@ -566,9 +566,10 @@ class DatabaseManager:
         This sets verified = True. (Does not change last_update.)
         """
         cur = self.cursor()
-        cur.execute("UPDATE product_stats SET stock=%s, verified=TRUE WHERE cod=%s AND v=%s", (new_stock, cod, v))
-        if cur.rowcount == 0:
-            raise ValueError(f"No product_stats found for {cod}.{v}")
+        if new_stock != None:
+            cur.execute("UPDATE product_stats SET stock=%s, verified=TRUE WHERE cod=%s AND v=%s", (new_stock, cod, v))
+            if cur.rowcount == 0:
+                raise ValueError(f"No product_stats found for {cod}.{v}")
         
         if cluster != None:
             cur.execute("UPDATE products SET cluster = %s WHERE cod=%s AND v=%s", (cluster, cod, v))

@@ -200,32 +200,6 @@ class StockAdjustmentForm(forms.Form):
         
         return cleaned_data
 
-
-class BulkStockAdjustmentForm(forms.Form):
-    """Form for bulk stock adjustments via CSV"""
-    
-    csv_file = forms.FileField(
-        label="CSV File",
-        help_text="Upload a CSV with columns: Product Code, Variant, Adjustment, Reason",
-        widget=forms.FileInput(attrs={
-            'class': 'form-control',
-            'accept': '.csv'
-        })
-    )
-    
-    reason = forms.ChoiceField(
-        label="Default Reason (for all adjustments)",
-        choices=[
-            ('undelivered', 'Undelivered Package'),
-            ('extra_delivery', 'Extra Package Delivered'),
-            ('miscount', 'Inventory Miscount'),
-            ('damaged', 'Damaged in Transit'),
-            ('return', 'Customer Return'),
-            ('other', 'Other')
-        ],
-        widget=forms.Select(attrs={'class': 'form-select'})
-    )
-
 class RecordLossesForm(forms.Form):
     """Form for manually uploading and recording losses"""
     
@@ -390,7 +364,7 @@ class PurgeProductsForm(forms.Form):
         return products
     
 class InventorySearchForm(forms.Form):
-    """Form for searching inventory"""
+    """Form for searching inventory - FIXED to not validate dynamic choices"""
     
     SEARCH_TYPE_CHOICES = [
         ('cod_var', 'Specific Product (Code + Variant)'),
@@ -422,20 +396,31 @@ class InventorySearchForm(forms.Form):
         })
     )
     
-    # Fields for settore_cluster
-    supermarket = forms.ChoiceField(
+    # FIXED: Use CharField instead of ChoiceField for dynamic fields
+    # This prevents validation errors on dynamically loaded values
+    supermarket = forms.CharField(
         required=False,
         widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_supermarket'})
     )
     
-    settore = forms.ChoiceField(
+    settore = forms.CharField(
         required=False,
-        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_settore'})
+        widget=forms.TextInput(attrs={
+            'class': 'form-control', 
+            'id': 'id_settore',
+            'readonly': 'readonly',  # Will be set by JavaScript
+            'placeholder': 'Select supermarket first'
+        })
     )
     
-    cluster = forms.ChoiceField(
+    cluster = forms.CharField(
         required=False,
-        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_cluster'})
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'id': 'id_cluster', 
+            'readonly': 'readonly',  # Will be set by JavaScript
+            'placeholder': 'Select settore first'
+        })
     )
     
     def __init__(self, user, *args, **kwargs):
@@ -446,13 +431,14 @@ class InventorySearchForm(forms.Form):
         
         # Populate supermarket choices
         supermarkets = Supermarket.objects.filter(owner=user)
-        self.fields['supermarket'].choices = [('', '-- Select Supermarket --')] + [
-            (str(sm.id), sm.name) for sm in supermarkets
-        ]
         
-        # Settore and cluster populated via JavaScript
-        self.fields['settore'].choices = [('', '-- Select Settore --')]
-        self.fields['cluster'].choices = [('', '-- All Clusters --')]
+        # Override widget to add choices
+        self.fields['supermarket'].widget = forms.Select(
+            choices=[('', '-- Select Supermarket --')] + [
+                (str(sm.id), sm.name) for sm in supermarkets
+            ],
+            attrs={'class': 'form-select', 'id': 'id_supermarket'}
+        )
     
     def clean(self):
         cleaned_data = super().clean()

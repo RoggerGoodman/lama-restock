@@ -11,7 +11,7 @@ INVENTORY_FOLDER = str(settings.INVENTORY_FOLDER)  # For verification
 LOSSES_FOLDER = str(settings.LOSSES_FOLDER)  # For loss recording
 
 
-def verify_stocks_from_excel(db: DatabaseManager):
+def verify_stocks_from_excel(db: DatabaseManager, cluster_mode:bool = False):
     """
     Verifies and updates stock levels from CSV files inside INVENTORY_FOLDER.
     Used for manual stock verification with inventory counts.
@@ -71,8 +71,13 @@ def verify_stocks_from_excel(db: DatabaseManager):
                 new_stock = int(row[STOCK_COL])
 
                 try:
-                    db.verify_stock(cod, v, new_stock, cluster)
-                    logger.debug(f"Verified stock: {cod}.{v} = {new_stock}")
+                    if cluster_mode == False:
+                        db.verify_stock(cod, v, new_stock, cluster)
+                        logger.debug(f"Verified stock: {cod}.{v} = {new_stock}")
+                    elif cluster_mode == True:
+                        new_stock = None
+                        db.verify_stock(cod, v, new_stock, cluster)
+                        logger.debug(f"Cluster assigned for: {cod}.{v} = {cluster}")
                 except Exception as e:
                     logger.warning(f"Skipped {cod}.{v} due to error: {e}")
             

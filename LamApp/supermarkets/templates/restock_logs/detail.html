@@ -377,6 +377,128 @@
                     </div>
                 </div>
                 {% endif %}
+                <!-- NEW PRODUCTS SECTION -->
+                {% if enriched_new %}
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="stat-card">
+                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-star text-success"></i> New Products
+                                </h5>
+                                <span class="badge bg-success">{{ enriched_new|length }} new product{{ enriched_new|length|pluralize }}</span>
+                            </div>
+
+                            <div class="alert alert-success">
+                                <i class="bi bi-info-circle"></i>
+                                These are brand new products that have never been in the system. They may need special attention or initial verification.
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Code</th>
+                                            <th>Product Name</th>
+                                            <th>Stock</th>
+                                            <th>Availability</th>
+                                            <th>Reason</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for item in enriched_new %}
+                                        <tr>
+                                            <td><code>{{ item.cod }}.{{ item.var }}</code></td>
+                                            <td>{{ item.name|truncatewords:6 }}</td>
+                                            <td>
+                                                <span class="badge bg-secondary">{{ item.stock }} units</span>
+                                            </td>
+                                            <td>
+                                                {% if item.disponibilita == 'Si' %}
+                                                    <span class="badge bg-success">Available</span>
+                                                {% else %}
+                                                    <span class="badge bg-danger">Not Available</span>
+                                                {% endif %}
+                                            </td>
+                                            <td><small class="text-muted">{{ item.reason }}</small></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- ZOMBIE PRODUCTS SECTION -->
+                {% if enriched_zombie %}
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="stat-card">
+                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-archive text-secondary"></i> Zombie Products
+                                </h5>
+                                <div>
+                                    <span class="badge bg-secondary">{{ enriched_zombie|length }} zombie product{{ enriched_zombie|length|pluralize }}</span>
+                                    <button class="btn btn-sm btn-danger" onclick="flagAllZombiesForPurge()">
+                                        <i class="bi bi-trash"></i> Flag All for Purge
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-secondary">
+                                <i class="bi bi-info-circle"></i>
+                                These products are finished and not restockable (disponibilita=No, stock=0). Consider purging them from the database.
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th><input type="checkbox" id="selectAllZombies" onclick="toggleSelectAllZombies()"></th>
+                                            <th>Code</th>
+                                            <th>Product Name</th>
+                                            <th>Stock</th>
+                                            <th>Availability</th>
+                                            <th>Reason</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for item in enriched_zombie %}
+                                        <tr>
+                                            <td><input type="checkbox" class="zombie-checkbox" value="{{ item.cod }},{{ item.var }}"></td>
+                                            <td><code>{{ item.cod }}.{{ item.var }}</code></td>
+                                            <td>{{ item.name|truncatewords:6 }}</td>
+                                            <td>
+                                                <span class="badge bg-secondary">{{ item.stock }} units</span>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-danger">Not Available</span>
+                                            </td>
+                                            <td><small class="text-muted">{{ item.reason }}</small></td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-danger" onclick="flagSingleForPurge({{ item.cod }}, {{ item.var }})">
+                                                    <i class="bi bi-trash"></i> Flag
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="mt-3">
+                                <button class="btn btn-warning" onclick="flagSelectedZombiesForPurge()">
+                                    <i class="bi bi-trash"></i> Flag Selected for Purge
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
 
                 <!-- Cluster View -->
                 <div id="clusterView">
@@ -437,7 +559,8 @@
         </div>
     </div>
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script>
 let currentSortColumn = -1;
 let currentSortDirection = 'asc';
@@ -583,6 +706,42 @@ function flagProductsForPurge(products) {
     .catch(error => {
         alert('Error: ' + error);
     });
+}
+
+// Zombie products functions
+function toggleSelectAllZombies() {
+    const selectAll = document.getElementById('selectAllZombies');
+    const checkboxes = document.querySelectorAll('.zombie-checkbox');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+}
+
+function flagSelectedZombiesForPurge() {
+    const selected = [];
+    document.querySelectorAll('.zombie-checkbox:checked').forEach(cb => {
+        const [cod, var_] = cb.value.split(',');
+        selected.push({cod: parseInt(cod), var: parseInt(var_)});
+    });
+    
+    if (selected.length === 0) {
+        alert('No products selected');
+        return;
+    }
+    
+    if (!confirm(`Flag ${selected.length} zombie product(s) for purging?`)) return;
+    
+    flagProductsForPurge(selected);
+}
+
+function flagAllZombiesForPurge() {
+    const all = [];
+    document.querySelectorAll('.zombie-checkbox').forEach(cb => {
+        const [cod, var_] = cb.value.split(',');
+        all.push({cod: parseInt(cod), var: parseInt(var_)});
+    });
+    
+    if (!confirm(`Flag all ${all.length} zombie products for purging?`)) return;
+    
+    flagProductsForPurge(all);
 }
 </script>
 {% endblock %}

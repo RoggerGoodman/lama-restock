@@ -1970,7 +1970,7 @@ def inventory_search_view(request):
 
 @login_required  
 def inventory_results_view(request, search_type):
-    """Display inventory search results"""
+    """Display inventory search results - FULLY FIXED"""
     
     results = []
     search_description = ""
@@ -2018,6 +2018,44 @@ def inventory_results_view(request, search_type):
             # If not found, redirect to not found page
             if not found:
                 return redirect('inventory-product-not-found', cod=cod, var=var)
+        
+        elif search_type == 'cod_all':
+            # NEW: Search for all variants of a product code
+            cod = int(request.GET.get('cod'))
+            search_description = f"All variants of product code {cod}"
+            
+            logger.info(f"Searching for all variants of code: {cod}")
+            
+            # Search across all supermarkets
+            for sm in Supermarket.objects.filter(owner=request.user):
+                storage = sm.storages.first()
+                if not storage:
+                    continue
+                
+                service = RestockService(storage)
+                try:
+                    cur = service.db.cursor()
+                    cur.execute("""
+                        SELECT 
+                            p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
+                            p.settore, p.cluster,
+                            ps.stock, ps.last_update, ps.verified
+                        FROM products p
+                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.cod = %s AND ps.verified = TRUE
+                        ORDER BY p.v
+                    """, (cod,))
+                    
+                    for row in cur.fetchall():
+                        result = dict(row)
+                        result['supermarket_name'] = sm.name
+                        results.append(result)
+                    
+                    logger.info(f"Found {len(results)} variants in {sm.name}")
+                except Exception as e:
+                    logger.exception(f"Error searching in {sm.name}")
+                finally:
+                    service.close()
         
         elif search_type == 'settore_cluster':
             # Search by settore and optionally cluster
@@ -2093,58 +2131,6 @@ def inventory_results_view(request, search_type):
                 return redirect('inventory-search')
             finally:
                 service.close()
-        
-        elif search_type == 'settore_cluster':
-            # Search by settore and optionally cluster
-            supermarket_id = request.GET.get('supermarket_id')
-            settore = request.GET.get('settore')
-            cluster = request.GET.get('cluster', '')
-            
-            supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
-            settore_name = settore
-            
-            if cluster:
-                search_description = f"{supermarket.name} - {settore} - Cluster: {cluster}"
-            else:
-                search_description = f"{supermarket.name} - {settore} (All Clusters)"
-            
-            storage = supermarket.storages.filter(settore=settore).first()
-            if storage:
-                service = RestockService(storage)
-                try:
-                    cur = service.db.cursor()
-                    
-                    if cluster:
-                        cur.execute("""
-                            SELECT 
-                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
-                                p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified
-                            FROM products p
-                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                            WHERE p.settore = %s AND p.cluster = %s AND ps.verified = TRUE
-                            ORDER BY p.descrizione
-                        """, (settore, cluster))
-                    else:
-                        cur.execute("""
-                            SELECT 
-                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
-                                p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified
-                            FROM products p
-                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                            WHERE p.settore = %s AND ps.verified = TRUE
-                            ORDER BY p.cluster, p.descrizione
-                        """, (settore,))
-                    
-                    for row in cur.fetchall():
-                        result = dict(row)
-                        result['supermarket_name'] = supermarket.name
-                        results.append(result)
-                except Exception as e:
-                    logger.exception(f"Error searching settore/cluster")
-                finally:
-                    service.close()
     
     except Exception as e:
         logger.exception("Error in inventory search")
