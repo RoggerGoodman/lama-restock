@@ -93,15 +93,9 @@ class AutomatedRestockService:
                 inv_scrapper.login()
                 inv_scrapper.inventory()
                 
-                target1 = "ROTTURE"
-                target2 = "SCADUTO"
-                target3 = "UTILIZZO INTERNO"
-                
                 logger.info("Downloading loss inventory files...")
-                inv_scrapper.downloader(target1)
-                inv_scrapper.downloader(target2)
-                inv_scrapper.downloader(target3)
-                
+
+                inv_scrapper.export_all_testate_from_day()
                 logger.info("Processing loss files...")
                 verify_lost_stock_from_excel_combined(self.db)
                 

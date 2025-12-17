@@ -14,3 +14,4 @@ whitenoise == 6.11.0
 djlint == 1.36.4
 dj-database-url == 3.0.1
 psycopg2 == 2.9.11
+requests == 2.32.5

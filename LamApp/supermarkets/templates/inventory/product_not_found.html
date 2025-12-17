@@ -1,4 +1,4 @@
-<!-- LamApp/supermarkets/templates/inventory/product_not_found.html -->
+<!-- LamApp/supermarkets/templates/inventory/product_not_found.html - FIXED -->
 {% extends 'base.html' %}
 {% block title %}Product Not Found{% endblock %}
 {% block page_title %}Product Not Found{% endblock %}
@@ -28,9 +28,9 @@
                     <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
                         <i class="bi bi-arrow-left"></i> Back to Search
                     </a>
-                    <a href="{% url 'supermarket-list' %}" class="btn btn-primary">
+                    <button onclick="showVerifyModal()" class="btn btn-primary">
                         <i class="bi bi-clipboard-check"></i> Verify Stock Now
-                    </a>
+                    </button>
                 </div>
 
                 {% elif not product_exists %}
@@ -48,9 +48,9 @@
                     <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
                         <i class="bi bi-arrow-left"></i> Back to Search
                     </a>
-                    <a href="{% url 'supermarket-list' %}" class="btn btn-success">
+                    <button onclick="showAddProductModal()" class="btn btn-success">
                         <i class="bi bi-plus-circle"></i> Add Product
-                    </a>
+                    </button>
                 </div>
 
                 {% else %}
@@ -68,4 +68,290 @@
         </div>
     </div>
 </div>
+
+<!-- Verify Single Product Modal -->
+<div class="modal fade" id="verifySingleModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Verify Product {{ cod }}.{{ var }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <strong>Product Code:</strong> {{ cod }}.{{ var }}
+                </div>
+                
+                <form id="verifySingleForm">
+                    <div class="mb-3">
+                        <label class="form-label">Supermarket</label>
+                        <select id="verify_supermarket" class="form-select" required onchange="loadStoragesForVerify()">
+                            <option value="">-- Select Supermarket --</option>
+                            {% for sm in user.supermarkets.all %}
+                            <option value="{{ sm.id }}">{{ sm.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Storage (Settore)</label>
+                        <select id="verify_storage" class="form-select" required disabled>
+                            <option value="">-- Select Supermarket First --</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Stock Quantity</label>
+                        <input type="number" id="verify_stock" class="form-control" required min="0">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Cluster (Optional)</label>
+                        <input type="text" id="verify_cluster" class="form-control" placeholder="Leave empty to skip">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="submitVerifySingle()">
+                    <i class="bi bi-check-circle"></i> Verify
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Product Modal -->
+<div class="modal fade" id="addProductModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Product {{ cod }}.{{ var }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-clock"></i> Processing Time</h6>
+                    <p class="mb-0">
+                        <strong>Please be patient:</strong> This operation will fetch product details from PAC2000A 
+                        and may take 15-30 seconds.
+                    </p>
+                </div>
+
+                <div class="alert alert-info">
+                    <strong>Product to Add:</strong> {{ cod }}.{{ var }}
+                </div>
+                
+                <form id="addProductForm">
+                    <div class="mb-3">
+                        <label class="form-label">Supermarket</label>
+                        <select id="add_supermarket" class="form-select" required onchange="loadStoragesForAdd()">
+                            <option value="">-- Select Supermarket --</option>
+                            {% for sm in user.supermarkets.all %}
+                            <option value="{{ sm.id }}">{{ sm.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Storage (Settore)</label>
+                        <select id="add_storage" class="form-select" required disabled>
+                            <option value="">-- Select Supermarket First --</option>
+                        </select>
+                        <div class="form-text">The product will be added to this settore</div>
+                    </div>
+                </form>
+
+                <div id="addProductProgress" style="display: none;">
+                    <div class="alert alert-info">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <span>Processing... Please wait, this may take a few seconds.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="addProductBtn" onclick="submitAddProduct()">
+                    <i class="bi bi-plus-circle"></i> Add Product
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Initialize modals
+const verifySingleModal = new bootstrap.Modal(document.getElementById('verifySingleModal'));
+const addProductModal = new bootstrap.Modal(document.getElementById('addProductModal'));
+
+const productCode = {{ cod }};
+const productVar = {{ var }};
+
+// ============ VERIFY STOCK NOW ============
+
+function showVerifyModal() {
+    verifySingleModal.show();
+}
+
+function loadStoragesForVerify() {
+    const supermarketId = document.getElementById('verify_supermarket').value;
+    const storageSelect = document.getElementById('verify_storage');
+    
+    if (!supermarketId) {
+        storageSelect.disabled = true;
+        storageSelect.innerHTML = '<option value="">-- Select Supermarket First --</option>';
+        return;
+    }
+    
+    fetch(`/inventory/api/storages/${supermarketId}/`)
+        .then(response => response.json())
+        .then(data => {
+            storageSelect.innerHTML = '<option value="">-- Select Storage --</option>';
+            data.storages.forEach(storage => {
+                const option = document.createElement('option');
+                option.value = storage.settore;
+                option.textContent = storage.settore;
+                option.dataset.storageId = storage.id;
+                storageSelect.appendChild(option);
+            });
+            storageSelect.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error loading storages:', error);
+            alert('Error loading storages');
+        });
+}
+
+function submitVerifySingle() {
+    const supermarketId = document.getElementById('verify_supermarket').value;
+    const settore = document.getElementById('verify_storage').value;
+    const stock = document.getElementById('verify_stock').value;
+    const cluster = document.getElementById('verify_cluster').value || null;
+    
+    if (!supermarketId || !settore || stock === '') {
+        alert('Please fill in all required fields');
+        return;
+    }
+    
+    const csrfToken = '{{ csrf_token }}';
+    
+    fetch('/inventory/verify-single/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            supermarket_id: supermarketId,
+            settore: settore,
+            cod: productCode,
+            var: productVar,
+            stock: parseInt(stock),
+            cluster: cluster
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            verifySingleModal.hide();
+            // Redirect to search results for this product
+            window.location.href = `/inventory/results/cod_var/?cod=${productCode}&var=${productVar}`;
+        } else {
+            alert('Error: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error verifying product: ' + error);
+    });
+}
+
+// ============ ADD PRODUCT ============
+
+function showAddProductModal() {
+    addProductModal.show();
+}
+
+function loadStoragesForAdd() {
+    const supermarketId = document.getElementById('add_supermarket').value;
+    const storageSelect = document.getElementById('add_storage');
+    
+    if (!supermarketId) {
+        storageSelect.disabled = true;
+        storageSelect.innerHTML = '<option value="">-- Select Supermarket First --</option>';
+        return;
+    }
+    
+    fetch(`/inventory/api/storages/${supermarketId}/`)
+        .then(response => response.json())
+        .then(data => {
+            storageSelect.innerHTML = '<option value="">-- Select Storage --</option>';
+            data.storages.forEach(storage => {
+                const option = document.createElement('option');
+                option.value = storage.id;
+                option.textContent = storage.settore;
+                storageSelect.appendChild(option);
+            });
+            storageSelect.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error loading storages:', error);
+            alert('Error loading storages');
+        });
+}
+
+function submitAddProduct() {
+    const supermarketId = document.getElementById('add_supermarket').value;
+    const storageId = document.getElementById('add_storage').value;
+    
+    if (!supermarketId || !storageId) {
+        alert('Please select both supermarket and storage');
+        return;
+    }
+    
+    // Show progress indicator
+    document.getElementById('addProductProgress').style.display = 'block';
+    document.getElementById('addProductBtn').disabled = true;
+    
+    // Redirect to add-products view with pre-filled product
+    const productText = `${productCode}.${productVar}`;
+    
+    // Create a form and submit it
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `/storages/${storageId}/add-products/`;
+    
+    // Add CSRF token
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+    
+    // Add products field (we need to get settore from the selected storage)
+    const storageSelect = document.getElementById('add_storage');
+    const selectedOption = storageSelect.options[storageSelect.selectedIndex];
+    const settore = selectedOption.textContent;
+    
+    const settoreInput = document.createElement('input');
+    settoreInput.type = 'hidden';
+    settoreInput.name = 'settore';
+    settoreInput.value = settore;
+    form.appendChild(settoreInput);
+    
+    const productsInput = document.createElement('input');
+    productsInput.type = 'hidden';
+    productsInput.name = 'products';
+    productsInput.value = productText;
+    form.appendChild(productsInput);
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
 {% endblock %}
