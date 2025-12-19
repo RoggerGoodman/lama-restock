@@ -103,7 +103,7 @@ class ListUpdateService:
         """
         logger.info(f"Importing products from {file_path}")
         
-        self.db.import_from_excel(file_path, self.settore)
+        self.db.import_from_CSV(file_path, self.settore)
         
         logger.info(f"Import completed for {self.storage.name}")
     

@@ -127,7 +127,7 @@ class RestockService:
     
     def import_products_from_excel(self, file_path):
         """Import products from Excel file"""
-        self.db.import_from_excel(file_path, self.settore)
+        self.db.import_from_CSV(file_path, self.settore)
     
     def update_product_stats(self):
         """

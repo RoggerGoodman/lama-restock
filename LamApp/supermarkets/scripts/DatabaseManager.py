@@ -609,9 +609,9 @@ class DatabaseManager:
                 WHERE cod=%s AND v=%s
             """, (Json(sold_arr), cod, v))
 
-    def import_from_excel(self, file_path: str, settore: str):
+    def import_from_CSV(self, file_path: str, settore: str):
         """
-        Imports products from an Excel file into the database for the given settore.
+        Imports products from an CSV file into the database for the given settore.
         Updates existing entries or inserts new ones.
         """
         print(f"Importing from '{file_path}' into settore '{settore}'...")
@@ -619,19 +619,19 @@ class DatabaseManager:
         # Step 1: Purge old entries for this settore
         # self.purge_settore(settore)
 
-        # Step 2: Load Excel data
-        df = pd.read_excel(file_path)
+        # Step 2: Load CSV data
+        df = pd.read_csv(file_path, sep=";", encoding="utf-8")
 
         # Expected column names (first occurrence if duplicates exist)
-        COD_COLS = "Cod."
-        V_COLS = "V."
-        DESC_COLS = "Articolo"
-        RAPP_COLS = "Rapp"
-        PZ_COLS = "Pz.x.Collo"
-        DISP_COLS = "Disponibilita"
-        COST_COLS = "Costo"
-        PRICE_COLS = "Vendita"
-        REP_COLS = "Reparto"
+        COD_COLS = "Code"
+        V_COLS = "Variant"
+        DESC_COLS = "Description"
+        RAPP_COLS = "Multiplier"
+        PZ_COLS = "Package"
+        DISP_COLS = "Availability"
+        COST_COLS = "Cost"
+        PRICE_COLS = "Price"
+        REP_COLS = "Category"
 
 
     # Skip rows without a numeric Cod.

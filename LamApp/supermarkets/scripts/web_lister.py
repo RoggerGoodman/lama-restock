@@ -4,7 +4,7 @@ Web-integrated version of the Lister script.
 Downloads product list Excel files from PAC2000A automatically.
 """
 import re
-import shutil
+import csv
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -12,13 +12,27 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import ElementClickInterceptedException, NoSuchElementException, TimeoutException
-import time
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.chrome.options import Options
 from pathlib import Path
 import logging
+import requests
+from datetime import date
+import time
 
 logger = logging.getLogger(__name__)
+
+CSV_COLUMN_MAP = {
+    "arCodiceArticolo": "Code",
+    "arVarianteArticolo": "Variant",
+    "arDescrizione": "Description",
+    "Imballo": "Package",
+    "arRapportoCessioneVendita": "Multiplier",
+    "disponibilita2": "Availability",
+    "cessione": "Cost",
+    "vendita": "Price",
+    "reDescrizione": "Category",
+}
 
 
 class WebLister:
@@ -43,6 +57,9 @@ class WebLister:
         self.password = password
         self.storage_name = storage_name
         self.download_dir = download_dir
+        self.StatoAssIn=[16, 13] #TODO must be made user selectable (there are more than just these 2 options... sadly)
+        self.IDCliente=31659 #TODO must be made dynamic in future
+        self.dataIntercettaPrezzi = date.today().strftime("%Y-%m-%d")
         
         # Extract settore name (remove numeric prefix)
         self.settore = re.sub(r'^\d+\s+', '', storage_name)
@@ -56,7 +73,7 @@ class WebLister:
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
-            #chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-software-rasterizer")
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
@@ -71,7 +88,7 @@ class WebLister:
         }
         chrome_options.add_experimental_option("prefs", prefs)
         service = Service("/usr/bin/chromedriver")
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        self.driver = webdriver.Chrome(service=service, options=chrome_options) 
         self.actions = ActionChains(self.driver)
         self.wait = WebDriverWait(self.driver, 300)
         
@@ -135,192 +152,126 @@ class WebLister:
             # Popup present but button didn't load → fail silently or handle as needed
             print("Popup detected but Chiudi button not clickable.")
 
-    def apply_filters(self):
-        """Apply storage selection and filters"""
-        logger.info(f"Applying filters for settore: {self.settore}")
-        
-        # Select storage
-        input_element = self.driver.find_element(
-            By.XPATH, "//*[@id='idMagConsegnaActionButton']/input"
-        )
-        input_element.clear()
-        input_element.send_keys(self.settore)
-        time.sleep(1)
-        
-        element = self.driver.find_element(
-            By.XPATH, f'//smart-list-item[@label="{self.settore}"]'
-        )
-        element.click()
-        time.sleep(1)
-        
-        #pop-up killer
-        self.close_ordini_popup()
-
-        # Select state
-        #drop_down_arrow_1 = self.driver.find_element(
-        #    By.XPATH, "//*[@id='idMagStatoAssort']/div[1]/div/div[1]/span[2]"
-        #)
-        #drop_down_arrow_1.click()
-        time.sleep(1)
-        #TODO To be re-implemented
-        #state_element = self.driver.find_element(
-        #    By.XPATH, "//span[normalize-space()='SOSPESO LISTINO/NO COMUNIC.VAR']"
-        #)
-        #state_element.click()
-        
-        # Apply category filters based on storage type
-        self._apply_category_filters()
-        time.sleep(1)
-        # Confirm filters
-        try:
-            confirm_button = self.driver.find_element(
-                By.XPATH, "//*[@id='confermaFooterFiltro']/button"
-            )
-            confirm_button.click()
-        except ElementClickInterceptedException:
-            # Handle modal overlap
-            close_buttons = self.driver.find_elements(
-                By.XPATH, "//*[@id='chiudifooterFiltro']/button"
-            )
-            
-            for button in close_buttons:
-                if button.is_displayed() and button.accessible_name == 'CHIUDI':
-                    try:
-                        button.click()
-                        break
-                    except ElementClickInterceptedException:
-                        continue
-            
-            time.sleep(0.5)
-            confirm_button = self.driver.find_element(
-                By.XPATH, "//*[@id='confermaFooterFiltro']/button"
-            )
-            confirm_button.click()
-        
-        self.wait.until(
-            EC.invisibility_of_element_located((By.ID, "loadingWindow"))
-        )
-        logger.info("Filters applied successfully")
-
-    def _apply_category_filters(self):
+    def apply_category_filters(self): #TODO storages are fixed, must be made dynamic to accomodate different areas/clients
         """Apply category filters based on storage type"""
-        # Determine which filters to apply
-        if self.settore == "S.PALOMBA SURGELATI":
-            # No filters for frozen storage
-            logger.info("No category filters for frozen storage")
-            return
-        
+        self.output_path = Path(self.download_dir) / f"{self.storage_name}.csv"
         if self.settore == "RIANO GENERI VARI":
-            target_filters = {
-                "100",  # Sala Generi Vari
-                "600",  # Ortofrutta
-                "620",  # Frutta secca
-                "800",  # Non-Food
-                "820"   # Extra-Alimentare
-            }
+            self.IDCodMag=46
+            self.RepartoIn=[28, 44, 76, 50, 52] # Sala Generi Vari, Ortofrutta, Frutta secca, Non-Food, Extra-Alimentare
         elif self.settore == "POMEZIA DEPERIBILI":
-            target_filters = {
-                "300",  # Murale Salumi/Latticini
-                "350",  # Pane
-                "600"   # Ortofrutta
-            }
+            self.IDCodMag=47
+            self.RepartoIn=[28, 30, 34, 44] # Sala Generi Vari, Murale Salumi/Latticini, Pane, Ortofrutta
+            28,30,34,44
+        elif self.settore == "S.PALOMBA SURGELATI":
+            self.IDCodMag=49
+            self.RepartoIn=[38] #Surgelati
         else:
             # No filters for unknown storage types
             logger.info(f"No predefined filters for {self.settore}")
             return
-        
-        logger.info(f"Applying category filters: {target_filters}")
-        
-        # Open category dropdown
-        drop_down_arrow_2 = self.driver.find_element(
-            By.XPATH, "//*[@id='idRepartoFilter']/div[1]/div/div[1]/span[2]"
-        )
-        drop_down_arrow_2.click()
-        time.sleep(1)
-        
-        # Select matching categories
-        list_items = self.driver.find_elements(By.CSS_SELECTOR, "smart-list-item")
-        
-        for item in list_items:
-            label = item.get_attribute("label")
-            
-            if not label:
-                continue
-            
-            code = label.split(" - ")[0].strip()
-            
-            if code in target_filters:
-                # Scroll into view
-                self.driver.execute_script(
-                    "arguments[0].scrollIntoView({block: 'center'});", item
-                )
-                time.sleep(0.2)
-                item.click()
 
-    def download_excel(self) -> str:
+    def fetch_listino(
+        self,
+        IDAzienda: int = 2,
+        IDMarchio: int = 10,
+        numRecord: int = 5000):
         """
-        Download the product list Excel file.
-        
-        Returns:
-            str: Path to downloaded file
+        Fetch listino products from PAC2000A (Listino_callV2.php)
+        Requires an authenticated Selenium driver.
         """
-        logger.info("Initiating download...")
-        
-        # Open export menu
-        menu_element = self.driver.find_element(By.XPATH, '//*[@id="menuStrumenti"]')
-        self.actions.move_to_element(menu_element).perform()
-        time.sleep(0.3)
-        
-        export_element = self.driver.find_element(By.XPATH, '/html/body/div[1]/nav[2]/div[1]/ul/li[5]/button') 
-        export_element.click()
-        time.sleep(0.3)
-        
-        excel_button = self.driver.find_element(By.XPATH, '//*[@id="xlsxBtn"]')
-        excel_button.click()
-        
-        # Wait for download
-        logger.info("Waiting for download to complete...")
-        time.sleep(10)
-        
-        # Find downloaded file
-        temp_file = Path(self.download_dir) / 'SmartGrid.xlsx'
-        
-        # Wait until file exists
-        max_wait = 60  # seconds
-        waited = 0
-        while not temp_file.exists() and waited < max_wait:
-            time.sleep(1)
-            waited += 1
-        
-        if not temp_file.exists():
-            raise FileNotFoundError(f"Download failed: {temp_file} not found after {max_wait}s")
-        
-        # Rename to storage-specific name
-        final_file = Path(self.download_dir) / f"{self.storage_name}.xlsx"
-        
-        if final_file.exists():
-            final_file.unlink()  # Remove old file
-        
-        shutil.move(str(temp_file), str(final_file))
-        
-        logger.info(f"Download completed: {final_file}")
-        return str(final_file)
 
+        url = "https://dropzone.pac2000a.it/anagrafiche/Listino_callV2.php"
+
+        # --- payload ---
+        payload = {
+            "funzione": "lista",
+            "IDAzienda": IDAzienda,
+            "IDCliente": self.IDCliente,
+            "IDMarchio": IDMarchio,
+            "IDCodMag": self.IDCodMag,
+            "dexArt": "",
+            "codiceBarre": "",
+            "Livello1": "",
+            "Livello2": "",
+            "Livello3": "",
+            "Livello4": "",
+            "StatoAssIn": ",".join(map(str, self.StatoAssIn)),
+            "numRecord": numRecord,
+            "IDOrdine": "",
+            "Riclassificatore2In": "",
+            "articoliMarchio": "",
+            "itemStagionalita": "",
+            "posizioneDomandaIn": "",
+            "dataIntercettaPrezzi": self.dataIntercettaPrezzi,
+            "RepartoIn": ",".join(map(str, self.RepartoIn)),
+            "dayInterval": 3,
+            "IDClientiCanale": 74,
+            "IDClientiArea": 40,
+            "IDFornitore": "",
+            "separaLivelloMerceologia": "S",
+            "AreePreparazioneIN": "",
+            "IDArticolo": "",
+            "isAcqUltimaSettimana": 0,
+            "codiceEtichettaVisualizza": "",
+        }
+
+        # --- headers ---
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://dropzone.pac2000a.it/ordini/gestione/listino",
+            "User-Agent": self.driver.execute_script("return navigator.userAgent;"),
+        }
+
+        # --- copy cookies from selenium ---
+        session = requests.Session()
+        for c in self.driver.get_cookies():
+            session.cookies.set(c["name"], c["value"])
+
+        # --- request ---
+        response = session.post(url, data=payload, headers=headers, timeout=600)
+        response.raise_for_status()
+
+        return response.json()
+
+    def save_listino_to_csv(self, data: list[dict], column_map: dict = CSV_COLUMN_MAP):
+        products = [row for row in data if is_real_product(row)]
+
+        if not products:
+            raise ValueError("No valid products found to export")
+
+        source_fields = list(column_map.keys())
+        csv_headers = list(column_map.values())
+
+        with self.output_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+
+            # Write header row
+            writer.writerow(csv_headers)
+
+            # Write data rows
+            for row in products:
+                writer.writerow([row.get(field, "") for field in source_fields])
+        
+
+        return self.output_path        
+    
     def run(self) -> str:
-        """
-        Execute the complete download workflow.
-        
-        Returns:
-            str: Path to downloaded Excel file
-        """
-        try:
-            self.login()
-            self.apply_filters()
-            file_path = self.download_excel()
-            return file_path
-        finally:
-            self.driver.quit()
-
+            """
+            Execute the complete download workflow.
+            
+            Returns:
+                str: Path to downloaded Excel file
+            """
+            try:
+                self.login()
+                self.apply_category_filters()
+                self.data = self.fetch_listino()
+                file_path = self.save_listino_to_csv(self.data)
+                return file_path
+            finally:
+                self.driver.quit()
 
 def download_product_list(username: str, password: str, storage_name: str, 
                           download_dir: str, headless: bool = True) -> str:
@@ -339,3 +290,13 @@ def download_product_list(username: str, password: str, storage_name: str,
     """
     lister = WebLister(username, password, storage_name, download_dir, headless)
     return lister.run()
+
+def is_real_product(row: dict) -> bool:
+    """
+    Filters out category/separator rows like:
+    arIDArticolo = "0"
+    """
+    try:
+        return int(row.get("arIDArticolo", 0)) > 0
+    except (TypeError, ValueError):
+        return False

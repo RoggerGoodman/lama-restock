@@ -83,4 +83,6 @@ def run_restock_view will need to be modified
 
 Decision maker skipped list to orderer (be more selective on what to put on list)   
 
+Promos new overwrite promos old, to fix
+
 INTEGER TO BOOLEAN BACK TO THE FUTURE
