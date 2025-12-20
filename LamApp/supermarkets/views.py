@@ -2038,7 +2038,7 @@ def update_stats_only_view(request, storage_id):
                     current_stage='updating_stats'
                 )
                 
-                service.update_product_stats_checkpoint(log)
+                service.update_product_stats_checkpoint(log, True)
                 
                 log.status = 'completed'
                 log.completed_at = timezone.now()

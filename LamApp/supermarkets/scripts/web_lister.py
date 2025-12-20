@@ -88,7 +88,7 @@ class WebLister:
         }
         chrome_options.add_experimental_option("prefs", prefs)
         service = Service("/usr/bin/chromedriver")
-        self.driver = webdriver.Chrome(service=service, options=chrome_options) 
+        self.driver = webdriver.Chrome(service=service, options=chrome_options)
         self.actions = ActionChains(self.driver)
         self.wait = WebDriverWait(self.driver, 300)
         
@@ -272,6 +272,99 @@ class WebLister:
                 return file_path
             finally:
                 self.driver.quit()
+
+    def gather_missing_product_data(self, cod, v):
+        """
+        Fetch missing product data from ArticoliDecodifica_call.php
+        using CodiceArticolo and VarianteArticolo.
+
+        Returns a dict with selected, normalized fields or None on failure.
+        """
+
+        url = "https://dropzone.pac2000a.it/anagrafiche/ArticoliDecodifica_call.php"
+
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Origin": "https://dropzone.pac2000a.it",
+            "Referer": "https://dropzone.pac2000a.it/anagrafiche/articoloDecodificaV2/",
+            "X-Requested-With": "XMLHttpRequest",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/143.0.0.0 Safari/537.36"
+            ),
+        }
+
+        payload = {
+            "funzione": "decodifica",
+            "CodiceBarre": "",
+            "CodiceArticolo": cod,
+            "VarianteArticolo": v,
+            "IDCliente": 31659,
+            "IDAzienda": 2,
+            "decodificaAnagrafica": "S",
+            "ricercaRepCommle_tipoCons": "S",
+            "ricercaCodRappCommle": "S",
+            "ricercaRapportiCommle": "S",
+            "ricercaListinoCessione": "S",
+            "intercettaCessione": "S",
+            "ricercaListinoVendita": "S",
+            "intercettaVendita": "S",
+            "ricercaDisponibilita": "S",
+            "Acquistato": "S",
+            "Venduto": "S",
+            "Offerta": "S",
+            "ControlloMarchio": "S",
+            "ControlloQtaOrdinata": "S",
+            "FornitorePrevalente": "S",
+            "isInfoArticolo": "S",
+            "intercettaUltimaCessione": "S",
+            "intercettaUltimaVendita": "S",
+            "estrazioneMerceologiaECR": "S",
+            "dataIntercettazione": self.dataIntercettaPrezzi,
+            "dataDecorrenzaCosto": self.dataIntercettaPrezzi,
+            "dataScadenzaCosto": self.dataIntercettaPrezzi,
+        }
+        # --- copy cookies from selenium ---
+        session = requests.Session()
+        for c in self.driver.get_cookies():
+            session.cookies.set(c["name"], c["value"])
+
+        try:
+            response = session.post(url, headers=headers, data=payload, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+
+        except Exception as e:
+            logger.error(
+                f"Decodifica failed for {cod}.{v}: {e}"
+            )
+            return None
+
+        if not isinstance(data, dict):
+            logger.warning(
+                f"Unexpected response format for {cod}.{v}"
+            )
+            return None
+        
+        description = data.get("Descrizione")
+        package = data.get("Imballo")
+        multiplier = data.get("RapportoCessioneVendita")
+        availability = data.get("disponibilita2")
+        cost = data.get("cessione")
+        price = data.get("vendita")
+        category = data.get("DexReparto")
+        
+        return {
+            description,
+            package,
+            multiplier,
+            availability,
+            cost,
+            price,
+            category,
+        }
 
 def download_product_list(username: str, password: str, storage_name: str, 
                           download_dir: str, headless: bool = True) -> str:

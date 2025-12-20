@@ -105,9 +105,10 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
     4. Proper error handling and logging
     5. Deletes files ONLY after successful processing
     """
-    COD_COL = "RilevazioniRigheCodiceArticolo"
-    V_COL = "RilevazioniRigheVarianteArticolo"
-    STOCK_COL = "RilevazioniRigheQuantitaOriginale"
+    COD_COL = "Code"
+    V_COL = "Variant"
+    Desc_COL = "Description" #TODO HOPEFULLY we don't need this CANCER
+    STOCK_COL = "Quantity"
     
     # Map filenames to loss types
     LOSS_FILES = {

@@ -320,7 +320,7 @@ class DatabaseManager:
         if not row:
             raise ValueError(f"No product_stats found for {cod}.{v}")
         return row["stock"]
-    
+      
     def get_all_stats_by_settore(self, settore):
         """
         Returns all product stats for a given 'settore'.
@@ -491,28 +491,24 @@ class DatabaseManager:
         # SAME MONTH: Overwrite first element
         if months_passed == 0:
             old_first = arr[0]
-            new_first = delta
             
-            if old_first != new_first:
-                arr[0] = new_first
-                difference = new_first - int(old_first)
-                self.adjust_stock(cod, v, -int(difference))
-                
-                json_out = Json(arr[:24])
-                cur.execute(
-                    f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
-                    (json_out, today, cod, v)
-                )
-                self.conn.commit()
-                
-                return {
-                    "action": "same_month_overwrite",
-                    "cod": cod,
-                    "v": v,
-                    "old_first": old_first,
-                    "new_first": new_first,
-                    "difference": difference
-                }
+            arr[0] =  arr[0] + delta
+            self.adjust_stock(cod, v, -int(delta))
+            
+            json_out = Json(arr[:24])
+            cur.execute(
+                f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
+                (json_out, today, cod, v)
+            )
+            self.conn.commit()
+            
+            return {
+                "action": "same_month_update",
+                "cod": cod,
+                "v": v,
+                "old_first": old_first,
+                "change": delta
+            }
         
         # NEW MONTH(S): Insert new month(s) with zeros for skipped months
         else:

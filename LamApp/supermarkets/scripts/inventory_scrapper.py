@@ -19,11 +19,16 @@ logger = logging.getLogger(__name__)
 
 # Save path for loss files (ROTTURE, SCADUTO, UTILIZZO INTERNO)
 save_path = str(settings.LOSSES_FOLDER)
-
 # Detect platform
 IS_WINDOWS = sys.platform.startswith('win')
 IS_LINUX = sys.platform.startswith('linux')
 
+CSV_COLUMN_MAP = {
+    "RilevazioniRigheCodiceArticolo": "Code",
+    "RilevazioniRigheVarianteArticolo": "Variant",
+    "RilevazioniRigheDescrizione": "Description",
+    "RilevazioniRigheQuantitaOriginale": "Quantity"
+}
 
 class Inventory_Scrapper:
 
@@ -102,10 +107,10 @@ class Inventory_Scrapper:
         self.actions.perform()
         
         logger.info(" Login successful")
-
-    def export_all_testate_from_day(self, days_back:int = 0):
+    
+    def export_all_testate_from_day(self, days_back: int = 0):
         """
-        Exports all available testate (ROTTURE, SCADUTO, UTILIZZO INTERNO, etc.)
+        Exports all available testate (ROTTURE, SCADUTO, UTILIZZO INTERNO)
         for the selected day range.
         """
         # -------------------------
@@ -148,7 +153,6 @@ class Inventory_Scrapper:
 
         resp = session.post(url_testate, headers=headers, data=payload_testate)
         resp.raise_for_status()
-
         testate = resp.json()
 
         if not testate:
@@ -170,40 +174,45 @@ class Inventory_Scrapper:
         # -------------------------
         url_righe = "https://dropzone.pac2000a.it/rilevazioni/RilevazioniRighe_call.php"
         ALLOWED_TYPES = {"ROTTURE", "SCADUTO", "UTILIZZO INTERNO"}
+
+        csv_headers = list(CSV_COLUMN_MAP.values())
+
         for desc, items in grouped.items():
             if desc not in ALLOWED_TYPES:
                 continue
-            for t in items:
-                id_testata = t["RilevazioniTestateIDRilevazioniTestata"]
-                num_righe = t.get("numRighe", "0")
 
-                print(f"Exporting {desc} | ID {id_testata} | Rows {num_righe}")
+            csv_path = os.path.join(save_path, f"{desc}.csv")
 
-                payload_righe = {
-                    "funzione": "lista",
-                    "IDRilevazioniTestata": id_testata,
-                }
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=csv_headers)
+                writer.writeheader()
 
-                resp = session.post(url_righe, headers=headers, data=payload_righe)
-                resp.raise_for_status()
+                for t in items:
+                    id_testata = t["RilevazioniTestateIDRilevazioniTestata"]
+                    num_righe = t.get("numRighe", "0")
 
-                righe = resp.json()
-                if not righe:
-                    print(f"  → No rows for {desc} ({id_testata})")
-                    continue
+                    print(f"Exporting {desc} | ID {id_testata} | Rows {num_righe}")
 
-                # -------------------------
-                # CSV SAVE
-                # -------------------------
-    
-                filename = f"{desc}.csv"
-                csv_path = os.path.join(save_path, filename)
+                    payload_righe = {
+                        "funzione": "lista",
+                        "IDRilevazioniTestata": id_testata,
+                    }
 
-                with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=righe[0].keys())
-                    writer.writeheader()
-                    writer.writerows(righe)
+                    resp = session.post(url_righe, headers=headers, data=payload_righe)
+                    resp.raise_for_status()
+                    righe = resp.json()
 
-                print(f"  → Saved {csv_path}")
+                    if not righe:
+                        print(f"  → No rows for {desc} ({id_testata})")
+                        continue
+
+                    for r in righe:
+                        row = {}
+                        for src, dst in CSV_COLUMN_MAP.items():
+                            row[dst] = r.get(src)
+
+                        writer.writerow(row)
+
+            print(f"  → Saved {csv_path}")
 
         print("All available testate exported.")

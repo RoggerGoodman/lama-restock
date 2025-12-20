@@ -174,7 +174,7 @@ class StockAdjustmentForm(forms.Form):
             ('undelivered', 'Undelivered Package'),
             ('extra_delivery', 'Extra Package Delivered'),
             ('miscount', 'Inventory Miscount'),
-            ('damaged', 'Damaged in Transit'),
+            ('stolen', 'Stolen'),
             ('return', 'Customer Return'),
             ('other', 'Other')
         ],

@@ -89,7 +89,7 @@ class Scrapper:
             EC.presence_of_element_located((By.ID, "ifStatistiche Articolo"))
         )
 
-    def init_product_stats_for_settore(self, settore):
+    def init_product_stats_for_settore(self, settore, manual:bool = False):
         """
         For every product in `products` with given settore:
         - navigate (assumes driver is already on the stats page where cod_art and var_art exist)
@@ -102,7 +102,7 @@ class Scrapper:
         
         timeout=10
         cur = self.db.cursor()
-        if settore == "GENERI VARI":
+        if manual == False:
             cur.execute("""
                 SELECT ps.cod, ps.v
                 FROM product_stats ps
