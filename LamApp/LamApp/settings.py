@@ -5,9 +5,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 import dj_database_url
 
-load_dotenv()
-
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(BASE_DIR / ".env.production")
 
 # ===== CRITICAL SECURITY SETTINGS =====
 
@@ -91,6 +90,7 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'httos')
     
     # Security headers
     SECURE_BROWSER_XSS_FILTER = True
@@ -104,8 +104,8 @@ if not DEBUG:
     
     # CSRF trusted origins
     CSRF_TRUSTED_ORIGINS = [
-        'https://yourdomain.com',
-        'https://www.yourdomain.com',
+        'https://lamarestock.com',
+        'https://www.lamarestock.com',
     ]
 
 # ===== SESSION CONFIGURATION =====
