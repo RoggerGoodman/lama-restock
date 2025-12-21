@@ -1,4 +1,4 @@
-<!-- LamApp/supermarkets/templates/inventory/product_not_found.html - FIXED -->
+<!-- Enhanced product_not_found.html with auto-add -->
 {% extends 'base.html' %}
 {% block title %}Product Not Found{% endblock %}
 {% block page_title %}Product Not Found{% endblock %}
@@ -40,16 +40,63 @@
                         This product does not exist in any of your supermarket databases.
                     </p>
                     <p class="mb-0">
-                        Would you like to add it to the system?
+                        <strong>Click "Auto-Add Product" below</strong> to automatically fetch product details from PAC2000A and add it to your database.
                     </p>
+                </div>
+
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-clock"></i> Processing Time</h6>
+                    <p class="mb-0">
+                        <strong>Please be patient:</strong> Auto-adding will connect to PAC2000A to fetch product details. This may take 15-30 seconds.
+                    </p>
+                </div>
+
+                <form id="autoAddForm" class="mb-3">
+                    <div class="mb-3">
+                        <label class="form-label">Supermarket</label>
+                        <select id="add_supermarket" class="form-select" required onchange="loadStoragesForAdd()">
+                            <option value="">-- Select Supermarket --</option>
+                            {% for sm in user.supermarkets.all %}
+                            <option value="{{ sm.id }}">{{ sm.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Storage (Settore)</label>
+                        <select id="add_storage" class="form-select" required disabled>
+                            <option value="">-- Select Supermarket First --</option>
+                        </select>
+                        <div class="form-text">The product will be added to this settore</div>
+                    </div>
+                </form>
+
+                <div id="addProductProgress" style="display: none;">
+                    <div class="alert alert-info">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <span id="progressText">Connecting to PAC2000A...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="successMessage" style="display: none;" class="alert alert-success">
+                    <h6><i class="bi bi-check-circle"></i> Product Added Successfully!</h6>
+                    <p id="successDetails" class="mb-2"></p>
+                    <p class="mb-0">Redirecting to product details...</p>
+                </div>
+
+                <div id="errorMessage" style="display: none;" class="alert alert-danger">
+                    <h6><i class="bi bi-x-circle"></i> Error</h6>
+                    <p id="errorDetails" class="mb-0"></p>
                 </div>
 
                 <div class="d-flex gap-2 justify-content-end">
                     <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
                         <i class="bi bi-arrow-left"></i> Back to Search
                     </a>
-                    <button onclick="showAddProductModal()" class="btn btn-success">
-                        <i class="bi bi-plus-circle"></i> Add Product
+                    <button type="button" class="btn btn-success" id="autoAddBtn" onclick="submitAutoAdd()">
+                        <i class="bi bi-magic"></i> Auto-Add Product
                     </button>
                 </div>
 
@@ -69,7 +116,7 @@
     </div>
 </div>
 
-<!-- Verify Single Product Modal -->
+<!-- Verify Single Product Modal (unchanged) -->
 <div class="modal fade" id="verifySingleModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -120,73 +167,11 @@
         </div>
     </div>
 </div>
-
-<!-- Add Product Modal -->
-<div class="modal fade" id="addProductModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Add Product {{ cod }}.{{ var }}</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-warning">
-                    <h6><i class="bi bi-clock"></i> Processing Time</h6>
-                    <p class="mb-0">
-                        <strong>Please be patient:</strong> This operation will fetch product details from PAC2000A 
-                        and may take 15-30 seconds.
-                    </p>
-                </div>
-
-                <div class="alert alert-info">
-                    <strong>Product to Add:</strong> {{ cod }}.{{ var }}
-                </div>
-                
-                <form id="addProductForm">
-                    <div class="mb-3">
-                        <label class="form-label">Supermarket</label>
-                        <select id="add_supermarket" class="form-select" required onchange="loadStoragesForAdd()">
-                            <option value="">-- Select Supermarket --</option>
-                            {% for sm in user.supermarkets.all %}
-                            <option value="{{ sm.id }}">{{ sm.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Storage (Settore)</label>
-                        <select id="add_storage" class="form-select" required disabled>
-                            <option value="">-- Select Supermarket First --</option>
-                        </select>
-                        <div class="form-text">The product will be added to this settore</div>
-                    </div>
-                </form>
-
-                <div id="addProductProgress" style="display: none;">
-                    <div class="alert alert-info">
-                        <div class="d-flex align-items-center">
-                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                            <span>Processing... Please wait, this may take a few seconds.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="addProductBtn" onclick="submitAddProduct()">
-                    <i class="bi bi-plus-circle"></i> Add Product
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Initialize modals
 const verifySingleModal = new bootstrap.Modal(document.getElementById('verifySingleModal'));
-const addProductModal = new bootstrap.Modal(document.getElementById('addProductModal'));
 
 const productCode = {{ cod }};
 const productVar = {{ var }};
@@ -259,7 +244,6 @@ function submitVerifySingle() {
         if (data.success) {
             alert(data.message);
             verifySingleModal.hide();
-            // Redirect to search results for this product
             window.location.href = `/inventory/results/cod_var/?cod=${productCode}&var=${productVar}`;
         } else {
             alert('Error: ' + data.message);
@@ -271,11 +255,7 @@ function submitVerifySingle() {
     });
 }
 
-// ============ ADD PRODUCT ============
-
-function showAddProductModal() {
-    addProductModal.show();
-}
+// ============ AUTO-ADD PRODUCT ============
 
 function loadStoragesForAdd() {
     const supermarketId = document.getElementById('add_supermarket').value;
@@ -305,7 +285,7 @@ function loadStoragesForAdd() {
         });
 }
 
-function submitAddProduct() {
+function submitAutoAdd() {
     const supermarketId = document.getElementById('add_supermarket').value;
     const storageId = document.getElementById('add_storage').value;
     
@@ -314,44 +294,69 @@ function submitAddProduct() {
         return;
     }
     
-    // Show progress indicator
+    // Show progress
+    document.getElementById('autoAddForm').style.display = 'none';
+    document.getElementById('autoAddBtn').style.display = 'none';
     document.getElementById('addProductProgress').style.display = 'block';
-    document.getElementById('addProductBtn').disabled = true;
+    document.getElementById('progressText').textContent = 'Connecting to PAC2000A...';
     
-    // Redirect to add-products view with pre-filled product
-    const productText = `${productCode}.${productVar}`;
+    const csrfToken = '{{ csrf_token }}';
     
-    // Create a form and submit it
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = `/storages/${storageId}/add-products/`;
+    // Simulate progress updates
+    setTimeout(() => {
+        document.getElementById('progressText').textContent = 'Fetching product details...';
+    }, 2000);
     
-    // Add CSRF token
-    const csrfInput = document.createElement('input');
-    csrfInput.type = 'hidden';
-    csrfInput.name = 'csrfmiddlewaretoken';
-    csrfInput.value = '{{ csrf_token }}';
-    form.appendChild(csrfInput);
+    setTimeout(() => {
+        document.getElementById('progressText').textContent = 'Adding to database...';
+    }, 5000);
     
-    // Add products field (we need to get settore from the selected storage)
-    const storageSelect = document.getElementById('add_storage');
-    const selectedOption = storageSelect.options[storageSelect.selectedIndex];
-    const settore = selectedOption.textContent;
-    
-    const settoreInput = document.createElement('input');
-    settoreInput.type = 'hidden';
-    settoreInput.name = 'settore';
-    settoreInput.value = settore;
-    form.appendChild(settoreInput);
-    
-    const productsInput = document.createElement('input');
-    productsInput.type = 'hidden';
-    productsInput.name = 'products';
-    productsInput.value = productText;
-    form.appendChild(productsInput);
-    
-    document.body.appendChild(form);
-    form.submit();
+    fetch('/inventory/auto-add/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            cod: productCode,
+            var: productVar,
+            supermarket_id: parseInt(supermarketId),
+            storage_id: parseInt(storageId)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('addProductProgress').style.display = 'none';
+        
+        if (data.success) {
+            // Show success message
+            document.getElementById('successDetails').innerHTML = `
+                <strong>${data.product.description}</strong><br>
+                Package Size: ${data.product.package || 'N/A'}<br>
+                Availability: ${data.product.availability || 'Unknown'}
+            `;
+            document.getElementById('successMessage').style.display = 'block';
+            
+            // Redirect after 3 seconds
+            setTimeout(() => {
+                window.location.href = `/inventory/results/cod_var/?cod=${productCode}&var=${productVar}`;
+            }, 3000);
+        } else {
+            // Show error
+            document.getElementById('errorDetails').textContent = data.message;
+            document.getElementById('errorMessage').style.display = 'block';
+            document.getElementById('autoAddForm').style.display = 'block';
+            document.getElementById('autoAddBtn').style.display = 'inline-block';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('addProductProgress').style.display = 'none';
+        document.getElementById('errorDetails').textContent = 'Network error: ' + error;
+        document.getElementById('errorMessage').style.display = 'block';
+        document.getElementById('autoAddForm').style.display = 'block';
+        document.getElementById('autoAddBtn').style.display = 'inline-block';
+    });
 }
 </script>
 {% endblock %}

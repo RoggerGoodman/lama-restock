@@ -6,6 +6,4 @@ class SupermarketsConfig(AppConfig):
     name = 'supermarkets'
 
     def ready(self):
-        from . import scheduler
-        scheduler.start()
         from . import signals  # Import signals when the app starts

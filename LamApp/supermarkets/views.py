@@ -2058,12 +2058,136 @@ def update_stats_only_view(request, storage_id):
     return render(request, 'storages/update_stats_only.html', {'storage': storage})
 
 # ============ NEW: Unified Inventory Operations ============
+    
+@login_required
+@require_POST
+def auto_add_product_view(request):
+    """
+    Automatically fetch and add a product using gather_missing_product_data.
+    Much faster than manual entry - fetches all data from PAC2000A automatically.
+    """
+    try:
+        data = json.loads(request.body)
+        cod = int(data['cod'])
+        var = int(data['var'])
+        supermarket_id = int(data['supermarket_id'])
+        storage_id = int(data['storage_id'])
+        
+        supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+        storage = get_object_or_404(Storage, id=storage_id, supermarket=supermarket)
+        
+        logger.info(f"Auto-adding product {cod}.{var} to {storage.name}")
+        
+        # Use WebLister to fetch product data
+        from .scripts.web_lister import WebLister
+        from pathlib import Path
+        
+        # Create temp directory for WebLister
+        temp_dir = Path(settings.BASE_DIR) / 'temp_lister'
+        temp_dir.mkdir(exist_ok=True)
+        
+        lister = WebLister(
+            username=supermarket.username,
+            password=supermarket.password,
+            storage_name=storage.name,
+            download_dir=str(temp_dir),
+            headless=True
+        )
+        
+        try:
+            lister.login()
+            
+            # Fetch product data
+            product_data = lister.gather_missing_product_data(cod, var)
+            
+            if not product_data:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Product {cod}.{var} not found in PAC2000A system'
+                }, status=404)
+            
+            # Extract data
+            description, package, multiplier, availability, cost, price, category = product_data
+            
+            # Add to database
+            service = RestockService(storage)
+            
+            try:
+                # Add to products table
+                service.db.add_product(
+                    cod=cod,
+                    v=var,
+                    descrizione=description or f"Product {cod}.{var}",
+                    rapp=multiplier or 1,
+                    pz_x_collo=package or 12,
+                    settore=storage.settore,
+                    disponibilita=availability or "Si"
+                )
+                
+                # Initialize stats (empty arrays, will be updated later)
+                service.db.init_product_stats(
+                    cod=cod,
+                    v=var,
+                    sold=[],
+                    bought=[],
+                    stock=0,
+                    verified=False
+                )
+                
+                # Add economics data if available
+                if price and cost:
+                    cur = service.db.cursor()
+                    cur.execute("""
+                        INSERT INTO economics (cod, v, price_std, cost_std, category)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (cod, v) DO UPDATE SET
+                            price_std = excluded.price_std,
+                            cost_std = excluded.cost_std,
+                            category = excluded.category
+                    """, (cod, var, price, cost, category or "Unknown"))
+                    service.db.conn.commit()
+                
+                logger.info(f"✅ Successfully auto-added product {cod}.{var}")
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Product {cod}.{var} added successfully! ({description})',
+                    'product': {
+                        'cod': cod,
+                        'var': var,
+                        'description': description,
+                        'package': package,
+                        'availability': availability
+                    }
+                })
+                
+            finally:
+                service.close()
+                
+        finally:
+            lister.driver.quit()
+            
+    except Exception as e:
+        logger.exception("Error in auto_add_product_view")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=500)
+
 
 @login_required
-def verify_stock_unified_view(request):
+def verify_stock_unified_enhanced_view(request):
     """
-    Unified stock verification - select supermarket/storage from within view
-    Accessible from inventory panel without pre-selecting storage
+    Enhanced stock verification that automatically adds missing products.
+    
+    Workflow:
+    1. Update product stats (existing products)
+    2. Record losses
+    3. Try to verify all products from CSV
+    4. Track products not found in DB
+    5. Auto-fetch and add missing products using gather_missing_product_data
+    6. Verify the newly added products
+    7. Return comprehensive report
     """
     supermarkets = Supermarket.objects.filter(owner=request.user)
     
@@ -2110,43 +2234,142 @@ def verify_stock_unified_view(request):
                 logger.info(f"Recording losses for {storage.name}...")
                 service.record_losses()
                 
-                # Track changes for report
+                # Track changes and missing products
                 verification_report = {
                     'total_products': 0,
                     'products_verified': 0,
+                    'products_added': 0,
                     'stock_changes': [],
+                    'missing_products': [],
+                    'failed_additions': [],
                     'total_stock_before': 0,
                     'total_stock_after': 0,
                     'verified_at': timezone.now()
                 }
                 
-                # Read CSV and get stock before
+                # Read CSV
                 df = pd.read_csv(file_path)
                 
                 COD_COL = "Codice"
                 V_COL = "Variante"
                 STOCK_COL = "Qta Originale"
                 
+                # First pass: verify existing products and track missing ones
+                missing_products = []
                 stock_before = {}
+                
                 for _, row in df.iterrows():
                     try:
                         cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
                         v_str = str(row[V_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        stock_str = str(row[STOCK_COL]).replace('.', '').replace(',', '.').split('.')[0]
+                        
                         cod = int(cod_str)
                         v = int(v_str)
+                        new_stock = int(stock_str)
                         
+                        verification_report['total_products'] += 1
+                        
+                        # Try to get current stock
                         try:
                             stock_before[(cod, v)] = service.db.get_stock(cod, v)
-                        except:
-                            stock_before[(cod, v)] = None
-                    except:
+                        except ValueError:
+                            # Product not in DB - track for auto-add
+                            missing_products.append((cod, v, new_stock))
+                            logger.info(f"Product {cod}.{v} not in DB - will auto-add")
+                            continue
+                            
+                    except Exception as e:
+                        logger.warning(f"Error parsing row: {e}")
                         continue
                 
-                logger.info(f"Verifying stock from CSV for {storage.name}...")
+                # Verify existing products
                 from .scripts.inventory_reader import verify_stocks_from_excel
                 verify_stocks_from_excel(service.db, cluster_mode=False)
                 
-                # Calculate changes
+                # AUTO-ADD MISSING PRODUCTS
+                if missing_products:
+                    logger.info(f"🔄 Auto-adding {len(missing_products)} missing products...")
+                    
+                    from .scripts.web_lister import WebLister
+                    temp_dir = Path(settings.BASE_DIR) / 'temp_lister'
+                    temp_dir.mkdir(exist_ok=True)
+                    
+                    lister = WebLister(
+                        username=storage.supermarket.username,
+                        password=storage.supermarket.password,
+                        storage_name=storage.name,
+                        download_dir=str(temp_dir),
+                        headless=True
+                    )
+                    
+                    try:
+                        lister.login()
+                        
+                        for cod, v, new_stock in missing_products:
+                            try:
+                                logger.info(f"Fetching data for {cod}.{v}...")
+                                product_data = lister.gather_missing_product_data(cod, v)
+                                
+                                if not product_data:
+                                    logger.warning(f"❌ Could not fetch data for {cod}.{v}")
+                                    verification_report['failed_additions'].append({
+                                        'cod': cod,
+                                        'var': v,
+                                        'reason': 'Not found in PAC2000A'
+                                    })
+                                    continue
+                                
+                                description, package, multiplier, availability, cost, price, category = product_data
+                                
+                                # Add to database
+                                service.db.add_product(
+                                    cod=cod,
+                                    v=v,
+                                    descrizione=description or f"Product {cod}.{v}",
+                                    rapp=multiplier or 1,
+                                    pz_x_collo=package or 12,
+                                    settore=storage.settore,
+                                    disponibilita=availability or "Si"
+                                )
+                                
+                                # Initialize stats and verify
+                                service.db.init_product_stats(cod, v, [], [], new_stock, verified=True)
+                                
+                                # Add economics
+                                if price and cost:
+                                    cur = service.db.cursor()
+                                    cur.execute("""
+                                        INSERT INTO economics (cod, v, price_std, cost_std, category)
+                                        VALUES (%s, %s, %s, %s, %s)
+                                        ON CONFLICT (cod, v) DO NOTHING
+                                    """, (cod, v, price, cost, category or "Unknown"))
+                                    service.db.conn.commit()
+                                
+                                verification_report['products_added'] += 1
+                                verification_report['stock_changes'].append({
+                                    'cod': cod,
+                                    'var': v,
+                                    'old_stock': 0,
+                                    'new_stock': new_stock,
+                                    'difference': new_stock,
+                                    'added': True
+                                })
+                                
+                                logger.info(f"✅ Auto-added and verified {cod}.{v}")
+                                
+                            except Exception as e:
+                                logger.exception(f"Error auto-adding {cod}.{v}")
+                                verification_report['failed_additions'].append({
+                                    'cod': cod,
+                                    'var': v,
+                                    'reason': str(e)
+                                })
+                    
+                    finally:
+                        lister.driver.quit()
+                
+                # Calculate changes for existing products
                 for _, row in df.iterrows():
                     try:
                         cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
@@ -2160,7 +2383,6 @@ def verify_stock_unified_view(request):
                         old_stock = stock_before.get((cod, v))
                         
                         if old_stock is not None:
-                            verification_report['total_products'] += 1
                             verification_report['total_stock_before'] += old_stock
                             verification_report['total_stock_after'] += new_stock
                             
@@ -2171,14 +2393,18 @@ def verify_stock_unified_view(request):
                                     'var': v,
                                     'old_stock': old_stock,
                                     'new_stock': new_stock,
-                                    'difference': new_stock - old_stock
+                                    'difference': new_stock - old_stock,
+                                    'added': False
                                 })
                     except:
                         continue
                 
+                # Store report in session
                 request.session['verification_report'] = {
                     'total_products': verification_report['total_products'],
                     'products_verified': verification_report['products_verified'],
+                    'products_added': verification_report['products_added'],
+                    'failed_additions': verification_report['failed_additions'][:20],
                     'stock_changes': verification_report['stock_changes'][:50],
                     'total_stock_before': verification_report['total_stock_before'],
                     'total_stock_after': verification_report['total_stock_after'],
@@ -2188,7 +2414,8 @@ def verify_stock_unified_view(request):
                 
                 messages.success(
                     request,
-                    f"Stock verification completed! {verification_report['products_verified']} products updated."
+                    f"✅ Verification complete! {verification_report['products_verified']} updated, "
+                    f"{verification_report['products_added']} auto-added"
                 )
                 
                 return redirect('verification-report-unified')
@@ -2204,7 +2431,6 @@ def verify_stock_unified_view(request):
     return render(request, 'inventory/verify_stock_unified.html', {
         'supermarkets': supermarkets
     })
-
 
 @login_required
 def assign_clusters_view(request):

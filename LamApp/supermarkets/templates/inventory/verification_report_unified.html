@@ -1,4 +1,4 @@
-<!-- templates/inventory/verification_report_unified.html -->
+<!-- Enhanced verification_report_unified.html -->
 {% extends 'base.html' %}
 {% block title %}Verification Report{% endblock %}
 {% block page_title %}Stock Verification Report{% endblock %}
@@ -34,16 +34,16 @@
                     <i class="bi bi-arrow-left-right"></i>
                 </div>
                 <h3 class="mb-1">{{ report.products_verified }}</h3>
-                <p class="text-muted mb-0">Changes Made</p>
+                <p class="text-muted mb-0">Stock Updated</p>
             </div>
         </div>
         <div class="col-md-3">
             <div class="stat-card">
                 <div class="icon icon-green">
-                    <i class="bi bi-check-circle"></i>
+                    <i class="bi bi-plus-circle"></i>
                 </div>
-                <h3 class="mb-1">{{ report.total_stock_after }}</h3>
-                <p class="text-muted mb-0">Total Stock After</p>
+                <h3 class="mb-1">{{ report.products_added|default:0 }}</h3>
+                <p class="text-muted mb-0">Auto-Added</p>
             </div>
         </div>
         <div class="col-md-3">
@@ -52,12 +52,31 @@
                     <i class="bi bi-clipboard-data"></i>
                 </div>
                 <h3 class="mb-1">
-                    {% if report.total_difference >= 0 %}+{% endif %}{{ report.total_difference }}
+                    {% if report.total_difference >= 0 %}+{% endif %}{{ report.total_difference|default:0 }}
                 </h3>
                 <p class="text-muted mb-0">Net Change</p>
             </div>
         </div>
     </div>
+
+    <!-- Failed Additions (if any) -->
+    {% if report.failed_additions %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Products That Could Not Be Auto-Added</h6>
+                    <p class="mb-2">The following products were not found in PAC2000A or could not be added:</p>
+                    <ul class="mb-0">
+                        {% for failed in report.failed_additions %}
+                        <li><code>{{ failed.cod }}.{{ failed.var }}</code> - {{ failed.reason }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Detailed Changes -->
     <div class="row">
@@ -74,6 +93,7 @@
                             <tr>
                                 <th>Product Code</th>
                                 <th>Variant</th>
+                                <th>Type</th>
                                 <th class="text-end">Before</th>
                                 <th class="text-center">→</th>
                                 <th class="text-end">After</th>
@@ -82,9 +102,20 @@
                         </thead>
                         <tbody>
                             {% for change in report.stock_changes %}
-                            <tr>
+                            <tr {% if change.added %}class="table-success"{% endif %}>
                                 <td><code>{{ change.cod }}</code></td>
                                 <td><code>{{ change.var }}</code></td>
+                                <td>
+                                    {% if change.added %}
+                                        <span class="badge bg-success">
+                                            <i class="bi bi-plus-circle"></i> Auto-Added
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-info">
+                                            <i class="bi bi-arrow-repeat"></i> Updated
+                                        </span>
+                                    {% endif %}
+                                </td>
                                 <td class="text-end">{{ change.old_stock }}</td>
                                 <td class="text-center"><i class="bi bi-arrow-right"></i></td>
                                 <td class="text-end"><strong>{{ change.new_stock }}</strong></td>
@@ -98,6 +129,20 @@
                             </tr>
                             {% endfor %}
                         </tbody>
+                        <tfoot>
+                            <tr class="table-light">
+                                <td colspan="5"><strong>Totals</strong></td>
+                                <td class="text-end">
+                                    <strong>{{ report.total_stock_after|default:0 }} units</strong>
+                                </td>
+                                <td class="text-end">
+                                    <strong>
+                                        {% if report.total_difference >= 0 %}+{% endif %}
+                                        {{ report.total_difference|default:0 }}
+                                    </strong>
+                                </td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
                 {% else %}
