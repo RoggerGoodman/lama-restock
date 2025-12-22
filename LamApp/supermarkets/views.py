@@ -20,7 +20,7 @@ import pandas as pd
 
 from .models import (
     Supermarket, Storage, RestockSchedule, 
-    Blacklist, BlacklistEntry, RestockLog, ListUpdateSchedule
+    Blacklist, BlacklistEntry, RestockLog
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
