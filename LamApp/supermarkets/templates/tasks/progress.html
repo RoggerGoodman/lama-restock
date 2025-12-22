@@ -1,0 +1,198 @@
+<!-- LamApp/supermarkets/templates/tasks/progress.html -->
+{% extends 'base.html' %}
+{% block title %}Task in Progress{% endblock %}
+{% block page_title %}Processing...{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-hourglass-split text-primary"></i>
+                    Task in Progress
+                </h4>
+
+                {% if storage %}
+                <div class="alert alert-info">
+                    <strong>Storage:</strong> {{ storage.supermarket.name }} - {{ storage.name }}
+                </div>
+                {% endif %}
+
+                <!-- Progress Section -->
+                <div id="progressSection">
+                    <div class="text-center mb-4">
+                        <div class="spinner-border text-primary" style="width: 4rem; height: 4rem;" role="status">
+                            <span class="visually-hidden">Processing...</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span id="statusText">Processing...</span>
+                            <span class="text-muted" id="progressPercent">0%</span>
+                        </div>
+                        <div class="progress" style="height: 25px;">
+                            <div id="progressBar" 
+                                 class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" 
+                                 style="width: 0%">
+                                0%
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-secondary">
+                        <p class="mb-2"><i class="bi bi-info-circle"></i> <strong>What's happening?</strong></p>
+                        <ul class="mb-0 small">
+                            <li>Your task is running in the background</li>
+                            <li>This page will auto-update every 5 seconds</li>
+                            <li>You can safely close this page and check back later</li>
+                            <li>Typical operations take 5-15 minutes</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Success Section (hidden by default) -->
+                <div id="successSection" style="display: none;" class="alert alert-success">
+                    <h6><i class="bi bi-check-circle"></i> Task Completed!</h6>
+                    <p id="successMessage" class="mb-2"></p>
+                    <div id="successActions" class="mt-3"></div>
+                </div>
+
+                <!-- Error Section (hidden by default) -->
+                <div id="errorSection" style="display: none;" class="alert alert-danger">
+                    <h6><i class="bi bi-x-circle"></i> Task Failed</h6>
+                    <p id="errorMessage" class="mb-2"></p>
+                    <button onclick="window.location.reload()" class="btn btn-warning btn-sm">
+                        <i class="bi bi-arrow-repeat"></i> Retry
+                    </button>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="mt-4">
+                    {% if storage %}
+                    <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Storage
+                    </a>
+                    {% else %}
+                    <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Dashboard
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const taskId = '{{ task_id }}';
+let pollInterval;
+let pollCount = 0;
+const MAX_POLLS = 360; // 30 minutes at 5 sec intervals
+
+function startPolling() {
+    pollInterval = setInterval(checkTaskStatus, 5000);
+    checkTaskStatus(); // Check immediately
+}
+
+function checkTaskStatus() {
+    pollCount++;
+    
+    if (pollCount > MAX_POLLS) {
+        clearInterval(pollInterval);
+        showError('Task timed out. Please refresh to check status.');
+        return;
+    }
+    
+    fetch(`/tasks/status/${taskId}/`)
+        .then(response => response.json())
+        .then(data => {
+            console.log('Task status:', data);
+            
+            if (data.ready) {
+                clearInterval(pollInterval);
+                
+                if (data.success) {
+                    showSuccess(data.result);
+                } else {
+                    showError(data.error || 'Task failed');
+                }
+            } else {
+                // Update progress
+                updateProgress(data);
+            }
+        })
+        .catch(error => {
+            console.error('Error checking status:', error);
+        });
+}
+
+function updateProgress(data) {
+    const progress = data.progress || 0;
+    const progressBar = document.getElementById('progressBar');
+    const progressPercent = document.getElementById('progressPercent');
+    const statusText = document.getElementById('statusText');
+    
+    progressBar.style.width = progress + '%';
+    progressBar.textContent = progress + '%';
+    progressPercent.textContent = progress + '%';
+    
+    // Update status text based on state
+    if (data.state === 'PENDING') {
+        statusText.textContent = 'Task queued, waiting to start...';
+    } else if (data.state === 'STARTED') {
+        statusText.textContent = 'Task started, processing...';
+    } else {
+        statusText.textContent = 'Processing...';
+    }
+}
+
+function showSuccess(result) {
+    document.getElementById('progressSection').style.display = 'none';
+    document.getElementById('successSection').style.display = 'block';
+    
+    const messageEl = document.getElementById('successMessage');
+    const actionsEl = document.getElementById('successActions');
+    
+    // Format success message based on result type
+    if (result.log_id) {
+        // Restock operation
+        messageEl.innerHTML = `
+            Successfully ordered ${result.products_ordered || 0} products 
+            (${result.total_packages || 0} packages total)
+        `;
+        actionsEl.innerHTML = `
+            <a href="/logs/${result.log_id}/" class="btn btn-success">
+                <i class="bi bi-eye"></i> View Detailed Log
+            </a>
+        `;
+        
+        // Auto-redirect after 3 seconds
+        setTimeout(() => {
+            window.location.href = `/logs/${result.log_id}/`;
+        }, 3000);
+    } else {
+        // Generic success
+        messageEl.textContent = result.message || 'Task completed successfully!';
+        actionsEl.innerHTML = `
+            <button onclick="window.location.reload()" class="btn btn-success">
+                <i class="bi bi-check"></i> Done
+            </button>
+        `;
+    }
+}
+
+function showError(errorMsg) {
+    document.getElementById('progressSection').style.display = 'none';
+    document.getElementById('errorSection').style.display = 'block';
+    document.getElementById('errorMessage').textContent = errorMsg;
+}
+
+// Start polling when page loads
+document.addEventListener('DOMContentLoaded', startPolling);
+</script>
+{% endblock %}

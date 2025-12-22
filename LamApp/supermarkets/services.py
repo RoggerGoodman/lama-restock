@@ -150,7 +150,7 @@ class RestockService:
     def verify_inventory(self, csv_file_path):
         """Verify inventory from CSV file"""
         from .scripts.inventory_reader import verify_stocks_from_excel
-        verify_stocks_from_excel(self.db)
+        verify_stocks_from_excel(self.db, csv_file_path)
     
     def register_losses(self, loss_type, csv_file_path):
         """Register product losses (broken, expired, internal use)"""

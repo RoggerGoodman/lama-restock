@@ -28,18 +28,20 @@
                 <div class="alert alert-info">
                     <h6><i class="bi bi-info-circle"></i> What This Does</h6>
                     <ol class="mb-0">
-                        <li><strong>Updates stats</strong> - Downloads latest sales data from PAC2000A</li>
                         <li><strong>Records losses</strong> - Downloads and records broken/expired/internal usage</li>
                         <li><strong>Verifies inventory</strong> - Compares your CSV against calculated stock levels</li>
+                        <li><strong>Auto-adds missing products</strong> - Fetches data from PAC2000A for products not in DB</li>
+                        <li><strong>Assigns cluster</strong> - Optionally group products by location/category</li>
                     </ol>
                 </div>
 
                 <div class="alert alert-warning">
                     <h6><i class="bi bi-exclamation-triangle"></i> Important</h6>
                     <ul class="mb-0">
-                        <li>CSV must have columns: Codice, Variante, Qta Originale</li>
-                        <li>This process may take 10-15 minutes</li>
-                        <li>Browser window will open automatically</li>
+                        <li>CSV must have columns: <strong>Codice, Variante, Qta Originale</strong></li>
+                        <li>Stats update is NOT needed (already runs at 5:00 AM daily)</li>
+                        <li>This process may take 10-20 minutes with auto-add enabled</li>
+                        <li>Browser window will open automatically if needed</li>
                     </ul>
                 </div>
 
@@ -62,9 +64,31 @@
                             <label for="storage_id" class="form-label">
                                 <i class="bi bi-box"></i> Storage (Settore)
                             </label>
-                            <select name="storage_id" id="storage_id" class="form-select" required disabled>
+                            <select name="storage_id" id="storage_id" class="form-select" required disabled onchange="loadClusters()">
                                 <option value="">-- Select Supermarket First --</option>
                             </select>
+                        </div>
+                    </div>
+                    
+                    <!-- NEW: Cluster Selection -->
+                    <div class="mb-3">
+                        <label for="cluster" class="form-label">
+                            <i class="bi bi-folder"></i> Cluster (Optional)
+                        </label>
+                        <div class="input-group">
+                            <select id="cluster_select" class="form-select" onchange="updateClusterInput()">
+                                <option value="">-- No Cluster / Select Existing --</option>
+                            </select>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="cluster" 
+                                   name="cluster" 
+                                   placeholder="Or type new cluster name (ALL CAPS)"
+                                   style="display: none;">
+                        </div>
+                        <div class="form-text">
+                            Select existing cluster OR type new name (e.g., FREEZER, DAIRY, PRODUCE).
+                            Leave empty if you don't want to assign clusters.
                         </div>
                     </div>
                     
@@ -79,7 +103,7 @@
                                accept=".csv"
                                required>
                         <div class="form-text">
-                            Upload CSV with inventory counts
+                            Upload CSV with inventory counts (Codice, Variante, Qta Originale)
                         </div>
                     </div>
 
@@ -108,8 +132,12 @@
     </div>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
+// Cluster data passed from backend
+const clustersByStorage = {{ clusters_by_storage|safe }};
+
 function loadStorages() {
     const supermarketId = document.getElementById('supermarket_id').value;
     const storageSelect = document.getElementById('storage_id');
@@ -117,6 +145,7 @@ function loadStorages() {
     if (!supermarketId) {
         storageSelect.disabled = true;
         storageSelect.innerHTML = '<option value="">-- Select Supermarket First --</option>';
+        document.getElementById('cluster_select').innerHTML = '<option value="">-- No Cluster / Select Existing --</option>';
         return;
     }
     
@@ -137,6 +166,59 @@ function loadStorages() {
             alert('Error loading storages');
         });
 }
+
+function loadClusters() {
+    const storageId = document.getElementById('storage_id').value;
+    const clusterSelect = document.getElementById('cluster_select');
+    
+    if (!storageId) {
+        clusterSelect.innerHTML = '<option value="">-- No Cluster / Select Existing --</option>';
+        return;
+    }
+    
+    // Load clusters for this storage
+    const clusters = clustersByStorage[storageId] || [];
+    
+    clusterSelect.innerHTML = '<option value="">-- No Cluster / Select Existing --</option>';
+    clusterSelect.innerHTML += '<option value="__new__">+ Create New Cluster</option>';
+    
+    clusters.forEach(cluster => {
+        const option = document.createElement('option');
+        option.value = cluster;
+        option.textContent = cluster;
+        clusterSelect.appendChild(option);
+    });
+}
+
+function updateClusterInput() {
+    const clusterSelect = document.getElementById('cluster_select');
+    const clusterInput = document.getElementById('cluster');
+    const selectedValue = clusterSelect.value;
+    
+    if (selectedValue === '__new__') {
+        // Show text input for new cluster
+        clusterSelect.style.display = 'none';
+        clusterInput.style.display = 'block';
+        clusterInput.focus();
+    } else {
+        // Use selected cluster
+        clusterInput.value = selectedValue;
+    }
+}
+
+// Allow switching back to dropdown
+document.getElementById('cluster').addEventListener('blur', function() {
+    if (this.value === '') {
+        this.style.display = 'none';
+        document.getElementById('cluster_select').style.display = 'block';
+        document.getElementById('cluster_select').value = '';
+    }
+});
+
+// Convert to uppercase as user types
+document.getElementById('cluster').addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+});
 
 document.getElementById('verifyForm').addEventListener('submit', function() {
     const btn = document.getElementById('submitBtn');

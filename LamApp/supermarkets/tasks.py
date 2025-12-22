@@ -151,7 +151,8 @@ def update_stats_all_scheduled_storages(self):
 @shared_task(
     bind=True,
     max_retries=3,
-    default_retry_delay=900
+    default_retry_delay=900,
+    queue='selenium'
 )
 def update_stats_for_storage(self, storage_id):
     """
@@ -263,7 +264,8 @@ def check_and_run_orders_today(self):
 @shared_task(
     bind=True,
     max_retries=3,
-    default_retry_delay=900
+    default_retry_delay=900,
+    queue='selenium'
 )
 def run_restock_for_storage(self, storage_id):
     """
@@ -306,7 +308,8 @@ def run_restock_for_storage(self, storage_id):
 @shared_task(
     bind=True,
     max_retries=3,
-    default_retry_delay=900
+    default_retry_delay=900,
+    queue='selenium'
 )
 def run_scheduled_list_updates(self):
     """
@@ -366,4 +369,449 @@ def run_scheduled_list_updates(self):
         
     except Exception as exc:
         logger.exception("[CELERY] Fatal error in list update task")
+        raise self.retry(exc=exc)
+    
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=900,
+    queue='selenium'
+)
+def manual_restock_task(self, storage_id, coverage=None):
+    """
+    User-initiated restock (replaces synchronous run_restock_view).
+    
+    Benefits:
+    - Doesn't block Gunicorn workers
+    - Proper progress tracking
+    - Automatic retry on failure
+    - Can run 5-15 minutes without timeout
+    """
+    from .models import Storage, RestockLog
+    from .automation_services import AutomatedRestockService
+    from django.utils import timezone
+    
+    try:
+        storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)
+        
+        logger.info(f"[MANUAL RESTOCK] Starting for {storage.name}")
+        
+        # Create log (will be updated by service)
+        log = RestockLog.objects.create(
+            storage=storage,
+            status='processing',
+            current_stage='pending',
+            started_at=timezone.now()
+        )
+        
+        service = AutomatedRestockService(storage)
+        
+        try:
+            # Run full workflow with checkpoint support
+            service.run_full_restock_workflow(coverage=coverage, log=log)
+            
+            logger.info(
+                f"✅ [MANUAL RESTOCK] Completed for {storage.name} "
+                f"(Log #{log.id}: {log.products_ordered} products)"
+            )
+            
+            return {
+                'success': True,
+                'log_id': log.id,
+                'products_ordered': log.products_ordered,
+                'total_packages': log.total_packages
+            }
+            
+        finally:
+            service.close()
+            
+    except Exception as exc:
+        logger.exception(f"[MANUAL RESTOCK] Error for storage {storage_id}")
+        raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=900,
+    queue='selenium'
+)
+def manual_stats_update_task(self, storage_id):
+    """
+    Update stats without ordering (replaces update_stats_only_view).
+    
+    This is one of the slowest operations (5-10 minutes).
+    Moving to Celery prevents Gunicorn timeouts.
+    """
+    from .models import Storage, RestockLog
+    from .automation_services import AutomatedRestockService
+    from django.utils import timezone
+    
+    try:
+        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+        
+        logger.info(f"[MANUAL STATS] Starting for {storage.name}")
+        
+        log = RestockLog.objects.create(
+            storage=storage,
+            status='processing',
+            current_stage='updating_stats'
+        )
+        
+        service = AutomatedRestockService(storage)
+        
+        try:
+            service.update_product_stats_checkpoint(log, manual=True)
+            
+            log.status = 'completed'
+            log.completed_at = timezone.now()
+            log.save()
+            
+            logger.info(f"✅ [MANUAL STATS] Completed for {storage.name}")
+            
+            return {
+                'success': True,
+                'log_id': log.id,
+                'storage_name': storage.name
+            }
+            
+        finally:
+            service.close()
+            
+    except Exception as exc:
+        logger.exception(f"[MANUAL STATS] Error for storage {storage_id}")
+        raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=900,
+    queue='selenium'
+)
+def add_products_task(self, storage_id, products_list, settore):
+    """
+    Add products via Scrapper (replaces add_products_view).
+    
+    Can take 15-30 seconds PER PRODUCT.
+    Definitely needs Celery!
+    """
+    from .models import Storage
+    from .services import RestockService
+    from .scripts.scrapper import Scrapper
+    from .scripts.helpers import Helper
+    
+    try:
+        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+        
+        logger.info(f"[ADD PRODUCTS] Starting for {storage.name}: {len(products_list)} products")
+        
+        service = RestockService(storage)
+        helper = Helper()
+        
+        scrapper = Scrapper(
+            username=storage.supermarket.username,
+            password=storage.supermarket.password,
+            helper=helper,
+            db=service.db
+        )
+        
+        try:
+            scrapper.navigate()
+            scrapper.init_products_and_stats_from_list(products_list, settore)
+            
+            logger.info(f"✅ [ADD PRODUCTS] Completed for {storage.name}")
+            
+            return {
+                'success': True,
+                'products_added': len(products_list),
+                'storage_name': storage.name
+            }
+            
+        finally:
+            scrapper.driver.quit()
+            service.close()
+            
+    except Exception as exc:
+        logger.exception(f"[ADD PRODUCTS] Error for storage {storage_id}")
+        raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=600
+)
+def verify_stock_bulk_task(self, storage_id, csv_file_path, cluster=None):
+    """
+    FIXED: Now accepts cluster as parameter (not from filename).
+    
+    Bulk stock verification WITHOUT updating stats (stats already updated at 5 AM).
+    
+    Args:
+        storage_id: Storage ID
+        csv_file_path: Full path to CSV file
+        cluster: Optional cluster name (user-provided)
+    """
+    from .models import Storage
+    from .services import RestockService
+    from .automation_services import AutomatedRestockService
+    from .scripts.inventory_reader import verify_stocks_from_excel
+    from pathlib import Path
+    
+    try:
+        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+        
+        logger.info(f"[VERIFY STOCK] Starting for {storage.name}")
+        if cluster:
+            logger.info(f"[VERIFY STOCK] Cluster: {cluster}")
+        
+        service = AutomatedRestockService(storage)
+        
+        try:            
+            # Record losses (still needed)
+            logger.info(f"[VERIFY STOCK] Recording losses...")
+            service.record_losses()
+            
+            # Verify from CSV with explicit cluster parameter
+            logger.info(f"[VERIFY STOCK] Processing CSV with cluster={cluster}...")
+            result = verify_stocks_from_excel(service.db, csv_file_path, cluster=cluster)
+            
+            if result['success']:
+                logger.info(
+                    f"✅ [VERIFY STOCK] Completed for {storage.name}: "
+                    f"{result['verified']} verified, {result['skipped']} skipped"
+                )
+            else:
+                logger.error(f"❌ [VERIFY STOCK] Failed: {result['error']}")
+            
+            return {
+                'success': result['success'],
+                'storage_name': storage.name,
+                'verified': result.get('verified', 0),
+                'skipped': result.get('skipped', 0),
+                'cluster': cluster,
+                'error': result.get('error')
+            }
+            
+        finally:
+            service.close()
+            
+    except Exception as exc:
+        logger.exception(f"[VERIFY STOCK] Error for storage {storage_id}")
+        raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=900,
+    queue='selenium'
+)
+def manual_list_update_task(self, storage_id):
+    """
+    Manual list update (replaces manual_list_update_view).
+    
+    Can take 5-10 minutes to download and import.
+    """
+    from .models import Storage
+    from .list_update_service import ListUpdateService
+    
+    try:
+        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+        
+        logger.info(f"[LIST UPDATE] Starting for {storage.name}")
+        
+        service = ListUpdateService(storage)
+        
+        try:
+            result = service.update_and_import()
+            
+            if result['success']:
+                logger.info(f"✅ [LIST UPDATE] Completed for {storage.name}")
+            else:
+                logger.warning(f"⚠️ [LIST UPDATE] Failed for {storage.name}: {result['message']}")
+            
+            return result
+            
+        finally:
+            service.close()
+            
+    except Exception as exc:
+        logger.exception(f"[LIST UPDATE] Error for storage {storage_id}")
+        raise self.retry(exc=exc)
+    
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=600
+)
+def assign_clusters_task(self, storage_id, csv_file_path, cluster):
+    """
+    Assign cluster to products from CSV.
+    
+    Args:
+        storage_id: Storage ID
+        csv_file_path: Full path to CSV file
+        cluster: Cluster name (REQUIRED, user-provided)
+    """
+    from .models import Storage
+    from .services import RestockService
+    from .scripts.inventory_reader import assign_clusters_from_csv
+    
+    try:
+        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+        
+        logger.info(f"[ASSIGN CLUSTERS] Starting for {storage.name}: cluster='{cluster}'")
+        
+        service = RestockService(storage)
+        
+        try:
+            result = assign_clusters_from_csv(service.db, csv_file_path, cluster)
+            
+            if result['success']:
+                logger.info(
+                    f"✅ [ASSIGN CLUSTERS] Completed: "
+                    f"{result['assigned']} assigned, {result['skipped']} skipped"
+                )
+            else:
+                logger.error(f"❌ [ASSIGN CLUSTERS] Failed: {result['error']}")
+            
+            return {
+                'success': result['success'],
+                'storage_name': storage.name,
+                'cluster': cluster,
+                'assigned': result.get('assigned', 0),
+                'skipped': result.get('skipped', 0),
+                'error': result.get('error')
+            }
+            
+        finally:
+            service.close()
+            
+    except Exception as exc:
+        logger.exception(f"[ASSIGN CLUSTERS] Error for storage {storage_id}")
+        raise self.retry(exc=exc)
+    
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=600
+)
+def record_losses_task(self, supermarket_id, csv_file_path, loss_type):
+    """
+    Record losses from CSV file.
+    
+    Args:
+        supermarket_id: Supermarket ID
+        csv_file_path: Full path to CSV file
+        loss_type: Type of loss (broken/expired/internal)
+    """
+    from .models import Supermarket
+    from .services import RestockService
+    from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
+    
+    try:
+        supermarket = Supermarket.objects.get(id=supermarket_id)
+        
+        logger.info(f"[RECORD LOSSES] Starting for {supermarket.name}: {loss_type}")
+        
+        # Use first storage to get DB connection
+        storage = supermarket.storages.first()
+        
+        if not storage:
+            raise ValueError(f"No storages found for {supermarket.name}")
+        
+        service = RestockService(storage)
+        
+        try:
+            result = verify_lost_stock_from_excel_combined(service.db)
+            
+            if result['success']:
+                logger.info(
+                    f"✅ [RECORD LOSSES] Completed: "
+                    f"{result['files_processed']} files, {result['total_losses']} total losses"
+                )
+            
+            return {
+                'success': result['success'],
+                'supermarket_name': supermarket.name,
+                'loss_type': loss_type,
+                'files_processed': result.get('files_processed', 0),
+                'total_losses': result.get('total_losses', 0)
+            }
+            
+        finally:
+            service.close()
+            
+    except Exception as exc:
+        logger.exception(f"[RECORD LOSSES] Error for supermarket {supermarket_id}")
+        raise self.retry(exc=exc)
+    
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=900
+)
+def process_promos_task(self, supermarket_id, pdf_file_path):
+    """
+    Process promo PDF file.
+    
+    Args:
+        supermarket_id: Supermarket ID
+        pdf_file_path: Full path to PDF file
+    """
+    from .models import Supermarket
+    from .services import RestockService
+    from .scripts.scrapper import Scrapper
+    from pathlib import Path
+    import os
+    
+    try:
+        supermarket = Supermarket.objects.get(id=supermarket_id)
+        
+        logger.info(f"[PROCESS PROMOS] Starting for {supermarket.name}")
+        
+        storage = supermarket.storages.first()
+        
+        if not storage:
+            raise ValueError(f"No storages found for {supermarket.name}")
+        
+        service = RestockService(storage)
+        
+        scrapper = Scrapper(
+            username=supermarket.username,
+            password=supermarket.password,
+            helper=service.helper,
+            db=service.db
+        )
+        
+        try:
+            # Parse PDF
+            promo_list = scrapper.parse_promo_pdf(pdf_file_path)
+            
+            # Update database
+            service.db.update_promos(promo_list)
+            
+            logger.info(f"✅ [PROCESS PROMOS] Completed: {len(promo_list)} promo items")
+            
+            # Clean up file
+            try:
+                os.remove(pdf_file_path)
+                logger.info(f"Deleted temp file: {pdf_file_path}")
+            except Exception as e:
+                logger.warning(f"Could not delete temp file: {e}")
+            
+            return {
+                'success': True,
+                'supermarket_name': supermarket.name,
+                'promo_count': len(promo_list)
+            }
+            
+        finally:
+            service.close()
+            
+    except Exception as exc:
+        logger.exception(f"[PROCESS PROMOS] Error for supermarket {supermarket_id}")
         raise self.retry(exc=exc)

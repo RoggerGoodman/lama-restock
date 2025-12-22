@@ -109,7 +109,7 @@ class AutomatedRestockService:
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
-    def update_product_stats_checkpoint(self, log: RestockLog, manual:bool = False):
+    def update_product_stats_checkpoint(self, log: RestockLog, full:bool = True):
         """
         CHECKPOINT 1: Update product statistics from PAC2000A.
         FIXED: Now passes credentials to Scrapper
@@ -129,7 +129,7 @@ class AutomatedRestockService:
             
             try:
                 scrapper.navigate()
-                scrapper.init_product_stats_for_settore(self.settore, manual)
+                scrapper.init_product_stats_for_settore(self.settore, full)
                 
                 # Auto-purge check after successful update
                 logger.info(f"[AUTO-PURGE] Checking for products ready to purge...")

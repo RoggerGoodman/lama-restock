@@ -86,3 +86,32 @@ Decision maker skipped list to orderer (be more selective on what to put on list
 Promos new overwrite promos old, to fix
 
 INTEGER TO BOOLEAN BACK TO THE FUTURE
+
+
+# ============================================================
+# USEFUL MANAGEMENT COMMANDS
+# ============================================================
+
+# Restart Celery worker
+sudo systemctl restart celery.service
+
+# Restart Celery beat
+sudo systemctl restart celerybeat.service
+
+# Stop services
+sudo systemctl stop celery.service
+sudo systemctl stop celerybeat.service
+
+# Check if services are enabled
+sudo systemctl is-enabled celery.service
+sudo systemctl is-enabled celerybeat.service
+
+# View last 100 lines of logs
+sudo journalctl -u celery.service -n 100
+sudo journalctl -u celerybeat.service -n 100
+
+# Follow logs in real-time
+sudo journalctl -u celery.service -f
+
+# Restart both services at once
+sudo systemctl restart celery.service celerybeat.service

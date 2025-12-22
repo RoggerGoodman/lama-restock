@@ -27,6 +27,8 @@ from .forms import (
     BlacklistEntryForm, AddProductsForm, PromoUploadForm,
     StockAdjustmentForm, RecordLossesForm, 
 )
+from .tasks import manual_list_update_task
+
 from .services import RestockService, StorageService
 from .scripts.scrapper import Scrapper
 import logging
@@ -335,7 +337,10 @@ class RestockScheduleDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteV
 
 @login_required
 def run_restock_view(request, storage_id):
-    """Manually trigger a restock check with checkpoint support - ASYNC FRIENDLY - THREAD-SAFE"""
+    """
+    REFACTORED: Now fully async with Celery.
+    No more blocking Gunicorn workers for 10-15 minutes!
+    """
     storage = get_object_or_404(
         Storage, 
         id=storage_id, 
@@ -343,87 +348,30 @@ def run_restock_view(request, storage_id):
     )
     
     if request.method == 'POST':
-        # Check if this is an AJAX request
-        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        coverage = request.POST.get('coverage')
+        if coverage:
+            coverage = float(coverage)
         
-        try:
-            # Get coverage from form or use default
-            coverage = request.POST.get('coverage')
-            if coverage:
-                coverage = float(coverage)
-            
-            # CRITICAL: Create log BEFORE starting thread
-            log = RestockLog.objects.create(
-                storage=storage,
-                status='processing',
-                current_stage='pending',
-                started_at=timezone.now()
-            )
-            
-            if is_ajax:
-                # CRITICAL FIX: Create service INSIDE background thread to avoid SQLite threading issues
-                
-                def run_workflow():
-                    """Background thread worker - creates its own DB connection"""
-                    
-                    
-                    # CRITICAL: Service (and DB connection) created in THIS thread
-                    service = AutomatedRestockService(storage)
-                    
-                    try:
-                        service.run_full_restock_workflow(coverage, log=log)
-                    except Exception as e:
-                        logger.exception(f"Error in background restock for log #{log.id}")
-                    finally:
-                        # Clean up DB connection
-                        service.close()
-                
-                thread = threading.Thread(target=run_workflow)
-                thread.daemon = True
-                thread.start()
-                
-                return JsonResponse({'log_id': log.id})
-            else:
-                # Synchronous execution for non-AJAX
-                
-                service = AutomatedRestockService(storage)
-                
-                try:
-                    log = service.run_full_restock_workflow(coverage, log=log)
-                    
-                    messages.success(
-                        request, 
-                        f"Restock completed successfully! "
-                        f"{log.products_ordered} products ordered, "
-                        f"{log.total_packages} total packages."
-                    )
-                    
-                    return redirect('restock-log-detail', pk=log.id)
-                    
-                finally:
-                    service.close()
-            
-        except Exception as e:
-            logger.exception("Error running restock check")
-            
-            if is_ajax:
-                return JsonResponse({'error': str(e)}, status=500)
-            
-            messages.error(
-                request, 
-                f"Error: {str(e)}. Check the log for details and retry options."
-            )
-            
-            # Try to find the failed log to redirect to it
-            failed_log = RestockLog.objects.filter(
-                storage=storage,
-                status='failed'
-            ).order_by('-started_at').first()
-            
-            if failed_log:
-                return redirect('restock-log-detail', pk=failed_log.id)
-            
-            return redirect('storage-detail', pk=storage_id)
+        # ✅ DISPATCH TO CELERY (non-blocking)
+        from .tasks import manual_restock_task
+        
+        result = manual_restock_task.apply_async(
+            args=[storage_id, coverage],
+            retry=True,
+            retry_policy={
+                'max_retries': 3,
+                'interval_start': 900,
+            }
+        )
+        
+        messages.info(
+            request,
+            f"Restock check started for {storage.name}. "
+            f"This will take 10-15 minutes. You can track progress on the next page."
+        )
+        
+        # Redirect to specialized restock progress page (uses RestockLog for detailed tracking)
+        return redirect('restock-task-progress', task_id=result.id)
     
     return render(request, 'storages/run_restock.html', {'storage': storage})
 
@@ -854,10 +802,8 @@ class BlacklistEntryDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteVi
 @login_required
 def manual_list_update_view(request, storage_id):
     """
-    Manually trigger product list download and import.
-    
-    Note: Automatic updates now run nightly for all storages with active schedules.
-    This is only for manual/emergency updates.
+    REFACTORED: Async list download and import.
+    Can take 5-10 minutes to download and import large lists.
     """
     storage = get_object_or_404(
         Storage,
@@ -866,25 +812,22 @@ def manual_list_update_view(request, storage_id):
     )
     
     if request.method == 'POST':
-        try:
-            from .list_update_service import ListUpdateService
-            
-            service = ListUpdateService(storage)
-            result = service.update_and_import()
-            service.close()
-            
-            if result['success']:
-                messages.success(request, result['message'])
-            else:
-                messages.error(request, result['message'])
-                
-        except Exception as e:
-            logger.exception("Error in manual list update")
-            messages.error(request, f"Error: {str(e)}")
+        # ✅ DISPATCH TO CELERY
+        from .tasks import manual_list_update_task
         
-        return redirect('storage-detail', pk=storage_id)
+        result = manual_list_update_task.apply_async(
+            args=[storage_id],
+            retry=True
+        )
+        
+        messages.info(
+            request,
+            f"List update started for {storage.name}. "
+            f"This will take 5-10 minutes."
+        )
+        
+        return redirect('task-progress', task_id=result.id, storage_id=storage_id)
     
-    # Show info about automatic updates
     context = {
         'storage': storage,
         'has_schedule': hasattr(storage, 'schedule') and storage.schedule is not None,
@@ -897,8 +840,8 @@ def manual_list_update_view(request, storage_id):
 @login_required
 def upload_promos_view(request, supermarket_id):
     """
-    Upload and process promo PDF file - SUPERMARKET LEVEL
-    FIXED: Now passes credentials to Scrapper
+    REFACTORED: Async promo processing.
+    PDF parsing can take time depending on file size.
     """
     supermarket = get_object_or_404(
         Supermarket,
@@ -923,43 +866,26 @@ def upload_promos_view(request, supermarket_id):
                     for chunk in pdf_file.chunks():
                         destination.write(chunk)
                 
-                # Get database connection
-                first_storage = supermarket.storages.first()
+                # ✅ DISPATCH TO CELERY
+                from .tasks import process_promos_task
                 
-                if not first_storage:
-                    messages.error(request, "No storages found for this supermarket. Sync storages first.")
-                    return redirect('supermarket-detail', pk=supermarket_id)
-                
-                service = RestockService(first_storage)
-                
-                
-                
-                scrapper = Scrapper(
-                    username=supermarket.username,
-                    password=supermarket.password,
-                    helper=service.helper,
-                    db=service.db
+                result = process_promos_task.apply_async(
+                    args=[supermarket_id, str(file_path)],
+                    retry=True
                 )
                 
-                # Parse and update promos
-                promo_list = scrapper.parse_promo_pdf(str(file_path))
-                
-                service.db.update_promos(promo_list)
-                service.close()
-                
-                # Clean up
-                os.remove(file_path)
-                
-                messages.success(
+                messages.info(
                     request,
-                    f"Successfully processed {len(promo_list)} promo items for {supermarket.name}!"
+                    f"Processing promo file: {pdf_file.name}. "
+                    f"This may take a few minutes."
                 )
+                
+                return redirect('task-progress', task_id=result.id)
                 
             except Exception as e:
-                logger.exception("Error processing promos")
-                messages.error(request, f"Error processing promos: {str(e)}")
-            
-            return redirect('supermarket-detail', pk=supermarket_id)
+                logger.exception("Error saving promo file")
+                messages.error(request, f"Error: {str(e)}")
+                return redirect('supermarket-detail', pk=supermarket_id)
     else:
         form = PromoUploadForm()
     
@@ -1340,8 +1266,8 @@ def losses_analytics_unified_view(request):
 @login_required
 def add_products_view(request, storage_id):
     """
-    View to add products by code
-    FIXED: Now passes credentials to Scrapper
+    REFACTORED: Async product addition.
+    Prevents timeouts when adding many products (15-30 sec each).
     """
     storage = get_object_or_404(
         Storage,
@@ -1356,37 +1282,23 @@ def add_products_view(request, storage_id):
             products_list = form.cleaned_data['products']
             settore = form.cleaned_data['settore']
             
-            try:
-                
-                from .scripts.helpers import Helper                
-                service = RestockService(storage)
-                helper = Helper()
-                
-                scrapper = Scrapper(
-                    username=storage.supermarket.username,
-                    password=storage.supermarket.password,
-                    helper=helper,
-                    db=service.db
-                )
-                
-                try:
-                    scrapper.navigate()
-                    scrapper.init_products_and_stats_from_list(products_list, settore)
-                    
-                    messages.success(
-                        request,
-                        f"Successfully registered {len(products_list)} product(s) in settore {settore}"
-                    )
-                    
-                    return redirect('storage-detail', pk=storage_id)
-                    
-                finally:
-                    scrapper.driver.quit()
-                    service.close()
-                    
-            except Exception as e:
-                logger.exception("Error adding products")
-                messages.error(request, f"Error adding products: {str(e)}")
+            # ✅ DISPATCH TO CELERY
+            from .tasks import add_products_task
+            
+            result = add_products_task.apply_async(
+                args=[storage_id, products_list, settore],
+                retry=True
+            )
+            
+            est_time = len(products_list) * 20  # 20 seconds per product
+            messages.info(
+                request,
+                f"Adding {len(products_list)} products. "
+                f"Estimated time: {est_time // 60} minutes. "
+                f"Track progress on the next page."
+            )
+            
+            return redirect('task-progress', task_id=result.id, storage_id=storage_id)
     else:
         form = AddProductsForm(storage)
     
@@ -1985,37 +1897,33 @@ def inventory_flag_for_purge_ajax_view(request):
 
 @login_required
 def update_stats_only_view(request, storage_id):
-    """Update product stats without running full restock"""
-    storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+    """
+    REFACTORED: Async stats update.
+    Before: 5-10 minute Selenium operation killed by Gunicorn
+    After: Dispatches to Celery, returns immediately
+    """
+    storage = get_object_or_404(
+        Storage, 
+        id=storage_id, 
+        supermarket__owner=request.user
+    )
     
     if request.method == 'POST':
-        try:
-            service = AutomatedRestockService(storage)
-            
-            try:
-                # Create a minimal log for tracking
-                log = RestockLog.objects.create(
-                    storage=storage,
-                    status='processing',
-                    current_stage='updating_stats'
-                )
-                
-                service.update_product_stats_checkpoint(log, True)
-                
-                log.status = 'completed'
-                log.completed_at = timezone.now()
-                log.save()
-                
-                messages.success(request, f"Product statistics updated successfully for {storage.name}!")
-                
-            finally:
-                service.close()
-                
-        except Exception as e:
-            logger.exception("Error updating stats")
-            messages.error(request, f"Error updating stats: {str(e)}")
+        # ✅ DISPATCH TO CELERY
+        from .tasks import manual_stats_update_task
         
-        return redirect('storage-detail', pk=storage_id)
+        result = manual_stats_update_task.apply_async(
+            args=[storage_id],
+            retry=True
+        )
+        
+        messages.info(
+            request,
+            f"Stats update started for {storage.name}. "
+            f"This will take 5-10 minutes. Check progress on the next page."
+        )
+        
+        return redirect('task-progress', task_id=result.id, storage_id=storage_id)
     
     return render(request, 'storages/update_stats_only.html', {'storage': storage})
 
@@ -2140,26 +2048,19 @@ def auto_add_product_view(request):
 @login_required
 def verify_stock_unified_enhanced_view(request):
     """
-    Enhanced stock verification that automatically adds missing products.
-    
-    Workflow:
-    1. Update product stats (existing products)
-    2. Record losses
-    3. Try to verify all products from CSV
-    4. Track products not found in DB
-    5. Auto-fetch and add missing products using gather_missing_product_data
-    6. Verify the newly added products
-    7. Return comprehensive report
+    REFACTORED VERSION with proper cluster handling.
+
     """
     supermarkets = Supermarket.objects.filter(owner=request.user)
     
     if request.method == 'POST':
         supermarket_id = request.POST.get('supermarket_id')
         storage_id = request.POST.get('storage_id')
+        cluster = request.POST.get('cluster', '').strip().upper()  # User-provided cluster name
         
         if not supermarket_id or not storage_id:
             messages.error(request, "Please select both supermarket and storage")
-            return redirect('verify-stock-unified')
+            return redirect('verify-stock-unified-enhanced')
         
         storage = get_object_or_404(
             Storage,
@@ -2170,244 +2071,92 @@ def verify_stock_unified_enhanced_view(request):
         
         if 'csv_file' not in request.FILES:
             messages.error(request, "No file uploaded")
-            return redirect('verify-stock-unified')
+            return redirect('verify-stock-unified-enhanced')
         
         csv_file = request.FILES['csv_file']
         
         if not csv_file.name.endswith('.csv'):
             messages.error(request, "File must be .csv format")
-            return redirect('verify-stock-unified')
+            return redirect('verify-stock-unified-enhanced')
         
         try:
             # Save file to INVENTORY_FOLDER
             inventory_folder = Path(settings.INVENTORY_FOLDER)
-            file_path = inventory_folder / csv_file.name
+            inventory_folder.mkdir(exist_ok=True)
+            
+            # Use timestamp to avoid conflicts
+            timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+            file_path = inventory_folder / f"verify_{timestamp}_{csv_file.name}"
             
             with open(file_path, 'wb+') as destination:
                 for chunk in csv_file.chunks():
                     destination.write(chunk)
             
-            service = AutomatedRestockService(storage)
+            # ✅ DISPATCH TO CELERY with cluster parameter
+            from .tasks import verify_stock_bulk_task
             
-            try:
-                logger.info(f"Updating product stats for {storage.name}...")
-                service.update_product_stats()
-                
-                logger.info(f"Recording losses for {storage.name}...")
-                service.record_losses()
-                
-                # Track changes and missing products
-                verification_report = {
-                    'total_products': 0,
-                    'products_verified': 0,
-                    'products_added': 0,
-                    'stock_changes': [],
-                    'missing_products': [],
-                    'failed_additions': [],
-                    'total_stock_before': 0,
-                    'total_stock_after': 0,
-                    'verified_at': timezone.now()
-                }
-                
-                # Read CSV
-                df = pd.read_csv(file_path)
-                
-                COD_COL = "Codice"
-                V_COL = "Variante"
-                STOCK_COL = "Qta Originale"
-                
-                # First pass: verify existing products and track missing ones
-                missing_products = []
-                stock_before = {}
-                
-                for _, row in df.iterrows():
-                    try:
-                        cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        v_str = str(row[V_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        stock_str = str(row[STOCK_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        
-                        cod = int(cod_str)
-                        v = int(v_str)
-                        new_stock = int(stock_str)
-                        
-                        verification_report['total_products'] += 1
-                        
-                        # Try to get current stock
-                        try:
-                            stock_before[(cod, v)] = service.db.get_stock(cod, v)
-                        except ValueError:
-                            # Product not in DB - track for auto-add
-                            missing_products.append((cod, v, new_stock))
-                            logger.info(f"Product {cod}.{v} not in DB - will auto-add")
-                            continue
-                            
-                    except Exception as e:
-                        logger.warning(f"Error parsing row: {e}")
-                        continue
-                
-                # Verify existing products
-                from .scripts.inventory_reader import verify_stocks_from_excel
-                verify_stocks_from_excel(service.db, cluster_mode=False)
-                
-                # AUTO-ADD MISSING PRODUCTS
-                if missing_products:
-                    logger.info(f"🔄 Auto-adding {len(missing_products)} missing products...")
-                    
-                    from .scripts.web_lister import WebLister
-                    temp_dir = Path(settings.BASE_DIR) / 'temp_lister'
-                    temp_dir.mkdir(exist_ok=True)
-                    
-                    lister = WebLister(
-                        username=storage.supermarket.username,
-                        password=storage.supermarket.password,
-                        storage_name=storage.name,
-                        download_dir=str(temp_dir),
-                        headless=True
-                    )
-                    
-                    try:
-                        lister.login()
-                        
-                        for cod, v, new_stock in missing_products:
-                            try:
-                                logger.info(f"Fetching data for {cod}.{v}...")
-                                product_data = lister.gather_missing_product_data(cod, v)
-                                
-                                if not product_data:
-                                    logger.warning(f"❌ Could not fetch data for {cod}.{v}")
-                                    verification_report['failed_additions'].append({
-                                        'cod': cod,
-                                        'var': v,
-                                        'reason': 'Not found in PAC2000A'
-                                    })
-                                    continue
-                                
-                                description, package, multiplier, availability, cost, price, category = product_data
-                                
-                                # Add to database
-                                service.db.add_product(
-                                    cod=cod,
-                                    v=v,
-                                    descrizione=description or f"Product {cod}.{v}",
-                                    rapp=multiplier or 1,
-                                    pz_x_collo=package or 12,
-                                    settore=storage.settore,
-                                    disponibilita=availability or "Si"
-                                )
-                                
-                                # Initialize stats and verify
-                                service.db.init_product_stats(cod, v, [], [], new_stock, verified=True)
-                                
-                                # Add economics
-                                if price and cost:
-                                    cur = service.db.cursor()
-                                    cur.execute("""
-                                        INSERT INTO economics (cod, v, price_std, cost_std, category)
-                                        VALUES (%s, %s, %s, %s, %s)
-                                        ON CONFLICT (cod, v) DO NOTHING
-                                    """, (cod, v, price, cost, category or "Unknown"))
-                                    service.db.conn.commit()
-                                
-                                verification_report['products_added'] += 1
-                                verification_report['stock_changes'].append({
-                                    'cod': cod,
-                                    'var': v,
-                                    'old_stock': 0,
-                                    'new_stock': new_stock,
-                                    'difference': new_stock,
-                                    'added': True
-                                })
-                                
-                                logger.info(f"✅ Auto-added and verified {cod}.{v}")
-                                
-                            except Exception as e:
-                                logger.exception(f"Error auto-adding {cod}.{v}")
-                                verification_report['failed_additions'].append({
-                                    'cod': cod,
-                                    'var': v,
-                                    'reason': str(e)
-                                })
-                    
-                    finally:
-                        lister.driver.quit()
-                
-                # Calculate changes for existing products
-                for _, row in df.iterrows():
-                    try:
-                        cod_str = str(row[COD_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        v_str = str(row[V_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        stock_str = str(row[STOCK_COL]).replace('.', '').replace(',', '.').split('.')[0]
-                        
-                        cod = int(cod_str)
-                        v = int(v_str)
-                        new_stock = int(stock_str)
-                        
-                        old_stock = stock_before.get((cod, v))
-                        
-                        if old_stock is not None:
-                            verification_report['total_stock_before'] += old_stock
-                            verification_report['total_stock_after'] += new_stock
-                            
-                            if old_stock != new_stock:
-                                verification_report['products_verified'] += 1
-                                verification_report['stock_changes'].append({
-                                    'cod': cod,
-                                    'var': v,
-                                    'old_stock': old_stock,
-                                    'new_stock': new_stock,
-                                    'difference': new_stock - old_stock,
-                                    'added': False
-                                })
-                    except:
-                        continue
-                
-                # Store report in session
-                request.session['verification_report'] = {
-                    'total_products': verification_report['total_products'],
-                    'products_verified': verification_report['products_verified'],
-                    'products_added': verification_report['products_added'],
-                    'failed_additions': verification_report['failed_additions'][:20],
-                    'stock_changes': verification_report['stock_changes'][:50],
-                    'total_stock_before': verification_report['total_stock_before'],
-                    'total_stock_after': verification_report['total_stock_after'],
-                    'verified_at': verification_report['verified_at'].isoformat(),
-                    'storage_name': storage.name
-                }
-                
-                messages.success(
-                    request,
-                    f"✅ Verification complete! {verification_report['products_verified']} updated, "
-                    f"{verification_report['products_added']} auto-added"
-                )
-                
-                return redirect('verification-report-unified')
-                
-            finally:
-                service.close()
+            result = verify_stock_bulk_task.apply_async(
+                args=[storage_id, str(file_path), cluster or None],  # Pass cluster explicitly
+                retry=True
+            )
+            
+            messages.info(
+                request,
+                f"Stock verification started for {storage.name}. "
+                f"{'Cluster: ' + cluster if cluster else 'No cluster assigned'}. "
+                f"This may take 10-20 minutes if auto-adding missing products."
+            )
+            
+            return redirect('task-progress', task_id=result.id, storage_id=storage_id)
             
         except Exception as e:
-            logger.exception("Error verifying stock")
+            logger.exception("Error starting verification")
             messages.error(request, f"Error: {str(e)}")
-            return redirect('verify-stock-unified')
+            return redirect('verify-stock-unified-enhanced')
+    
+    # GET request - load existing clusters for dropdown
+    clusters_by_storage = {}
+    for sm in supermarkets:
+        for storage in sm.storages.all():
+            service = RestockService(storage)
+            try:
+                cursor = service.db.cursor()
+                cursor.execute("""
+                    SELECT DISTINCT cluster 
+                    FROM products 
+                    WHERE cluster IS NOT NULL AND cluster != '' 
+                        AND settore = %s 
+                    ORDER BY cluster ASC
+                """, (storage.settore,))
+                clusters = [row['cluster'] for row in cursor.fetchall()]
+                clusters_by_storage[storage.id] = clusters
+            finally:
+                service.close()
     
     return render(request, 'inventory/verify_stock_unified.html', {
-        'supermarkets': supermarkets
+        'supermarkets': supermarkets,
+        'clusters_by_storage': json.dumps(clusters_by_storage)  # Pass to JS
     })
 
 @login_required
 def assign_clusters_view(request):
     """
-    Assign clusters to products via CSV upload
-    CSV filename (without .csv) becomes the cluster name
+    REFACTORED: Async cluster assignment.
+    User provides cluster name, not derived from filename.
     """
     supermarkets = Supermarket.objects.filter(owner=request.user)
     
     if request.method == 'POST':
         supermarket_id = request.POST.get('supermarket_id')
         storage_id = request.POST.get('storage_id')
+        cluster = request.POST.get('cluster', '').strip().upper()  # User-provided
         
         if not supermarket_id or not storage_id:
             messages.error(request, "Please select both supermarket and storage")
+            return redirect('assign-clusters')
+        
+        if not cluster:
+            messages.error(request, "Please provide a cluster name")
             return redirect('assign-clusters')
         
         storage = get_object_or_404(
@@ -2428,47 +2177,67 @@ def assign_clusters_view(request):
             return redirect('assign-clusters')
         
         try:
-            # Save file to INVENTORY_FOLDER (filename = cluster name)
+            # Save file
             inventory_folder = Path(settings.INVENTORY_FOLDER)
-            file_path = inventory_folder / csv_file.name
+            inventory_folder.mkdir(exist_ok=True)
+            
+            timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+            file_path = inventory_folder / f"cluster_{timestamp}_{csv_file.name}"
             
             with open(file_path, 'wb+') as destination:
                 for chunk in csv_file.chunks():
                     destination.write(chunk)
             
-            cluster_name = os.path.splitext(csv_file.name)[0]
+            # ✅ DISPATCH TO CELERY with explicit cluster name
+            from .tasks import assign_clusters_task
             
-            service = RestockService(storage)
+            result = assign_clusters_task.apply_async(
+                args=[storage_id, str(file_path), cluster],
+                retry=True
+            )
             
-            try:
-                logger.info(f"Assigning cluster '{cluster_name}' for {storage.name}...")
-                from .scripts.inventory_reader import verify_stocks_from_excel
-                verify_stocks_from_excel(service.db, cluster_mode=True)
-                
-                messages.success(
-                    request,
-                    f"Successfully assigned cluster '{cluster_name}' to products!"
-                )
-                
-            finally:
-                service.close()
+            messages.info(
+                request,
+                f"Assigning cluster '{cluster}' to products. This may take a few minutes."
+            )
             
-            return redirect('inventory-search')
+            return redirect('task-progress', task_id=result.id, storage_id=storage_id)
             
         except Exception as e:
             logger.exception("Error assigning clusters")
             messages.error(request, f"Error: {str(e)}")
             return redirect('assign-clusters')
     
+    # Load existing clusters for reference
+    clusters_by_storage = {}
+    for sm in supermarkets:
+        for storage in sm.storages.all():
+            service = RestockService(storage)
+            try:
+                cursor = service.db.cursor()
+                cursor.execute("""
+                    SELECT DISTINCT cluster 
+                    FROM products 
+                    WHERE cluster IS NOT NULL AND cluster != '' 
+                        AND settore = %s
+                    ORDER BY cluster ASC
+                """, (storage.settore,))
+                clusters = [row['cluster'] for row in cursor.fetchall()]
+                clusters_by_storage[storage.id] = clusters
+            finally:
+                service.close()
+    
     return render(request, 'inventory/assign_clusters.html', {
-        'supermarkets': supermarkets
+        'supermarkets': supermarkets,
+        'clusters_by_storage': json.dumps(clusters_by_storage)
     })
 
 
 @login_required
 def record_losses_unified_view(request):
     """
-    Unified loss recording - select supermarket from within view
+    REFACTORED: Async loss recording.
+    Processing large CSV files can take time.
     """
     supermarkets = Supermarket.objects.filter(owner=request.user)
     
@@ -2503,6 +2272,7 @@ def record_losses_unified_view(request):
                 
                 file_path = losses_folder / expected_filename
                 
+                # Overwrite if exists
                 if file_path.exists():
                     file_path.unlink()
                 
@@ -2510,30 +2280,21 @@ def record_losses_unified_view(request):
                     for chunk in csv_file.chunks():
                         destination.write(chunk)
                 
-                first_storage = supermarket.storages.first()
+                # ✅ DISPATCH TO CELERY
+                from .tasks import record_losses_task
                 
-                if not first_storage:
-                    messages.error(request, "No storages found for this supermarket")
-                    return redirect('record-losses-unified')
+                result = record_losses_task.apply_async(
+                    args=[supermarket_id, str(file_path), loss_type],
+                    retry=True
+                )
                 
-                service = RestockService(first_storage)
+                messages.info(
+                    request,
+                    f"Processing {loss_type} losses for {supermarket.name}. "
+                    f"This may take a few minutes."
+                )
                 
-                try:
-                    from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
-                    verify_lost_stock_from_excel_combined(service.db)
-                    
-                    messages.success(
-                        request,
-                        f"Successfully recorded {loss_type} losses for {supermarket.name}!"
-                    )
-                    
-                except Exception as e:
-                    logger.exception("Error processing loss file")
-                    messages.error(request, f"Error: {str(e)}")
-                finally:
-                    service.close()
-                
-                return redirect('inventory-search')
+                return redirect('task-progress', task_id=result.id)
                 
             except Exception as e:
                 logger.exception("Error saving loss file")
@@ -2646,4 +2407,99 @@ def get_storages_for_supermarket_ajax_view(request, supermarket_id):
     
     except Exception as e:
         logger.exception("Error loading storages")
-        return JsonResponse({'error': str(e)}, status=500)
+        return JsonResponse({'error': str(e)}, status=500)   
+
+# ============ Task Progress Views ============
+
+@login_required
+def task_progress_view(request, task_id, storage_id=None):
+    """
+    Generic progress view for ANY Celery task.
+    Shows real-time progress and auto-redirects when complete.
+    """
+    from celery.result import AsyncResult
+    
+    task = AsyncResult(task_id)
+    storage = None
+    
+    if storage_id:
+        storage = get_object_or_404(
+            Storage,
+            id=storage_id,
+            supermarket__owner=request.user
+        )
+    
+    context = {
+        'task_id': task_id,
+        'task_state': task.state,
+        'storage': storage
+    }
+    
+    return render(request, 'tasks/progress.html', context)
+
+
+@login_required
+def task_status_ajax_view(request, task_id):
+    """
+    AJAX endpoint to check task status.
+    Called by JavaScript every 5 seconds to update progress.
+    """
+    from celery.result import AsyncResult
+    
+    task = AsyncResult(task_id)
+    
+    response_data = {
+        'state': task.state,
+        'ready': task.ready(),
+    }
+    
+    if task.ready():
+        if task.successful():
+            result = task.result
+            response_data['success'] = True
+            response_data['result'] = result
+        else:
+            response_data['success'] = False
+            response_data['error'] = str(task.info)
+    else:
+        # Task still running
+        if isinstance(task.info, dict):
+            response_data['progress'] = task.info.get('progress', 0)
+            response_data['status_message'] = task.info.get('status', 'Processing...')
+        else:
+            response_data['progress'] = 0
+            response_data['status_message'] = 'Processing...'
+    
+    return JsonResponse(response_data)
+
+
+@login_required
+def restock_task_progress_view(request, task_id):
+    """
+    Specialized progress view for restock operations.
+    Uses existing RestockLog for detailed checkpoint tracking.
+    """
+    from celery.result import AsyncResult
+    
+    task = AsyncResult(task_id)
+    
+    # Try to find log from task result
+    log = None
+    if task.ready() and task.successful():
+        result = task.result
+        if isinstance(result, dict) and 'log_id' in result:
+            try:
+                log = RestockLog.objects.get(
+                    id=result['log_id'],
+                    storage__supermarket__owner=request.user
+                )
+            except RestockLog.DoesNotExist:
+                pass
+    
+    context = {
+        'task_id': task_id,
+        'task_state': task.state,
+        'log': log
+    }
+    
+    return render(request, 'storages/restock_task_progress.html', context)
