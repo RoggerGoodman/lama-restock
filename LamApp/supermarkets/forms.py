@@ -106,22 +106,6 @@ class ManualRestockForm(forms.Form):
         widget=forms.NumberInput(attrs={'step': '0.5', 'placeholder': 'Auto', 'class': 'form-control'})
     )
 
-class ListUpdateScheduleForm(forms.ModelForm):
-    """Form for configuring automatic list updates"""
-    
-    class Meta:
-        model = ListUpdateSchedule
-        fields = ['frequency', 'enabled']
-        widgets = {
-            'frequency': forms.Select(attrs={'class': 'form-select'}),
-            'enabled': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-        }
-        help_texts = {
-            'frequency': 'How often to download and update product list',
-            'enabled': 'Enable automatic updates',
-        }
-
-
 class PromoUploadForm(forms.Form):
     """Form for uploading promo PDF files"""
     

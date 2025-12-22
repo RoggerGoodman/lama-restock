@@ -18,38 +18,30 @@ logger = get_task_logger(__name__)
 )
 def record_losses_all_supermarkets(self):
     """
-    Record losses for all supermarkets that have orders scheduled for tomorrow.
-    Runs at 22:30 every day.
+    Record losses for ALL supermarkets every night at 22:30.
     
-    CRITICAL: This uses database connections, so each supermarket is processed separately
-    to avoid SQLite threading issues.
+    This runs daily regardless of order schedules because losses 
+    (broken/expired/internal use) happen every day and need to be tracked.
     """
-    from .models import Supermarket, RestockSchedule
+    from .models import Supermarket
     from .automation_services import AutomatedRestockService
     
     try:
-        tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
-        tomorrow_weekday = tomorrow.weekday()
+        logger.info("[CELERY] Starting nightly loss recording for all supermarkets")
         
-        weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-        tomorrow_field = weekday_fields[tomorrow_weekday]
+        # Get ALL supermarkets (not just those with orders tomorrow)
+        supermarkets = Supermarket.objects.all()
         
-        logger.info(f"[CELERY] Checking for losses recording (tomorrow is {tomorrow_field})")
+        if not supermarkets.exists():
+            logger.info("[CELERY] No supermarkets found")
+            return "No supermarkets to process"
         
-        supermarkets_to_process = set()
-        
-        for schedule in RestockSchedule.objects.select_related('storage__supermarket').all():
-            is_order_tomorrow = getattr(schedule, tomorrow_field)
-            
-            if is_order_tomorrow:
-                supermarkets_to_process.add(schedule.storage.supermarket)
-        
-        logger.info(f"[CELERY] Found {len(supermarkets_to_process)} supermarket(s) with orders tomorrow")
+        logger.info(f"[CELERY] Found {supermarkets.count()} supermarket(s) to process")
         
         success_count = 0
         error_count = 0
         
-        for supermarket in supermarkets_to_process:
+        for supermarket in supermarkets:
             try:
                 logger.info(f"[CELERY] Recording losses for: {supermarket.name}")
                 
@@ -57,6 +49,7 @@ def record_losses_all_supermarkets(self):
                 
                 if not first_storage:
                     logger.warning(f"[CELERY] No storages found for {supermarket.name}")
+                    error_count += 1
                     continue
                 
                 service = AutomatedRestockService(first_storage)
@@ -76,7 +69,7 @@ def record_losses_all_supermarkets(self):
                 error_count += 1
                 continue
         
-        result_msg = f"Loss recording complete: {success_count} successful, {error_count} failed"
+        result_msg = f"Loss recording complete: {success_count} successful, {error_count} failed out of {supermarkets.count()} total"
         logger.info(f"[CELERY] {result_msg}")
         
         if error_count > 0 and success_count == 0:
@@ -317,20 +310,60 @@ def run_restock_for_storage(self, storage_id):
 )
 def run_scheduled_list_updates(self):
     """
-    Check and run scheduled product list updates.
+    Update product lists for ALL storages with active order schedules.
     Runs at 3:00 AM every day.
+    
+    This ensures product lists are always fresh for order calculations.
     """
-    from .list_update_service import run_scheduled_list_updates as run_updates
+    from .models import Storage
+    from .list_update_service import ListUpdateService
     
     try:
-        logger.info("[CELERY] Starting scheduled list updates check")
+        logger.info("[CELERY] Starting automatic list updates for scheduled storages")
         
-        run_updates()
+        # Get all storages that have active order schedules
+        storages = Storage.objects.filter(
+            schedule__isnull=False
+        ).select_related('supermarket', 'schedule')
         
-        logger.info("[CELERY] List updates check completed")
+        if not storages.exists():
+            logger.info("[CELERY] No storages with schedules found")
+            return "No storages to update"
         
-        return "List updates completed"
+        logger.info(f"[CELERY] Found {storages.count()} storage(s) with schedules")
+        
+        success_count = 0
+        error_count = 0
+        
+        for storage in storages:
+            try:
+                logger.info(f"[CELERY] Updating product list for {storage.name}")
+                
+                service = ListUpdateService(storage)
+                
+                try:
+                    result = service.update_and_import()
+                    
+                    if result['success']:
+                        logger.info(f"✓ [CELERY] List updated for {storage.name}")
+                        success_count += 1
+                    else:
+                        logger.warning(f"⚠ [CELERY] List update failed for {storage.name}: {result['message']}")
+                        error_count += 1
+                        
+                finally:
+                    service.close()
+                    
+            except Exception as e:
+                logger.exception(f"✗ [CELERY] Error updating list for {storage.name}")
+                error_count += 1
+                continue
+        
+        result_msg = f"List updates complete: {success_count} successful, {error_count} failed"
+        logger.info(f"[CELERY] {result_msg}")
+        
+        return result_msg
         
     except Exception as exc:
-        logger.exception("[CELERY] Error during list updates")
+        logger.exception("[CELERY] Fatal error in list update task")
         raise self.retry(exc=exc)

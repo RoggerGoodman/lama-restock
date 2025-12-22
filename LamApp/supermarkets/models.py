@@ -44,6 +44,7 @@ class RestockSchedule(models.Model):
     - Orders run at 6:00 AM on order days
     - Delivery happens the day after ordering
     - Coverage is calculated as days until NEXT order
+    - Product lists are automatically updated nightly for all scheduled storages
     """
     storage = models.OneToOneField(Storage, on_delete=models.CASCADE, related_name='schedule')
     
@@ -162,7 +163,6 @@ class RestockLog(models.Model):
         ('failed', 'Failed'),
     ]
     
-    # NEW: Stage tracking for checkpoints
     STAGE_CHOICES = [
         ('pending', 'Pending Start'),
         ('updating_stats', 'Updating Product Stats'),
@@ -179,15 +179,15 @@ class RestockLog(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     
-    # NEW: Current stage for checkpoint recovery
+    # Current stage for checkpoint recovery
     current_stage = models.CharField(max_length=30, choices=STAGE_CHOICES, default='pending')
     
-    # NEW: Stage timestamps
+    # Stage timestamps
     stats_updated_at = models.DateTimeField(null=True, blank=True)
     order_calculated_at = models.DateTimeField(null=True, blank=True)
     order_executed_at = models.DateTimeField(null=True, blank=True)
     
-    # NEW: Retry tracking
+    # Retry tracking
     retry_count = models.IntegerField(default=0)
     max_retries = models.IntegerField(default=3)
     
@@ -235,42 +235,3 @@ class RestockLog(models.Model):
 
     def __str__(self):
         return f"{self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"
-    
-
-class ListUpdateSchedule(models.Model):
-    """Schedule for automatic product list updates"""
-    FREQUENCY_CHOICES = [
-        ('weekly', 'Weekly'),
-        ('biweekly', 'Every 2 Weeks'),
-        ('monthly', 'Monthly'),
-    ]
-    
-    storage = models.OneToOneField(Storage, on_delete=models.CASCADE, related_name='list_update_schedule')
-    frequency = models.CharField(max_length=20, choices=FREQUENCY_CHOICES, default='biweekly')
-    enabled = models.BooleanField(default=True, help_text="Enable automatic updates")
-    
-    def __str__(self):
-        return f"List Update Schedule for {self.storage.name} ({self.get_frequency_display()})"
-
-
-class ListUpdateLog(models.Model):
-    """Log of product list update operations"""
-    STATUS_CHOICES = [
-        ('pending', 'Pending'),
-        ('processing', 'Processing'),
-        ('completed', 'Completed'),
-        ('failed', 'Failed'),
-    ]
-    
-    storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='list_update_logs')
-    started_at = models.DateTimeField(default=timezone.now)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
-    file_path = models.CharField(max_length=500, blank=True)
-    error_message = models.TextField(blank=True)
-    
-    class Meta:
-        ordering = ['-started_at']
-    
-    def __str__(self):
-        return f"List Update: {self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"

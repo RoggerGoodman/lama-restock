@@ -12,7 +12,7 @@
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
-                    <li class="breadcrumb-item active">Update List</li>
+                    <li class="breadcrumb-item active">Update Product List</li>
                 </ol>
             </nav>
         </div>
@@ -22,68 +22,74 @@
         <div class="col-lg-8 offset-lg-2">
             <div class="stat-card">
                 <h4 class="mb-4">
-                    <i class="bi bi-download text-primary"></i>
+                    <i class="bi bi-download text-info"></i>
                     Manual Product List Update
                 </h4>
 
-                <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> What This Does</h6>
-                    <ol class="mb-0">
-                        <li>Downloads the latest product list from PAC2000A</li>
-                        <li>Imports new products to database</li>
-                        <li>Updates existing product information</li>
-                    </ol>
-                    <p class="mt-2 mb-0">
-                        <strong>Note:</strong> This process may take 2-5 minutes. A browser window will open automatically.
-                    </p>
+                <!-- Automatic Update Info -->
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> Automatic Updates</h6>
+                    {% if has_schedule %}
+                        <p class="mb-2">
+                            <i class="bi bi-check-circle text-success"></i>
+                            <strong>Automatic updates are enabled</strong> for this storage.
+                        </p>
+                        <p class="mb-0">
+                            Product lists are automatically downloaded every night at <strong>3:00 AM</strong> for all storages with active order schedules.
+                        </p>
+                    {% else %}
+                        <p class="mb-2">
+                            <i class="bi bi-exclamation-triangle text-warning"></i>
+                            <strong>No order schedule configured.</strong>
+                        </p>
+                        <p class="mb-0">
+                            To enable automatic updates, <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">create an order schedule</a> for this storage.
+                        </p>
+                    {% endif %}
                 </div>
 
-                {% if storage.last_list_update %}
-                <div class="alert alert-info">
-                    <strong>Last Update:</strong> {{ storage.last_list_update|date:"M d, Y H:i" }}
-                    <br>
-                    <small class="text-muted">({{ storage.last_list_update|timesince }} ago)</small>
+                <!-- Last Update Info -->
+                {% if last_update %}
+                <div class="alert alert-secondary">
+                    <strong>Last Update:</strong> {{ last_update|timesince }} ago
+                    <br><small class="text-muted">{{ last_update|date:"F d, Y \a\t H:i" }}</small>
+                </div>
+                {% else %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    No product list has been downloaded yet for this storage.
                 </div>
                 {% endif %}
 
-                <form method="post" id="updateForm">
+                <!-- What This Does -->
+                <div class="alert alert-secondary">
+                    <h6><i class="bi bi-info-circle"></i> What This Does</h6>
+                    <ol class="mb-0">
+                        <li>Downloads latest product list from PAC2000A</li>
+                        <li>Updates product prices and availability</li>
+                        <li>Adds any new products to database</li>
+                        <li>Updates existing product information</li>
+                    </ol>
+                    <p class="mt-2 mb-0">
+                        <strong>Estimated time:</strong> 2-5 minutes
+                    </p>
+                </div>
+
+                <!-- Manual Update Form -->
+                <form method="post">
                     {% csrf_token %}
                     
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
                             <i class="bi bi-x-circle"></i> Cancel
                         </a>
-                        <button type="submit" class="btn btn-primary" id="submitBtn">
-                            <i class="bi bi-download"></i> Download and Import
+                        <button type="submit" class="btn btn-info">
+                            <i class="bi bi-download"></i> Download Product List Now
                         </button>
                     </div>
                 </form>
-
-                <!-- Progress indicator -->
-                <div id="progressIndicator" class="mt-4" style="display: none;">
-                    <div class="alert alert-info">
-                        <div class="d-flex align-items-center">
-                            <div class="spinner-border spinner-border-sm me-3" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <div>
-                                <strong>Processing...</strong><br>
-                                <small>Downloading and importing product list. This may take several minutes.</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
 </div>
-{% endblock %}
-{% block scripts %}
-<script>
-document.getElementById('updateForm').addEventListener('submit', function() {
-    document.getElementById('progressIndicator').style.display = 'block';
-    document.getElementById('submitBtn').disabled = true;
-    document.getElementById('submitBtn').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
-});
-</script>
 {% endblock %}

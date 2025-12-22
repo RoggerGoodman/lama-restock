@@ -71,7 +71,7 @@
         </div>
     </div>
 
-    <!-- NEW: Scheduled Operations Section -->
+    <!-- Scheduled Operations Section -->
     {% if scheduled_storages %}
     <div class="row mt-4">
         <div class="col-12">
@@ -82,7 +82,7 @@
                 
                 <p class="text-muted mb-3">
                     <i class="bi bi-info-circle"></i>
-                    These operations run automatically at scheduled times. All times are in your server's timezone.
+                    These operations run automatically at scheduled times. All times are in UTC.
                 </p>
 
                 <div class="table-responsive">
@@ -142,10 +142,8 @@
                                         </a>
                                     </td>
                                 </tr>
-                                {% endif %}
-
-                                <!-- Loss Recording (day before orders at 22:30) -->
-                                {% if storage.schedule %}
+                                
+                                <!-- Loss Recording (daily at 22:30) -->
                                 <tr class="table-light">
                                     <td>
                                         <small class="text-muted">↳ {{ storage.name }}</small>
@@ -160,7 +158,7 @@
                                             <strong>22:30</strong> (10:30 PM)
                                         </div>
                                         <small class="text-muted">
-                                            Runs the day before each order day
+                                            Runs every night for all supermarkets
                                         </small>
                                     </td>
                                     <td>
@@ -168,14 +166,11 @@
                                     </td>
                                     <td>—</td>
                                 </tr>
-                                {% endif %}
-
-                                <!-- List Updates -->
-                                {% if storage.list_update_schedule and storage.list_update_schedule.enabled %}
-                                <tr>
+                                
+                                <!-- Product List Updates (nightly at 3:00 AM) -->
+                                <tr class="table-light">
                                     <td>
-                                        <strong>{{ storage.supermarket.name }}</strong><br>
-                                        <small class="text-muted">{{ storage.name }}</small>
+                                        <small class="text-muted">↳ {{ storage.name }}</small>
                                     </td>
                                     <td>
                                         <span class="badge bg-info">
@@ -187,7 +182,7 @@
                                             <strong>3:00 AM</strong> daily
                                         </div>
                                         <small class="text-muted">
-                                            Frequency: {{ storage.list_update_schedule.get_frequency_display }}
+                                            Automatic for all scheduled storages
                                         </small>
                                     </td>
                                     <td>
@@ -198,8 +193,8 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <a href="{% url 'configure-list-updates' storage_id=storage.id %}" class="btn btn-sm btn-outline-primary">
-                                            <i class="bi bi-gear"></i> Configure
+                                        <a href="{% url 'manual-list-update' storage_id=storage.id %}" class="btn btn-sm btn-outline-info">
+                                            <i class="bi bi-download"></i> Manual
                                         </a>
                                     </td>
                                 </tr>
@@ -217,11 +212,11 @@
                         </div>
                         <div class="col-md-4">
                             <h6 class="mb-2"><i class="bi bi-clipboard-data text-warning"></i> Loss Recording</h6>
-                            <small>Downloads inventory losses (broken/expired/internal) at 22:30 before order days</small>
+                            <small>Downloads inventory losses (broken/expired/internal) every night at 22:30 for all supermarkets</small>
                         </div>
                         <div class="col-md-4">
                             <h6 class="mb-2"><i class="bi bi-arrow-repeat text-info"></i> List Updates</h6>
-                            <small>Downloads latest product list from PAC2000A at 3:00 AM based on configured frequency</small>
+                            <small>Downloads latest product list from PAC2000A at 3:00 AM daily for all scheduled storages</small>
                         </div>
                     </div>
                 </div>

@@ -659,11 +659,11 @@ class DatabaseManager:
                 try:
                     num = float(val)
                     if not num.is_integer():
-                        print(f"⚠️ Warning: Float value {val} found in RAPP_COLS for code {cod}. Skipping row.")
+                        print(f"️ Warning: Float value {val} found in RAPP_COLS for code {cod}. Skipping row.")
                         continue
                     rapp = int(num)
                 except ValueError:
-                    print(f"⚠️ Warning: Invalid RAPP_COLS value '{val}' for code {cod}. Skipping row.")
+                    print(f"️ Warning: Invalid RAPP_COLS value '{val}' for code {cod}. Skipping row.")
                     continue
 
             prod_rows.append((cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))

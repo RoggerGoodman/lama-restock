@@ -24,8 +24,8 @@ from .models import (
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
-    BlacklistEntryForm, AddProductsForm, PromoUploadForm, ListUpdateScheduleForm,
-    StockAdjustmentForm, RecordLossesForm, SingleProductVerificationForm
+    BlacklistEntryForm, AddProductsForm, PromoUploadForm,
+    StockAdjustmentForm, RecordLossesForm, 
 )
 from .services import RestockService, StorageService
 from .scripts.scrapper import Scrapper
@@ -248,13 +248,6 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             context['schedule'] = self.object.schedule
         except RestockSchedule.DoesNotExist:
             context['schedule'] = None
-        
-        # Check if list update schedule exists
-        try:
-            context['list_schedule'] = self.object.list_update_schedule
-        except ListUpdateSchedule.DoesNotExist:
-            context['list_schedule'] = None
-        
         return context
 
 
@@ -859,49 +852,13 @@ class BlacklistEntryDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteVi
 # ============ Data Management Views ============
 
 @login_required
-def configure_list_updates_view(request, storage_id):
-    """Configure automatic list updates for a storage"""
-    storage = get_object_or_404(
-        Storage,
-        id=storage_id,
-        supermarket__owner=request.user
-    )
-    
-    # Get or create schedule
-    try:
-        schedule = storage.list_update_schedule
-    except ListUpdateSchedule.DoesNotExist:
-        schedule = None
-    
-    if request.method == 'POST':
-        if schedule:
-            form = ListUpdateScheduleForm(request.POST, instance=schedule)
-        else:
-            form = ListUpdateScheduleForm(request.POST)
-        
-        if form.is_valid():
-            schedule = form.save(commit=False)
-            schedule.storage = storage
-            schedule.save()
-            
-            messages.success(request, "List update schedule configured successfully!")
-            return redirect('storage-detail', pk=storage_id)
-    else:
-        if schedule:
-            form = ListUpdateScheduleForm(instance=schedule)
-        else:
-            form = ListUpdateScheduleForm()
-    
-    return render(request, 'storages/configure_list_updates.html', {
-        'storage': storage,
-        'form': form,
-        'schedule': schedule
-    })
-
-
-@login_required
 def manual_list_update_view(request, storage_id):
-    """Manually trigger product list download and import"""
+    """
+    Manually trigger product list download and import.
+    
+    Note: Automatic updates now run nightly for all storages with active schedules.
+    This is only for manual/emergency updates.
+    """
     storage = get_object_or_404(
         Storage,
         id=storage_id,
@@ -927,9 +884,14 @@ def manual_list_update_view(request, storage_id):
         
         return redirect('storage-detail', pk=storage_id)
     
-    return render(request, 'storages/manual_list_update.html', {
-        'storage': storage
-    })
+    # Show info about automatic updates
+    context = {
+        'storage': storage,
+        'has_schedule': hasattr(storage, 'schedule') and storage.schedule is not None,
+        'last_update': storage.last_list_update,
+    }
+    
+    return render(request, 'storages/manual_list_update.html', context)
 
 
 @login_required

@@ -167,34 +167,3 @@ class ListUpdateService:
     def close(self):
         """Clean up resources"""
         self.db.close()
-
-
-def run_scheduled_list_updates():
-    """
-    Run list updates for all storages that need it.
-    Called by scheduler.
-    """
-    from .models import Storage
-    
-    logger.info("Checking for scheduled list updates...")
-    
-    updated_count = 0
-    
-    for storage in Storage.objects.select_related('supermarket', 'list_update_schedule'):
-        try:
-            service = ListUpdateService(storage)
-            
-            if service.should_update():
-                logger.info(f"Updating list for {storage.name}")
-                result = service.update_and_import()
-                
-                if result['success']:
-                    updated_count += 1
-            
-            service.close()
-            
-        except Exception as e:
-            logger.exception(f"Error checking {storage.name}")
-            continue
-    
-    logger.info(f"Completed list updates: {updated_count} storages updated")

@@ -34,7 +34,6 @@ urlpatterns = [
     path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),
     
     # ============ List Updates ============
-    path('storages/<int:storage_id>/configure-updates/', views.configure_list_updates_view, name='configure-list-updates'),
     path('storages/<int:storage_id>/update-list/', views.manual_list_update_view, name='manual-list-update'),
     
     # ============ Restock Schedules ============

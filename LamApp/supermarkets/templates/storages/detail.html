@@ -120,42 +120,47 @@
                 </div>
                 {% endif %}
 
-                <!-- List Update Schedule Info -->
-                {% if list_schedule %}
+                <!-- Automatic List Updates Info -->
                 <div class="alert alert-info mt-3">
                     <h6 class="mb-2">
-                        <i class="bi bi-arrow-repeat"></i> Product List Updates
+                        <i class="bi bi-arrow-repeat"></i> Automatic Product List Updates
                     </h6>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <p class="mb-1"><strong>Status:</strong></p>
-                            {% if list_schedule.enabled %}
-                                <span class="badge bg-success">Enabled</span>
-                            {% else %}
-                                <span class="badge bg-secondary">Disabled</span>
-                            {% endif %}
+                    
+                    {% if schedule %}
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p class="mb-1"><strong>Status:</strong></p>
+                                <span class="badge bg-success">
+                                    <i class="bi bi-check-circle"></i> Enabled (Nightly at 3:00 AM)
+                                </span>
+                            </div>
+                            <div class="col-md-6">
+                                {% if storage.last_list_update %}
+                                <p class="mb-1"><strong>Last Update:</strong></p>
+                                <small class="text-muted">{{ storage.last_list_update|timesince }} ago</small>
+                                {% else %}
+                                <p class="mb-1"><strong>Last Update:</strong></p>
+                                <small class="text-muted">Never</small>
+                                {% endif %}
+                            </div>
                         </div>
-                        <div class="col-md-6">
-                            <p class="mb-1"><strong>Frequency:</strong></p>
-                            <small class="text-muted">{{ list_schedule.get_frequency_display }}</small>
+                        <div class="mt-2">
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle"></i>
+                                Product lists are automatically updated every night for all storages with active order schedules.
+                            </small>
                         </div>
-                    </div>
-                    {% if storage.last_list_update %}
-                    <div class="mt-2">
+                    {% else %}
+                        <p class="mb-1">
+                            <i class="bi bi-exclamation-triangle text-warning"></i>
+                            <strong>Automatic updates disabled</strong> - No order schedule configured.
+                        </p>
                         <small class="text-muted">
-                            <strong>Last Update:</strong> {{ storage.last_list_update|timesince }} ago
+                            Automatic list updates require an active order schedule.
+                            <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">Create schedule</a> to enable.
                         </small>
-                    </div>
                     {% endif %}
                 </div>
-                {% else %}
-                <div class="alert alert-warning mt-3">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    Automatic list updates not configured.
-                    <a href="{% url 'configure-list-updates' storage_id=storage.id %}" class="alert-link">Configure now</a>
-                </div>
-                {% endif %}
-            </div>
         </div>
 
         <!-- Quick Stats -->
