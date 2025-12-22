@@ -1,6 +1,6 @@
 # LamApp/supermarkets/forms.py
 from django import forms
-from .models import RestockSchedule, Blacklist, BlacklistEntry, Storage, ListUpdateSchedule
+from .models import RestockSchedule, Blacklist, BlacklistEntry, Storage
 
 
 class RestockScheduleForm(forms.ModelForm):
