@@ -110,7 +110,7 @@ def dashboard_view(request):
     scheduled_storages = Storage.objects.filter(
         supermarket__owner=request.user,
         schedule__isnull=False
-    ).select_related('schedule', 'supermarket', 'list_update_schedule')
+    ).select_related('schedule', 'supermarket')
     
     context = {
         'supermarkets': supermarkets,

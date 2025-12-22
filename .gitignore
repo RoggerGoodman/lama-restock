@@ -123,3 +123,5 @@ venv.bak/
 
 test.py
 Notes.txt
+settings.py
+LamApp/LamApp/settings.py
