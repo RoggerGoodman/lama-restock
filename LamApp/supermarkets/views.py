@@ -338,8 +338,8 @@ class RestockScheduleDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteV
 @login_required
 def run_restock_view(request, storage_id):
     """
-    REFACTORED: Now fully async with Celery.
-    No more blocking Gunicorn workers for 10-15 minutes!
+    FIXED: Now properly handles AJAX requests.
+    Returns JSON for AJAX, redirect for regular form submission.
     """
     storage = get_object_or_404(
         Storage, 
@@ -364,14 +364,24 @@ def run_restock_view(request, storage_id):
             }
         )
         
-        messages.info(
-            request,
-            f"Restock check started for {storage.name}. "
-            f"This will take 10-15 minutes. You can track progress on the next page."
-        )
+        # 🔍 CHECK IF AJAX REQUEST
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
         
-        # Redirect to specialized restock progress page (uses RestockLog for detailed tracking)
-        return redirect('restock-task-progress', task_id=result.id)
+        if is_ajax:
+            # ✅ RETURN JSON FOR AJAX
+            return JsonResponse({
+                'success': True,
+                'task_id': result.id,
+                'message': f'Restock check started for {storage.name}'
+            })
+        else:
+            # ✅ RETURN REDIRECT FOR NON-AJAX
+            messages.info(
+                request,
+                f"Restock check started for {storage.name}. "
+                f"This will take 10-15 minutes. You can track progress on the next page."
+            )
+            return redirect('restock-task-progress', task_id=result.id)
     
     return render(request, 'storages/run_restock.html', {'storage': storage})
 

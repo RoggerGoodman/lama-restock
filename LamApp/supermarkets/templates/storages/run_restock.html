@@ -181,21 +181,26 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let pollingInterval;
-let currentLogId;
-let pollCount = 0;
-const MAX_POLLS = 600; // 50 minutes at 5 sec intervals (was 10 min - too short!)
-let consecutiveErrors = 0;
-const MAX_CONSECUTIVE_ERRORS = 5;
+// FIXED: Simplified flow - just get task_id and redirect to progress page
 
 document.getElementById('restockForm').addEventListener('submit', function(e) {
     e.preventDefault();
     
-    // Hide form, show progress
+    // Hide form, show processing message
     document.getElementById('restockForm').style.display = 'none';
-    document.getElementById('progressContainer').style.display = 'block';
     
-    // Submit form via AJAX to get log ID
+    // Show a simple loading message
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'alert alert-info';
+    loadingDiv.innerHTML = `
+        <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+            <span>Starting restock operation...</span>
+        </div>
+    `;
+    this.parentElement.insertBefore(loadingDiv, this);
+    
+    // Submit form via AJAX
     const formData = new FormData(this);
     
     fetch(this.action, {
@@ -205,244 +210,33 @@ document.getElementById('restockForm').addEventListener('submit', function(e) {
             'X-Requested-With': 'XMLHttpRequest'
         }
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+    })
     .then(data => {
-        if (data.log_id) {
-            currentLogId = data.log_id;
-            startProgressPolling(data.log_id);
+        if (data.success && data.task_id) {
+            // ✅ Success! Redirect to progress page
+            window.location.href = `/tasks/${data.task_id}/restock-progress/`;
         } else {
-            showError('Failed to start restock process');
+            throw new Error(data.message || 'Failed to start restock');
         }
     })
     .catch(error => {
-        showError('Error starting restock: ' + error);
+        console.error('Error:', error);
+        loadingDiv.remove();
+        document.getElementById('restockForm').style.display = 'block';
+        
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'alert alert-danger';
+        errorDiv.innerHTML = `
+            <h6><i class="bi bi-x-circle"></i> Error</h6>
+            <p>${error.message}</p>
+        `;
+        this.parentElement.insertBefore(errorDiv, this);
     });
 });
-
-function startProgressPolling(logId) {
-    pollCount = 0;
-    consecutiveErrors = 0;
-    
-    console.log(`Starting polling for log ${logId}, max polls: ${MAX_POLLS}`);
-    
-    // Poll every 5 seconds
-    pollingInterval = setInterval(() => {
-        pollCount++;
-        
-        if (pollCount > MAX_POLLS) {
-            clearInterval(pollingInterval);
-            console.error('Max polls reached, checking final status...');
-            
-            // Do one final check before timing out
-            fetch(`/logs/${logId}/progress/`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'completed' || data.status === 'failed') {
-                        updateProgress(data);
-                    } else {
-                        showError('Operation timed out. Refreshing to check final status...');
-                        setTimeout(() => window.location.reload(), 2000);
-                    }
-                })
-                .catch(() => {
-                    showError('Operation timed out. Please refresh the page to check status.');
-                });
-            return;
-        }
-        
-        // Show progress indicator every 30 seconds
-        if (pollCount % 15 === 0) {
-            console.log(`Poll ${pollCount}/${MAX_POLLS} - Still checking...`);
-        }
-        
-        fetch(`/logs/${logId}/progress/`)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                consecutiveErrors = 0; // Reset error counter on success
-                updateProgress(data);
-            })
-            .catch(error => {
-                consecutiveErrors++;
-                console.error(`Polling error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, error);
-                
-                // Only stop after multiple consecutive errors
-                if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-                    clearInterval(pollingInterval);
-                    showError('Lost connection to server. Refreshing page...');
-                    setTimeout(() => window.location.reload(), 2000);
-                }
-                // Otherwise just log and continue polling
-            });
-    }, 5000);
-}
-
-function updateProgress(data) {
-    // Update progress bar
-    document.getElementById('progressBar').style.width = data.progress + '%';
-    document.getElementById('progressBar').textContent = data.progress + '%';
-    document.getElementById('progressPercent').textContent = data.progress + '%';
-    document.getElementById('stageLabel').textContent = data.stage_label;
-    
-    // Update stage details text
-    if (data.stage_details) {
-        document.getElementById('stageDetailsText').textContent = data.stage_details;
-    }
-    
-    // Update stage cards with animation
-    updateStageCard(1, data.current_stage, data.stats_updated_at);
-    updateStageCard(2, data.current_stage, data.order_calculated_at, data.products_ordered, data.total_packages);
-    updateStageCard(3, data.current_stage, data.order_executed_at);
-    
-    // Handle completion
-    if (data.status === 'completed') {
-        clearInterval(pollingInterval);
-        showSuccess(data.products_ordered, data.total_packages, currentLogId);
-        document.getElementById('progressBar').classList.remove('progress-bar-animated');
-        document.getElementById('progressBar').classList.add('bg-success');
-    }
-    
-    // Handle failure
-    if (data.status === 'failed') {
-        clearInterval(pollingInterval);
-        showError(
-            data.error_message || 'Restock failed',
-            data.can_retry,
-            data.retry_count,
-            data.max_retries
-        );
-        document.getElementById('progressBar').classList.remove('progress-bar-animated');
-        document.getElementById('progressBar').classList.add('bg-danger');
-    }
-}
-
-function updateStageCard(stageNum, currentStage, completedAt, productsOrdered, totalPackages) {
-    const card = document.getElementById(`stage${stageNum}Card`);
-    const icon = document.getElementById(`stage${stageNum}Icon`);
-    const status = document.getElementById(`stage${stageNum}Status`);
-    const timeDiv = document.getElementById(`stage${stageNum}Time`);
-    
-    const stages = {
-        1: ['updating_stats', 'stats_updated'],
-        2: ['calculating_order', 'order_calculated'],
-        3: ['executing_order', 'completed']
-    };
-    
-    const isActive = stages[stageNum].includes(currentStage);
-    const isCompleted = completedAt !== null;
-    
-    // Update card styling with smooth transitions
-    if (isCompleted) {
-        card.classList.remove('bg-light', 'bg-warning');
-        card.classList.add('bg-success', 'text-white');
-        icon.className = 'bi bi-check-circle-fill text-white';
-        icon.style.fontSize = '2rem';
-        status.textContent = 'Completed';
-        status.classList.remove('text-muted');
-        status.classList.add('text-white');
-        
-        // Show completion time
-        if (completedAt) {
-            const time = new Date(completedAt).toLocaleTimeString();
-            timeDiv.textContent = `at ${time}`;
-            timeDiv.style.display = 'block';
-        }
-    } else if (isActive) {
-        card.classList.remove('bg-light');
-        card.classList.add('bg-warning');
-        icon.classList.add('text-dark');
-        
-        // Add pulsing animation
-        icon.style.animation = 'pulse 1.5s infinite';
-        
-        status.textContent = 'In Progress...';
-        status.classList.remove('text-muted');
-        status.classList.add('text-dark');
-    }
-    
-    // Show order details for stage 2
-    if (stageNum === 2 && isCompleted && productsOrdered) {
-        document.getElementById('stage2Details').style.display = 'block';
-        document.getElementById('productsCount').textContent = `${productsOrdered} products`;
-        document.getElementById('packagesCount').textContent = `${totalPackages} packages`;
-    }
-}
-
-function showSuccess(products, packages, logId) {
-    const successContainer = document.getElementById('successContainer');
-    const successMessage = document.getElementById('successMessage');
-    const viewLogLink = document.getElementById('viewLogLink');
-    
-    successMessage.innerHTML = `
-        Successfully ordered ${products} products (${packages} packages total)<br>
-        <small class="text-white">Redirecting to detailed log in 3 seconds...</small>
-    `;
-    viewLogLink.href = `/logs/${logId}/`;
-    successContainer.style.display = 'block';
-    
-    // Auto-redirect after 3 seconds
-    setTimeout(() => {
-        window.location.href = `/logs/${logId}/`;
-    }, 3000);
-}
-
-function showError(message, canRetry, retryCount, maxRetries) {
-    const errorContainer = document.getElementById('errorContainer');
-    const errorMessage = document.getElementById('errorMessage');
-    const retrySection = document.getElementById('retrySection');
-    const retryInfo = document.getElementById('retryInfo');
-    
-    errorMessage.textContent = message;
-    
-    if (canRetry) {
-        retryInfo.textContent = `Attempt ${retryCount} of ${maxRetries}`;
-        retrySection.style.display = 'block';
-    }
-    
-    errorContainer.style.display = 'block';
-}
-
-function retryFromCheckpoint() {
-    if (!currentLogId) return;
-    
-    // Hide error, show progress again
-    document.getElementById('errorContainer').style.display = 'none';
-    
-    // Reset UI
-    pollCount = 0;
-    
-    // Submit retry request
-    fetch(`/logs/${currentLogId}/retry/`, {
-        method: 'POST',
-        headers: {
-            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            startProgressPolling(currentLogId);
-        } else {
-            showError(data.message || 'Retry failed');
-        }
-    })
-    .catch(error => {
-        showError('Error initiating retry: ' + error);
-    });
-}
-
-// Add CSS for pulse animation
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.7; transform: scale(1.1); }
-    }
-`;
-document.head.appendChild(style);
 </script>
 {% endblock %}
