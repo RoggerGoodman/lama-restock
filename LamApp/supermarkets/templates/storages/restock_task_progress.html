@@ -1,0 +1,185 @@
+<!-- LamApp/supermarkets/templates/storages/restock_task_progress.html -->
+{% extends 'base.html' %}
+{% block title %}Restock in Progress{% endblock %}
+{% block page_title %}Restock Operation{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-hourglass-split text-primary"></i>
+                    Restock Operation in Progress
+                </h4>
+
+                {% if log %}
+                <!-- If log exists, show direct link -->
+                <div class="alert alert-success">
+                    <h6><i class="bi bi-check-circle"></i> Task Completed!</h6>
+                    <p class="mb-2">Restock operation finished. Redirecting to detailed log...</p>
+                </div>
+                
+                <script>
+                    // Auto-redirect if log already exists
+                    setTimeout(() => {
+                        window.location.href = "{% url 'restock-log-detail' pk=log.id %}";
+                    }, 2000);
+                </script>
+                {% else %}
+                <!-- Show progress while task runs -->
+                <div class="alert alert-info mb-4">
+                    <p class="mb-2"><strong>Task ID:</strong> <code>{{ task_id }}</code></p>
+                    <p class="mb-0"><strong>Status:</strong> <span id="taskStatus">{{ task_state }}</span></p>
+                </div>
+
+                <!-- Progress Section -->
+                <div id="progressSection">
+                    <div class="text-center mb-4">
+                        <div class="spinner-border text-primary" style="width: 4rem; height: 4rem;" role="status">
+                            <span class="visually-hidden">Processing...</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span id="statusText">Processing restock operation...</span>
+                            <span class="text-muted" id="progressPercent">0%</span>
+                        </div>
+                        <div class="progress" style="height: 25px;">
+                            <div id="progressBar" 
+                                 class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" 
+                                 style="width: 0%">
+                                0%
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-secondary">
+                        <p class="mb-2"><i class="bi bi-info-circle"></i> <strong>What's happening?</strong></p>
+                        <ul class="mb-0 small">
+                            <li>Updating product statistics (5-10 minutes)</li>
+                            <li>Calculating order quantities</li>
+                            <li>Placing order in PAC2000A system</li>
+                            <li>You can safely close this page and check back later</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Error Section (hidden by default) -->
+                <div id="errorSection" style="display: none;" class="alert alert-danger">
+                    <h6><i class="bi bi-x-circle"></i> Task Failed</h6>
+                    <p id="errorMessage" class="mb-2"></p>
+                    <button onclick="window.location.reload()" class="btn btn-warning btn-sm">
+                        <i class="bi bi-arrow-repeat"></i> Retry
+                    </button>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="mt-4">
+                    <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Dashboard
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if not log %}
+<script>
+const taskId = '{{ task_id }}';
+let pollInterval;
+let pollCount = 0;
+const MAX_POLLS = 360; // 30 minutes at 5 sec intervals
+
+function startPolling() {
+    pollInterval = setInterval(checkTaskStatus, 5000);
+    checkTaskStatus(); // Check immediately
+}
+
+function checkTaskStatus() {
+    pollCount++;
+    
+    if (pollCount > MAX_POLLS) {
+        clearInterval(pollInterval);
+        showError('Task timed out. Please refresh to check status.');
+        return;
+    }
+    
+    // Poll the generic task status endpoint
+    fetch(`/tasks/${taskId}/status/`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Task status:', data);
+            
+            // Update status display
+            document.getElementById('taskStatus').textContent = data.state;
+            
+            if (data.ready) {
+                clearInterval(pollInterval);
+                
+                if (data.success && data.result && data.result.log_id) {
+                    // Success! Redirect to log detail
+                    console.log('Task complete, redirecting to log:', data.result.log_id);
+                    window.location.href = `/logs/${data.result.log_id}/`;
+                } else if (data.success) {
+                    // Success but no log_id
+                    showError('Task completed but no log ID returned. Please check dashboard.');
+                } else {
+                    // Failed
+                    showError(data.error || 'Task failed');
+                }
+            } else {
+                // Still running - update progress
+                updateProgress(data);
+            }
+        })
+        .catch(error => {
+            console.error('Error checking status:', error);
+            // Don't stop polling on network errors
+        });
+}
+
+function updateProgress(data) {
+    const progress = data.progress || 0;
+    const progressBar = document.getElementById('progressBar');
+    const progressPercent = document.getElementById('progressPercent');
+    const statusText = document.getElementById('statusText');
+    
+    progressBar.style.width = progress + '%';
+    progressBar.textContent = progress + '%';
+    progressPercent.textContent = progress + '%';
+    
+    // Update status text
+    if (data.status_message) {
+        statusText.textContent = data.status_message;
+    } else if (data.state === 'PENDING') {
+        statusText.textContent = 'Task queued, waiting to start...';
+    } else if (data.state === 'STARTED') {
+        statusText.textContent = 'Task started, processing...';
+    } else {
+        statusText.textContent = 'Processing restock operation...';
+    }
+}
+
+function showError(errorMsg) {
+    document.getElementById('progressSection').style.display = 'none';
+    document.getElementById('errorSection').style.display = 'block';
+    document.getElementById('errorMessage').textContent = errorMsg;
+}
+
+// Start polling when page loads
+document.addEventListener('DOMContentLoaded', startPolling);
+</script>
+{% endif %}
+{% endblock %}

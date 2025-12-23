@@ -16,7 +16,7 @@ from django.conf import settings
 import os
 from .automation_services import AutomatedRestockService
 import threading
-import pandas as pd
+from LamApp.celery import app as celery_app
 
 from .models import (
     Supermarket, Storage, RestockSchedule, 
@@ -1415,7 +1415,10 @@ def check_purge_flagged_view(request, storage_id):
 
 @login_required
 def restock_progress_view(request, log_id):
-    """AJAX endpoint to check restock progress - ENHANCED with detailed stage info"""
+    """
+    AJAX endpoint to check restock progress via RestockLog.
+    ⚠️ Returns JSON for AJAX polling
+    """
     log = get_object_or_404(
         RestockLog,
         id=log_id,
@@ -2419,7 +2422,8 @@ def task_progress_view(request, task_id, storage_id=None):
     """
     from celery.result import AsyncResult
     
-    task = AsyncResult(task_id)
+    # FIX: Bind to our Celery app instance
+    task = AsyncResult(task_id, app=celery_app)
     storage = None
     
     if storage_id:
@@ -2443,10 +2447,12 @@ def task_status_ajax_view(request, task_id):
     """
     AJAX endpoint to check task status.
     Called by JavaScript every 5 seconds to update progress.
+    ⚠️ MUST return JSON, not HTML
     """
     from celery.result import AsyncResult
     
-    task = AsyncResult(task_id)
+    # FIX: Bind to our Celery app instance
+    task = AsyncResult(task_id, app=celery_app)
     
     response_data = {
         'state': task.state,
@@ -2472,16 +2478,16 @@ def task_status_ajax_view(request, task_id):
     
     return JsonResponse(response_data)
 
-
 @login_required
 def restock_task_progress_view(request, task_id):
     """
     Specialized progress view for restock operations.
-    Uses existing RestockLog for detailed checkpoint tracking.
+    Uses RestockLog for detailed checkpoint tracking.
     """
     from celery.result import AsyncResult
     
-    task = AsyncResult(task_id)
+    # FIX: Bind to our Celery app instance
+    task = AsyncResult(task_id, app=celery_app)
     
     # Try to find log from task result
     log = None
