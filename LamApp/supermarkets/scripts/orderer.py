@@ -9,6 +9,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
 import time
 import re
+import os
 from .logger import logger
 
 
@@ -36,6 +37,12 @@ class Orderer:
         chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
         chrome_options.add_argument('--log-level=3')
+
+        # Set a writable directory for Chrome to use
+        user_data_dir = "/tmp/chrome-data"
+        os.makedirs(user_data_dir, exist_ok=True)
+        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+
         service = Service("/usr/bin/chromedriver")
 
         self.driver = webdriver.Chrome(service=service, options=chrome_options)

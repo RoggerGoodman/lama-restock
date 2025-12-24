@@ -19,6 +19,7 @@ import logging
 import requests
 from datetime import date
 import time
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,12 @@ class WebLister:
             "safebrowsing.enabled": True
         }
         chrome_options.add_experimental_option("prefs", prefs)
+
+        # Set a writable directory for Chrome to use
+        user_data_dir = "/tmp/chrome-data"
+        os.makedirs(user_data_dir, exist_ok=True)
+        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+
         service = Service("/usr/bin/chromedriver")
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
         self.actions = ActionChains(self.driver)
