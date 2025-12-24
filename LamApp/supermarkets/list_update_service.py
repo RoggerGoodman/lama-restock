@@ -113,15 +113,7 @@ class ListUpdateService:
         
         Returns:
             dict: Result with status and details
-        """
-        from .models import ListUpdateLog
-        
-        log = ListUpdateLog.objects.create(
-            storage=self.storage,
-            status='processing',
-            started_at=timezone.now()
-        )
-        
+        """        
         try:
             # Download list
             file_path = self.download_list()
