@@ -185,7 +185,7 @@ class StockAdjustmentForm(forms.Form):
         return cleaned_data
 
 class RecordLossesForm(forms.Form):
-    """Form for manually uploading and recording losses"""
+    """Form for manually uploading and recording losses - NOW SUPPORTS PDF"""
     
     loss_type = forms.ChoiceField(
         label="Loss Type",
@@ -198,12 +198,12 @@ class RecordLossesForm(forms.Form):
         help_text="Select the type of loss you want to record"
     )
     
-    csv_file = forms.FileField(
-        label="Loss CSV File",
-        help_text="Upload the CSV file with loss data",
+    pdf_file = forms.FileField(
+        label="Loss PDF File",
+        help_text="Upload the PDF file with loss data",
         widget=forms.FileInput(attrs={
             'class': 'form-control',
-            'accept': '.csv'
+            'accept': '.pdf'
         })
     )
 

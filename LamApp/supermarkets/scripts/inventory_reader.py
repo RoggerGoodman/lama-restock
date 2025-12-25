@@ -2,6 +2,9 @@
 
 import pandas as pd
 import os
+import pdfplumber
+import re
+from pathlib import Path
 from .DatabaseManager import DatabaseManager
 from django.conf import settings
 import logging
@@ -317,5 +320,140 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
     return {
         'success': True,
         'files_processed': files_processed,
+        'total_losses': total_losses
+    }
+
+def parse_loss_pdf(pdf_path: str):
+    """
+    Parse loss PDF file and extract product data.
+    
+    Expected format in PDF:
+    - Barcode | Article (cod v) | Description | Quantity | Messages
+    - Example: "8025916760282 | 36508 1 | TAGLIACAPELLI... | 5,00 | ..."
+    
+    Returns:
+        list[dict]: List of {cod, v, qty} dictionaries
+    """
+    results = []
+    
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                # Extract text from page
+                text = page.extract_text()
+                
+                if not text:
+                    continue
+                
+                # Split into lines
+                lines = text.split('\n')
+                
+                for line in lines:
+                    # Skip headers, empty lines, and page markers
+                    if not line.strip():
+                        continue
+                    if 'Stampa Articoli' in line:
+                        continue
+                    if 'Punto Vendita' in line:
+                        continue
+                    if 'Codice a Barre' in line:
+                        continue
+                    if 'Fine Stampa' in line:
+                        continue
+                    if 'Pagina' in line:
+                        continue
+                    
+                    # Try to extract: barcode, cod+variant, description, quantity
+                    # Pattern: barcode(13 digits) cod(spaces) v(spaces) description PZ qty,decimal
+                    match = re.search(
+                        r'(\d{13})\s+(\d+)\s+(\d+)\s+.*?PZ\s+([\d,]+)',
+                        line
+                    )
+                    
+                    if match:
+                        barcode = match.group(1)
+                        cod = int(match.group(2))
+                        v = int(match.group(3))
+                        qty_str = match.group(4)
+                        
+                        # Convert Italian decimal format (comma) to float
+                        qty = float(qty_str.replace(',', '.'))
+                        
+                        # Skip zero quantities
+                        if qty > 0:
+                            results.append({
+                                'cod': cod,
+                                'v': v,
+                                'qty': int(qty)  # Convert to int for database
+                            })
+                            
+                            logger.debug(f"Parsed: {cod}.{v} = {int(qty)}")
+    
+    except Exception as e:
+        logger.exception(f"Error parsing PDF {pdf_path}")
+        return []
+    
+    logger.info(f"Parsed {len(results)} loss entries from PDF")
+    return results
+
+
+def process_loss_pdf(db: DatabaseManager, pdf_path: str, loss_type: str):
+    """
+    Process a loss PDF file and register losses in database.
+    
+    Args:
+        db: DatabaseManager instance
+        pdf_path: Path to PDF file
+        loss_type: Type of loss (broken/expired/internal)
+    
+    Returns:
+        dict: Processing results
+    """
+    logger.info(f"Processing loss PDF: {pdf_path} (type: {loss_type})")
+    
+    # Parse PDF
+    entries = parse_loss_pdf(pdf_path)
+    
+    if not entries:
+        return {
+            'success': False,
+            'error': 'No valid entries found in PDF'
+        }
+    
+    processed_count = 0
+    absent_count = 0
+    error_count = 0
+    total_losses = 0
+    
+    # Register each loss
+    for entry in entries:
+        cod = entry['cod']
+        v = entry['v']
+        qty = entry['qty']
+        
+        try:
+            db.register_losses(cod, v, qty, loss_type)
+            processed_count += 1
+            total_losses += qty
+            logger.debug(f"Registered {loss_type}: {cod}.{v} = {qty}")
+        
+        except ValueError as e:
+            logger.debug(f"Product {cod}.{v} not in database (skipped)")
+            absent_count += 1
+        
+        except Exception as e:
+            logger.warning(f"Error processing {cod}.{v}: {e}")
+            error_count += 1
+    
+    logger.info(
+        f"✅ Processed PDF: {processed_count} registered, "
+        f"{absent_count} skipped, {error_count} errors"
+    )
+    
+    return {
+        'success': True,
+        'processed': processed_count,
+        'absent': absent_count,
+        'errors': error_count,
         'total_losses': total_losses
     }

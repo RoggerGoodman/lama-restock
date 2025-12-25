@@ -488,7 +488,7 @@ class DatabaseManager:
         # Calculate months passed
         months_passed = (today.year - last_update.year) * 12 + (today.month - last_update.month)
 
-        # SAME MONTH: Overwrite first element
+        # SAME MONTH: Add to the first element
         if months_passed == 0:
             old_first = arr[0]
             

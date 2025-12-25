@@ -2245,12 +2245,11 @@ def assign_clusters_view(request):
         'clusters_by_storage': json.dumps(clusters_by_storage)
     })
 
-
 @login_required
 def record_losses_unified_view(request):
     """
-    REFACTORED: Async loss recording.
-    Processing large CSV files can take time.
+    UPDATED: Now handles PDF files instead of CSV.
+    Processing can take time for large PDFs.
     """
     supermarkets = Supermarket.objects.filter(owner=request.user)
     
@@ -2270,12 +2269,13 @@ def record_losses_unified_view(request):
         
         if form.is_valid():
             loss_type = form.cleaned_data['loss_type']
-            csv_file = request.FILES['csv_file']
+            pdf_file = request.FILES['pdf_file']
             
+            # Map loss types to filenames (keep same naming for compatibility)
             filename_mapping = {
-                'broken': 'ROTTURE.csv',
-                'expired': 'SCADUTO.csv',
-                'internal': 'UTILIZZO INTERNO.csv'
+                'broken': 'ROTTURE.pdf',
+                'expired': 'SCADUTO.pdf',
+                'internal': 'UTILIZZO INTERNO.pdf'
             }
             expected_filename = filename_mapping[loss_type]
             
@@ -2290,27 +2290,61 @@ def record_losses_unified_view(request):
                     file_path.unlink()
                 
                 with open(file_path, 'wb+') as destination:
-                    for chunk in csv_file.chunks():
+                    for chunk in pdf_file.chunks():
                         destination.write(chunk)
                 
-                # ✅ DISPATCH TO CELERY
-                from .tasks import record_losses_task
+                logger.info(f"Saved loss PDF: {file_path}")
                 
-                result = record_losses_task.apply_async(
-                    args=[supermarket_id, str(file_path), loss_type],
-                    retry=True
-                )
+                # Process immediately (synchronous for now - can be celery task later)
+                storage = supermarket.storages.first()
+                if not storage:
+                    messages.error(request, f"No storages found for {supermarket.name}")
+                    return redirect('record-losses-unified')
                 
-                messages.info(
-                    request,
-                    f"Processing {loss_type} losses for {supermarket.name}. "
-                    f"This may take a few minutes."
-                )
+                service = RestockService(storage)
                 
-                return redirect('task-progress', task_id=result.id)
+                try:
+                    # Import the new function
+                    from .scripts.inventory_reader import process_loss_pdf
+                    
+                    result = process_loss_pdf(service.db, str(file_path), loss_type)
+                    
+                    if result['success']:
+                        messages.success(
+                            request,
+                            f"✅ Processed {loss_type} losses: "
+                            f"{result['processed']} registered, "
+                            f"{result['total_losses']} total units"
+                        )
+                        
+                        if result['absent'] > 0:
+                            messages.info(
+                                request,
+                                f"ℹ️ {result['absent']} products not found in database (skipped)"
+                            )
+                        
+                        if result['errors'] > 0:
+                            messages.warning(
+                                request,
+                                f"⚠️ {result['errors']} errors occurred during processing"
+                            )
+                    else:
+                        messages.error(request, f"Error: {result.get('error', 'Unknown error')}")
+                    
+                    # Clean up PDF file after processing
+                    try:
+                        file_path.unlink()
+                        logger.info(f"Deleted processed PDF: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete PDF: {e}")
+                    
+                finally:
+                    service.close()
+                
+                return redirect('record-losses-unified')
                 
             except Exception as e:
-                logger.exception("Error saving loss file")
+                logger.exception("Error saving/processing loss PDF")
                 messages.error(request, f"Error: {str(e)}")
     else:
         form = RecordLossesForm()

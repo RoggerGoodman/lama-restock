@@ -1,4 +1,4 @@
-<!-- templates/inventory/record_losses_unified.html -->
+<!-- Replace LamApp/supermarkets/templates/inventory/record_losses_unified.html -->
 {% extends 'base.html' %}
 {% block title %}Record Losses{% endblock %}
 {% block page_title %}Record Product Losses{% endblock %}
@@ -35,10 +35,12 @@
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> Important</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> New PDF Format</h6>
+                    <p class="mb-2">
+                        <strong>Important:</strong> The system now accepts PDF files exported from the inventory terminal instead of CSV files.
+                    </p>
                     <p class="mb-0">
-                        This CSV contains data for <strong>ALL storages</strong> in the selected supermarket. 
-                        Stock will be automatically reduced by the loss amounts.
+                        Stock will be automatically reduced by the loss amounts parsed from the PDF.
                     </p>
                 </div>
 
@@ -63,11 +65,13 @@
                     </div>
 
                     <div class="mb-4">
-                        <label for="{{ form.csv_file.id_for_label }}" class="form-label">
-                            {{ form.csv_file.label }}
+                        <label for="{{ form.pdf_file.id_for_label }}" class="form-label">
+                            {{ form.pdf_file.label }}
                         </label>
-                        {{ form.csv_file }}
-                        <div class="form-text">CSV with Codice, Variante, Qta Originale</div>
+                        {{ form.pdf_file }}
+                        <div class="form-text">
+                            Upload the PDF file exported from the inventory terminal
+                        </div>
                     </div>
 
                     <div class="d-flex gap-2 justify-content-end">
@@ -81,15 +85,26 @@
                 </form>
             </div>
 
-            <!-- CSV Format -->
+            <!-- PDF Format Example -->
             <div class="stat-card mt-3">
-                <h6 class="mb-3"><i class="bi bi-file-text"></i> CSV Format</h6>
+                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Expected PDF Format</h6>
                 <div class="bg-light p-3 rounded">
-                    <code style="display: block; white-space: pre;">Codice,Variante,Qta Originale
-12345,1,5
-67890,1,12
-...</code>
+                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Terminalino
+Punto Vendita: [Store Name]
+Inventario: [Inventory Number]
+
+Codice a Barre | Articolo | Descrizione | Quantità | Messaggi
+8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  | 
+8025916119969  | 22582 1  | PRODUCT DESC | PZ 4,00  |
+...</pre>
                 </div>
+                <p class="text-muted small mb-0 mt-2">
+                    <strong>Key columns:</strong><br>
+                    • <strong>Articolo:</strong> Product code and variant (e.g., "36508 1")<br>
+                    • <strong>Quantità:</strong> Quantity lost (e.g., "PZ 5,00")<br>
+                    <br>
+                    The system will extract: cod=36508, v=1, qty=5
+                </p>
             </div>
         </div>
     </div>
