@@ -543,22 +543,18 @@ def add_products_task(self, storage_id, products_list, settore):
     max_retries=2,
     default_retry_delay=600
 )
-def verify_stock_bulk_task(self, storage_id, csv_file_path, cluster=None):
+def verify_stock_bulk_task(self, storage_id, pdf_file_path, cluster=None):
     """
-    FIXED: Now accepts cluster as parameter (not from filename).
-    
-    Bulk stock verification WITHOUT updating stats (stats already updated at 5 AM).
+    UPDATED: Bulk stock verification from PDF (not CSV).
     
     Args:
         storage_id: Storage ID
-        csv_file_path: Full path to CSV file
+        pdf_file_path: Full path to PDF file
         cluster: Optional cluster name (user-provided)
     """
     from .models import Storage
-    from .services import RestockService
     from .automation_services import AutomatedRestockService
-    from .scripts.inventory_reader import verify_stocks_from_excel
-    from pathlib import Path
+    from .scripts.inventory_reader import verify_stocks_from_pdf
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
@@ -574,9 +570,9 @@ def verify_stock_bulk_task(self, storage_id, csv_file_path, cluster=None):
             logger.info(f"[VERIFY STOCK] Recording losses...")
             service.record_losses()
             
-            # Verify from CSV with explicit cluster parameter
-            logger.info(f"[VERIFY STOCK] Processing CSV with cluster={cluster}...")
-            result = verify_stocks_from_excel(service.db, csv_file_path, cluster=cluster)
+            # Verify from PDF with explicit cluster parameter
+            logger.info(f"[VERIFY STOCK] Processing PDF with cluster={cluster}...")
+            result = verify_stocks_from_pdf(service.db, pdf_file_path, cluster=cluster)
             
             if result['success']:
                 logger.info(
@@ -647,18 +643,18 @@ def manual_list_update_task(self, storage_id):
     max_retries=3,
     default_retry_delay=600
 )
-def assign_clusters_task(self, storage_id, csv_file_path, cluster):
+def assign_clusters_task(self, storage_id, pdf_file_path, cluster):
     """
-    Assign cluster to products from CSV.
+    UPDATED: Assign cluster to products from PDF (not CSV).
     
     Args:
         storage_id: Storage ID
-        csv_file_path: Full path to CSV file
+        pdf_file_path: Full path to PDF file
         cluster: Cluster name (REQUIRED, user-provided)
     """
     from .models import Storage
     from .services import RestockService
-    from .scripts.inventory_reader import assign_clusters_from_csv
+    from .scripts.inventory_reader import assign_clusters_from_pdf
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
@@ -668,7 +664,7 @@ def assign_clusters_task(self, storage_id, csv_file_path, cluster):
         service = RestockService(storage)
         
         try:
-            result = assign_clusters_from_csv(service.db, csv_file_path, cluster)
+            result = assign_clusters_from_pdf(service.db, pdf_file_path, cluster)
             
             if result['success']:
                 logger.info(

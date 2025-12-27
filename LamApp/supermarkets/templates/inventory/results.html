@@ -1,7 +1,45 @@
-<!-- LamApp/supermarkets/templates/inventory/results.html -->
+<!-- LamApp/supermarkets/templates/inventory/results.html - WITH SORTING -->
 {% extends 'base.html' %}
 {% block title %}Inventory Results{% endblock %}
 {% block page_title %}Inventory Results{% endblock %}
+
+{% block extra_css %}
+<style>
+    .sortable-header {
+        cursor: pointer;
+        user-select: none;
+        position: relative;
+        padding-right: 20px;
+    }
+    
+    .sortable-header:hover {
+        background-color: #f8f9fa;
+    }
+    
+    .sort-icon {
+        position: absolute;
+        right: 5px;
+        opacity: 0.3;
+        font-size: 0.8rem;
+    }
+    
+    .sort-icon.active {
+        opacity: 1;
+    }
+    
+    .sort-icon.asc::before {
+        content: '▲';
+    }
+    
+    .sort-icon.desc::before {
+        content: '▼';
+    }
+    
+    .sort-icon.neutral::before {
+        content: '⇅';
+    }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -36,22 +74,28 @@
 
                 {% if results %}
                 <div class="table-responsive">
-                    <table class="table table-hover">
+                    <table class="table table-hover" id="inventoryTable">
                         <thead>
                             <tr>
                                 <th>Code</th>
                                 <th>Description</th>
-                                <th>Stock</th>
+                                <th class="sortable-header" onclick="sortTable('stock')" data-column="stock">
+                                    Stock
+                                    <span class="sort-icon neutral" id="sort-stock"></span>
+                                </th>
                                 <th>Pkg Size</th>
                                 <th>Cluster</th>
                                 <th>Last Update</th>
-                                <th>Status</th>
+                                <th class="sortable-header" onclick="sortTable('status')" data-column="status">
+                                    Status
+                                    <span class="sort-icon neutral" id="sort-status"></span>
+                                </th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="tableBody">
                             {% for product in results %}
-                            <tr>
+                            <tr data-stock="{{ product.stock }}" data-status="{{ product.disponibilita }}">
                                 <td><code>{{ product.cod }}.{{ product.v }}</code></td>
                                 <td>
                                     {{ product.descrizione|truncatewords:6 }}
@@ -116,7 +160,7 @@
     </div>
 </div>
 
-<!-- Adjust Stock Modal - FIXED VERSION -->
+<!-- Adjust Stock Modal -->
 <div class="modal fade" id="adjustStockModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -169,14 +213,61 @@
     </div>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
-// Initialize modal - CRITICAL!
+// Initialize modal
 const adjustModal = new bootstrap.Modal(document.getElementById('adjustStockModal'));
 
-function adjustStock(cod, var_, supermarket, currentStock) {
-    console.log('adjustStock called:', cod, var_, supermarket, currentStock);
+// Sorting state
+let currentSortColumn = null;
+let currentSortDirection = 'asc';
+
+function sortTable(column) {
+    const tbody = document.getElementById('tableBody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
     
+    // Toggle direction if same column
+    if (currentSortColumn === column) {
+        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortColumn = column;
+        currentSortDirection = 'asc';
+    }
+    
+    // Sort rows
+    rows.sort((a, b) => {
+        let aValue, bValue;
+        
+        if (column === 'stock') {
+            aValue = parseInt(a.dataset.stock);
+            bValue = parseInt(b.dataset.stock);
+        } else if (column === 'status') {
+            // Si = 1 (available), No = 0 (unavailable)
+            aValue = a.dataset.status === 'Si' ? 1 : 0;
+            bValue = b.dataset.status === 'Si' ? 1 : 0;
+        }
+        
+        if (currentSortDirection === 'asc') {
+            return aValue - bValue;
+        } else {
+            return bValue - aValue;
+        }
+    });
+    
+    // Update DOM
+    rows.forEach(row => tbody.appendChild(row));
+    
+    // Update sort icons
+    document.querySelectorAll('.sort-icon').forEach(icon => {
+        icon.className = 'sort-icon neutral';
+    });
+    
+    const activeIcon = document.getElementById(`sort-${column}`);
+    activeIcon.className = `sort-icon ${currentSortDirection} active`;
+}
+
+function adjustStock(cod, var_, supermarket, currentStock) {
     document.getElementById('adjust_cod').value = cod;
     document.getElementById('adjust_var').value = var_;
     document.getElementById('adjust_supermarket').value = supermarket;
@@ -184,7 +275,6 @@ function adjustStock(cod, var_, supermarket, currentStock) {
     document.getElementById('adjust_current_stock').textContent = currentStock;
     document.getElementById('adjustment').value = '';
     
-    // Show the modal
     adjustModal.show();
 }
 
@@ -198,10 +288,8 @@ function submitAdjustment() {
         return;
     }
     
-    // Get CSRF token
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     
-    // Create URLSearchParams for POST data
     const data = new URLSearchParams();
     data.append('cod', formData.get('cod'));
     data.append('var', formData.get('var'));

@@ -1,4 +1,4 @@
-<!-- templates/inventory/verify_stock_unified.html -->
+<!-- Replace LamApp/supermarkets/templates/inventory/verify_stock_unified.html -->
 {% extends 'base.html' %}
 {% block title %}Verify Stock (Bulk){% endblock %}
 {% block page_title %}Verify Stock Inventory{% endblock %}
@@ -22,23 +22,23 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-clipboard-check text-success"></i>
-                    Verify Stock (Bulk)
+                    Verify Stock (Bulk) - PDF Format
                 </h4>
 
                 <div class="alert alert-info">
                     <h6><i class="bi bi-info-circle"></i> What This Does</h6>
                     <ol class="mb-0">
                         <li><strong>Records losses</strong> - Downloads and records broken/expired/internal usage</li>
-                        <li><strong>Verifies inventory</strong> - Compares your CSV against calculated stock levels</li>
+                        <li><strong>Verifies inventory</strong> - Compares your PDF against calculated stock levels</li>
                         <li><strong>Auto-adds missing products</strong> - Fetches data from PAC2000A for products not in DB</li>
                         <li><strong>Assigns cluster</strong> - Optionally group products by location/category</li>
                     </ol>
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> Important</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> New PDF Format</h6>
                     <ul class="mb-0">
-                        <li>CSV must have columns: <strong>Codice, Variante, Qta Originale</strong></li>
+                        <li>Upload <strong>PDF file</strong> exported from inventory terminal (not CSV)</li>
                         <li>Stats update is NOT needed (already runs at 5:00 AM daily)</li>
                         <li>This process may take 10-20 minutes with auto-add enabled</li>
                         <li>Browser window will open automatically if needed</li>
@@ -70,7 +70,7 @@
                         </div>
                     </div>
                     
-                    <!-- NEW: Cluster Selection -->
+                    <!-- Cluster Selection -->
                     <div class="mb-3">
                         <label for="cluster" class="form-label">
                             <i class="bi bi-folder"></i> Cluster (Optional)
@@ -93,17 +93,17 @@
                     </div>
                     
                     <div class="mb-4">
-                        <label for="csv_file" class="form-label">
-                            <i class="bi bi-file-earmark-spreadsheet"></i> Inventory CSV File
+                        <label for="pdf_file" class="form-label">
+                            <i class="bi bi-file-pdf text-danger"></i> Inventory PDF File
                         </label>
                         <input type="file" 
                                class="form-control" 
-                               id="csv_file" 
-                               name="csv_file" 
-                               accept=".csv"
+                               id="pdf_file" 
+                               name="pdf_file" 
+                               accept=".pdf"
                                required>
                         <div class="form-text">
-                            Upload CSV with inventory counts (Codice, Variante, Qta Originale)
+                            Upload PDF exported from inventory terminal
                         </div>
                     </div>
 
@@ -118,15 +118,21 @@
                 </form>
             </div>
 
-            <!-- Format Example -->
+            <!-- PDF Format Example -->
             <div class="stat-card mt-3">
-                <h6 class="mb-3"><i class="bi bi-file-text"></i> Expected CSV Format</h6>
+                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Expected PDF Format</h6>
                 <div class="bg-light p-3 rounded">
-                    <code style="display: block; white-space: pre;">Codice,Variante,Qta Originale
-12345,1,50
-67890,1,120
-...</code>
+                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Terminalino
+Punto Vendita: [Store Name]
+
+Codice a Barre | Articolo | Descrizione | Quantità | Messaggi
+8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  | 
+8025916119969  | 22582 1  | PRODUCT DESC | PZ 4,00  |
+...</pre>
                 </div>
+                <p class="text-muted small mb-0 mt-2">
+                    <strong>Format:</strong> System extracts product code, variant, and quantity from PDF
+                </p>
             </div>
         </div>
     </div>
@@ -176,7 +182,6 @@ function loadClusters() {
         return;
     }
     
-    // Load clusters for this storage
     const clusters = clustersByStorage[storageId] || [];
     
     clusterSelect.innerHTML = '<option value="">-- No Cluster / Select Existing --</option>';
@@ -196,17 +201,14 @@ function updateClusterInput() {
     const selectedValue = clusterSelect.value;
     
     if (selectedValue === '__new__') {
-        // Show text input for new cluster
         clusterSelect.style.display = 'none';
         clusterInput.style.display = 'block';
         clusterInput.focus();
     } else {
-        // Use selected cluster
         clusterInput.value = selectedValue;
     }
 }
 
-// Allow switching back to dropdown
 document.getElementById('cluster').addEventListener('blur', function() {
     if (this.value === '') {
         this.style.display = 'none';
@@ -215,7 +217,6 @@ document.getElementById('cluster').addEventListener('blur', function() {
     }
 });
 
-// Convert to uppercase as user types
 document.getElementById('cluster').addEventListener('input', function() {
     this.value = this.value.toUpperCase();
 });

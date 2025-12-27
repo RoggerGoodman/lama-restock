@@ -1,4 +1,4 @@
-<!-- templates/inventory/assign_clusters.html -->
+<!-- Replace LamApp/supermarkets/templates/inventory/assign_clusters.html -->
 {% extends 'base.html' %}
 {% block title %}Assign Clusters{% endblock %}
 {% block page_title %}Assign Product Clusters{% endblock %}
@@ -22,22 +22,23 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-folder text-info"></i>
-                    Assign Clusters to Products
+                    Assign Clusters to Products - PDF Format
                 </h4>
 
                 <div class="alert alert-info">
                     <h6><i class="bi bi-info-circle"></i> How It Works</h6>
                     <ol class="mb-0">
-                        <li>Upload a CSV with product codes (Codice, Variante)</li>
-                        <li>Filename (without .csv) becomes the cluster name</li>
-                        <li>All products in the file are assigned to that cluster</li>
+                        <li>Upload a <strong>PDF file</strong> exported from inventory terminal</li>
+                        <li>Enter a cluster name (e.g., FREEZER, DAIRY, PRODUCE)</li>
+                        <li>All products in the PDF are assigned to that cluster</li>
+                        <li>Stock quantities are ignored (only product codes matter)</li>
                     </ol>
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> Example</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> PDF Format</h6>
                     <p class="mb-0">
-                        File: <code>Freezer_Section.csv</code> → Products assigned to cluster "Freezer_Section"
+                        Upload the same PDF format used for stock verification. The system will extract product codes and assign them to your chosen cluster.
                     </p>
                 </div>
 
@@ -56,18 +57,43 @@
                         </div>
                         <div class="col-md-6">
                             <label for="storage_id" class="form-label">Storage (Settore)</label>
-                            <select name="storage_id" id="storage_id" class="form-select" required disabled>
+                            <select name="storage_id" id="storage_id" class="form-select" required disabled onchange="loadExistingClusters()">
                                 <option value="">-- Select Supermarket First --</option>
                             </select>
                         </div>
                     </div>
                     
-                    <div class="mb-4">
-                        <label for="csv_file" class="form-label">
-                            <i class="bi bi-file-earmark-spreadsheet"></i> CSV File
+                    <!-- Cluster Name Input -->
+                    <div class="mb-3">
+                        <label for="cluster" class="form-label">
+                            <i class="bi bi-tag"></i> Cluster Name (Required)
                         </label>
-                        <input type="file" class="form-control" id="csv_file" name="csv_file" accept=".csv" required>
-                        <div class="form-text">Filename will become the cluster name</div>
+                        <input 
+                            type="text" 
+                            class="form-control text-uppercase" 
+                            id="cluster" 
+                            name="cluster" 
+                            placeholder="e.g., FREEZER, DAIRY, PRODUCE"
+                            required
+                            style="text-transform: uppercase;"
+                        >
+                        <div class="form-text">
+                            Enter a descriptive name for this cluster. Use ALL CAPS for consistency.
+                        </div>
+                        
+                        <!-- Show existing clusters for reference -->
+                        <div id="existingClusters" class="mt-2" style="display: none;">
+                            <small class="text-muted">Existing clusters in this storage:</small>
+                            <div id="clusterBadges" class="mt-1"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="pdf_file" class="form-label">
+                            <i class="bi bi-file-pdf text-danger"></i> Inventory PDF File
+                        </label>
+                        <input type="file" class="form-control" id="pdf_file" name="pdf_file" accept=".pdf" required>
+                        <div class="form-text">PDF exported from inventory terminal</div>
                     </div>
 
                     <div class="d-flex gap-2 justify-content-end">
@@ -81,22 +107,31 @@
                 </form>
             </div>
 
-            <!-- CSV Format -->
+            <!-- PDF Format Example -->
             <div class="stat-card mt-3">
-                <h6 class="mb-3"><i class="bi bi-file-text"></i> CSV Format</h6>
+                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Expected PDF Format</h6>
                 <div class="bg-light p-3 rounded">
-                    <code style="display: block; white-space: pre;">Codice,Variante
-12345,1
-67890,1
-...</code>
+                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Terminalino
+Punto Vendita: [Store Name]
+
+Codice a Barre | Articolo | Descrizione | Quantità | Messaggi
+8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  | 
+8025916119969  | 22582 1  | PRODUCT DESC | PZ 4,00  |
+...</pre>
                 </div>
+                <p class="text-muted small mb-0 mt-2">
+                    <strong>Note:</strong> Only product codes and variants are extracted. Quantities are ignored for cluster assignment.
+                </p>
             </div>
         </div>
     </div>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
+const clustersByStorage = {{ clusters_by_storage|safe }};
+
 function loadStorages() {
     const supermarketId = document.getElementById('supermarket_id').value;
     const storageSelect = document.getElementById('storage_id');
@@ -124,5 +159,40 @@ function loadStorages() {
             alert('Error loading storages');
         });
 }
+
+function loadExistingClusters() {
+    const storageId = document.getElementById('storage_id').value;
+    const existingDiv = document.getElementById('existingClusters');
+    const badgesDiv = document.getElementById('clusterBadges');
+    
+    if (!storageId) {
+        existingDiv.style.display = 'none';
+        return;
+    }
+    
+    const clusters = clustersByStorage[storageId] || [];
+    
+    if (clusters.length > 0) {
+        badgesDiv.innerHTML = '';
+        clusters.forEach(cluster => {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-secondary me-1 mb-1';
+            badge.textContent = cluster;
+            badge.style.cursor = 'pointer';
+            badge.onclick = () => {
+                document.getElementById('cluster').value = cluster;
+            };
+            badgesDiv.appendChild(badge);
+        });
+        existingDiv.style.display = 'block';
+    } else {
+        existingDiv.style.display = 'none';
+    }
+}
+
+// Auto-uppercase cluster input
+document.getElementById('cluster').addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+});
 </script>
 {% endblock %}

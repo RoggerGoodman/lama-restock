@@ -1,4 +1,4 @@
-<!-- LamApp/supermarkets/templates/restock_schedule.html -->
+<!-- LamApp/supermarkets/templates/schedules/restock_schedule.html -->
 {% extends "base.html" %}
 {% block title %}Schedule - {{ storage.name }}{% endblock %}
 {% block page_title %}Restock Schedule{% endblock %}
@@ -20,7 +20,7 @@
     </div>
 
     <div class="row">
-        <div class="col-lg-8 offset-lg-2">
+        <div class="col-lg-10 offset-lg-1">
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-calendar-check text-primary"></i>
@@ -31,9 +31,9 @@
                     <h6><i class="bi bi-info-circle"></i> How It Works</h6>
                     <ul class="mb-0">
                         <li><strong>Order Days:</strong> Select which days to place orders</li>
+                        <li><strong>Delivery Offset:</strong> Configure when delivery arrives (0=same day, 1=next day, 2=two days later)</li>
+                        <li><strong>Coverage:</strong> Automatically calculated from order day to next delivery day</li>
                         <li><strong>Timing:</strong> Orders run at 6:00 AM on order days</li>
-                        <li><strong>Delivery:</strong> Arrives the day after ordering</li>
-                        <li><strong>Coverage:</strong> Automatically calculated (days until next order)</li>
                     </ul>
                 </div>
 
@@ -41,27 +41,112 @@
                     {% csrf_token %}
                     
                     <div class="mb-4">
-                        <h5 class="mb-3">Select Order Days</h5>
-                        <p class="text-muted small">Check the days when you want to place orders:</p>
+                        <h5 class="mb-3">Configure Order & Delivery Days</h5>
+                        <p class="text-muted small">For each day, enable ordering and set when delivery arrives:</p>
                         
-                        <div class="row">
-                            {% for field in form %}
-                            <div class="col-md-6 mb-3">
-                                <div class="form-check">
-                                    {{ field }}
-                                    <label class="form-check-label" for="{{ field.id_for_label }}">
-                                        <strong>{{ field.label }}</strong>
-                                        <br><small class="text-muted">{{ field.help_text }}</small>
-                                    </label>
-                                </div>
-                            </div>
-                            {% endfor %}
+                        <div class="table-responsive">
+                            <table class="table table-bordered">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 15%">Day</th>
+                                        <th style="width: 15%">Order</th>
+                                        <th style="width: 35%">Delivery Offset</th>
+                                        <th style="width: 35%">Delivery Day</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr id="row_monday">
+                                        <td><strong>Monday</strong></td>
+                                        <td><div class="form-check">{{ form.monday }}</div></td>
+                                        <td>
+                                            <div class="input-group input-group-sm">
+                                                {{ form.monday_delivery_offset }}
+                                                <span class="input-group-text">days</span>
+                                            </div>
+                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                        </td>
+                                        <td><span class="badge bg-secondary" id="delivery_monday">-</span></td>
+                                    </tr>
+                                    <tr id="row_tuesday">
+                                        <td><strong>Tuesday</strong></td>
+                                        <td><div class="form-check">{{ form.tuesday }}</div></td>
+                                        <td>
+                                            <div class="input-group input-group-sm">
+                                                {{ form.tuesday_delivery_offset }}
+                                                <span class="input-group-text">days</span>
+                                            </div>
+                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                        </td>
+                                        <td><span class="badge bg-secondary" id="delivery_tuesday">-</span></td>
+                                    </tr>
+                                    <tr id="row_wednesday">
+                                        <td><strong>Wednesday</strong></td>
+                                        <td><div class="form-check">{{ form.wednesday }}</div></td>
+                                        <td>
+                                            <div class="input-group input-group-sm">
+                                                {{ form.wednesday_delivery_offset }}
+                                                <span class="input-group-text">days</span>
+                                            </div>
+                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                        </td>
+                                        <td><span class="badge bg-secondary" id="delivery_wednesday">-</span></td>
+                                    </tr>
+                                    <tr id="row_thursday">
+                                        <td><strong>Thursday</strong></td>
+                                        <td><div class="form-check">{{ form.thursday }}</div></td>
+                                        <td>
+                                            <div class="input-group input-group-sm">
+                                                {{ form.thursday_delivery_offset }}
+                                                <span class="input-group-text">days</span>
+                                            </div>
+                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                        </td>
+                                        <td><span class="badge bg-secondary" id="delivery_thursday">-</span></td>
+                                    </tr>
+                                    <tr id="row_friday">
+                                        <td><strong>Friday</strong></td>
+                                        <td><div class="form-check">{{ form.friday }}</div></td>
+                                        <td>
+                                            <div class="input-group input-group-sm">
+                                                {{ form.friday_delivery_offset }}
+                                                <span class="input-group-text">days</span>
+                                            </div>
+                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                        </td>
+                                        <td><span class="badge bg-secondary" id="delivery_friday">-</span></td>
+                                    </tr>
+                                    <tr id="row_saturday">
+                                        <td><strong>Saturday</strong></td>
+                                        <td><div class="form-check">{{ form.saturday }}</div></td>
+                                        <td>
+                                            <div class="input-group input-group-sm">
+                                                {{ form.saturday_delivery_offset }}
+                                                <span class="input-group-text">days</span>
+                                            </div>
+                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                        </td>
+                                        <td><span class="badge bg-secondary" id="delivery_saturday">-</span></td>
+                                    </tr>
+                                    <tr id="row_sunday">
+                                        <td><strong>Sunday</strong></td>
+                                        <td><div class="form-check">{{ form.sunday }}</div></td>
+                                        <td>
+                                            <div class="input-group input-group-sm">
+                                                {{ form.sunday_delivery_offset }}
+                                                <span class="input-group-text">days</span>
+                                            </div>
+                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                        </td>
+                                        <td><span class="badge bg-secondary" id="delivery_sunday">-</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
                     <!-- Coverage Preview -->
                     <div id="coveragePreview" class="alert alert-secondary mb-4" style="display: none;">
-                        <h6>Coverage Preview</h6>
+                        <h6><i class="bi bi-calculator"></i> Coverage Preview</h6>
                         <div id="coverageDisplay"></div>
                     </div>
 
@@ -79,28 +164,88 @@
     </div>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
-// Calculate and display coverage preview when days are selected
-document.getElementById('scheduleForm').addEventListener('change', function(e) {
-    if (e.target.type === 'checkbox') {
-        updateCoveragePreview();
-    }
-});
+// Day names for display
+const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const dayNamesShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+// Get delivery day name based on order day and offset
+function getDeliveryDay(orderDayIndex, offset) {
+    const deliveryDayIndex = (orderDayIndex + offset) % 7;
+    return dayNames[deliveryDayIndex];
+}
+
+// Calculate coverage for a specific order day
+function calculateCoverage(orderDayIndex, orderDays, deliveryOffsets) {
+    if (orderDays.length === 0) return 0;
+    if (orderDays.length === 1) return 9;
+    
+    // Find next order day
+    let nextOrderDay = null;
+    for (let day of orderDays) {
+        if (day > orderDayIndex) {
+            nextOrderDay = day;
+            break;
+        }
+    }
+    
+    // Wrap to next week if needed
+    if (nextOrderDay === null) {
+        nextOrderDay = orderDays[0] + 7;
+    }
+    
+    // Get delivery offset for next order
+    const nextDeliveryOffset = deliveryOffsets[nextOrderDay % 7];
+    
+    // Coverage = (next_order_day + next_delivery_offset) - order_day_index + 1
+    const coverage = (nextOrderDay + nextDeliveryOffset) - orderDayIndex + 1;
+    
+    return coverage;
+}
+
+// Update delivery day badges and coverage preview
 function updateCoveragePreview() {
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     
-    // Get selected days
+    // Get selected order days and their offsets
     const orderDays = [];
+    const deliveryOffsets = {};
+    
     days.forEach((day, index) => {
-        const checkbox = document.getElementById('id_' + day);
+        const checkbox = document.querySelector(`input[name="${day}"]`);
+        const offsetInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
+        
         if (checkbox && checkbox.checked) {
             orderDays.push(index);
         }
+        
+        if (offsetInput) {
+            const offset = parseInt(offsetInput.value) || 1;
+            deliveryOffsets[index] = offset;
+            
+            // Update delivery day badge
+            const badge = document.getElementById(`delivery_${day}`);
+            if (badge) {
+                if (checkbox && checkbox.checked) {
+                    const deliveryDay = getDeliveryDay(index, offset);
+                    if (offset === 0) {
+                        badge.textContent = `Same day`;
+                        badge.className = 'badge bg-success';
+                    } else {
+                        badge.textContent = deliveryDay;
+                        badge.className = 'badge bg-info';
+                    }
+                } else {
+                    badge.textContent = '-';
+                    badge.className = 'badge bg-secondary';
+                }
+            }
+        }
     });
     
+    // Show/hide coverage preview
     const preview = document.getElementById('coveragePreview');
     const display = document.getElementById('coverageDisplay');
     
@@ -109,17 +254,36 @@ function updateCoveragePreview() {
         return;
     }
     
-    // Calculate coverage for each order day
-    let html = '<table class="table table-sm mb-0"><thead><tr><th>Order Day</th><th>Delivery Day</th><th>Coverage</th></tr></thead><tbody>';
+    // Build coverage table
+    let html = '<table class="table table-sm mb-0"><thead><tr><th>Order Day</th><th>Delivery Day</th><th>Coverage</th><th>Explanation</th></tr></thead><tbody>';
     
-    orderDays.forEach(orderDay => {
-        const deliveryDay = (orderDay + 1) % 7;
-        const coverage = calculateCoverage(orderDay, orderDays);
+    orderDays.forEach(orderDayIdx => {
+        const offset = deliveryOffsets[orderDayIdx];
+        const deliveryDay = getDeliveryDay(orderDayIdx, offset);
+        const coverage = calculateCoverage(orderDayIdx, orderDays, deliveryOffsets);
+        
+        // Find next order for explanation
+        let nextOrderIdx = null;
+        for (let day of orderDays) {
+            if (day > orderDayIdx) {
+                nextOrderIdx = day;
+                break;
+            }
+        }
+        if (nextOrderIdx === null) {
+            nextOrderIdx = orderDays[0];
+        }
+        
+        const nextDeliveryOffset = deliveryOffsets[nextOrderIdx];
+        const nextDeliveryDay = getDeliveryDay(nextOrderIdx, nextDeliveryOffset);
+        
+        const explanation = `Until ${dayNamesShort[nextOrderIdx]}'s delivery (${nextDeliveryDay})`;
         
         html += `<tr>
-            <td><strong>${dayNames[orderDay]}</strong></td>
-            <td>${dayNames[deliveryDay]}</td>
+            <td><strong>${dayNames[orderDayIdx]}</strong></td>
+            <td>${offset === 0 ? '<span class="badge bg-success">Same day</span>' : deliveryDay}</td>
             <td><span class="badge bg-primary">${coverage} days</span></td>
+            <td><small class="text-muted">${explanation}</small></td>
         </tr>`;
     });
     
@@ -128,30 +292,25 @@ function updateCoveragePreview() {
     preview.style.display = 'block';
 }
 
-function calculateCoverage(orderDay, orderDays) {
-    if (orderDays.length === 1) {
-        return 9;
-    }
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Add event listeners to all checkboxes and offset inputs
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     
-    // Find next order day
-    let nextOrderDay = null;
-    for (let day of orderDays) {
-        if (day > orderDay) {
-            nextOrderDay = day;
-            break;
+    days.forEach(day => {
+        const checkbox = document.querySelector(`input[name="${day}"]`);
+        const offsetInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
+        
+        if (checkbox) {
+            checkbox.addEventListener('change', updateCoveragePreview);
         }
-    }
+        if (offsetInput) {
+            offsetInput.addEventListener('input', updateCoveragePreview);
+        }
+    });
     
-    if (nextOrderDay === null) {
-        nextOrderDay = orderDays[0] + 7;
-    }
-    
-    return nextOrderDay - orderDay + 2;
-}
-
-// Show preview on page load if days are already selected
-document.addEventListener('DOMContentLoaded', updateCoveragePreview);
+    // Initial update
+    updateCoveragePreview();
+});
 </script>
 {% endblock %}
-
-

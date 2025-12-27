@@ -2057,19 +2057,17 @@ def auto_add_product_view(request):
             'message': f'Error: {str(e)}'
         }, status=500)
 
-
 @login_required
 def verify_stock_unified_enhanced_view(request):
     """
-    REFACTORED VERSION with proper cluster handling.
-
+    UPDATED: Now handles PDF files instead of CSV.
     """
     supermarkets = Supermarket.objects.filter(owner=request.user)
     
     if request.method == 'POST':
         supermarket_id = request.POST.get('supermarket_id')
         storage_id = request.POST.get('storage_id')
-        cluster = request.POST.get('cluster', '').strip().upper()  # User-provided cluster name
+        cluster = request.POST.get('cluster', '').strip().upper()
         
         if not supermarket_id or not storage_id:
             messages.error(request, "Please select both supermarket and storage")
@@ -2082,14 +2080,14 @@ def verify_stock_unified_enhanced_view(request):
             supermarket__owner=request.user
         )
         
-        if 'csv_file' not in request.FILES:
+        if 'pdf_file' not in request.FILES:
             messages.error(request, "No file uploaded")
             return redirect('verify-stock-unified-enhanced')
         
-        csv_file = request.FILES['csv_file']
+        pdf_file = request.FILES['pdf_file']
         
-        if not csv_file.name.endswith('.csv'):
-            messages.error(request, "File must be .csv format")
+        if not pdf_file.name.endswith('.pdf'):
+            messages.error(request, "File must be .pdf format (not CSV)")
             return redirect('verify-stock-unified-enhanced')
         
         try:
@@ -2099,17 +2097,17 @@ def verify_stock_unified_enhanced_view(request):
             
             # Use timestamp to avoid conflicts
             timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
-            file_path = inventory_folder / f"verify_{timestamp}_{csv_file.name}"
+            file_path = inventory_folder / f"verify_{timestamp}_{pdf_file.name}"
             
             with open(file_path, 'wb+') as destination:
-                for chunk in csv_file.chunks():
+                for chunk in pdf_file.chunks():
                     destination.write(chunk)
             
             # ✅ DISPATCH TO CELERY with cluster parameter
             from .tasks import verify_stock_bulk_task
             
             result = verify_stock_bulk_task.apply_async(
-                args=[storage_id, str(file_path), cluster or None],  # Pass cluster explicitly
+                args=[storage_id, str(file_path), cluster or None],
                 retry=True
             )
             
@@ -2148,13 +2146,13 @@ def verify_stock_unified_enhanced_view(request):
     
     return render(request, 'inventory/verify_stock_unified.html', {
         'supermarkets': supermarkets,
-        'clusters_by_storage': json.dumps(clusters_by_storage)  # Pass to JS
+        'clusters_by_storage': json.dumps(clusters_by_storage)
     })
 
 @login_required
 def assign_clusters_view(request):
     """
-    REFACTORED: Async cluster assignment.
+    UPDATED: Now handles PDF files instead of CSV.
     User provides cluster name, not derived from filename.
     """
     supermarkets = Supermarket.objects.filter(owner=request.user)
@@ -2162,7 +2160,7 @@ def assign_clusters_view(request):
     if request.method == 'POST':
         supermarket_id = request.POST.get('supermarket_id')
         storage_id = request.POST.get('storage_id')
-        cluster = request.POST.get('cluster', '').strip().upper()  # User-provided
+        cluster = request.POST.get('cluster', '').strip().upper()
         
         if not supermarket_id or not storage_id:
             messages.error(request, "Please select both supermarket and storage")
@@ -2179,14 +2177,14 @@ def assign_clusters_view(request):
             supermarket__owner=request.user
         )
         
-        if 'csv_file' not in request.FILES:
+        if 'pdf_file' not in request.FILES:
             messages.error(request, "No file uploaded")
             return redirect('assign-clusters')
         
-        csv_file = request.FILES['csv_file']
+        pdf_file = request.FILES['pdf_file']
         
-        if not csv_file.name.endswith('.csv'):
-            messages.error(request, "File must be .csv format")
+        if not pdf_file.name.endswith('.pdf'):
+            messages.error(request, "File must be .pdf format (not CSV)")
             return redirect('assign-clusters')
         
         try:
@@ -2195,10 +2193,10 @@ def assign_clusters_view(request):
             inventory_folder.mkdir(exist_ok=True)
             
             timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
-            file_path = inventory_folder / f"cluster_{timestamp}_{csv_file.name}"
+            file_path = inventory_folder / f"cluster_{timestamp}_{pdf_file.name}"
             
             with open(file_path, 'wb+') as destination:
-                for chunk in csv_file.chunks():
+                for chunk in pdf_file.chunks():
                     destination.write(chunk)
             
             # ✅ DISPATCH TO CELERY with explicit cluster name

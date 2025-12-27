@@ -39,16 +39,14 @@ WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 
 
 class RestockSchedule(models.Model):
     """
-    Simplified restock schedule.
-    - Each day is either ON (True) or OFF (False) for ordering
-    - Orders run at 6:00 AM on order days
-    - Delivery happens the day after ordering
-    - Coverage is calculated as days until NEXT order
-    - Product lists are automatically updated nightly for all scheduled storages
+    Restock schedule with configurable delivery offsets.
+    - Each day can be enabled/disabled for ordering
+    - Each enabled day has a delivery offset (0=same day, 1=next day, 2=two days later)
+    - Coverage is calculated from order day to next delivery day
     """
     storage = models.OneToOneField(Storage, on_delete=models.CASCADE, related_name='schedule')
     
-    # Simple boolean for each day - True means "order on this day"
+    # Order day flags
     monday = models.BooleanField(default=False, help_text="Order on Monday")
     tuesday = models.BooleanField(default=False, help_text="Order on Tuesday")
     wednesday = models.BooleanField(default=False, help_text="Order on Wednesday")
@@ -56,32 +54,54 @@ class RestockSchedule(models.Model):
     friday = models.BooleanField(default=False, help_text="Order on Friday")
     saturday = models.BooleanField(default=False, help_text="Order on Saturday")
     sunday = models.BooleanField(default=False, help_text="Order on Sunday")
+    
+    # Delivery offsets (0=same day, 1=next day, 2=two days later, etc.)
+    monday_delivery_offset = models.IntegerField(
+        default=1,
+        help_text="Days until delivery after Monday order (0=same day, 1=next day, etc.)"
+    )
+    tuesday_delivery_offset = models.IntegerField(default=1, help_text="Days until delivery after Tuesday order")
+    wednesday_delivery_offset = models.IntegerField(default=1, help_text="Days until delivery after Wednesday order")
+    thursday_delivery_offset = models.IntegerField(default=1, help_text="Days until delivery after Thursday order")
+    friday_delivery_offset = models.IntegerField(default=1, help_text="Days until delivery after Friday order")
+    saturday_delivery_offset = models.IntegerField(default=1, help_text="Days until delivery after Saturday order")
+    sunday_delivery_offset = models.IntegerField(default=1, help_text="Days until delivery after Sunday order")
 
     def get_order_days(self):
+        """Returns list of day indices where orders happen (0=Monday, 6=Sunday)"""
+        weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        return [i for i, day_name in enumerate(weekday_fields) if getattr(self, day_name)]
+    
+    def get_delivery_offset(self, order_day_index):
+        """Get delivery offset for a specific order day"""
+        weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        offset_field = f"{weekday_fields[order_day_index]}_delivery_offset"
+        return getattr(self, offset_field)
+    
+    def get_delivery_day(self, order_day_index):
         """
-        Returns list of day indices where orders happen (0=Monday, 6=Sunday)
-        Example: [1, 3, 6] means Tuesday, Thursday, Sunday
+        Calculate delivery day index for a given order day.
+        Returns day index (0-6), wrapping to next week if needed.
         """
-        order_days = []
-        for i, day_name in enumerate(WEEKDAYS):
-            if getattr(self, day_name):
-                order_days.append(i)
-        return order_days
+        offset = self.get_delivery_offset(order_day_index)
+        return (order_day_index + offset) % 7
 
     def calculate_coverage_for_day(self, order_day_index):
         """
-        Calculate coverage (days until NEXT order) for a given order day.
+        Calculate coverage (days from order day to next delivery day, inclusive).
         
-        Logic:
-        - Today is order day, delivery tomorrow
-        - Coverage = days from tomorrow until day before next order
+        Formula: Coverage = (next_order_day + next_delivery_offset) - order_day_index + 1
+        
+        Example:
+        - Order Monday (index=0), delivery Tuesday (offset=1)
+        - Next order Friday (index=4), delivery Sunday (offset=2)
+        - Coverage = (4 + 2) - 0 + 1 = 7 days
         
         Args:
             order_day_index: 0=Monday, 6=Sunday
             
         Returns:
             int: Number of days to cover
-            
         """
         order_days = self.get_order_days()
         
@@ -89,7 +109,7 @@ class RestockSchedule(models.Model):
             return 0
         
         if len(order_days) == 1:
-            # Only one order day per week
+            # Only one order per week - default to 9 days
             return 9
         
         # Find the next order day after current order_day_index
@@ -103,7 +123,11 @@ class RestockSchedule(models.Model):
         if next_order_day is None:
             next_order_day = order_days[0] + 7
         
-        coverage = next_order_day - order_day_index + 2
+        # Get delivery offset for the next order
+        next_delivery_offset = self.get_delivery_offset(next_order_day % 7)
+        
+        # Coverage = days from current order day to next delivery day (inclusive)
+        coverage = (next_order_day + next_delivery_offset) - order_day_index + 1
         
         return coverage
 
@@ -114,12 +138,26 @@ class RestockSchedule(models.Model):
             return "No orders scheduled"
         
         day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-        days_str = ", ".join([day_names[i] for i in order_days])
         
-        # Calculate coverages for each order day
+        # Build summary with delivery info
+        schedule_parts = []
+        for day_idx in order_days:
+            offset = self.get_delivery_offset(day_idx)
+            delivery_day_idx = (day_idx + offset) % 7
+            
+            if offset == 0:
+                delivery_text = "same day"
+            elif offset == 1:
+                delivery_text = f"→{day_names[delivery_day_idx]}"
+            else:
+                delivery_text = f"→{day_names[delivery_day_idx]}"
+            
+            schedule_parts.append(f"{day_names[day_idx]}{delivery_text}")
+        
+        # Calculate coverages
         coverages = [self.calculate_coverage_for_day(day) for day in order_days]
         
-        return f"Orders: {days_str} | Coverages: {coverages} days"
+        return f"Orders: {', '.join(schedule_parts)} | Coverage: {coverages} days"
 
     def __str__(self):
         return f"Schedule for {self.storage.name}"

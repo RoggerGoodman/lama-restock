@@ -2,35 +2,98 @@
 from django import forms
 from .models import RestockSchedule, Blacklist, BlacklistEntry, Storage
 
-
 class RestockScheduleForm(forms.ModelForm):
     """
-    Simplified form for restock schedules.
-    Just checkboxes for which days to order.
+    Form for restock schedules with configurable delivery offsets.
+    Each day has:
+    - A checkbox to enable/disable ordering
+    - A number input for delivery offset (0=same day, 1=next day, etc.)
     """
     
     class Meta:
         model = RestockSchedule
-        fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        fields = [
+            'monday', 'monday_delivery_offset',
+            'tuesday', 'tuesday_delivery_offset',
+            'wednesday', 'wednesday_delivery_offset',
+            'thursday', 'thursday_delivery_offset',
+            'friday', 'friday_delivery_offset',
+            'saturday', 'saturday_delivery_offset',
+            'sunday', 'sunday_delivery_offset'
+        ]
+        
         widgets = {
-            'monday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'tuesday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'wednesday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'thursday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'friday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'saturday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'sunday': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            # Day checkboxes
+            'monday': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'updateCoveragePreview()'}),
+            'tuesday': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'updateCoveragePreview()'}),
+            'wednesday': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'updateCoveragePreview()'}),
+            'thursday': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'updateCoveragePreview()'}),
+            'friday': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'updateCoveragePreview()'}),
+            'saturday': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'updateCoveragePreview()'}),
+            'sunday': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'updateCoveragePreview()'}),
+            
+            # Delivery offset inputs
+            'monday_delivery_offset': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm',
+                'min': '0',
+                'max': '6',
+                'onchange': 'updateCoveragePreview()'
+            }),
+            'tuesday_delivery_offset': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm',
+                'min': '0',
+                'max': '6',
+                'onchange': 'updateCoveragePreview()'
+            }),
+            'wednesday_delivery_offset': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm',
+                'min': '0',
+                'max': '6',
+                'onchange': 'updateCoveragePreview()'
+            }),
+            'thursday_delivery_offset': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm',
+                'min': '0',
+                'max': '6',
+                'onchange': 'updateCoveragePreview()'
+            }),
+            'friday_delivery_offset': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm',
+                'min': '0',
+                'max': '6',
+                'onchange': 'updateCoveragePreview()'
+            }),
+            'saturday_delivery_offset': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm',
+                'min': '0',
+                'max': '6',
+                'onchange': 'updateCoveragePreview()'
+            }),
+            'sunday_delivery_offset': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm',
+                'min': '0',
+                'max': '6',
+                'onchange': 'updateCoveragePreview()'
+            }),
         }
+        
         help_texts = {
-            'monday': 'Check to place orders on Monday (delivery Tuesday)',
-            'tuesday': 'Check to place orders on Tuesday (delivery Wednesday)',
-            'wednesday': 'Check to place orders on Wednesday (delivery Thursday)',
-            'thursday': 'Check to place orders on Thursday (delivery Friday)',
-            'friday': 'Check to place orders on Friday (delivery Saturday)',
-            'saturday': 'Check to place orders on Saturday (delivery Sunday)',
-            'sunday': 'Check to place orders on Sunday (delivery Monday)',
+            'monday': 'Enable ordering on Monday',
+            'tuesday': 'Enable ordering on Tuesday',
+            'wednesday': 'Enable ordering on Wednesday',
+            'thursday': 'Enable ordering on Thursday',
+            'friday': 'Enable ordering on Friday',
+            'saturday': 'Enable ordering on Saturday',
+            'sunday': 'Enable ordering on Sunday',
+            
+            'monday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
+            'tuesday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
+            'wednesday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
+            'thursday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
+            'friday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
+            'saturday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
+            'sunday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
         }
-
 
 class StorageForm(forms.ModelForm):
     """Form for creating/editing storages"""

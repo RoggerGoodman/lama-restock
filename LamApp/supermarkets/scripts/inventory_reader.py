@@ -323,7 +323,7 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
         'total_losses': total_losses
     }
 
-def parse_loss_pdf(pdf_path: str):
+def parse_pdf(pdf_path: str):
     """
     Parse loss PDF file and extract product data.
     
@@ -412,7 +412,7 @@ def process_loss_pdf(db: DatabaseManager, pdf_path: str, loss_type: str):
     logger.info(f"Processing loss PDF: {pdf_path} (type: {loss_type})")
     
     # Parse PDF
-    entries = parse_loss_pdf(pdf_path)
+    entries = parse_pdf(pdf_path)
     
     if not entries:
         return {
@@ -457,3 +457,159 @@ def process_loss_pdf(db: DatabaseManager, pdf_path: str, loss_type: str):
         'errors': error_count,
         'total_losses': total_losses
     }
+
+def verify_stocks_from_pdf(db: DatabaseManager, pdf_path: str, cluster: str = None):
+    """
+    REFACTORED: Verifies and updates stock levels from a PDF file.
+    Reuses parse_loss_pdf() and feeds data to existing verification logic.
+    
+    Args:
+        db: DatabaseManager instance
+        pdf_path: Full path to PDF file
+        cluster: Optional cluster name to assign (user-provided)
+    """
+    logger.info(f"Processing verification PDF: {pdf_path}")
+    if cluster:
+        logger.info(f"Assigning cluster: {cluster}")
+    
+    try:
+        # Parse PDF using existing parser
+        parsed_entries = parse_pdf(pdf_path)
+        
+        if not parsed_entries:
+            logger.error(f"No valid entries found in PDF")
+            return {
+                'success': False,
+                'error': 'No valid entries found in PDF. Check file format.'
+            }
+        
+        logger.info(f"Parsed {len(parsed_entries)} entries from PDF")
+        
+        # Combine duplicates (sum quantities for same product)
+        combined = {}
+        for entry in parsed_entries:
+            key = (entry['cod'], entry['v'])
+            if key in combined:
+                combined[key]['qty'] += entry['qty']
+            else:
+                combined[key] = entry
+        
+        logger.info(f"After combining duplicates: {len(combined)} unique products")
+        
+        verified_count = 0
+        skipped_count = 0
+        
+        # Process each unique product
+        for (cod, v), data in combined.items():
+            new_stock = data['qty']
+            
+            try:
+                # Verify stock and optionally assign cluster
+                db.verify_stock(cod, v, new_stock, cluster)
+                verified_count += 1
+                logger.debug(f"Verified: {cod}.{v} = {new_stock}" + (f" (cluster: {cluster})" if cluster else ""))
+            except ValueError as e:
+                logger.warning(f"Skipped {cod}.{v}: {e}")
+                skipped_count += 1
+            except Exception as e:
+                logger.exception(f"Error processing {cod}.{v}")
+                skipped_count += 1
+        
+        # Clean up file
+        try:
+            os.remove(pdf_path)
+            logger.info(f"Processed and deleted file: {pdf_path}")
+        except Exception as e:
+            logger.error(f"Could not delete file {pdf_path}: {e}")
+        
+        logger.info(f"Verification complete: {verified_count} verified, {skipped_count} skipped")
+        
+        return {
+            'success': True,
+            'verified': verified_count,
+            'skipped': skipped_count,
+            'cluster': cluster
+        }
+        
+    except Exception as e:
+        logger.exception(f"Error processing PDF {pdf_path}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+    
+def assign_clusters_from_pdf(db: DatabaseManager, pdf_path: str, cluster: str):
+    """
+    REFACTORED: Assign cluster to products listed in PDF (no stock update).
+    Reuses parse_loss_pdf() and feeds data to existing cluster logic.
+    
+    Args:
+        db: DatabaseManager instance
+        pdf_path: Full path to PDF file
+        cluster: Cluster name to assign (REQUIRED)
+    """
+    if not cluster:
+        raise ValueError("Cluster name is required for cluster assignment")
+    
+    logger.info(f"Assigning cluster '{cluster}' from PDF: {pdf_path}")
+    
+    try:
+        # Parse PDF using existing parser
+        parsed_entries = parse_pdf(pdf_path)
+        
+        if not parsed_entries:
+            logger.error(f"No valid entries found in PDF")
+            return {
+                'success': False,
+                'error': 'No valid entries found in PDF. Check file format.'
+            }
+        
+        logger.info(f"Parsed {len(parsed_entries)} entries from PDF")
+        
+        # Get unique products (ignore quantities for cluster assignment)
+        unique_products = {}
+        for entry in parsed_entries:
+            key = (entry['cod'], entry['v'])
+            unique_products[key] = entry
+        
+        logger.info(f"Found {len(unique_products)} unique products")
+        
+        assigned_count = 0
+        skipped_count = 0
+        
+        # Assign cluster to each product
+        for (cod, v) in unique_products.keys():
+            try:
+                # Verify with cluster only (no stock change)
+                db.verify_stock(cod, v, new_stock=None, cluster=cluster)
+                assigned_count += 1
+                logger.debug(f"Assigned cluster '{cluster}' to {cod}.{v}")
+            except ValueError as e:
+                logger.warning(f"Skipped {cod}.{v}: {e}")
+                skipped_count += 1
+            except Exception as e:
+                logger.exception(f"Error processing {cod}.{v}")
+                skipped_count += 1
+        
+        # Clean up
+        try:
+            os.remove(pdf_path)
+            logger.info(f"Processed and deleted file: {pdf_path}")
+        except Exception as e:
+            logger.error(f"Could not delete file {pdf_path}: {e}")
+        
+        logger.info(f"Cluster assignment complete: {assigned_count} assigned, {skipped_count} skipped")
+        
+        return {
+            'success': True,
+            'assigned': assigned_count,
+            'skipped': skipped_count,
+            'cluster': cluster
+        }
+        
+    except Exception as e:
+        logger.exception(f"Error assigning clusters from PDF {pdf_path}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
