@@ -740,11 +740,23 @@ class DatabaseManager:
         cur.executemany("""
             INSERT INTO economics (cod, v, price_s, cost_s, sale_start, sale_end, price_std, cost_std, category)
             VALUES (%s, %s, %s, %s, %s, %s, 0, 0, 0)
-            ON CONFLICT(cod, v) DO UPDATE SET
-                price_s   = excluded.price_s,
-                cost_s    = excluded.cost_s,
-                sale_start = excluded.sale_start,
-                sale_end   = excluded.sale_end
+            ON CONFLICT (cod, v) DO UPDATE SET
+                price_s = EXCLUDED.price_s,
+                cost_s  = EXCLUDED.cost_s,
+
+                sale_start = CASE
+                    -- If promo is currently active, keep the old start date
+                    WHEN CURRENT_DATE BETWEEN economics.sale_start AND economics.sale_end
+                    THEN economics.sale_start
+                    ELSE EXCLUDED.sale_start
+                END,
+
+                sale_end = CASE
+                    -- If promo is active, extend it
+                    WHEN CURRENT_DATE BETWEEN economics.sale_start AND economics.sale_end
+                    THEN GREATEST(economics.sale_end, EXCLUDED.sale_end)
+                    ELSE EXCLUDED.sale_end
+                END
         """, filtered_list)
 
         self.conn.commit()
