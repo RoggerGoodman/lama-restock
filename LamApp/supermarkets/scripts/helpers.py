@@ -284,46 +284,51 @@ class Helper:
         sale_end = None
 
         with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
+            for page_index, page in enumerate(pdf.pages):
                 text = page.extract_text()
-
-                # --- Extract sale_start / sale_end ---
-                m = re.search(r"Pubblico Dal (\d{2}/\d{2}/\d{4}) al (\d{2}/\d{2}/\d{4})", text)
-                if m:
-                    sale_start = datetime.strptime(m.group(1), "%d/%m/%Y").date().isoformat()
-                    sale_end = datetime.strptime(m.group(2), "%d/%m/%Y").date().isoformat()
-
-                # --- Extract table rows ---
-                table = page.extract_table()
-                if not table:
+                if not text:
                     continue
 
-                for row in table:
-                    # Skip headers or empty rows
-                    if not row or row[1] == "Codice Art." or row[1] == None:
+                lines = text.splitlines()
+
+                # --- Extract promo dates ---
+                for line in lines:
+                    m = re.search(
+                        r"Pubblico Dal (\d{2}/\d{2}/\d{4}) al (\d{2}/\d{2}/\d{4})",
+                        line
+                    )
+                    if m:
+                        sale_start = datetime.strptime(m.group(1), "%d/%m/%Y").date().isoformat()
+                        sale_end = datetime.strptime(m.group(2), "%d/%m/%Y").date().isoformat()
+
+                # --- Extract product rows ---
+                for line in lines:
+                    # Example:
+                    # 1729.01   PRODOTTO XYZ   1 PZ   2,99   1,99
+                    match = re.match(
+                        r"(?P<cod>\d+)\.(?P<v>\d{2})\s+.+?\s+(?P<cost>\d+,\d{2})\s+(?P<price>\d+,\d{2})",
+                        line
+                    )
+
+                    if not match:
                         continue
 
-                    codice = row[1]     # e.g. "1729.01"
-                    cess = row[5]       # cost_s
-                    pubb = row[6]       # price_s
-
-                    # Convert codice
-                    if codice:
-                        parts = codice.split(".")
-                        cod = int(parts[0])
-                        v = int(parts[1])
-
-                    # Convert prices
                     try:
-                        cost_s = float(cess.replace(",", ".")) if cess else None
-                    except:
-                        cost_s = None
+                        cod = int(match.group("cod"))
+                        v = int(match.group("v"))
+                        cost_s = float(match.group("cost").replace(",", "."))
+                        price_s = float(match.group("price").replace(",", "."))
 
-                    try:
-                        price_s = float(pubb.replace(",", ".")) if pubb else None
-                    except:
-                        price_s = None
+                        data.append((
+                            cod,
+                            v,
+                            price_s,
+                            cost_s,
+                            sale_start,
+                            sale_end
+                        ))
+                    except Exception as e:
+                        logger.warning(f"Skipping malformed line: {line} ({e})")
 
-                    data.append((cod, v, price_s, cost_s, sale_start, sale_end))
-
+        logger.info(f"[PDF] Parsed {len(data)} promo rows")
         return data
