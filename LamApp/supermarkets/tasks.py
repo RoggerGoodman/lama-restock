@@ -7,6 +7,8 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 import datetime
 from django.utils import timezone
+from django.conf import settings
+import os
 
 logger = get_task_logger(__name__)
 
@@ -482,25 +484,24 @@ def manual_stats_update_task(self, storage_id):
     except Exception as exc:
         logger.exception(f"[MANUAL STATS] Error for storage {storage_id}")
         raise self.retry(exc=exc)
-
-
+    
 @shared_task(
     bind=True,
     max_retries=3,
     default_retry_delay=900,
     queue='selenium'
 )
-def add_products_task(self, storage_id, products_list, settore):
-    """
-    Add products via Scrapper (replaces add_products_view).
-    
-    Can take 15-30 seconds PER PRODUCT.
-    Definitely needs Celery!
+def add_products_unified_task(self, storage_id, products_list, settore):
+    """    
+    Args:
+        storage_id: Storage ID
+        products_list: List of (cod, var) tuples
+        settore: Settore name
     """
     from .models import Storage
     from .services import RestockService
-    from .scripts.scrapper import Scrapper
-    from .scripts.helpers import Helper
+    from .scripts.web_lister import WebLister
+    from pathlib import Path
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
@@ -508,96 +509,88 @@ def add_products_task(self, storage_id, products_list, settore):
         logger.info(f"[ADD PRODUCTS] Starting for {storage.name}: {len(products_list)} products")
         
         service = RestockService(storage)
-        helper = Helper()
         
-        scrapper = Scrapper(
+        # Create WebLister instance
+        temp_dir = Path(settings.BASE_DIR) / 'temp_add_products'
+        temp_dir.mkdir(exist_ok=True)
+        
+        lister = WebLister(
             username=storage.supermarket.username,
             password=storage.supermarket.password,
-            helper=helper,
-            db=service.db
+            storage_name=storage.name,
+            download_dir=str(temp_dir),
+            headless=True
         )
         
         try:
-            scrapper.navigate()
-            scrapper.init_products_and_stats_from_list(products_list, settore)
+            lister.login()
             
-            logger.info(f"✅ [ADD PRODUCTS] Completed for {storage.name}")
+            added = []
+            failed = []
+            
+            for cod, var in products_list:
+                try:
+                    logger.info(f"[ADD PRODUCTS] Fetching {cod}.{var}...")
+                    
+                    # Use gather_missing_product_data for consistency
+                    product_data = lister.gather_missing_product_data(cod, var)
+                    
+                    if not product_data:
+                        logger.warning(f"[ADD PRODUCTS] Product {cod}.{var} not found")
+                        failed.append((cod, var, "Not found in PAC2000A"))
+                        continue
+                    
+                    description, package, multiplier, availability, cost, price, category = product_data
+                    
+                    # Add to database
+                    service.db.add_product(
+                        cod=cod,
+                        v=var,
+                        descrizione=description or f"Product {cod}.{var}",
+                        rapp=multiplier or 1,
+                        pz_x_collo=package or 12,
+                        settore=settore,
+                        disponibilita=availability or "Si"
+                    )
+                    
+                    # Initialize stats
+                    service.db.init_product_stats(cod, var, [], [], 0, False)
+                    
+                    # Add economics
+                    if price and cost:
+                        cur = service.db.cursor()
+                        cur.execute("""
+                            INSERT INTO economics (cod, v, price_std, cost_std, category)
+                            VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (cod, v) DO NOTHING
+                        """, (cod, var, price, cost, category or "Unknown"))
+                        service.db.conn.commit()
+                    
+                    added.append((cod, var))
+                    logger.info(f"[ADD PRODUCTS] ✅ Added {cod}.{var}")
+                    
+                except Exception as e:
+                    logger.exception(f"[ADD PRODUCTS] Error adding {cod}.{var}")
+                    failed.append((cod, var, str(e)))
+            
+            logger.info(f"[ADD PRODUCTS] ✅ Complete: {len(added)} added, {len(failed)} failed")
             
             return {
                 'success': True,
-                'products_added': len(products_list),
+                'products_added': len(added),
+                'products_failed': len(failed),
+                'added': added[:50],
+                'failed': failed[:20],
                 'storage_name': storage.name
             }
             
         finally:
-            scrapper.driver.quit()
+            lister.driver.quit()
             service.close()
             
     except Exception as exc:
         logger.exception(f"[ADD PRODUCTS] Error for storage {storage_id}")
         raise self.retry(exc=exc)
-
-
-@shared_task(
-    bind=True,
-    max_retries=2,
-    default_retry_delay=600
-)
-def verify_stock_bulk_task(self, storage_id, pdf_file_path, cluster=None):
-    """
-    UPDATED: Bulk stock verification from PDF (not CSV).
-    
-    Args:
-        storage_id: Storage ID
-        pdf_file_path: Full path to PDF file
-        cluster: Optional cluster name (user-provided)
-    """
-    from .models import Storage
-    from .automation_services import AutomatedRestockService
-    from .scripts.inventory_reader import verify_stocks_from_pdf
-    
-    try:
-        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
-        
-        logger.info(f"[VERIFY STOCK] Starting for {storage.name}")
-        if cluster:
-            logger.info(f"[VERIFY STOCK] Cluster: {cluster}")
-        
-        service = AutomatedRestockService(storage)
-        
-        try:            
-            # Record losses (still needed)
-            logger.info(f"[VERIFY STOCK] Recording losses...")
-            service.record_losses()
-            
-            # Verify from PDF with explicit cluster parameter
-            logger.info(f"[VERIFY STOCK] Processing PDF with cluster={cluster}...")
-            result = verify_stocks_from_pdf(service.db, pdf_file_path, cluster=cluster)
-            
-            if result['success']:
-                logger.info(
-                    f"✅ [VERIFY STOCK] Completed for {storage.name}: "
-                    f"{result['verified']} verified, {result['skipped']} skipped"
-                )
-            else:
-                logger.error(f"❌ [VERIFY STOCK] Failed: {result['error']}")
-            
-            return {
-                'success': result['success'],
-                'storage_name': storage.name,
-                'verified': result.get('verified', 0),
-                'skipped': result.get('skipped', 0),
-                'cluster': cluster,
-                'error': result.get('error')
-            }
-            
-        finally:
-            service.close()
-            
-    except Exception as exc:
-        logger.exception(f"[VERIFY STOCK] Error for storage {storage_id}")
-        raise self.retry(exc=exc)
-
 
 @shared_task(
     bind=True,
@@ -760,7 +753,6 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
     """
     from .models import Supermarket
     from .services import RestockService
-    from .scripts.scrapper import Scrapper
     from pathlib import Path
     import os
     
@@ -776,16 +768,9 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
         
         service = RestockService(storage)
         
-        scrapper = Scrapper(
-            username=supermarket.username,
-            password=supermarket.password,
-            helper=service.helper,
-            db=service.db
-        )
-        
         try:
             # Parse PDF
-            promo_list = scrapper.parse_promo_pdf(pdf_file_path)
+            promo_list = service.helper.parse_promo_pdf(pdf_file_path)
             
             # Update database
             service.db.update_promos(promo_list)
@@ -810,4 +795,247 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
             
     except Exception as exc:
         logger.exception(f"[PROCESS PROMOS] Error for supermarket {supermarket_id}")
+        raise self.retry(exc=exc)
+    
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=600,
+    queue='selenium'
+)
+def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=None):
+    """
+    ENHANCED: Bulk stock verification with automatic product addition.
+    
+    Workflow:
+    1. Parse PDF to get all products and their stock levels
+    2. Record losses (broken/expired/internal)
+    3. Separate products into: existing vs missing
+    4. For missing products: Auto-fetch data using gather_missing_product_data
+    5. Add missing products to database
+    6. Verify stock for ALL products (existing + newly added)
+    7. Return comprehensive report
+    
+    Args:
+        storage_id: Storage ID
+        pdf_file_path: Full path to PDF file
+        cluster: Optional cluster name (user-provided)
+    """
+    from .models import Storage
+    from .automation_services import AutomatedRestockService
+    from .scripts.inventory_reader import parse_pdf
+    from .scripts.web_lister import WebLister
+    from pathlib import Path
+    import pandas as pd
+    
+    try:
+        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+        
+        logger.info(f"[VERIFY+AUTO-ADD] Starting for {storage.name}")
+        if cluster:
+            logger.info(f"[VERIFY+AUTO-ADD] Cluster: {cluster}")
+        
+        service = AutomatedRestockService(storage)
+        
+        try:
+            # STEP 1: Record losses first (as before)
+            logger.info(f"[VERIFY+AUTO-ADD] Step 1: Recording losses...")
+            service.record_losses()
+            
+            # STEP 2: Parse PDF to get all products
+            logger.info(f"[VERIFY+AUTO-ADD] Step 2: Parsing PDF...")
+            parsed_entries = parse_pdf(pdf_file_path)
+            
+            if not parsed_entries:
+                return {
+                    'success': False,
+                    'error': 'No valid entries found in PDF'
+                }
+            
+            logger.info(f"[VERIFY+AUTO-ADD] Found {len(parsed_entries)} products in PDF")
+            
+            # STEP 3: Separate existing vs missing products
+            existing_products = []
+            missing_products = []
+            
+            for entry in parsed_entries:
+                cod = entry['cod']
+                var = entry['v']
+                qty = entry['qty']
+                
+                try:
+                    # Check if product exists
+                    service.db.get_stock(cod, var)
+                    existing_products.append((cod, var, qty))
+                except ValueError:
+                    # Product not in DB
+                    missing_products.append((cod, var, qty))
+            
+            logger.info(
+                f"[VERIFY+AUTO-ADD] Found {len(existing_products)} existing, "
+                f"{len(missing_products)} missing products"
+            )
+            
+            # STEP 4: Auto-add missing products
+            added_products = []
+            failed_additions = []
+            
+            if missing_products:
+                logger.info(f"[VERIFY+AUTO-ADD] Step 4: Auto-adding {len(missing_products)} missing products...")
+                
+                # Create WebLister instance for fetching product data
+                temp_dir = Path(settings.BASE_DIR) / 'temp_auto_add'
+                temp_dir.mkdir(exist_ok=True)
+                
+                lister = WebLister(
+                    username=storage.supermarket.username,
+                    password=storage.supermarket.password,
+                    storage_name=storage.name,
+                    download_dir=str(temp_dir),
+                    headless=True
+                )
+                
+                try:
+                    lister.login()
+                    
+                    for cod, var, qty in missing_products:
+                        try:
+                            logger.info(f"[AUTO-ADD] Fetching data for {cod}.{var}...")
+                            
+                            # Fetch product data from PAC2000A
+                            product_data = lister.gather_missing_product_data(cod, var)
+                            
+                            if not product_data:
+                                logger.warning(f"[AUTO-ADD] ❌ Product {cod}.{var} not found in PAC2000A")
+                                failed_additions.append({
+                                    'cod': cod,
+                                    'var': var,
+                                    'reason': 'Not found in PAC2000A system'
+                                })
+                                continue
+                            
+                            # Unpack data
+                            description, package, multiplier, availability, cost, price, category = product_data
+                            
+                            # Add to products table
+                            service.db.add_product(
+                                cod=cod,
+                                v=var,
+                                descrizione=description or f"Product {cod}.{var}",
+                                rapp=multiplier or 1,
+                                pz_x_collo=package or 12,
+                                settore=storage.settore,
+                                disponibilita=availability or "Si"
+                            )
+                            
+                            # Initialize stats with the quantity from PDF
+                            service.db.init_product_stats(
+                                cod=cod,
+                                v=var,
+                                sold=[],
+                                bought=[],
+                                stock=qty,
+                                verified=True  # Mark as verified immediately
+                            )
+                            
+                            # Add economics data if available
+                            if price and cost and price > 0 and cost > 0:
+                                cur = service.db.cursor()
+                                cur.execute("""
+                                    INSERT INTO economics (cod, v, price_std, cost_std, category)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                    ON CONFLICT (cod, v) DO UPDATE SET
+                                        price_std = excluded.price_std,
+                                        cost_std = excluded.cost_std,
+                                        category = excluded.category
+                                """, (cod, var, price, cost, category or "Unknown"))
+                                service.db.conn.commit()
+                            
+                            # Assign cluster if provided
+                            if cluster:
+                                service.db.verify_stock(cod, var, new_stock=None, cluster=cluster)
+                            
+                            added_products.append({
+                                'cod': cod,
+                                'var': var,
+                                'qty': qty,
+                                'description': description
+                            })
+                            
+                            logger.info(f"[AUTO-ADD] ✅ Successfully added {cod}.{var} - {description}")
+                            
+                        except Exception as e:
+                            logger.exception(f"[AUTO-ADD] ❌ Error adding {cod}.{var}")
+                            failed_additions.append({
+                                'cod': cod,
+                                'var': var,
+                                'reason': str(e)
+                            })
+                
+                finally:
+                    lister.driver.quit()
+                    logger.info("[AUTO-ADD] Closed WebLister")
+            
+            # STEP 5: Verify stock for existing products
+            logger.info(f"[VERIFY+AUTO-ADD] Step 5: Verifying {len(existing_products)} existing products...")
+            
+            verified_count = 0
+            stock_changes = []
+            
+            for cod, var, new_qty in existing_products:
+                try:
+                    old_stock = service.db.get_stock(cod, var)
+                    
+                    # Update stock
+                    service.db.verify_stock(cod, var, new_qty, cluster)
+                    
+                    if old_stock != new_qty:
+                        stock_changes.append({
+                            'cod': cod,
+                            'var': var,
+                            'old_stock': old_stock,
+                            'new_stock': new_qty,
+                            'difference': new_qty - old_stock
+                        })
+                    
+                    verified_count += 1
+                    
+                except Exception as e:
+                    logger.warning(f"[VERIFY] Error verifying {cod}.{var}: {e}")
+                    continue
+            
+            # STEP 6: Clean up PDF file
+            try:
+                os.remove(pdf_file_path)
+                logger.info(f"[VERIFY+AUTO-ADD] Deleted PDF: {pdf_file_path}")
+            except Exception as e:
+                logger.warning(f"Could not delete PDF: {e}")
+            
+            # STEP 7: Generate report
+            result = {
+                'success': True,
+                'storage_name': storage.name,
+                'cluster': cluster,
+                'total_products': len(parsed_entries),
+                'existing_verified': verified_count,
+                'products_added': len(added_products),
+                'failed_additions': len(failed_additions),
+                'stock_changes': stock_changes[:50],  # Limit for session storage
+                'added_products': added_products[:50],
+                'failed_additions': failed_additions[:20]
+            }
+            
+            logger.info(
+                f"[VERIFY+AUTO-ADD] ✅ Complete: "
+                f"{verified_count} verified, {len(added_products)} added, "
+                f"{len(failed_additions)} failed"
+            )
+            
+            return result
+            
+        finally:
+            service.close()
+            
+    except Exception as exc:
+        logger.exception(f"[VERIFY+AUTO-ADD] ❌ Error for storage {storage_id}")
         raise self.retry(exc=exc)

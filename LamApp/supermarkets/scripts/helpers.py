@@ -2,7 +2,8 @@ from datetime import datetime
 from calendar import monthrange
 from .logger import logger
 import math
-
+import pdfplumber
+import re
 
 class Helper:
 
@@ -276,3 +277,53 @@ class Helper:
               
     def line_breaker(self):
         logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")
+
+    def parse_promo_pdf(self, file_path):
+        data = []
+        sale_start = None
+        sale_end = None
+
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+
+                # --- Extract sale_start / sale_end ---
+                m = re.search(r"Pubblico Dal (\d{2}/\d{2}/\d{4}) al (\d{2}/\d{2}/\d{4})", text)
+                if m:
+                    sale_start = datetime.strptime(m.group(1), "%d/%m/%Y").date().isoformat()
+                    sale_end = datetime.strptime(m.group(2), "%d/%m/%Y").date().isoformat()
+
+                # --- Extract table rows ---
+                table = page.extract_table()
+                if not table:
+                    continue
+
+                for row in table:
+                    # Skip headers or empty rows
+                    if not row or row[1] == "Codice Art." or row[1] == None:
+                        continue
+
+                    codice = row[1]     # e.g. "1729.01"
+                    cess = row[5]       # cost_s
+                    pubb = row[6]       # price_s
+
+                    # Convert codice
+                    if codice:
+                        parts = codice.split(".")
+                        cod = int(parts[0])
+                        v = int(parts[1])
+
+                    # Convert prices
+                    try:
+                        cost_s = float(cess.replace(",", ".")) if cess else None
+                    except:
+                        cost_s = None
+
+                    try:
+                        price_s = float(pubb.replace(",", ".")) if pubb else None
+                    except:
+                        price_s = None
+
+                    data.append((cod, v, price_s, cost_s, sale_start, sale_end))
+
+        return data

@@ -1276,8 +1276,8 @@ def losses_analytics_unified_view(request):
 @login_required
 def add_products_view(request, storage_id):
     """
-    REFACTORED: Async product addition.
-    Prevents timeouts when adding many products (15-30 sec each).
+    UPDATED: Now uses unified task with gather_missing_product_data.
+    Replaces old Scrapper-based approach for consistency.
     """
     storage = get_object_or_404(
         Storage,
@@ -1292,10 +1292,10 @@ def add_products_view(request, storage_id):
             products_list = form.cleaned_data['products']
             settore = form.cleaned_data['settore']
             
-            # ✅ DISPATCH TO CELERY
-            from .tasks import add_products_task
+            # ✅ DISPATCH TO UNIFIED TASK (uses gather_missing_product_data)
+            from .tasks import add_products_unified_task
             
-            result = add_products_task.apply_async(
+            result = add_products_unified_task.apply_async(
                 args=[storage_id, products_list, settore],
                 retry=True
             )
@@ -1303,7 +1303,7 @@ def add_products_view(request, storage_id):
             est_time = len(products_list) * 20  # 20 seconds per product
             messages.info(
                 request,
-                f"Adding {len(products_list)} products. "
+                f"Adding {len(products_list)} products using auto-fetch. "
                 f"Estimated time: {est_time // 60} minutes. "
                 f"Track progress on the next page."
             )
@@ -2060,7 +2060,8 @@ def auto_add_product_view(request):
 @login_required
 def verify_stock_unified_enhanced_view(request):
     """
-    UPDATED: Now handles PDF files instead of CSV.
+    FIXED: Now properly dispatches Celery task for auto-add verification.
+    Handles PDF files and automatically adds missing products.
     """
     supermarkets = Supermarket.objects.filter(owner=request.user)
     
@@ -2087,7 +2088,7 @@ def verify_stock_unified_enhanced_view(request):
         pdf_file = request.FILES['pdf_file']
         
         if not pdf_file.name.endswith('.pdf'):
-            messages.error(request, "File must be .pdf format (not CSV)")
+            messages.error(request, "File must be .pdf format")
             return redirect('verify-stock-unified-enhanced')
         
         try:
@@ -2095,27 +2096,27 @@ def verify_stock_unified_enhanced_view(request):
             inventory_folder = Path(settings.INVENTORY_FOLDER)
             inventory_folder.mkdir(exist_ok=True)
             
-            # Use timestamp to avoid conflicts
             timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
-            file_path = inventory_folder / f"verify_{timestamp}_{pdf_file.name}"
+            file_path = inventory_folder / f"verify_auto_{timestamp}_{pdf_file.name}"
             
             with open(file_path, 'wb+') as destination:
                 for chunk in pdf_file.chunks():
                     destination.write(chunk)
             
-            # ✅ DISPATCH TO CELERY with cluster parameter
-            from .tasks import verify_stock_bulk_task
+            # ✅ DISPATCH TO NEW CELERY TASK WITH AUTO-ADD
+            from .tasks import verify_stock_with_auto_add_task
             
-            result = verify_stock_bulk_task.apply_async(
+            result = verify_stock_with_auto_add_task.apply_async(
                 args=[storage_id, str(file_path), cluster or None],
                 retry=True
             )
             
+            cluster_msg = f" (Cluster: {cluster})" if cluster else ""
             messages.info(
                 request,
-                f"Stock verification started for {storage.name}. "
-                f"{'Cluster: ' + cluster if cluster else 'No cluster assigned'}. "
-                f"This may take 10-20 minutes if auto-adding missing products."
+                f"Stock verification with auto-add started for {storage.name}{cluster_msg}. "
+                f"Missing products will be automatically fetched and added. "
+                f"This may take 10-20 minutes."
             )
             
             return redirect('task-progress', task_id=result.id, storage_id=storage_id)
@@ -2148,6 +2149,7 @@ def verify_stock_unified_enhanced_view(request):
         'supermarkets': supermarkets,
         'clusters_by_storage': json.dumps(clusters_by_storage)
     })
+
 
 @login_required
 def assign_clusters_view(request):
@@ -2355,25 +2357,47 @@ def record_losses_unified_view(request):
 
 @login_required
 def verification_report_unified_view(request):
-    """Display verification report (unified version)"""
-    report = request.session.get('verification_report')
+    """
+    UPDATED: Now displays auto-added products separately.
+    Shows comprehensive report with all three categories.
+    """
+    # Try to get from Celery task result first
+    task_id = request.GET.get('task_id')
+    
+    if task_id:
+        from celery.result import AsyncResult
+        from LamApp.celery import app as celery_app
+        
+        task = AsyncResult(task_id, app=celery_app)
+        
+        if task.ready() and task.successful():
+            report = task.result
+        else:
+            report = request.session.get('verification_report')
+    else:
+        report = request.session.get('verification_report')
     
     if not report:
         messages.warning(request, "No verification report available")
         return redirect('inventory-search')
     
     # Calculate statistics
-    if report['stock_changes']:
-        total_difference = sum(change['difference'] for change in report['stock_changes'])
-        
-        increases = [c for c in report['stock_changes'] if c['difference'] > 0]
-        decreases = [c for c in report['stock_changes'] if c['difference'] < 0]
-        
-        report['total_difference'] = total_difference
-        report['increases_count'] = len(increases)
-        report['decreases_count'] = len(decreases)
-        report['total_increase'] = sum(c['difference'] for c in increases)
-        report['total_decrease'] = sum(c['difference'] for c in decreases)
+    total_difference = 0
+    
+    if report.get('stock_changes'):
+        total_difference = sum(
+            change.get('difference', 0) 
+            for change in report['stock_changes']
+        )
+    
+    # Add auto-added products to difference
+    if report.get('added_products'):
+        total_difference += sum(
+            product.get('qty', 0) 
+            for product in report['added_products']
+        )
+    
+    report['total_difference'] = total_difference
     
     return render(request, 'inventory/verification_report_unified.html', {
         'report': report
