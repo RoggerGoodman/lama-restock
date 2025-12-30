@@ -27,6 +27,12 @@ class Finder:
         self.username = username
         self.password = password
 
+        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
+        os.makedirs(self.user_data_dir, exist_ok=True)
+
+        os.environ["HOME"] = self.user_data_dir
+        os.environ["XDG_RUNTIME_DIR"] = self.user_data_dir
+
         chrome_options = Options()
         chrome_options.binary_location = "/usr/bin/google-chrome"
 
@@ -34,16 +40,13 @@ class Finder:
         
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-setuid-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-software-rasterizer")
         chrome_options.add_argument("--window-size=1920,1080")       
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
         chrome_options.add_argument('--log-level=3')
-
-        # Set a writable directory for Chrome to use
-        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
-        os.makedirs(self.user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
 
         service = Service("/usr/bin/chromedriver")
@@ -196,7 +199,7 @@ class Finder:
             self.actions.perform()
             time.sleep(0.5)
         time.sleep(1)
-        
+
         self.driver.quit()
         shutil.rmtree(self.user_data_dir, ignore_errors=True)
         return storages

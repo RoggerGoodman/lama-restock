@@ -64,7 +64,13 @@ class WebLister:
         
         # Extract settore name (remove numeric prefix)
         self.settore = re.sub(r'^\d+\s+', '', storage_name)
-        
+
+        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
+        os.makedirs(self.user_data_dir, exist_ok=True)
+
+        os.environ["HOME"] = self.user_data_dir
+        os.environ["XDG_RUNTIME_DIR"] = self.user_data_dir
+
         # Setup Chrome options
         chrome_options = Options()
         chrome_options.binary_location = "/usr/bin/google-chrome"
@@ -72,6 +78,7 @@ class WebLister:
         if headless:
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-setuid-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-software-rasterizer")
@@ -89,8 +96,6 @@ class WebLister:
         chrome_options.add_experimental_option("prefs", prefs)
 
         # Set a writable directory for Chrome to use
-        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
-        os.makedirs(self.user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
 
         service = Service("/usr/bin/chromedriver")

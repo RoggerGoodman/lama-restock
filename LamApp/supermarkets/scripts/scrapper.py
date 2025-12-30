@@ -29,12 +29,19 @@ class Scrapper:
         self.password = password
         self.helper = helper
         self.db = db
-        
+
+        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
+        os.makedirs(self.user_data_dir, exist_ok=True)
+
+        os.environ["HOME"] = self.user_data_dir
+        os.environ["XDG_RUNTIME_DIR"] = self.user_data_dir
+
         # Set up the Selenium WebDriver
         chrome_options = Options()
         chrome_options.binary_location = "/usr/bin/google-chrome"
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-setuid-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-software-rasterizer")
@@ -43,8 +50,6 @@ class Scrapper:
         chrome_options.add_argument('--log-level=3')
 
         # Set a writable directory for Chrome to use
-        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
-        os.makedirs(self.user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
 
         service = Service("/usr/bin/chromedriver")

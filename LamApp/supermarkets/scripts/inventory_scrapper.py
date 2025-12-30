@@ -44,6 +44,13 @@ class Inventory_Scrapper:
         self.password = password
         self.id_cliente = "31659" #TODO must be made dynamic depending on the user, could be problematic for user with multiple supermarket
         # Set up the Selenium WebDriver
+
+        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
+        os.makedirs(self.user_data_dir, exist_ok=True)
+
+        os.environ["HOME"] = self.user_data_dir
+        os.environ["XDG_RUNTIME_DIR"] = self.user_data_dir
+
         chrome_options = Options()
         chrome_options.binary_location = "/usr/bin/google-chrome"
         # Make direct download the default on all platforms (no prompt).
@@ -51,6 +58,7 @@ class Inventory_Scrapper:
             logger.info("Configuring Chrome for server/headless mode (direct download)")
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-setuid-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-software-rasterizer")
@@ -75,8 +83,6 @@ class Inventory_Scrapper:
         chrome_options.add_argument('--log-level=3')
 
         # Set a writable directory for Chrome to use
-        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
-        os.makedirs(self.user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
         
         service = Service("/usr/bin/chromedriver")
