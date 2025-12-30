@@ -65,10 +65,12 @@ class WebLister:
         # Extract settore name (remove numeric prefix)
         self.settore = re.sub(r'^\d+\s+', '', storage_name)
 
+        # ✅ FIX: Use unique temp directory for THIS instance
         self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
         os.makedirs(self.user_data_dir, exist_ok=True)
         os.chmod(self.user_data_dir, 0o700)
 
+        # ✅ FIX: Set environment variables for THIS process
         os.environ["HOME"] = self.user_data_dir
         os.environ["XDG_RUNTIME_DIR"] = self.user_data_dir
 
@@ -84,9 +86,6 @@ class WebLister:
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-software-rasterizer")
             chrome_options.add_argument("--window-size=1920,1080")
-            #chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-            #chrome_options.add_argument('--log-level=3')  # Suppress console logs
-            chrome_options.add_argument("--verbose")
             chrome_options.add_argument("--disable-extensions")
         
         # Set download directory
@@ -98,18 +97,29 @@ class WebLister:
         }
         chrome_options.add_experimental_option("prefs", prefs)
 
-        # Set a writable directory for Chrome to use
+        # Use unique user data directory
         chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
 
+        # ✅ FIX: Use unique log file per instance (or disable logging)
+        log_path = f"/tmp/chromedriver-{uuid.uuid4().hex[:8]}.log"
+        
         service = Service(
             "/usr/bin/chromedriver",
-            log_path="/tmp/chromedriver.log",   # <-- ChromeDriver log
+            log_path=log_path  # ✅ Now unique per instance!
         )
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        self.actions = ActionChains(self.driver)
-        self.wait = WebDriverWait(self.driver, 300)
         
-        logger.info(f"WebLister initialized for storage: {storage_name}")
+        try:
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self.actions = ActionChains(self.driver)
+            self.wait = WebDriverWait(self.driver, 300)
+            
+            logger.info(f"WebLister initialized for storage: {storage_name}")
+        
+        except Exception as e:
+            logger.exception(f"Failed to initialize WebDriver: {e}")
+            # Clean up on failure
+            shutil.rmtree(self.user_data_dir, ignore_errors=True)
+            raise
 
     def login(self):
         """Login to PAC2000A and navigate to product list"""
@@ -152,10 +162,8 @@ class WebLister:
 
     def close_ordini_popup(self):
         try:
-            # Check presence of the popup by its title
             popup_title = self.driver.find_element(By.XPATH, "//h4[normalize-space()='Elenco Ordini In Corso']")
             
-            # If found, wait for the Chiudi button and click it
             chiudi_btn = WebDriverWait(self.driver, 5).until(
                 EC.element_to_be_clickable((By.XPATH, "/html/body/div[2]/div[2]/div[8]/div/div/div/div[3]/div/smart-button"))
             )
@@ -163,27 +171,23 @@ class WebLister:
             print("Popup 'Elenco Ordini In Corso' found and closed.")
 
         except NoSuchElementException:
-            # Popup not present → do nothing
             pass
         except TimeoutException:
-            # Popup present but button didn't load → fail silently or handle as needed
             print("Popup detected but Chiudi button not clickable.")
 
-    def apply_category_filters(self): #TODO storages are fixed, must be made dynamic to accomodate different areas/clients
+    def apply_category_filters(self): 
         """Apply category filters based on storage type"""
         self.output_path = Path(self.download_dir) / f"{self.storage_name}.csv"
         if self.settore == "RIANO GENERI VARI":
             self.IDCodMag=46
-            self.RepartoIn=[28, 44, 76, 50, 52] # Sala Generi Vari, Ortofrutta, Frutta secca, Non-Food, Extra-Alimentare
+            self.RepartoIn=[28, 44, 76, 50, 52]
         elif self.settore == "POMEZIA DEPERIBILI":
             self.IDCodMag=47
-            self.RepartoIn=[28, 30, 34, 44] # Sala Generi Vari, Murale Salumi/Latticini, Pane, Ortofrutta
-            28,30,34,44
+            self.RepartoIn=[28, 30, 34, 44]
         elif self.settore == "S.PALOMBA SURGELATI":
             self.IDCodMag=49
-            self.RepartoIn=[38] #Surgelati
+            self.RepartoIn=[38]
         else:
-            # No filters for unknown storage types
             logger.info(f"No predefined filters for {self.settore}")
             return
 
@@ -199,7 +203,6 @@ class WebLister:
 
         url = "https://dropzone.pac2000a.it/anagrafiche/Listino_callV2.php"
 
-        # --- payload ---
         payload = {
             "funzione": "lista",
             "IDAzienda": IDAzienda,
@@ -232,7 +235,6 @@ class WebLister:
             "codiceEtichettaVisualizza": "",
         }
 
-        # --- headers ---
         headers = {
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
@@ -241,12 +243,10 @@ class WebLister:
             "User-Agent": self.driver.execute_script("return navigator.userAgent;"),
         }
 
-        # --- copy cookies from selenium ---
         session = requests.Session()
         for c in self.driver.get_cookies():
             session.cookies.set(c["name"], c["value"])
 
-        # --- request ---
         response = session.post(url, data=payload, headers=headers, timeout=600)
         response.raise_for_status()
 
@@ -263,35 +263,31 @@ class WebLister:
 
         with self.output_path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL)
-
-            # Write header row
             writer.writerow(csv_headers)
-
-            # Write data rows
             for row in products:
                 writer.writerow([row.get(field, "") for field in source_fields])
-        
 
         return self.output_path        
     
     def run(self) -> str:
-            """
-            Execute the complete download workflow.
-            
-            Returns:
-                str: Path to downloaded Excel file
-            """
-            try:
-                self.login()
-                self.apply_category_filters()
-                self.data = self.fetch_listino()
-                file_path = self.save_listino_to_csv(self.data)
-                return file_path
-            finally:
-                self.driver.quit()
-                shutil.rmtree(self.user_data_dir, ignore_errors=True)
+        """
+        Execute the complete download workflow.
+        
+        Returns:
+            str: Path to downloaded Excel file
+        """
+        try:
+            self.login()
+            self.apply_category_filters()
+            self.data = self.fetch_listino()
+            file_path = self.save_listino_to_csv(self.data)
+            return file_path
+        finally:
+            # ✅ Always clean up
+            self.driver.quit()
+            shutil.rmtree(self.user_data_dir, ignore_errors=True)
 
-    def gather_missing_product_data(self, cod, v):
+    def gather_missing_product_data(self, cod, var):
         """
         Fetch missing product data from ArticoliDecodifica_call.php
         using CodiceArticolo and VarianteArticolo.
@@ -318,7 +314,7 @@ class WebLister:
             "funzione": "decodifica",
             "CodiceBarre": "",
             "CodiceArticolo": cod,
-            "VarianteArticolo": v,
+            "VarianteArticolo": var,
             "IDCliente": 31659,
             "IDAzienda": 2,
             "decodificaAnagrafica": "S",
@@ -344,7 +340,7 @@ class WebLister:
             "dataDecorrenzaCosto": self.dataIntercettaPrezzi,
             "dataScadenzaCosto": self.dataIntercettaPrezzi,
         }
-        # --- copy cookies from selenium ---
+
         session = requests.Session()
         for c in self.driver.get_cookies():
             session.cookies.set(c["name"], c["value"])
@@ -355,15 +351,11 @@ class WebLister:
             data = response.json()
 
         except Exception as e:
-            logger.error(
-                f"Decodifica failed for {cod}.{v}: {e}"
-            )
+            logger.error(f"Decodifica failed for {cod}.{var}: {e}")
             return None
 
         if not isinstance(data, dict):
-            logger.warning(
-                f"Unexpected response format for {cod}.{v}"
-            )
+            logger.warning(f"Unexpected response format for {cod}.{var}")
             return None
         
         description = data.get("Descrizione")
@@ -374,7 +366,7 @@ class WebLister:
         price = data.get("vendita")
         category = data.get("DexReparto")
         
-        return {
+        return (
             description,
             package,
             multiplier,
@@ -382,7 +374,8 @@ class WebLister:
             cost,
             price,
             category,
-        }
+        )
+
 
 def download_product_list(username: str, password: str, storage_name: str, 
                           download_dir: str, headless: bool = True) -> str:
