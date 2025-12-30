@@ -557,6 +557,8 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                     
                     # Add economics
                     if price and cost:
+                        cost = float(cost)
+                        price = float(price)
                         cur = service.db.cursor()
                         cur.execute("""
                             INSERT INTO economics (cod, v, price_std, cost_std, category)
@@ -881,10 +883,11 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 stock=qty,
                                 verified=True  # Mark as verified immediately
                             )
-                            cost = int(cost)
-                            price = int(price)
+                            
                             # Add economics data if available
-                            if price and cost and price > 0 and cost > 0:
+                            if price and cost:
+                                cost = float(cost)
+                                price = float(price)
                                 cur = service.db.cursor()
                                 cur.execute("""
                                     INSERT INTO economics (cod, v, price_std, cost_std, category)

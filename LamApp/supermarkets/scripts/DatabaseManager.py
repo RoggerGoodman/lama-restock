@@ -797,7 +797,7 @@ class DatabaseManager:
             # Set purge flag
             cur.execute("""
                 UPDATE products 
-                SET purge_flag = 1 
+                SET purge_flag = TRUE 
                 WHERE cod = %s AND v = %s
             """, (cod, v))
             
@@ -874,7 +874,7 @@ class DatabaseManager:
                 SELECT p.cod, p.v, ps.stock
                 FROM products p
                 JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                WHERE p.purge_flag = 1 AND ps.stock = 0
+                WHERE p.purge_flag = TRUE AND ps.stock = 0
             """)
         except:
             # purge_flag column doesn't exist yet
@@ -901,7 +901,7 @@ class DatabaseManager:
                 SELECT p.cod, p.v, p.descrizione, ps.stock
                 FROM products p
                 JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                WHERE p.purge_flag = 1 AND ps.stock > 0
+                WHERE p.purge_flag = TRUE AND ps.stock > 0
                 ORDER BY ps.stock DESC
             """)
             
