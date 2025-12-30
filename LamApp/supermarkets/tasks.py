@@ -881,7 +881,8 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 stock=qty,
                                 verified=True  # Mark as verified immediately
                             )
-                            
+                            cost = int(cost)
+                            price = int(price)
                             # Add economics data if available
                             if price and cost and price > 0 and cost > 0:
                                 cur = service.db.cursor()
