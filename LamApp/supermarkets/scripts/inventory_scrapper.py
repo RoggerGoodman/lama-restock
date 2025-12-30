@@ -45,7 +45,7 @@ class Inventory_Scrapper:
         self.id_cliente = "31659" #TODO must be made dynamic depending on the user, could be problematic for user with multiple supermarket
         # Set up the Selenium WebDriver
         chrome_options = Options()
-        chrome_options.binary_location = "/usr/bin/chromium-browser"   # or /usr/bin/google-chrome-stable
+        chrome_options.binary_location = "/usr/bin/google-chrome"
         # Make direct download the default on all platforms (no prompt).
         if IS_LINUX:
             logger.info("Configuring Chrome for server/headless mode (direct download)")

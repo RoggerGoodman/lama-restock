@@ -28,7 +28,7 @@ class Finder:
         self.password = password
 
         chrome_options = Options()
-        chrome_options.binary_location = "/usr/bin/chromium-browser"   # or /usr/bin/google-chrome-stable
+        chrome_options.binary_location = "/usr/bin/google-chrome"
 
         # Set up Chrome
         
