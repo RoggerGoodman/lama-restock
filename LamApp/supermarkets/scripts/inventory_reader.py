@@ -363,31 +363,34 @@ def parse_pdf(pdf_path: str):
                     if 'Pagina' in line:
                         continue
                     
-                    # Try to extract: barcode, cod+variant, description, quantity
-                    # Pattern: barcode(13 digits) cod(spaces) v(spaces) description PZ qty,decimal
-                    match = re.search(
-                        r'(\d{13})\s+(\d+)\s+(\d+)\s+.*?PZ\s+([\d,]+)',
-                        line
-                    )
-                    
-                    if match:
-                        barcode = match.group(1)
-                        cod = int(match.group(2))
-                        v = int(match.group(3))
-                        qty_str = match.group(4)
+                    try:
+                        # Split on last " PZ "
+                        left, qty_part = line.rsplit(" PZ ", 1)
+
+                        # Quantity
+                        qty = float(qty_part.replace(",", "."))
+
+                        # Split left side
+                        parts = left.split()
+                        if len(parts) < 3:
+                            continue
+
+                        cod = int(parts[1])
+                        v = int(parts[2])
+    
+
+                    except Exception:
+                        continue
                         
-                        # Convert Italian decimal format (comma) to float
-                        qty = float(qty_str.replace(',', '.'))
+                    # Skip zero quantities
+                    if qty > 0:
+                        results.append({
+                            'cod': cod,
+                            'v': v,
+                            'qty': int(qty)  # Convert to int for database
+                        })
                         
-                        # Skip zero quantities
-                        if qty > 0:
-                            results.append({
-                                'cod': cod,
-                                'v': v,
-                                'qty': int(qty)  # Convert to int for database
-                            })
-                            
-                            logger.debug(f"Parsed: {cod}.{v} = {int(qty)}")
+                        logger.debug(f"Parsed: {cod}.{v} = {int(qty)}")
     
     except Exception as e:
         logger.exception(f"Error parsing PDF {pdf_path}")

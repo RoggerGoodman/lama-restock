@@ -7,7 +7,8 @@ import logging
 from pathlib import Path
 from django.conf import settings
 from django.utils import timezone
-
+from django.db import transaction
+from django.db.models import F
 from .models import Storage, RestockLog
 from .scripts.DatabaseManager import DatabaseManager
 from .scripts.decision_maker import DecisionMaker
@@ -109,15 +110,23 @@ class AutomatedRestockService:
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
-    def update_product_stats_checkpoint(self, log: RestockLog, full:bool = True):
+    def update_product_stats_checkpoint(self, log: RestockLog, full: bool = True):
         """
-        CHECKPOINT 1: Update product statistics from PAC2000A.
-        FIXED: Now passes credentials to Scrapper
+        FIXED: Mark as started immediately to prevent duplicate runs
         """
         logger.info(f"[CHECKPOINT 1] Updating product stats for {self.storage.name}")
         
-        log.current_stage = 'updating_stats'
-        log.save()
+        # CRITICAL: Mark as started BEFORE doing anything
+        with transaction.atomic():
+            log = RestockLog.objects.select_for_update().get(id=log.id)
+            
+            # Double-check not already done
+            if log.stats_updated_at:
+                logger.warning(f"Stats already updated, skipping (race condition prevented)")
+                return
+            
+            log.current_stage = 'updating_stats'
+            log.save()
         
         try:
             scrapper = Scrapper(
@@ -131,33 +140,32 @@ class AutomatedRestockService:
                 scrapper.navigate()
                 scrapper.init_product_stats_for_settore(self.settore, full)
                 
-                # Auto-purge check after successful update
-                logger.info(f"[AUTO-PURGE] Checking for products ready to purge...")
+                # Auto-purge check
                 purged_products = self.db.check_and_purge_flagged()
-                
                 if purged_products:
-                    logger.info(f"[AUTO-PURGE]  Purged {len(purged_products)} products with zero stock")
-                    for result in purged_products:
-                        logger.info(f"  - {result['cod']}.{result['v']}: {result['message']}")
-                else:
-                    logger.info(f"[AUTO-PURGE] No products ready for purging")
+                    logger.info(f"[AUTO-PURGE] ✅ Purged {len(purged_products)} products")
                 
-                log.current_stage = 'stats_updated'
-                log.stats_updated_at = timezone.now()
-                log.save()
+                # CRITICAL: Update timestamp atomically
+                with transaction.atomic():
+                    log = RestockLog.objects.select_for_update().get(id=log.id)
+                    log.current_stage = 'stats_updated'
+                    log.stats_updated_at = timezone.now()
+                    log.save()
                 
-                logger.info(f" [CHECKPOINT 1 COMPLETE] Stats updated for {self.storage.name}")
+                logger.info(f"✅ [CHECKPOINT 1 COMPLETE] Stats updated")
                 return True
                 
             finally:
                 scrapper.driver.quit()
                 
         except Exception as e:
-            log.current_stage = 'failed'
-            log.error_message = f"Stats update failed: {str(e)}"
-            log.save()
+            with transaction.atomic():
+                log = RestockLog.objects.select_for_update().get(id=log.id)
+                log.current_stage = 'failed'
+                log.error_message = f"Stats update failed: {str(e)}"
+                log.save()
             
-            logger.exception(f"[CHECKPOINT 1 FAILED] Error updating stats for {self.storage.name}")
+            logger.exception(f"[CHECKPOINT 1 FAILED]")
             raise
     
     def calculate_order_checkpoint(self, log: RestockLog, coverage=None):
@@ -306,17 +314,10 @@ class AutomatedRestockService:
     
     def run_full_restock_workflow(self, coverage=None, log=None):
         """
-        Run complete restock workflow with checkpoint recovery.
-        
-        If a log is provided, it will attempt to resume from the last checkpoint.
-        Otherwise, creates a new log and runs from the beginning.
-        
-        Returns:
-            RestockLog instance with results
+        FIXED: Use database locks to prevent duplicate execution
         """
         logger.info(f"Starting restock workflow for {self.storage.name}")
         
-        # Create new log if not provided
         if log is None:
             log = RestockLog.objects.create(
                 storage=self.storage,
@@ -324,51 +325,63 @@ class AutomatedRestockService:
                 current_stage='pending',
                 started_at=timezone.now()
             )
-            logger.info(f"Created new RestockLog #{log.id}")
         else:
-            log.retry_count += 1
-            log.status = 'processing'
-            log.save()
-            logger.info(f"Resuming RestockLog #{log.id} from stage: {log.current_stage} (retry {log.retry_count})")
+            # CRITICAL FIX: Use select_for_update to lock the row
+            with transaction.atomic():
+                log = RestockLog.objects.select_for_update().get(id=log.id)
+                log.retry_count += 1
+                log.status = 'processing'
+                log.save()
         
         try:
-            # CHECKPOINT 1: Update stats
-            if log.current_stage in ['pending', 'updating_stats']:
-                self.update_product_stats_checkpoint(log)
-            else:
-                logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated at {log.stats_updated_at}")
+            # CHECKPOINT 1: Update stats (with lock check)
+            with transaction.atomic():
+                log.refresh_from_db()  # Get latest state
+                
+                if log.stats_updated_at:
+                    logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated at {log.stats_updated_at}")
+                else:
+                    logger.info(f"[CHECKPOINT 1 START] Updating stats...")
+                    self.update_product_stats_checkpoint(log)
             
-            # CHECKPOINT 2: Calculate order
-            if log.current_stage in ['stats_updated', 'calculating_order']:
-                orders_list = self.calculate_order_checkpoint(log, coverage)
-            else:
-                # Retrieve orders from log
-                results = log.get_results()
-                orders_list = [
-                    (o['cod'], o['var'], o['qty'])
-                    for o in results.get('orders', [])
-                ]
-                logger.info(f"[CHECKPOINT 2 SKIP] Order already calculated at {log.order_calculated_at}")
+            # CHECKPOINT 2: Calculate order (with lock check)
+            with transaction.atomic():
+                log.refresh_from_db()
+                
+                if log.order_calculated_at:
+                    results = log.get_results()
+                    orders_list = [(o['cod'], o['var'], o['qty']) for o in results.get('orders', [])]
+                    logger.info(f"[CHECKPOINT 2 SKIP] Order already calculated")
+                else:
+                    logger.info(f"[CHECKPOINT 2 START] Calculating order...")
+                    orders_list = self.calculate_order_checkpoint(log, coverage)
             
-            # CHECKPOINT 3: Execute order
-            if log.current_stage in ['order_calculated', 'executing_order']:
-                self.execute_order_checkpoint(log, orders_list)
-            else:
-                logger.info(f"[CHECKPOINT 3 SKIP] Order already executed at {log.order_executed_at}")
+            # CHECKPOINT 3: Execute order (with lock check)
+            with transaction.atomic():
+                log.refresh_from_db()
+                
+                if log.order_executed_at:
+                    logger.info(f"[CHECKPOINT 3 SKIP] Order already executed")
+                else:
+                    logger.info(f"[CHECKPOINT 3 START] Executing order...")
+                    self.execute_order_checkpoint(log, orders_list)
             
-            logger.info(f" Restock workflow completed successfully for {self.storage.name}")
+            logger.info(f"✅ Restock workflow completed successfully")
             return log
             
         except Exception as e:
-            logger.exception(f" Restock workflow failed for {self.storage.name}")
+            logger.exception(f"❌ Restock workflow failed")
             
-            # Check if we can retry
+            with transaction.atomic():
+                log = RestockLog.objects.select_for_update().get(id=log.id)
+                
+                # Only set to failed if not already completed
+                if log.status != 'completed':
+                    log.status = 'failed'
+                    log.save()
+            
             if log.can_retry():
-                logger.info(f"Will retry from checkpoint {log.current_stage} (attempt {log.retry_count + 1}/{log.max_retries})")
-            else:
-                logger.error(f"Max retries ({log.max_retries}) reached for RestockLog #{log.id}")
-                log.status = 'failed'
-                log.save()
+                logger.info(f"Will retry from checkpoint (attempt {log.retry_count + 1}/{log.max_retries})")
             
             raise
     

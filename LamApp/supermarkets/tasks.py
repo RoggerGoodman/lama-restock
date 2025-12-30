@@ -685,61 +685,6 @@ def assign_clusters_task(self, storage_id, pdf_file_path, cluster):
 @shared_task(
     bind=True,
     max_retries=3,
-    default_retry_delay=600
-)
-def record_losses_task(self, supermarket_id, csv_file_path, loss_type):
-    """
-    Record losses from CSV file.
-    
-    Args:
-        supermarket_id: Supermarket ID
-        csv_file_path: Full path to CSV file
-        loss_type: Type of loss (broken/expired/internal)
-    """
-    from .models import Supermarket
-    from .services import RestockService
-    from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
-    
-    try:
-        supermarket = Supermarket.objects.get(id=supermarket_id)
-        
-        logger.info(f"[RECORD LOSSES] Starting for {supermarket.name}: {loss_type}")
-        
-        # Use first storage to get DB connection
-        storage = supermarket.storages.first()
-        
-        if not storage:
-            raise ValueError(f"No storages found for {supermarket.name}")
-        
-        service = RestockService(storage)
-        
-        try:
-            result = verify_lost_stock_from_excel_combined(service.db)
-            
-            if result['success']:
-                logger.info(
-                    f"✅ [RECORD LOSSES] Completed: "
-                    f"{result['files_processed']} files, {result['total_losses']} total losses"
-                )
-            
-            return {
-                'success': result['success'],
-                'supermarket_name': supermarket.name,
-                'loss_type': loss_type,
-                'files_processed': result.get('files_processed', 0),
-                'total_losses': result.get('total_losses', 0)
-            }
-            
-        finally:
-            service.close()
-            
-    except Exception as exc:
-        logger.exception(f"[RECORD LOSSES] Error for supermarket {supermarket_id}")
-        raise self.retry(exc=exc)
-    
-@shared_task(
-    bind=True,
-    max_retries=3,
     default_retry_delay=900
 )
 def process_promos_task(self, supermarket_id, pdf_file_path):

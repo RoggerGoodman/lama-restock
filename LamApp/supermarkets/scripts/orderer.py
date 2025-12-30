@@ -262,7 +262,7 @@ class Orderer:
             successful_orders.append((cod_part, var_part, qty_part))
 
         # Switch back
-        self.driver.switch_to.window(self.driver.window_handles[-2])
+        #self.driver.switch_to.window(self.driver.window_handles[-2])
         
         logger.info(f"Order execution complete: {len(successful_orders)} successful, {len(self.order_skipped_products)} skipped during ordering")
         

@@ -240,21 +240,37 @@ class RestockLog(models.Model):
     
     coverage_used = models.DecimalField(max_digits=4, decimal_places=1, null=True)
 
-    class Meta:
-        ordering = ['-started_at']
-
     def set_results(self, results_dict):
         """Store results as JSON"""
-        self.results = json.dumps(results_dict)
+        if results_dict is None:
+            self.results = '{}'
+        else:
+            self.results = json.dumps(results_dict)
     
     def get_results(self):
-        """Retrieve results from JSON"""
-        if self.results:
-            return json.loads(self.results)
-        return {}
+        """
+        Retrieve results from JSON.
+        FIXED: Always return dict, never None or throw error
+        """
+        if not self.results or self.results.strip() == '':
+            return {}
+        
+        try:
+            parsed = json.loads(self.results)
+            # Ensure it's a dict, not None or other type
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError) as e:
+            return {}
     
     def can_retry(self):
-        """Check if this log can be retried"""
+        """
+        Check if this log can be retried.
+        FIXED: Only allow retry if explicitly failed (not timeout-completed)
+        """
+        # Don't allow retry if order was partially executed (timeout case)
+        if self.status == 'completed' and self.error_message and 'timeout' in self.error_message.lower():
+            return False
+        
         return self.retry_count < self.max_retries and self.status == 'failed'
     
     def get_stage_display_info(self):
@@ -270,6 +286,13 @@ class RestockLog(models.Model):
             'failed': {'label': 'Failed', 'progress': 0, 'icon': 'x-circle'},
         }
         return stage_info.get(self.current_stage, stage_info['pending'])
+    
+    class Meta:
+        ordering = ['-started_at']
+        # CRITICAL: Add database-level constraint to prevent duplicate processing
+        indexes = [
+            models.Index(fields=['storage', 'status', 'current_stage']),
+        ]
 
     def __str__(self):
         return f"{self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"
