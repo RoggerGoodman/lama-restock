@@ -32,6 +32,7 @@ class Scrapper:
 
         self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
         os.makedirs(self.user_data_dir, exist_ok=True)
+        os.chmod(self.user_data_dir, 0o700)
 
         os.environ["HOME"] = self.user_data_dir
         os.environ["XDG_RUNTIME_DIR"] = self.user_data_dir
