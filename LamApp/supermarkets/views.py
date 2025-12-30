@@ -17,6 +17,7 @@ import os
 from .automation_services import AutomatedRestockService
 import threading
 from LamApp.celery import app as celery_app
+from celery.result import AsyncResult
 
 from .models import (
     Supermarket, Storage, RestockSchedule, 
@@ -1970,13 +1971,13 @@ def auto_add_product_view(request):
             retry=True
         )
                 
-        messages.info(
-            request,
-            f"Adding {len(products_list)} products using auto-fetch. "
-            f"Track progress on the next page."
-        )
-        
-        return redirect('task-progress', task_id=result.id, storage_id=storage_id)
+        result = async_result.get(timeout=120)  # seconds
+
+        if result.get("success"):
+            return JsonResponse({
+                "success": True,
+                "message": f"Product {cod}.{var} added successfully!"
+            })
             
     except Exception as e:
         logger.exception("Error in auto_add_product_view")
