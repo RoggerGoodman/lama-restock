@@ -84,8 +84,10 @@ class WebLister:
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-software-rasterizer")
             chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-            chrome_options.add_argument('--log-level=3')  # Suppress console logs
+            #chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            #chrome_options.add_argument('--log-level=3')  # Suppress console logs
+            chrome_options.add_argument("--verbose")
+            chrome_options.add_argument("--disable-extensions")
         
         # Set download directory
         prefs = {
