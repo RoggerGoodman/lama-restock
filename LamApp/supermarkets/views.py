@@ -1272,7 +1272,6 @@ def losses_analytics_unified_view(request):
     
     return render(request, 'losses_analytics_unified.html', context)
 
-
 @login_required
 def add_products_view(request, storage_id):
     """
@@ -1955,100 +1954,29 @@ def auto_add_product_view(request):
         var = int(data['var'])
         supermarket_id = int(data['supermarket_id'])
         storage_id = int(data['storage_id'])
+
+        products_list = [(cod, var)]
         
         supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
         storage = get_object_or_404(Storage, id=storage_id, supermarket=supermarket)
         
         logger.info(f"Auto-adding product {cod}.{var} to {storage.name}")
         
-        # Use WebLister to fetch product data
-        from .scripts.web_lister import WebLister
-        from pathlib import Path
+        # ✅ DISPATCH TO UNIFIED TASK (uses gather_missing_product_data)
+        from .tasks import add_products_unified_task
         
-        # Create temp directory for WebLister
-        temp_dir = Path(settings.BASE_DIR) / 'temp_lister'
-        temp_dir.mkdir(exist_ok=True)
-        
-        lister = WebLister(
-            username=supermarket.username,
-            password=supermarket.password,
-            storage_name=storage.name,
-            download_dir=str(temp_dir),
-            headless=True
+        result = add_products_unified_task.apply_async(
+            args=[storage_id, products_list, storage_id],
+            retry=True
+        )
+                
+        messages.info(
+            request,
+            f"Adding {len(products_list)} products using auto-fetch. "
+            f"Track progress on the next page."
         )
         
-        try:
-            lister.login()
-            
-            # Fetch product data
-            product_data = lister.gather_missing_product_data(cod, var)
-            
-            if not product_data:
-                return JsonResponse({
-                    'success': False,
-                    'message': f'Product {cod}.{var} not found in PAC2000A system'
-                }, status=404)
-            
-            # Extract data
-            description, package, multiplier, availability, cost, price, category = product_data
-            
-            # Add to database
-            service = RestockService(storage)
-            
-            try:
-                # Add to products table
-                service.db.add_product(
-                    cod=cod,
-                    v=var,
-                    descrizione=description or f"Product {cod}.{var}",
-                    rapp=multiplier or 1,
-                    pz_x_collo=package or 12,
-                    settore=storage.settore,
-                    disponibilita=availability or "Si"
-                )
-                
-                # Initialize stats (empty arrays, will be updated later)
-                service.db.init_product_stats(
-                    cod=cod,
-                    v=var,
-                    sold=[],
-                    bought=[],
-                    stock=0,
-                    verified=False
-                )
-                
-                # Add economics data if available
-                if price and cost:
-                    cur = service.db.cursor()
-                    cur.execute("""
-                        INSERT INTO economics (cod, v, price_std, cost_std, category)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ON CONFLICT (cod, v) DO UPDATE SET
-                            price_std = excluded.price_std,
-                            cost_std = excluded.cost_std,
-                            category = excluded.category
-                    """, (cod, var, price, cost, category or "Unknown"))
-                    service.db.conn.commit()
-                
-                logger.info(f"✅ Successfully auto-added product {cod}.{var}")
-                
-                return JsonResponse({
-                    'success': True,
-                    'message': f'Product {cod}.{var} added successfully! ({description})',
-                    'product': {
-                        'cod': cod,
-                        'var': var,
-                        'description': description,
-                        'package': package,
-                        'availability': availability
-                    }
-                })
-                
-            finally:
-                service.close()
-                
-        finally:
-            lister.driver.quit()
+        return redirect('task-progress', task_id=result.id, storage_id=storage_id)
             
     except Exception as e:
         logger.exception("Error in auto_add_product_view")
