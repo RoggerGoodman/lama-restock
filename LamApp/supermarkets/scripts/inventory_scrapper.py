@@ -7,7 +7,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-import os
+import os, uuid, shutil
 import sys
 from django.conf import settings
 import logging
@@ -75,9 +75,9 @@ class Inventory_Scrapper:
         chrome_options.add_argument('--log-level=3')
 
         # Set a writable directory for Chrome to use
-        user_data_dir = "/tmp/chrome-data"
-        os.makedirs(user_data_dir, exist_ok=True)
-        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
+        os.makedirs(self.user_data_dir, exist_ok=True)
+        chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
         
         service = Service("/usr/bin/chromedriver")
 
@@ -222,3 +222,5 @@ class Inventory_Scrapper:
             print(f"  → Saved {csv_path}")
 
         print("All available testate exported.")
+        self.driver.quit()
+        shutil.rmtree(self.user_data_dir, ignore_errors=True)

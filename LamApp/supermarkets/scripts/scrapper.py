@@ -10,7 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
 from .DatabaseManager import DatabaseManager
 from .helpers import Helper
-import os
+import os, uuid, shutil
 
 
 class Scrapper:
@@ -43,9 +43,9 @@ class Scrapper:
         chrome_options.add_argument('--log-level=3')
 
         # Set a writable directory for Chrome to use
-        user_data_dir = "/tmp/chrome-data"
-        os.makedirs(user_data_dir, exist_ok=True)
-        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
+        os.makedirs(self.user_data_dir, exist_ok=True)
+        chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
 
         service = Service("/usr/bin/chromedriver")
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -229,3 +229,5 @@ class Scrapper:
                 continue
 
         print(report)
+        self.driver.quit()
+        shutil.rmtree(self.user_data_dir, ignore_errors=True)

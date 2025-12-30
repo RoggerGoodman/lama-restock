@@ -19,7 +19,7 @@ import logging
 import requests
 from datetime import date
 import time
-import os
+import os, uuid, shutil
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +89,9 @@ class WebLister:
         chrome_options.add_experimental_option("prefs", prefs)
 
         # Set a writable directory for Chrome to use
-        user_data_dir = "/tmp/chrome-data"
-        os.makedirs(user_data_dir, exist_ok=True)
-        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
+        os.makedirs(self.user_data_dir, exist_ok=True)
+        chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
 
         service = Service("/usr/bin/chromedriver")
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -278,6 +278,7 @@ class WebLister:
                 return file_path
             finally:
                 self.driver.quit()
+                shutil.rmtree(self.user_data_dir, ignore_errors=True)
 
     def gather_missing_product_data(self, cod, v):
         """

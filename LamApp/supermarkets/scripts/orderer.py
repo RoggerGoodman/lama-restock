@@ -9,7 +9,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
 import time
 import re
-import os
+import os, uuid, shutil
 from .logger import logger
 
 
@@ -39,9 +39,9 @@ class Orderer:
         chrome_options.add_argument('--log-level=3')
 
         # Set a writable directory for Chrome to use
-        user_data_dir = "/tmp/chrome-data"
-        os.makedirs(user_data_dir, exist_ok=True)
-        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
+        os.makedirs(self.user_data_dir, exist_ok=True)
+        chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
 
         service = Service("/usr/bin/chromedriver")
 
@@ -265,5 +265,6 @@ class Orderer:
         #self.driver.switch_to.window(self.driver.window_handles[-2])
         
         logger.info(f"Order execution complete: {len(successful_orders)} successful, {len(self.order_skipped_products)} skipped during ordering")
-        
+        self.driver.quit()
+        shutil.rmtree(self.user_data_dir, ignore_errors=True)
         return successful_orders, self.order_skipped_products
