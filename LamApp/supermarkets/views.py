@@ -1966,7 +1966,7 @@ def auto_add_product_view(request):
         # ✅ DISPATCH TO UNIFIED TASK (uses gather_missing_product_data)
         from .tasks import add_products_unified_task
         
-        result = add_products_unified_task.apply_async(
+        async_result = add_products_unified_task.apply_async(
             args=[storage_id, products_list, storage_id],
             retry=True
         )
