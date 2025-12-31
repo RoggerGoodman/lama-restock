@@ -1108,7 +1108,13 @@ def stock_value_unified_view(request):
 
 @login_required
 def losses_analytics_unified_view(request):
-    """Unified loss analytics with flexible filtering - FIXED"""
+    """
+    OVERHAULED: Enhanced loss analytics with monetary values and full product lists.
+    Now shows:
+    - Losses in € (using cost_s from economics)
+    - Complete product list with pagination
+    - Better category breakdown
+    """
     
     # Get user's supermarkets
     supermarkets = Supermarket.objects.filter(owner=request.user)
@@ -1117,6 +1123,7 @@ def losses_analytics_unified_view(request):
     supermarket_id = request.GET.get('supermarket_id')
     storage_id = request.GET.get('storage_id')
     period = request.GET.get('period', '3')
+    show_category = request.GET.get('show_category', 'all')  # NEW: Filter by category
     
     try:
         period_months = int(period)
@@ -1141,8 +1148,7 @@ def losses_analytics_unified_view(request):
     if storage_id:
         storages = storages.filter(id=storage_id)
     
-    # FIX: Use a single database connection per supermarket to avoid duplicates
-    # Group storages by supermarket
+    # Group storages by supermarket to avoid duplicate DB connections
     supermarkets_to_process = {}
     for storage in storages:
         if storage.supermarket.id not in supermarkets_to_process:
@@ -1154,42 +1160,61 @@ def losses_analytics_unified_view(request):
         supermarkets_to_process[storage.supermarket.id]['storages'].append(storage)
         supermarkets_to_process[storage.supermarket.id]['settores'].add(storage.settore)
     
-    # Aggregate loss statistics
+    # ✅ NEW: Enhanced statistics with monetary values
     stats = {
-        'broken': {'total': 0, 'products': 0, 'monthly': [0]*24},
-        'expired': {'total': 0, 'products': 0, 'monthly': [0]*24},
-        'internal': {'total': 0, 'products': 0, 'monthly': [0]*24},
+        'broken': {
+            'total_units': 0, 
+            'total_value': 0.0,  # NEW
+            'products': 0, 
+            'monthly_units': [0]*24,
+            'monthly_value': [0.0]*24  # NEW
+        },
+        'expired': {
+            'total_units': 0, 
+            'total_value': 0.0,  # NEW
+            'products': 0, 
+            'monthly_units': [0]*24,
+            'monthly_value': [0.0]*24  # NEW
+        },
+        'internal': {
+            'total_units': 0, 
+            'total_value': 0.0,  # NEW
+            'products': 0, 
+            'monthly_units': [0]*24,
+            'monthly_value': [0.0]*24  # NEW
+        },
     }
     
-    top_products_dict = {}
+    # ✅ NEW: Complete product list (not just top 20)
+    all_products_list = []
     
     # Process each supermarket's database ONCE
     for sm_id, sm_data in supermarkets_to_process.items():
         try:
-            # Use first storage to get DB connection (they share same DB per supermarket)
             first_storage = sm_data['storages'][0]
             service = RestockService(first_storage)
             cursor = service.db.cursor()
             
-            # Build WHERE clause based on selected storage
+            # Build WHERE clause
             if storage_id:
-                # Specific storage selected - filter by settore
                 settore_filter = f"WHERE p.settore = '{first_storage.settore}'"
             elif len(sm_data['settores']) < len(sm_data['supermarket'].storages.all()):
-                # Multiple but not all storages selected - filter by settores
                 settores_list = "', '".join(sm_data['settores'])
                 settore_filter = f"WHERE p.settore IN ('{settores_list}')"
             else:
-                # All storages - no filter
                 settore_filter = ""
             
+            # ✅ NEW: Enhanced query with cost data
             query = f"""
                 SELECT 
                     el.cod, el.v,
                     el.broken, el.expired, el.internal,
-                    p.descrizione
+                    p.descrizione,
+                    e.cost_std,
+                    e.category
                 FROM extra_losses el
                 LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
+                LEFT JOIN economics e ON el.cod = e.cod AND el.v = e.v
                 {settore_filter}
             """
             
@@ -1201,10 +1226,23 @@ def losses_analytics_unified_view(request):
                 cod = row['cod']
                 v = row['v']
                 description = row['descrizione'] or f"Product {cod}.{v}"
+                cost = row['cost_std'] or 0.0
+                category = row['category'] or 'Unknown'
                 
-                product_key = (cod, v, description)
-                if product_key not in top_products_dict:
-                    top_products_dict[product_key] = 0
+                product_losses = {
+                    'cod': cod,
+                    'var': v,
+                    'description': description,
+                    'category': category,
+                    'broken_units': 0,
+                    'broken_value': 0.0,
+                    'expired_units': 0,
+                    'expired_value': 0.0,
+                    'internal_units': 0,
+                    'internal_value': 0.0,
+                    'total_units': 0,
+                    'total_value': 0.0
+                }
                 
                 for loss_type in loss_types:
                     loss_json = row[loss_type] or []
@@ -1216,41 +1254,51 @@ def losses_analytics_unified_view(request):
                             # Calculate for period
                             months_to_include = min(period_months, len(loss_array))
                             period_losses = sum(loss_array[:months_to_include])
+                            period_value = period_losses * cost
                             
                             if period_losses > 0:
-                                stats[loss_type]['total'] += period_losses
+                                stats[loss_type]['total_units'] += period_losses
+                                stats[loss_type]['total_value'] += period_value
                                 stats[loss_type]['products'] += 1
                                 
                                 # Aggregate monthly data
-                                for idx, val in enumerate(loss_array[:24]):
-                                    stats[loss_type]['monthly'][idx] += val
+                                for idx, units in enumerate(loss_array[:24]):
+                                    stats[loss_type]['monthly_units'][idx] += units
+                                    stats[loss_type]['monthly_value'][idx] += units * cost
                                 
-                                # Add to top products
-                                top_products_dict[product_key] += period_losses
+                                # Add to product losses
+                                product_losses[f'{loss_type}_units'] = period_losses
+                                product_losses[f'{loss_type}_value'] = period_value
+                                product_losses['total_units'] += period_losses
+                                product_losses['total_value'] += period_value
+                        
                         except (ValueError, TypeError):
                             continue
+                
+                # Add to list if has losses
+                if product_losses['total_units'] > 0:
+                    all_products_list.append(product_losses)
             
             service.close()
         except Exception as e:
             logger.exception(f"Error processing losses for supermarket {sm_id}")
             continue
     
-    # Convert top products dict to list
-    top_products = [
-        {
-            'cod': cod,
-            'var': v,
-            'description': desc,
-            'total_losses': total
-        }
-        for (cod, v, desc), total in top_products_dict.items()
-    ]
+    # Sort products by total value (descending)
+    all_products_list.sort(key=lambda x: x['total_value'], reverse=True)
     
-    top_products.sort(key=lambda x: x['total_losses'], reverse=True)
-    top_products = top_products[:20]
+    # ✅ NEW: Category filtering
+    if show_category != 'all':
+        filtered_products = [
+            p for p in all_products_list 
+            if p[f'{show_category}_units'] > 0
+        ]
+    else:
+        filtered_products = all_products_list
     
-    # Calculate total
-    total_losses = sum(s['total'] for s in stats.values())
+    # Calculate totals
+    total_units = sum(s['total_units'] for s in stats.values())
+    total_value = sum(s['total_value'] for s in stats.values())
     
     context = {
         'supermarkets': supermarkets,
@@ -1259,8 +1307,11 @@ def losses_analytics_unified_view(request):
         'selected_storage': storage_id or '',
         'scope_description': scope_description,
         'stats': stats,
-        'total_losses': total_losses,
-        'top_products': top_products,
+        'total_units': total_units,
+        'total_value': total_value,  # NEW
+        'all_products': filtered_products,  # NEW: Complete list
+        'total_products': len(filtered_products),
+        'show_category': show_category,
         'period': period_months,
         'period_options': [
             {'value': 1, 'label': 'Last Month'},
@@ -1946,8 +1997,8 @@ def update_stats_only_view(request, storage_id):
 @require_POST
 def auto_add_product_view(request):
     """
-    Automatically fetch and add a product using gather_missing_product_data.
-    Much faster than manual entry - fetches all data from PAC2000A automatically.
+    FIXED: Now returns task_id for async tracking instead of blocking.
+    Frontend can track progress properly.
     """
     try:
         data = json.loads(request.body)
@@ -1963,21 +2014,20 @@ def auto_add_product_view(request):
         
         logger.info(f"Auto-adding product {cod}.{var} to {storage.name}")
         
-        # ✅ DISPATCH TO UNIFIED TASK (uses gather_missing_product_data)
+        # ✅ FIX: Dispatch async and return task_id (don't block with .get())
         from .tasks import add_products_unified_task
         
-        async_result = add_products_unified_task.apply_async(
-            args=[storage_id, products_list, storage_id],
+        result = add_products_unified_task.apply_async(
+            args=[storage_id, products_list, storage.settore],
             retry=True
         )
-                
-        result = async_result.get(timeout=120)  # seconds
-
-        if result.get("success"):
-            return JsonResponse({
-                "success": True,
-                "message": f"Product {cod}.{var} added successfully!"
-            })
+        
+        # Return task_id for frontend to track
+        return JsonResponse({
+            'success': True,
+            'task_id': result.id,
+            'message': f'Auto-adding product {cod}.{var}...'
+        })
             
     except Exception as e:
         logger.exception("Error in auto_add_product_view")
@@ -2440,30 +2490,60 @@ def task_progress_view(request, task_id, storage_id=None):
 @login_required
 def task_status_ajax_view(request, task_id):
     """
-    AJAX endpoint to check task status.
-    Called by JavaScript every 5 seconds to update progress.
-    ⚠️ MUST return JSON, not HTML
+    FIXED: Better handling of different task result formats.
+    Returns consistent structure for all task types.
     """
     from celery.result import AsyncResult
     
-    # FIX: Bind to our Celery app instance
     task = AsyncResult(task_id, app=celery_app)
     
     response_data = {
         'state': task.state,
         'ready': task.ready(),
+        'task_id': task_id,
     }
     
     if task.ready():
         if task.successful():
             result = task.result
             response_data['success'] = True
-            response_data['result'] = result
+            
+            # ✅ FIX: Handle different result types consistently
+            if isinstance(result, dict):
+                response_data['result'] = result
+                
+                # Determine redirect URL based on result content
+                if 'log_id' in result:
+                    # Restock operation
+                    response_data['redirect_url'] = f"/logs/{result['log_id']}/"
+                elif 'storage_name' in result and 'products_added' in result:
+                    # Add products operation
+                    response_data['redirect_url'] = "/inventory/"
+                    response_data['message'] = result.get('message', 'Operation completed successfully')
+                elif 'storage_name' in result:
+                    # Generic storage operation
+                    response_data['redirect_url'] = "/dashboard/"
+                    response_data['message'] = result.get('message', 'Operation completed successfully')
+                else:
+                    # Unknown format - just show message
+                    response_data['message'] = str(result)
+            else:
+                # Non-dict result
+                response_data['result'] = {'message': str(result)}
+                response_data['message'] = str(result)
         else:
+            # Task failed
             response_data['success'] = False
-            response_data['error'] = str(task.info)
+            error_info = task.info
+            
+            if isinstance(error_info, Exception):
+                response_data['error'] = str(error_info)
+            elif isinstance(error_info, dict):
+                response_data['error'] = error_info.get('exc_message', str(error_info))
+            else:
+                response_data['error'] = str(error_info)
     else:
-        # Task still running
+        # Task still running - extract progress info
         if isinstance(task.info, dict):
             response_data['progress'] = task.info.get('progress', 0)
             response_data['status_message'] = task.info.get('status', 'Processing...')

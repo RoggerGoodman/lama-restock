@@ -294,22 +294,12 @@ function submitAutoAdd() {
         return;
     }
     
-    // Show progress
+    // Hide form, show progress
     document.getElementById('autoAddForm').style.display = 'none';
     document.getElementById('autoAddBtn').style.display = 'none';
     document.getElementById('addProductProgress').style.display = 'block';
-    document.getElementById('progressText').textContent = 'Connecting to PAC2000A...';
     
     const csrfToken = '{{ csrf_token }}';
-    
-    // Simulate progress updates
-    setTimeout(() => {
-        document.getElementById('progressText').textContent = 'Fetching product details...';
-    }, 2000);
-    
-    setTimeout(() => {
-        document.getElementById('progressText').textContent = 'Adding to database...';
-    }, 5000);
     
     fetch('/inventory/auto-add/', {
         method: 'POST',
@@ -326,37 +316,69 @@ function submitAutoAdd() {
     })
     .then(response => response.json())
     .then(data => {
-        document.getElementById('addProductProgress').style.display = 'none';
-        
-        if (data.success) {
-            // Show success message
-            document.getElementById('successDetails').innerHTML = `
-                <strong>${data.product.description}</strong><br>
-                Package Size: ${data.product.package || 'N/A'}<br>
-                Availability: ${data.product.availability || 'Unknown'}
-            `;
-            document.getElementById('successMessage').style.display = 'block';
-            
-            // Redirect after 3 seconds
-            setTimeout(() => {
-                window.location.href = `/inventory/results/cod_var/?cod=${productCode}&var=${productVar}`;
-            }, 3000);
+        if (data.success && data.task_id) {
+            // ✅ FIX: Poll task status instead of waiting synchronously
+            document.getElementById('progressText').textContent = 'Fetching product data from PAC2000A...';
+            pollTaskStatus(data.task_id);
         } else {
-            // Show error
-            document.getElementById('errorDetails').textContent = data.message;
-            document.getElementById('errorMessage').style.display = 'block';
-            document.getElementById('autoAddForm').style.display = 'block';
-            document.getElementById('autoAddBtn').style.display = 'inline-block';
+            showError(data.message || 'Failed to start auto-add');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        document.getElementById('addProductProgress').style.display = 'none';
-        document.getElementById('errorDetails').textContent = 'Network error: ' + error;
-        document.getElementById('errorMessage').style.display = 'block';
-        document.getElementById('autoAddForm').style.display = 'block';
-        document.getElementById('autoAddBtn').style.display = 'inline-block';
+        showError('Network error: ' + error);
     });
+}
+
+// ✅ NEW: Poll task status
+function pollTaskStatus(taskId) {
+    const pollInterval = setInterval(() => {
+        fetch(`/tasks/${taskId}/status/`)
+            .then(response => response.json())
+            .then(data => {
+                console.log('Task status:', data);
+                
+                if (data.ready) {
+                    clearInterval(pollInterval);
+                    
+                    if (data.success && data.result) {
+                        // Success!
+                        const result = data.result;
+                        document.getElementById('addProductProgress').style.display = 'none';
+                        
+                        document.getElementById('successDetails').innerHTML = `
+                            Product <strong>${productCode}.${productVar}</strong> added successfully!<br>
+                            ${result.products_added || 1} product(s) added.
+                        `;
+                        document.getElementById('successMessage').style.display = 'block';
+                        
+                        // Redirect after 3 seconds
+                        setTimeout(() => {
+                            window.location.href = `/inventory/results/cod_var/?cod=${productCode}&var=${productVar}`;
+                        }, 3000);
+                    } else {
+                        showError(data.error || 'Task failed');
+                    }
+                } else {
+                    // Update progress
+                    if (data.progress) {
+                        document.getElementById('progressText').textContent = 
+                            `Processing... ${data.progress}%`;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Poll error:', error);
+            });
+    }, 3000); // Poll every 3 seconds
+}
+
+function showError(errorMsg) {
+    document.getElementById('addProductProgress').style.display = 'none';
+    document.getElementById('errorDetails').textContent = errorMsg;
+    document.getElementById('errorMessage').style.display = 'block';
+    document.getElementById('autoAddForm').style.display = 'block';
+    document.getElementById('autoAddBtn').style.display = 'inline-block';
 }
 </script>
 {% endblock %}

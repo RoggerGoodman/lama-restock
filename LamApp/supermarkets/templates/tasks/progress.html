@@ -108,7 +108,7 @@ function checkTaskStatus() {
         return;
     }
     
-    fetch(`/tasks/status/${taskId}/`)
+    fetch(`/tasks/${taskId}/status/`)
         .then(response => response.json())
         .then(data => {
             console.log('Task status:', data);
@@ -117,7 +117,8 @@ function checkTaskStatus() {
                 clearInterval(pollInterval);
                 
                 if (data.success) {
-                    showSuccess(data.result);
+                    // ✅ FIX: Handle different completion types
+                    showSuccess(data);
                 } else {
                     showError(data.error || 'Task failed');
                 }
@@ -141,8 +142,10 @@ function updateProgress(data) {
     progressBar.textContent = progress + '%';
     progressPercent.textContent = progress + '%';
     
-    // Update status text based on state
-    if (data.state === 'PENDING') {
+    // Update status text
+    if (data.status_message) {
+        statusText.textContent = data.status_message;
+    } else if (data.state === 'PENDING') {
         statusText.textContent = 'Task queued, waiting to start...';
     } else if (data.state === 'STARTED') {
         statusText.textContent = 'Task started, processing...';
@@ -151,37 +154,49 @@ function updateProgress(data) {
     }
 }
 
-function showSuccess(result) {
+function showSuccess(data) {
     document.getElementById('progressSection').style.display = 'none';
     document.getElementById('successSection').style.display = 'block';
     
     const messageEl = document.getElementById('successMessage');
     const actionsEl = document.getElementById('successActions');
     
-    // Format success message based on result type
-    if (result.log_id) {
-        // Restock operation
-        messageEl.innerHTML = `
-            Successfully ordered ${result.products_ordered || 0} products 
-            (${result.total_packages || 0} packages total)
-        `;
+    // ✅ FIX: Handle different success types
+    if (data.redirect_url) {
+        // Has redirect URL - use it
+        messageEl.textContent = data.message || 'Task completed successfully!';
         actionsEl.innerHTML = `
-            <a href="/logs/${result.log_id}/" class="btn btn-success">
-                <i class="bi bi-eye"></i> View Detailed Log
+            <a href="${data.redirect_url}" class="btn btn-success">
+                <i class="bi bi-check"></i> View Results
             </a>
         `;
         
         // Auto-redirect after 3 seconds
         setTimeout(() => {
-            window.location.href = `/logs/${result.log_id}/`;
+            window.location.href = data.redirect_url;
+        }, 3000);
+    } else if (data.result && data.result.log_id) {
+        // Restock operation
+        messageEl.innerHTML = `
+            Successfully ordered ${data.result.products_ordered || 0} products 
+            (${data.result.total_packages || 0} packages total)
+        `;
+        actionsEl.innerHTML = `
+            <a href="/logs/${data.result.log_id}/" class="btn btn-success">
+                <i class="bi bi-eye"></i> View Detailed Log
+            </a>
+        `;
+        
+        setTimeout(() => {
+            window.location.href = `/logs/${data.result.log_id}/`;
         }, 3000);
     } else {
         // Generic success
-        messageEl.textContent = result.message || 'Task completed successfully!';
+        messageEl.textContent = data.message || 'Task completed successfully!';
         actionsEl.innerHTML = `
-            <button onclick="window.location.reload()" class="btn btn-success">
-                <i class="bi bi-check"></i> Done
-            </button>
+            <a href="/dashboard/" class="btn btn-success">
+                <i class="bi bi-check"></i> Back to Dashboard
+            </a>
         `;
     }
 }

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 {% block title %}Loss Analytics{% endblock %}
-{% block page_title %}Loss Analytics{% endblock %}
+{% block page_title %}Loss Analytics - Enhanced{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -22,7 +22,7 @@
             <div class="stat-card">
                 <h5 class="mb-3"><i class="bi bi-funnel"></i> Filters</h5>
                 <form method="get" class="row g-3">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label for="supermarket_id" class="form-label">Supermarket</label>
                         <select name="supermarket_id" id="supermarket_id" class="form-select" onchange="this.form.submit()">
                             <option value="">All Supermarkets</option>
@@ -34,7 +34,7 @@
                         </select>
                     </div>
                     
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label for="storage_id" class="form-label">Storage (Settore)</label>
                         <select name="storage_id" id="storage_id" class="form-select" onchange="this.form.submit()">
                             <option value="">All Storages</option>
@@ -47,7 +47,7 @@
                         </select>
                     </div>
                     
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label for="period" class="form-label">Time Period</label>
                         <select name="period" id="period" class="form-select" onchange="this.form.submit()">
                             {% for opt in period_options %}
@@ -55,6 +55,16 @@
                                 {{ opt.label }}
                             </option>
                             {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="show_category" class="form-label">Category Filter</label>
+                        <select name="show_category" id="show_category" class="form-select" onchange="this.form.submit()">
+                            <option value="all" {% if show_category == 'all' %}selected{% endif %}>All Categories</option>
+                            <option value="broken" {% if show_category == 'broken' %}selected{% endif %}>Broken Only</option>
+                            <option value="expired" {% if show_category == 'expired' %}selected{% endif %}>Expired Only</option>
+                            <option value="internal" {% if show_category == 'internal' %}selected{% endif %}>Internal Only</option>
                         </select>
                     </div>
                     
@@ -72,20 +82,22 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="alert alert-primary">
-                <strong>Analyzing:</strong> {{ scope_description }}
+                <strong>Analyzing:</strong> {{ scope_description }} | 
+                <strong>{{ total_products }}</strong> products with losses
             </div>
         </div>
     </div>
 
-    <!-- Summary Cards -->
+    <!-- Summary Cards - Enhanced with Monetary Values -->
     <div class="row mb-4">
         <div class="col-md-3">
             <div class="stat-card">
                 <div class="icon icon-red">
                     <i class="bi bi-x-octagon"></i>
                 </div>
-                <h3 class="mb-1">{{ stats.broken.total }}</h3>
+                <h3 class="mb-1">{{ stats.broken.total_units }}</h3>
                 <p class="text-muted mb-1">Broken/Damaged</p>
+                <small class="text-success">€{{ stats.broken.total_value|floatformat:2 }}</small><br>
                 <small class="text-muted">{{ stats.broken.products }} product{{ stats.broken.products|pluralize }}</small>
             </div>
         </div>
@@ -94,8 +106,9 @@
                 <div class="icon icon-orange">
                     <i class="bi bi-calendar-x"></i>
                 </div>
-                <h3 class="mb-1">{{ stats.expired.total }}</h3>
+                <h3 class="mb-1">{{ stats.expired.total_units }}</h3>
                 <p class="text-muted mb-1">Expired</p>
+                <small class="text-success">€{{ stats.expired.total_value|floatformat:2 }}</small><br>
                 <small class="text-muted">{{ stats.expired.products }} product{{ stats.expired.products|pluralize }}</small>
             </div>
         </div>
@@ -104,8 +117,9 @@
                 <div class="icon icon-blue">
                     <i class="bi bi-people"></i>
                 </div>
-                <h3 class="mb-1">{{ stats.internal.total }}</h3>
+                <h3 class="mb-1">{{ stats.internal.total_units }}</h3>
                 <p class="text-muted mb-1">Internal Use</p>
+                <small class="text-success">€{{ stats.internal.total_value|floatformat:2 }}</small><br>
                 <small class="text-muted">{{ stats.internal.products }} product{{ stats.internal.products|pluralize }}</small>
             </div>
         </div>
@@ -114,65 +128,109 @@
                 <div class="icon icon-red">
                     <i class="bi bi-exclamation-triangle"></i>
                 </div>
-                <h3 class="mb-1">{{ total_losses }}</h3>
-                <p class="text-muted mb-1">Total Losses</p>
-                <small class="text-muted">Last {{ period }} month{{ period|pluralize }}</small>
+                <h3 class="mb-1">€{{ total_value|floatformat:2 }}</h3>
+                <p class="text-muted mb-1">Total Loss Value</p>
+                <small class="text-muted">{{ total_units }} units | Last {{ period }} month{{ period|pluralize }}</small>
             </div>
         </div>
     </div>
 
-    <!-- Loss Breakdown Chart -->
+    <!-- Loss Breakdown Charts -->
     <div class="row mb-4">
-        <div class="col-lg-8">
+        <div class="col-lg-6">
             <div class="stat-card">
                 <h5 class="mb-4">
-                    <i class="bi bi-bar-chart"></i> Monthly Loss Trends
+                    <i class="bi bi-bar-chart"></i> Monthly Loss Trends (Units)
                 </h5>
-                <canvas id="lossChart" height="100"></canvas>
+                <canvas id="unitsChart" height="100"></canvas>
             </div>
         </div>
 
-        <div class="col-lg-4">
+        <div class="col-lg-6">
             <div class="stat-card">
                 <h5 class="mb-4">
-                    <i class="bi bi-pie-chart"></i> Loss Distribution
+                    <i class="bi bi-currency-euro"></i> Monthly Loss Value (€)
                 </h5>
-                <canvas id="distributionChart"></canvas>
+                <canvas id="valueChart" height="100"></canvas>
             </div>
         </div>
     </div>
 
-    <!-- Top Products by Loss -->
+    <!-- Complete Products List -->
     <div class="row">
         <div class="col-12">
             <div class="stat-card">
-                <h5 class="mb-4">
-                    <i class="bi bi-list-ol"></i> Top Products by Loss
-                </h5>
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h5 class="mb-0">
+                        <i class="bi bi-list-ol"></i> Complete Products List
+                        <span class="badge bg-secondary">{{ total_products }} products</span>
+                    </h5>
+                    <button onclick="exportToCSV()" class="btn btn-success btn-sm">
+                        <i class="bi bi-download"></i> Export to CSV
+                    </button>
+                </div>
 
-                {% if top_products %}
+                {% if all_products %}
                 <div class="table-responsive">
-                    <table class="table table-hover">
+                    <table class="table table-hover table-sm" id="productsTable">
                         <thead>
                             <tr>
-                                <th>Rank</th>
-                                <th>Product Code</th>
+                                <th>Code</th>
                                 <th>Description</th>
-                                <th class="text-end">Total Units Lost</th>
+                                <th>Category</th>
+                                <th class="text-end">Broken</th>
+                                <th class="text-end">Expired</th>
+                                <th class="text-end">Internal</th>
+                                <th class="text-end">Total Units</th>
+                                <th class="text-end">Total Value</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for product in top_products %}
+                            {% for product in all_products %}
                             <tr>
-                                <td><strong>{{ forloop.counter }}</strong></td>
                                 <td><code>{{ product.cod }}.{{ product.var }}</code></td>
-                                <td>{{ product.description|truncatewords:8 }}</td>
+                                <td>{{ product.description|truncatewords:6 }}</td>
+                                <td><small class="text-muted">{{ product.category }}</small></td>
                                 <td class="text-end">
-                                    <span class="badge bg-danger">{{ product.total_losses }} units</span>
+                                    {% if product.broken_units > 0 %}
+                                        <span class="badge bg-danger">{{ product.broken_units }}</span>
+                                        <small class="text-muted d-block">€{{ product.broken_value|floatformat:2 }}</small>
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    {% if product.expired_units > 0 %}
+                                        <span class="badge bg-warning">{{ product.expired_units }}</span>
+                                        <small class="text-muted d-block">€{{ product.expired_value|floatformat:2 }}</small>
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    {% if product.internal_units > 0 %}
+                                        <span class="badge bg-info">{{ product.internal_units }}</span>
+                                        <small class="text-muted d-block">€{{ product.internal_value|floatformat:2 }}</small>
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <strong>{{ product.total_units }}</strong>
+                                </td>
+                                <td class="text-end">
+                                    <strong class="text-danger">€{{ product.total_value|floatformat:2 }}</strong>
                                 </td>
                             </tr>
                             {% endfor %}
                         </tbody>
+                        <tfoot class="table-light">
+                            <tr>
+                                <td colspan="6"><strong>Totals</strong></td>
+                                <td class="text-end"><strong>{{ total_units }}</strong></td>
+                                <td class="text-end"><strong class="text-danger">€{{ total_value|floatformat:2 }}</strong></td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
                 {% else %}
@@ -186,33 +244,34 @@
     </div>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-// Monthly trend chart
-const lossCtx = document.getElementById('lossChart').getContext('2d');
-new Chart(lossCtx, {
+// Units chart
+const unitsCtx = document.getElementById('unitsChart').getContext('2d');
+new Chart(unitsCtx, {
     type: 'line',
     data: {
         labels: ['12 mo', '11 mo', '10 mo', '9 mo', '8 mo', '7 mo', '6 mo', '5 mo', '4 mo', '3 mo', '2 mo', 'Last mo'],
         datasets: [
             {
                 label: 'Broken',
-                data: {{ stats.broken.monthly|default:"[]"|safe }}.reverse().slice(-12),
+                data: {{ stats.broken.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
                 borderColor: 'rgb(220, 53, 69)',
                 backgroundColor: 'rgba(220, 53, 69, 0.1)',
                 tension: 0.4
             },
             {
                 label: 'Expired',
-                data: {{ stats.expired.monthly|default:"[]"|safe }}.reverse().slice(-12),
+                data: {{ stats.expired.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
                 borderColor: 'rgb(255, 193, 7)',
                 backgroundColor: 'rgba(255, 193, 7, 0.1)',
                 tension: 0.4
             },
             {
                 label: 'Internal Use',
-                data: {{ stats.internal.monthly|default:"[]"|safe }}.reverse().slice(-12),
+                data: {{ stats.internal.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
                 borderColor: 'rgb(13, 110, 253)',
                 backgroundColor: 'rgba(13, 110, 253, 0.1)',
                 tension: 0.4
@@ -229,40 +288,101 @@ new Chart(lossCtx, {
         },
         scales: {
             y: {
-                beginAtZero: true
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'Units'
+                }
             }
         }
     }
 });
 
-// Distribution pie chart
-const distCtx = document.getElementById('distributionChart').getContext('2d');
-new Chart(distCtx, {
-    type: 'doughnut',
+// Value chart (€)
+const valueCtx = document.getElementById('valueChart').getContext('2d');
+new Chart(valueCtx, {
+    type: 'bar',
     data: {
-        labels: ['Broken', 'Expired', 'Internal Use'],
-        datasets: [{
-            data: [
-                {{ stats.broken.total }},
-                {{ stats.expired.total }},
-                {{ stats.internal.total }}
-            ],
-            backgroundColor: [
-                'rgb(220, 53, 69)',
-                'rgb(255, 193, 7)',
-                'rgb(13, 110, 253)'
-            ]
-        }]
+        labels: ['12 mo', '11 mo', '10 mo', '9 mo', '8 mo', '7 mo', '6 mo', '5 mo', '4 mo', '3 mo', '2 mo', 'Last mo'],
+        datasets: [
+            {
+                label: 'Broken',
+                data: {{ stats.broken.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+                backgroundColor: 'rgba(220, 53, 69, 0.7)',
+            },
+            {
+                label: 'Expired',
+                data: {{ stats.expired.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+                backgroundColor: 'rgba(255, 193, 7, 0.7)',
+            },
+            {
+                label: 'Internal Use',
+                data: {{ stats.internal.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+                backgroundColor: 'rgba(13, 110, 253, 0.7)',
+            }
+        ]
     },
     options: {
         responsive: true,
         maintainAspectRatio: true,
         plugins: {
             legend: {
-                position: 'bottom'
+                position: 'top',
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                stacked: false,
+                title: {
+                    display: true,
+                    text: 'Value (€)'
+                }
+            },
+            x: {
+                stacked: false
             }
         }
     }
 });
+
+// Export to CSV function
+function exportToCSV() {
+    const table = document.getElementById('productsTable');
+    let csv = [];
+    
+    // Headers
+    const headers = [];
+    table.querySelectorAll('thead th').forEach(th => {
+        headers.push(th.textContent.trim());
+    });
+    csv.push(headers.join(','));
+    
+    // Rows
+    table.querySelectorAll('tbody tr').forEach(tr => {
+        const row = [];
+        tr.querySelectorAll('td').forEach(td => {
+            // Clean text and escape commas
+            let text = td.textContent.trim().replace(/\n/g, ' ').replace(/\s+/g, ' ');
+            if (text.includes(',')) {
+                text = `"${text}"`;
+            }
+            row.push(text);
+        });
+        csv.push(row.join(','));
+    });
+    
+    // Download
+    const csvContent = csv.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'loss_analytics_' + new Date().toISOString().split('T')[0] + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
 </script>
 {% endblock %}
