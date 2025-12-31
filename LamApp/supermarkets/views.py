@@ -1889,49 +1889,6 @@ def get_clusters_for_settore_view(request, supermarket_id, settore):
         return JsonResponse({'error': str(e)}, status=500)
 
 @login_required
-@require_POST
-def inventory_adjust_stock_ajax_view(request):
-    """AJAX endpoint to adjust stock from inventory view"""
-    try:
-        cod = int(request.POST.get('cod'))
-        var = int(request.POST.get('var'))
-        adjustment = int(request.POST.get('adjustment'))
-        reason = request.POST.get('reason')
-        supermarket_name = request.POST.get('supermarket')
-        
-        # Find the supermarket
-        supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
-        storage = supermarket.storages.first()
-        
-        if not storage:
-            return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)
-        
-        service = RestockService(storage)
-        try:
-            current_stock = service.db.get_stock(cod, var)
-            service.db.adjust_stock(cod, var, adjustment)
-            new_stock = service.db.get_stock(cod, var)
-            
-            logger.info(
-                f"Inventory adjustment: {supermarket_name} - "
-                f"Product {cod}.{var}: {current_stock} → {new_stock} ({adjustment:+d}) "
-                f"Reason: {reason}"
-            )
-            
-            return JsonResponse({
-                'success': True,
-                'message': f'Stock adjusted: {current_stock} → {new_stock}',
-                'new_stock': new_stock
-            })
-        finally:
-            service.close()
-            
-    except Exception as e:
-        logger.exception("Error in inventory stock adjustment")
-        return JsonResponse({'success': False, 'message': str(e)}, status=500)
-
-
-@login_required
 @require_POST  
 def inventory_flag_for_purge_ajax_view(request):
     """AJAX endpoint to flag product for purge from inventory view"""
@@ -2584,3 +2541,295 @@ def restock_task_progress_view(request, task_id):
     }
     
     return render(request, 'storages/restock_task_progress.html', context)
+
+@login_required
+def edit_losses_view(request):
+    """
+    View to edit recorded losses WITHOUT affecting stock.
+    Shows all products with losses and allows editing individual array values.
+    """
+    supermarkets = Supermarket.objects.filter(owner=request.user)
+    
+    # Get filters
+    supermarket_id = request.GET.get('supermarket_id')
+    storage_id = request.GET.get('storage_id')
+    
+    # Build scope
+    if supermarket_id:
+        supermarkets_filter = Supermarket.objects.filter(id=supermarket_id, owner=request.user)
+    else:
+        supermarkets_filter = supermarkets
+    
+    # Get storages
+    if storage_id:
+        storages = Storage.objects.filter(id=storage_id)
+    else:
+        storages = Storage.objects.filter(supermarket__in=supermarkets_filter)
+    
+    # Group by supermarket to avoid duplicate DB connections
+    supermarkets_to_process = {}
+    for storage in storages:
+        if storage.supermarket.id not in supermarkets_to_process:
+            supermarkets_to_process[storage.supermarket.id] = {
+                'supermarket': storage.supermarket,
+                'storages': [],
+                'settores': set()
+            }
+        supermarkets_to_process[storage.supermarket.id]['storages'].append(storage)
+        supermarkets_to_process[storage.supermarket.id]['settores'].add(storage.settore)
+    
+    products_with_losses = []
+    
+    # Process each supermarket's database
+    for sm_id, sm_data in supermarkets_to_process.items():
+        try:
+            first_storage = sm_data['storages'][0]
+            service = RestockService(first_storage)
+            cursor = service.db.cursor()
+            
+            # Build WHERE clause
+            if storage_id:
+                settore_filter = f"WHERE p.settore = '{first_storage.settore}'"
+            elif len(sm_data['settores']) < len(sm_data['supermarket'].storages.all()):
+                settores_list = "', '".join(sm_data['settores'])
+                settore_filter = f"WHERE p.settore IN ('{settores_list}')"
+            else:
+                settore_filter = ""
+            
+            query = f"""
+                SELECT 
+                    el.cod, el.v,
+                    el.broken, el.broken_updated,
+                    el.expired, el.expired_updated,
+                    el.internal, el.internal_updated,
+                    p.descrizione,
+                    p.settore
+                FROM extra_losses el
+                LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
+                {settore_filter}
+                ORDER BY p.descrizione
+            """
+            
+            cursor.execute(query)
+            
+            for row in cursor.fetchall():
+                product = {
+                    'cod': row['cod'],
+                    'var': row['v'],
+                    'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                    'settore': row['settore'],
+                    'supermarket_name': sm_data['supermarket'].name,
+                    'supermarket_id': sm_data['supermarket'].id,
+                    'broken': row['broken'] or [],
+                    'broken_updated': row['broken_updated'],
+                    'expired': row['expired'] or [],
+                    'expired_updated': row['expired_updated'],
+                    'internal': row['internal'] or [],
+                    'internal_updated': row['internal_updated'],
+                }
+                
+                # Only include if has at least one loss recorded
+                if product['broken'] or product['expired'] or product['internal']:
+                    products_with_losses.append(product)
+            
+            service.close()
+        except Exception as e:
+            logger.exception(f"Error loading losses for supermarket {sm_id}")
+            continue
+    
+    context = {
+        'supermarkets': supermarkets,
+        'storages': Storage.objects.filter(supermarket__owner=request.user),
+        'products': products_with_losses,
+        'selected_supermarket': supermarket_id or '',
+        'selected_storage': storage_id or '',
+    }
+    
+    return render(request, 'inventory/edit_losses.html', context)
+
+
+@login_required
+@require_POST
+def edit_loss_ajax_view(request):
+    """
+    AJAX endpoint to edit a specific loss value.
+    Updates extra_losses table WITHOUT affecting stock.
+    """
+    try:
+        data = json.loads(request.body)
+        
+        supermarket_id = int(data['supermarket_id'])
+        cod = int(data['cod'])
+        var = int(data['var'])
+        loss_type = data['loss_type']  # 'broken', 'expired', or 'internal'
+        month_index = int(data['month_index'])  # 0 = most recent month
+        new_value = int(data['new_value'])
+        
+        # Validate loss type
+        if loss_type not in ['broken', 'expired', 'internal']:
+            return JsonResponse({
+                'success': False,
+                'message': 'Invalid loss type'
+            }, status=400)
+        
+        # Get supermarket and storage
+        supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+        storage = supermarket.storages.first()
+        
+        if not storage:
+            return JsonResponse({
+                'success': False,
+                'message': 'No storage found'
+            }, status=400)
+        
+        service = RestockService(storage)
+        
+        try:
+            cursor = service.db.cursor()
+            
+            # Get current array
+            cursor.execute(f"""
+                SELECT {loss_type}, {loss_type}_updated
+                FROM extra_losses
+                WHERE cod = %s AND v = %s
+            """, (cod, var))
+            
+            row = cursor.fetchone()
+            
+            if not row:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Product not found in extra_losses'
+                }, status=404)
+            
+            current_array = row[loss_type] or []
+            
+            # Validate month index
+            if month_index >= len(current_array):
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Month index {month_index} out of range (array length: {len(current_array)})'
+                }, status=400)
+            
+            # Calculate stock adjustment needed
+            old_value = current_array[month_index]
+            stock_delta = old_value - new_value  # Positive = add back to stock, negative = remove more
+            
+            # Update array (WITHOUT calling register_losses to avoid stock adjustment)
+            current_array[month_index] = new_value
+            
+            # Update database - ONLY the extra_losses table
+            cursor.execute(f"""
+                UPDATE extra_losses
+                SET {loss_type} = %s
+                WHERE cod = %s AND v = %s
+            """, (Json(current_array), cod, var))
+            
+            service.db.conn.commit()
+            
+            logger.info(
+                f"Loss edited: {supermarket.name} - Product {cod}.{var} - "
+                f"{loss_type}[{month_index}]: {old_value} → {new_value} "
+                f"(stock NOT adjusted as per requirement)"
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Updated {loss_type} month {month_index}: {old_value} → {new_value}',
+                'old_value': old_value,
+                'new_value': new_value,
+                'stock_delta_not_applied': stock_delta
+            })
+            
+        finally:
+            service.close()
+            
+    except Exception as e:
+        logger.exception("Error editing loss value")
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@login_required
+@require_POST
+def inventory_adjust_stock_ajax_view(request):
+    """
+    UPDATED: Now links stock adjustments to loss categories.
+    If reason is broken/expired/internal, records in extra_losses automatically.
+    """
+    try:
+        cod = int(request.POST.get('cod'))
+        var = int(request.POST.get('var'))
+        adjustment = int(request.POST.get('adjustment'))
+        reason = request.POST.get('reason')
+        supermarket_name = request.POST.get('supermarket')
+        
+        # Find the supermarket
+        supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
+        storage = supermarket.storages.first()
+        
+        if not storage:
+            return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)
+        
+        service = RestockService(storage)
+        
+        try:
+            current_stock = service.db.get_stock(cod, var)
+            
+            # ✅ NEW: Map reasons to loss types
+            loss_type_mapping = {
+                'broken': 'broken',
+                'expired': 'expired',
+                'internal_use': 'internal',
+            }
+            
+            if reason in loss_type_mapping and adjustment < 0:
+                # This is a loss adjustment - record in extra_losses
+                loss_type = loss_type_mapping[reason]
+                loss_amount = abs(adjustment)  # Make positive for loss recording
+                
+                # register_losses() handles both array update AND stock adjustment
+                service.db.register_losses(cod, var, loss_amount, loss_type)
+                
+                new_stock = service.db.get_stock(cod, var)
+                
+                logger.info(
+                    f"Stock adjusted via loss recording: {supermarket_name} - "
+                    f"Product {cod}.{var}: {current_stock} → {new_stock} ({adjustment:+d}) "
+                    f"Loss type: {loss_type}, Amount: {loss_amount}"
+                )
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Stock adjusted and recorded as {loss_type} loss: {current_stock} → {new_stock}',
+                    'new_stock': new_stock,
+                    'loss_recorded': True,
+                    'loss_type': loss_type,
+                    'loss_amount': loss_amount
+                })
+            else:
+                # Regular stock adjustment (not a loss)
+                service.db.adjust_stock(cod, var, adjustment)
+                new_stock = service.db.get_stock(cod, var)
+                
+                logger.info(
+                    f"Stock adjusted: {supermarket_name} - "
+                    f"Product {cod}.{var}: {current_stock} → {new_stock} ({adjustment:+d}) "
+                    f"Reason: {reason}"
+                )
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Stock adjusted: {current_stock} → {new_stock}',
+                    'new_stock': new_stock,
+                    'loss_recorded': False
+                })
+                
+        finally:
+            service.close()
+            
+    except Exception as e:
+        logger.exception("Error in inventory stock adjustment")
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)

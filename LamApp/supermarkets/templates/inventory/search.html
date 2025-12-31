@@ -135,15 +135,20 @@
                         </a>
                     </div>
                     
-                    <!-- Row 2: Analytics -->
-                    <div class="col-md-6 mb-3">
+                    <!-- Row 2: Analytics & Editing -->
+                    <div class="col-md-4 mb-3">
                         <a href="{% url 'stock-value-unified' %}" class="btn btn-outline-success w-100">
                             <i class="bi bi-cash-stack"></i> Stock Value Analysis
                         </a>
                     </div>
-                    <div class="col-md-6 mb-3">
+                    <div class="col-md-4 mb-3">
                         <a href="{% url 'losses-analytics-unified' %}" class="btn btn-outline-warning w-100">
                             <i class="bi bi-graph-up"></i> Loss Analytics
+                        </a>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <a href="{% url 'edit-losses' %}" class="btn btn-outline-danger w-100">
+                            <i class="bi bi-pencil-square"></i> Edit Recorded Losses
                         </a>
                     </div>
                 </div>

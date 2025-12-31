@@ -60,6 +60,8 @@ urlpatterns = [
     path('inventory/results/<str:search_type>/', views.inventory_results_view, name='inventory-results'),
     path('inventory/not-found/<int:cod>/<int:var>/', views.inventory_product_not_found_view, name='inventory-product-not-found'),
     path('inventory/auto-add/', views.auto_add_product_view, name='inventory-auto-add'),
+    path('inventory/edit-losses/', views.edit_losses_view, name='edit-losses'),
+    path('inventory/edit-loss/', views.edit_loss_ajax_view, name='edit-loss-ajax'),
     
     # NEW: Unified inventory operations
     path('inventory/verify-stock-enhanced/', views.verify_stock_unified_enhanced_view, name='verify-stock-unified-enhanced'),

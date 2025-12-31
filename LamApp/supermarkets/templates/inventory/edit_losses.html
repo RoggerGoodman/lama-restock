@@ -1,0 +1,296 @@
+<!-- LamApp/supermarkets/templates/inventory/edit_losses.html -->
+{% extends 'base.html' %}
+{% block title %}Edit Recorded Losses{% endblock %}
+{% block page_title %}Edit Recorded Losses{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventory</a></li>
+                    <li class="breadcrumb-item active">Edit Losses</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3"><i class="bi bi-funnel"></i> Filters</h5>
+                <form method="get" class="row g-3">
+                    <div class="col-md-6">
+                        <label for="supermarket_id" class="form-label">Supermarket</label>
+                        <select name="supermarket_id" id="supermarket_id" class="form-select" onchange="this.form.submit()">
+                            <option value="">All Supermarkets</option>
+                            {% for sm in supermarkets %}
+                            <option value="{{ sm.id }}" {% if sm.id|stringformat:"s" == selected_supermarket %}selected{% endif %}>
+                                {{ sm.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <label for="storage_id" class="form-label">Storage</label>
+                        <select name="storage_id" id="storage_id" class="form-select" onchange="this.form.submit()">
+                            <option value="">All Storages</option>
+                            {% for storage in storages %}
+                            <option value="{{ storage.id }}" 
+                                    {% if storage.id|stringformat:"s" == selected_storage %}selected{% endif %}>
+                                {{ storage.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-12">
+                        <a href="{% url 'edit-losses' %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Clear Filters
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info Alert -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-warning">
+                <h6><i class="bi bi-exclamation-triangle"></i> Important</h6>
+                <p class="mb-0">
+                    <strong>Editing losses here does NOT affect stock levels.</strong> 
+                    Use this to correct recording mistakes. Stock adjustments should be done through 
+                    <a href="{% url 'inventory-search' %}" class="alert-link">Inventory Search</a>.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Products with Losses -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-4">
+                    <i class="bi bi-pencil-square"></i> Products with Recorded Losses
+                    <span class="badge bg-secondary">{{ products|length }} products</span>
+                </h5>
+
+                {% if products %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Description</th>
+                                <th>Supermarket</th>
+                                <th class="text-center">Broken</th>
+                                <th class="text-center">Expired</th>
+                                <th class="text-center">Internal</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in products %}
+                            <tr>
+                                <td><code>{{ product.cod }}.{{ product.var }}</code></td>
+                                <td>{{ product.description|truncatewords:6 }}</td>
+                                <td><small class="text-muted">{{ product.supermarket_name }}</small></td>
+                                <td class="text-center">
+                                    {% if product.broken %}
+                                        <span class="badge bg-danger">{{ product.broken|length }} months</span>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if product.expired %}
+                                        <span class="badge bg-warning">{{ product.expired|length }} months</span>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if product.internal %}
+                                        <span class="badge bg-info">{{ product.internal|length }} months</span>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" onclick="editProduct({{ product.cod }}, {{ product.var }}, '{{ product.description|escapejs }}', {{ product.supermarket_id }}, {{ product.broken|safe }}, {{ product.expired|safe }}, {{ product.internal|safe }})">
+                                        <i class="bi bi-pencil"></i> Edit
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    No products with recorded losses found for the selected filters.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Loss Modal -->
+<div class="modal fade" id="editLossModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Recorded Losses</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <strong>Note:</strong> Changes here will NOT affect stock levels. 
+                    This is for correcting recording mistakes only.
+                </div>
+
+                <h6 id="productTitle" class="mb-3"></h6>
+                
+                <input type="hidden" id="edit_supermarket_id">
+                <input type="hidden" id="edit_cod">
+                <input type="hidden" id="edit_var">
+
+                <!-- Broken Losses -->
+                <div class="mb-4">
+                    <h6 class="text-danger">
+                        <i class="bi bi-x-octagon"></i> Broken/Damaged
+                    </h6>
+                    <div id="brokenArrayContainer" class="row g-2"></div>
+                </div>
+
+                <!-- Expired Losses -->
+                <div class="mb-4">
+                    <h6 class="text-warning">
+                        <i class="bi bi-calendar-x"></i> Expired
+                    </h6>
+                    <div id="expiredArrayContainer" class="row g-2"></div>
+                </div>
+
+                <!-- Internal Losses -->
+                <div class="mb-4">
+                    <h6 class="text-info">
+                        <i class="bi bi-people"></i> Internal Use
+                    </h6>
+                    <div id="internalArrayContainer" class="row g-2"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const editModal = new bootstrap.Modal(document.getElementById('editLossModal'));
+
+function editProduct(cod, var_, description, supermarketId, brokenArray, expiredArray, internalArray) {
+    // Store IDs
+    document.getElementById('edit_supermarket_id').value = supermarketId;
+    document.getElementById('edit_cod').value = cod;
+    document.getElementById('edit_var').value = var_;
+    
+    // Set title
+    document.getElementById('productTitle').textContent = `${cod}.${var_} - ${description}`;
+    
+    // Render arrays
+    renderLossArray('broken', brokenArray);
+    renderLossArray('expired', expiredArray);
+    renderLossArray('internal', internalArray);
+    
+    editModal.show();
+}
+
+function renderLossArray(lossType, array) {
+    const container = document.getElementById(`${lossType}ArrayContainer`);
+    container.innerHTML = '';
+    
+    if (!array || array.length === 0) {
+        container.innerHTML = '<p class="text-muted">No losses recorded</p>';
+        return;
+    }
+    
+    // Show last 12 months (or all if less)
+    const monthsToShow = Math.min(12, array.length);
+    
+    for (let i = 0; i < monthsToShow; i++) {
+        const value = array[i];
+        const monthLabel = i === 0 ? 'Current' : `${i} mo ago`;
+        
+        const col = document.createElement('div');
+        col.className = 'col-md-3';
+        col.innerHTML = `
+            <div class="input-group input-group-sm">
+                <span class="input-group-text">${monthLabel}</span>
+                <input type="number" 
+                       class="form-control" 
+                       value="${value}" 
+                       min="0"
+                       onchange="updateLossValue('${lossType}', ${i}, this.value)">
+            </div>
+        `;
+        container.appendChild(col);
+    }
+}
+
+function updateLossValue(lossType, monthIndex, newValue) {
+    const supermarketId = document.getElementById('edit_supermarket_id').value;
+    const cod = document.getElementById('edit_cod').value;
+    const var_ = document.getElementById('edit_var').value;
+    
+    const csrfToken = '{{ csrf_token }}';
+    
+    fetch('/inventory/edit-loss/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+            supermarket_id: parseInt(supermarketId),
+            cod: parseInt(cod),
+            var: parseInt(var_),
+            loss_type: lossType,
+            month_index: monthIndex,
+            new_value: parseInt(newValue)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show success message briefly
+            const input = event.target;
+            const originalBorder = input.style.border;
+            input.style.border = '2px solid #28a745';
+            
+            setTimeout(() => {
+                input.style.border = originalBorder;
+            }, 1000);
+            
+            console.log(data.message);
+        } else {
+            alert('Error: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating loss value: ' + error);
+    });
+}
+</script>
+{% endblock %}

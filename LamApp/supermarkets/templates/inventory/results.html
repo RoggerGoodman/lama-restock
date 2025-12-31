@@ -1,4 +1,4 @@
-<!-- LamApp/supermarkets/templates/inventory/results.html - WITH SORTING -->
+<!-- COMPLETE UPDATED: LamApp/supermarkets/templates/inventory/results.html -->
 {% extends 'base.html' %}
 {% block title %}Inventory Results{% endblock %}
 {% block page_title %}Inventory Results{% endblock %}
@@ -58,14 +58,20 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="stat-card">
+                <!-- UPDATED: Header with Edit Losses button -->
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h4 class="mb-0">
                         <i class="bi bi-box-seam text-primary"></i>
                         {{ search_description }}
                     </h4>
-                    <a href="{% url 'inventory-search' %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-arrow-left"></i> New Search
-                    </a>
+                    <div class="btn-group">
+                        <a href="{% url 'inventory-search' %}" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left"></i> New Search
+                        </a>
+                        <a href="{% url 'edit-losses' %}" class="btn btn-outline-warning">
+                            <i class="bi bi-pencil-square"></i> Edit Recorded Losses
+                        </a>
+                    </div>
                 </div>
 
                 <div class="alert alert-info">
@@ -192,16 +198,26 @@
                         <div class="form-text">Use negative for removing stock, positive for adding</div>
                     </div>
                     
+                    <!-- UPDATED: Grouped reasons with loss categories -->
                     <div class="mb-3">
                         <label for="reason" class="form-label">Reason</label>
                         <select class="form-select" id="reason" name="reason" required>
-                            <option value="undelivered">Undelivered Package</option>
-                            <option value="extra_delivery">Extra Package Delivered</option>
-                            <option value="miscount">Inventory Miscount</option>
-                            <option value="stolen">Stolen</option>
-                            <option value="return">Customer Return</option>
-                            <option value="other">Other</option>
+                            <optgroup label="Loss Categories (recorded in analytics)">
+                                <option value="broken">Broken/Damaged (recorded as loss)</option>
+                                <option value="expired">Expired (recorded as loss)</option>
+                                <option value="internal_use">Internal Use (recorded as loss)</option>
+                            </optgroup>
+                            <optgroup label="Other Reasons">
+                                <option value="undelivered">Undelivered Package</option>
+                                <option value="extra_delivery">Extra Package Delivered</option>
+                                <option value="miscount">Inventory Miscount</option>
+                                <option value="stolen">Stolen</option>
+                                <option value="other">Other</option>
+                            </optgroup>
                         </select>
+                        <div class="form-text">
+                            <strong>Note:</strong> Selecting a loss category will automatically record this in Loss Analytics.
+                        </div>
                     </div>
                 </form>
             </div>
@@ -308,7 +324,11 @@ function submitAdjustment() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert(data.message);
+            let message = data.message;
+            if (data.loss_recorded) {
+                message += `\n\n✅ Recorded as ${data.loss_type} loss (${data.loss_amount} units)`;
+            }
+            alert(message);
             adjustModal.hide();
             location.reload();
         } else {
