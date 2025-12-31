@@ -382,15 +382,14 @@ def parse_pdf(pdf_path: str):
                     except Exception:
                         continue
                         
-                    # Skip zero quantities
-                    if qty > 0:
-                        results.append({
-                            'cod': cod,
-                            'v': v,
-                            'qty': int(qty)  # Convert to int for database
-                        })
-                        
-                        logger.debug(f"Parsed: {cod}.{v} = {int(qty)}")
+                    
+                    results.append({
+                        'cod': cod,
+                        'v': v,
+                        'qty': int(qty)  # Convert to int for database
+                    })
+                    
+                    logger.debug(f"Parsed: {cod}.{v} = {int(qty)}")
     
     except Exception as e:
         logger.exception(f"Error parsing PDF {pdf_path}")
