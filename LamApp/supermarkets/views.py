@@ -13,7 +13,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from pathlib import Path
 from django.conf import settings
-import os
+from psycopg2.extras import Json
 from .automation_services import AutomatedRestockService
 import threading
 from LamApp.celery import app as celery_app
@@ -28,10 +28,8 @@ from .forms import (
     BlacklistEntryForm, AddProductsForm, PromoUploadForm,
     StockAdjustmentForm, RecordLossesForm, 
 )
-from .tasks import manual_list_update_task
 
 from .services import RestockService, StorageService
-from .scripts.scrapper import Scrapper
 import logging
 
 logger = logging.getLogger(__name__)
