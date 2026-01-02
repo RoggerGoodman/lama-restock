@@ -188,8 +188,12 @@ class Scrapper:
                 cleaned_current_year_bought = self.helper.clean_convert_reverse(bought_q_current)
                 cleaned_last_year_bought = self.helper.clean_convert_reverse(bought_q_last)
 
-                if len(cleaned_current_year_bought) == 1 and cleaned_current_year_sold == None:
+                if cleaned_current_year_bought != None and cleaned_current_year_sold == None and cleaned_last_year_bought == None:
                     print(f"New product, needs verification: {cod}.{v}")
+                    empty_list = [0,0,0,0,0,0,0,0,0,0,0,0]
+                    cleaned_last_year_bought = empty_list 
+                    cleaned_current_year_sold = empty_list
+                    cleaned_last_year_sold = empty_list
                 # If any of the cleaned lists is falsy -> skip
                 elif not cleaned_current_year_sold or not cleaned_last_year_sold or not cleaned_current_year_bought or not cleaned_last_year_bought:
                     # skip this product (bad/invalid format)
