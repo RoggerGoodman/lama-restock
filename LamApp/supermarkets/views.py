@@ -92,9 +92,10 @@ def admin_create_user(request):
 
 @login_required
 def dashboard_view(request):
-    """Main dashboard showing overview of all supermarkets"""
     supermarkets = Supermarket.objects.filter(owner=request.user).prefetch_related(
-        'storages', 'storages__schedule', 'storages__restock_logs'
+        'storages__schedule',           # ← ADD THIS
+        'storages__restock_logs',       # ← ADD THIS
+        'storages__blacklists'          # ← ADD THIS (for quick stats)
     )
     
     # Get recent logs across all storages
@@ -139,8 +140,11 @@ class SupermarketListView(LoginRequiredMixin, ListView):
     context_object_name = 'supermarkets'
 
     def get_queryset(self):
-        return Supermarket.objects.filter(owner=self.request.user).prefetch_related('storages')
-
+        return Supermarket.objects.filter(owner=self.request.user).prefetch_related(
+            'storages',
+            'storages__schedule',
+            'storages__restock_logs'
+        ).order_by('name')
 
 class SupermarketDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
     model = Supermarket
@@ -152,9 +156,14 @@ class SupermarketDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['storages'] = self.object.storages.all().prefetch_related(
-            'schedule', 'blacklists', 'restock_logs'
-        )
+        context['storages'] = self.object.storages.select_related(
+            'schedule'  # ForeignKey/OneToOne - use select_related
+        ).prefetch_related(
+            'blacklists',           # Reverse FK
+            'restock_logs',         # Reverse FK
+            'blacklists__entries'   # Nested prefetch
+        ).order_by('name')
+        
         return context
 
 
@@ -241,14 +250,20 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['recent_logs'] = self.object.restock_logs.all()[:20]
-        context['blacklists'] = self.object.blacklists.all().prefetch_related('entries')
+        context['recent_logs'] = self.object.restock_logs.select_related(
+            'storage__supermarket'  # For displaying supermarket name
+        ).order_by('-started_at')[:20]
+        
+        context['blacklists'] = self.object.blacklists.prefetch_related(
+            'entries'  # Fetch all entries in one query
+        ).order_by('name')
         
         # Check if schedule exists
         try:
             context['schedule'] = self.object.schedule
         except RestockSchedule.DoesNotExist:
             context['schedule'] = None
+            
         return context
 
 
@@ -277,7 +292,10 @@ class RestockScheduleListView(LoginRequiredMixin, ListView):
     def get_queryset(self):
         return Storage.objects.filter(
             supermarket__owner=self.request.user
-        ).select_related('supermarket', 'schedule').order_by('supermarket__name', 'name')
+        ).select_related(
+            'supermarket',  # ForeignKey
+            'schedule'      # OneToOne
+        ).order_by('supermarket__name', 'name')
 
 
 class RestockScheduleView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
@@ -420,15 +438,11 @@ def retry_restock_view(request, log_id):
                 
                 
                 # CRITICAL: Service created in THIS thread
-                service = AutomatedRestockService(storage)
-                
-                try:
-                    service.retry_from_checkpoint(log, coverage=coverage)
-                except Exception as e:
-                    logger.exception(f"Error in background retry for log #{log_id}")
-                finally:
-                    service.close()
-            
+                with AutomatedRestockService(storage) as service:
+                    try:
+                        service.retry_from_checkpoint(log, coverage=coverage)
+                    except Exception as e:
+                        logger.exception(f"Error in background retry for log #{log_id}")           
             thread = threading.Thread(target=run_retry)
             thread.daemon = True
             thread.start()
@@ -436,10 +450,7 @@ def retry_restock_view(request, log_id):
             return JsonResponse({'success': True, 'log_id': log_id})
         else:
             # Synchronous retry
-            
-            service = AutomatedRestockService(storage)
-            
-            try:
+            with AutomatedRestockService(storage) as service:
                 updated_log = service.retry_from_checkpoint(log, coverage=coverage)
                 
                 messages.success(
@@ -448,10 +459,6 @@ def retry_restock_view(request, log_id):
                 )
                 
                 return redirect('restock-log-detail', pk=updated_log.id)
-                
-            finally:
-                service.close()
-        
     except Exception as e:
         logger.exception(f"Error retrying restock from checkpoint")
         
@@ -472,24 +479,20 @@ def execute_order_view(request, log_id):
     )
     
     try:
-        service = RestockService(log.storage)
-        results = log.get_results()
-        
-        # Convert back to tuple list
-        orders_list = [
-            (o['cod'], o['var'], o['qty']) 
-            for o in results.get('orders', [])
-        ]
-        
-        service.execute_order(orders_list)
-        messages.success(request, "Order executed successfully!")
-        
+        with RestockService(log.storage) as service:
+            results = log.get_results()
+            
+            # Convert back to tuple list
+            orders_list = [
+                (o['cod'], o['var'], o['qty']) 
+                for o in results.get('orders', [])
+            ]
+            
+            service.execute_order(orders_list)
+            messages.success(request, "Order executed successfully!")
     except Exception as e:
         logger.exception("Error executing order")
         messages.error(request, f"Error executing order: {str(e)}")
-    finally:
-        service.close()
-    
     return redirect('restock-log-detail', pk=log_id)
 
 
@@ -514,45 +517,47 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         
         # Enrich orders with product details
         enriched_orders = []
-        service = RestockService(self.object.storage)
-        
-        try:
+        with RestockService(self.object.storage) as service:
+            # Collect all (cod, var) pairs first
+            product_keys = [(o['cod'], o['var']) for o in orders]
+
+            # Single query for all products
+            placeholders = ','.join(['(%s,%s)'] * len(product_keys))
+            flat_keys = [item for pair in product_keys for item in pair]
+            cur = service.db.cursor()
+            cur.execute(f"""
+                SELECT 
+                    p.cod, p.v, p.descrizione, p.cluster, p.pz_x_collo, p.rapp,
+                    CASE
+                        WHEN e.sale_start IS NOT NULL
+                        AND e.sale_end IS NOT NULL
+                        AND CURRENT_DATE BETWEEN e.sale_start AND e.sale_end
+                        THEN e.cost_s
+                        ELSE e.cost_std
+                    END AS cost
+                FROM products p
+                LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
+                WHERE (p.cod, p.v) IN ({placeholders})
+            """, flat_keys)
+
+            # Build lookup dict
+            products_dict = {(row['cod'], row['v']): row for row in cur.fetchall()}
+
             clusters = {}
             
             for order in orders:
+                product = products_dict.get((order['cod'], order['var']))
                 cod = order['cod']
                 var = order['var']
                 qty = order['qty']
                 
-                try:
-                    cur = service.db.cursor()
-                    cur.execute("""
-                        SELECT 
-                            p.descrizione,
-                            p.cluster,
-                            p.pz_x_collo,
-                            p.rapp,
-                            CASE
-                                WHEN e.sale_start IS NOT NULL
-                                AND e.sale_end IS NOT NULL
-                                AND CURRENT_DATE BETWEEN e.sale_start AND e.sale_end
-                                THEN e.cost_s
-                                ELSE e.cost_std
-                            END AS cost
-                        FROM products p
-                        LEFT JOIN economics e 
-                            ON p.cod = e.cod AND p.v = e.v
-                        WHERE p.cod = %s AND p.v = %s;
-                    """, (cod, var))
-                    
-                    row = cur.fetchone()
-                    
-                    if row:
-                        descrizione = row['descrizione']
-                        cluster = row['cluster'] or 'Uncategorized'
-                        package_size = row['pz_x_collo'] or 0
-                        rapp = row['rapp'] or 1
-                        cost = row['cost'] or 0
+                try:                    
+                    if product:
+                        descrizione = product['descrizione']
+                        cluster = product['cluster'] or 'Uncategorized'
+                        package_size = product['pz_x_collo'] or 0
+                        rapp = product['rapp'] or 1
+                        cost = product['cost'] or 0
                         cost = cost/rapp
                     else:
                         descrizione = f"Product {cod}.{var}"
@@ -623,11 +628,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 f"Context prepared: {len(enriched_orders)} orders, "
                 f"{len(enriched_new)} new, {len(enriched_skipped)} skipped, "
                 f"{len(enriched_zombie)} zombie, {len(enriched_order_skipped)} order-skipped"
-            )
-            
-        finally:
-            service.close()
-        
+            )    
         return context
     
     def _enrich_product_list(self, service, product_list):
@@ -694,10 +695,8 @@ def flag_product_for_purge_view(request, log_id, product_cod, product_var):
     )
     
     try:
-        service = RestockService(log.storage)
-        result = service.db.flag_for_purge(product_cod, product_var)
-        service.close()
-        
+        with RestockService(log.storage) as service:
+            result = service.db.flag_for_purge(product_cod, product_var)
         if result['action'] == 'flagged':
             messages.success(
                 request,
@@ -724,8 +723,12 @@ class BlacklistListView(LoginRequiredMixin, ListView):
     def get_queryset(self):
         return Blacklist.objects.filter(
             storage__supermarket__owner=self.request.user
-        ).select_related('storage', 'storage__supermarket').prefetch_related('entries')
-
+        ).select_related(
+            'storage',
+            'storage__supermarket'
+        ).prefetch_related(
+            'entries'
+        ).order_by('storage__name', 'name')
 
 class BlacklistDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
     model = Blacklist
@@ -926,46 +929,37 @@ def adjust_stock_view(request, storage_id):
             notes = form.cleaned_data.get('notes', '')
             
             try:
-                service = RestockService(storage)
-                
+                with RestockService(storage) as service:                
                 # Check if product exists
-                try:
-                    current_stock = service.db.get_stock(product_code, product_var)
-                except ValueError:
-                    messages.error(
+                    try:
+                        current_stock = service.db.get_stock(product_code, product_var)
+                    except ValueError:
+                        messages.error(
+                            request,
+                            f"Product {product_code}.{product_var} not found in database"
+                        )
+                        return redirect('adjust-stock', storage_id=storage_id)                   
+                    # Apply adjustment
+                    service.db.adjust_stock(product_code, product_var, adjustment)
+                    new_stock = service.db.get_stock(product_code, product_var)
+                    # Log the adjustment
+                    logger.info(
+                        f"Stock adjusted for {storage.name}: "
+                        f"Product {product_code}.{product_var} "
+                        f"{current_stock} -> {new_stock} ({adjustment:+d}) "
+                        f"Reason: {reason}"
+                    )                    
+                    messages.success(
                         request,
-                        f"Product {product_code}.{product_var} not found in database"
-                    )
-                    service.close()
-                    return redirect('adjust-stock', storage_id=storage_id)
-                
-                # Apply adjustment
-                service.db.adjust_stock(product_code, product_var, adjustment)
-                new_stock = service.db.get_stock(product_code, product_var)
-                
-                service.close()
-                
-                # Log the adjustment
-                logger.info(
-                    f"Stock adjusted for {storage.name}: "
-                    f"Product {product_code}.{product_var} "
-                    f"{current_stock} -> {new_stock} ({adjustment:+d}) "
-                    f"Reason: {reason}"
-                )
-                
-                messages.success(
-                    request,
-                    f"Stock adjusted successfully! "
-                    f"Product {product_code}.{product_var}: "
-                    f"{current_stock} → {new_stock} ({adjustment:+d})"
-                )
-                
-                # Redirect back to form for another adjustment or to storage detail
-                if 'adjust_another' in request.POST:
-                    return redirect('adjust-stock', storage_id=storage_id)
-                else:
-                    return redirect('storage-detail', pk=storage_id)
-                
+                        f"Stock adjusted successfully! "
+                        f"Product {product_code}.{product_var}: "
+                        f"{current_stock} → {new_stock} ({adjustment:+d})"
+                    )                    
+                    # Redirect back to form for another adjustment or to storage detail
+                    if 'adjust_another' in request.POST:
+                        return redirect('adjust-stock', storage_id=storage_id)
+                    else:
+                        return redirect('storage-detail', pk=storage_id)                
             except Exception as e:
                 logger.exception("Error adjusting stock")
                 messages.error(request, f"Error adjusting stock: {str(e)}")
@@ -976,9 +970,7 @@ def adjust_stock_view(request, storage_id):
         'storage': storage,
         'form': form
     })
-
 # ============ Stock Value Analysis Views ============
-
 @login_required
 def stock_value_unified_view(request):
     """Unified stock value view with flexible filtering - FIXED CLUSTER SORTING"""
@@ -1018,17 +1010,16 @@ def stock_value_unified_view(request):
     clusters = []
     if storage_id:
         storage = Storage.objects.get(id=storage_id)
-        service = RestockService(storage)
-        settore = storage.settore
-        cursor = service.db.cursor()
-        cursor.execute("""
-            SELECT DISTINCT cluster 
-            FROM products 
-            WHERE cluster IS NOT NULL AND cluster != '' AND settore = %s 
-            ORDER BY cluster ASC
-        """, (settore,))
-        clusters = [row['cluster'] for row in cursor.fetchall()]
-        service.close()
+        with RestockService(storage) as service:
+            settore = storage.settore
+            cursor = service.db.cursor()
+            cursor.execute("""
+                SELECT DISTINCT cluster 
+                FROM products 
+                WHERE cluster IS NOT NULL AND cluster != '' AND settore = %s 
+                ORDER BY cluster ASC
+            """, (settore,))
+            clusters = [row['cluster'] for row in cursor.fetchall()]
     
     # Calculate values
     category_totals = {}
@@ -1036,45 +1027,43 @@ def stock_value_unified_view(request):
     
     for storage in storages:
         try:
-            service = RestockService(storage)
-            settore = storage.settore
-            cursor = service.db.cursor()
-            
-            # Build query based on filters
-            query = """
-                SELECT e.category,
-                    SUM((e.cost_std / p.rapp) * ps.stock) AS value
-                FROM economics e
-                JOIN product_stats ps
-                    ON e.cod = ps.cod AND e.v = ps.v
-                JOIN products p
-                    ON e.cod = p.cod AND e.v = p.v
-                WHERE e.category != '' AND ps.stock > 0
-            """
-            params = []
-            
-            if cluster:
-                query += " AND p.cluster = %s"
-                params.append(cluster)
-            query += " AND p.settore = %s"
-            params.append(settore)
-            query += " GROUP BY e.category"
-            
-            cursor.execute(query, params)
-            
-            for row in cursor.fetchall():
-                print(f"row in cursor {row}")
-                category_name = row['category']
-                value = row['value'] or 0
+            with RestockService(storage) as service:
+                settore = storage.settore
+                cursor = service.db.cursor()
                 
-                if category_name in category_totals:
-                    category_totals[category_name] += value
-                else:
-                    category_totals[category_name] = value
+                # Build query based on filters
+                query = """
+                    SELECT e.category,
+                        SUM((e.cost_std / p.rapp) * ps.stock) AS value
+                    FROM economics e
+                    JOIN product_stats ps
+                        ON e.cod = ps.cod AND e.v = ps.v
+                    JOIN products p
+                        ON e.cod = p.cod AND e.v = p.v
+                    WHERE e.category != '' AND ps.stock > 0
+                """
+                params = []
                 
-                total_value += value
-            
-            service.close()
+                if cluster:
+                    query += " AND p.cluster = %s"
+                    params.append(cluster)
+                query += " AND p.settore = %s"
+                params.append(settore)
+                query += " GROUP BY e.category"
+                
+                cursor.execute(query, params)
+                
+                for row in cursor.fetchall():
+                    print(f"row in cursor {row}")
+                    category_name = row['category']
+                    value = row['value'] or 0
+                    
+                    if category_name in category_totals:
+                        category_totals[category_name] += value
+                    else:
+                        category_totals[category_name] = value
+                    
+                    total_value += value
         except Exception as e:
             logger.exception(f"Error calculating value for {storage.name}")
             continue
@@ -1190,94 +1179,92 @@ def losses_analytics_unified_view(request):
     for sm_id, sm_data in supermarkets_to_process.items():
         try:
             first_storage = sm_data['storages'][0]
-            service = RestockService(first_storage)
-            cursor = service.db.cursor()
-            
-            # Build WHERE clause
-            if storage_id:
-                settore_filter = f"WHERE p.settore = '{first_storage.settore}'"
-            elif len(sm_data['settores']) < len(sm_data['supermarket'].storages.all()):
-                settores_list = "', '".join(sm_data['settores'])
-                settore_filter = f"WHERE p.settore IN ('{settores_list}')"
-            else:
-                settore_filter = ""
-            
-            # ✅ NEW: Enhanced query with cost data
-            query = f"""
-                SELECT 
-                    el.cod, el.v,
-                    el.broken, el.expired, el.internal,
-                    p.descrizione,
-                    e.cost_std,
-                    e.category
-                FROM extra_losses el
-                LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
-                LEFT JOIN economics e ON el.cod = e.cod AND el.v = e.v
-                {settore_filter}
-            """
-            
-            cursor.execute(query)
-            
-            loss_types = ['broken', 'expired', 'internal']
-            
-            for row in cursor.fetchall():
-                cod = row['cod']
-                v = row['v']
-                description = row['descrizione'] or f"Product {cod}.{v}"
-                cost = row['cost_std'] or 0.0
-                category = row['category'] or 'Unknown'
+            with RestockService(first_storage) as service:
+                cursor = service.db.cursor()
                 
-                product_losses = {
-                    'cod': cod,
-                    'var': v,
-                    'description': description,
-                    'category': category,
-                    'broken_units': 0,
-                    'broken_value': 0.0,
-                    'expired_units': 0,
-                    'expired_value': 0.0,
-                    'internal_units': 0,
-                    'internal_value': 0.0,
-                    'total_units': 0,
-                    'total_value': 0.0
-                }
+                # Build WHERE clause
+                if storage_id:
+                    settore_filter = f"WHERE p.settore = '{first_storage.settore}'"
+                elif len(sm_data['settores']) < len(sm_data['supermarket'].storages.all()):
+                    settores_list = "', '".join(sm_data['settores'])
+                    settore_filter = f"WHERE p.settore IN ('{settores_list}')"
+                else:
+                    settore_filter = ""
                 
-                for loss_type in loss_types:
-                    loss_json = row[loss_type] or []
+                # ✅ NEW: Enhanced query with cost data
+                query = f"""
+                    SELECT 
+                        el.cod, el.v,
+                        el.broken, el.expired, el.internal,
+                        p.descrizione,
+                        e.cost_std,
+                        e.category
+                    FROM extra_losses el
+                    LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
+                    LEFT JOIN economics e ON el.cod = e.cod AND el.v = e.v
+                    {settore_filter}
+                """
+                
+                cursor.execute(query)
+                
+                loss_types = ['broken', 'expired', 'internal']
+                
+                for row in cursor.fetchall():
+                    cod = row['cod']
+                    v = row['v']
+                    description = row['descrizione'] or f"Product {cod}.{v}"
+                    cost = row['cost_std'] or 0.0
+                    category = row['category'] or 'Unknown'
                     
-                    if loss_json:
-                        try:
-                            loss_array = loss_json
-                            
-                            # Calculate for period
-                            months_to_include = min(period_months, len(loss_array))
-                            period_losses = sum(loss_array[:months_to_include])
-                            period_value = period_losses * cost
-                            
-                            if period_losses > 0:
-                                stats[loss_type]['total_units'] += period_losses
-                                stats[loss_type]['total_value'] += period_value
-                                stats[loss_type]['products'] += 1
-                                
-                                # Aggregate monthly data
-                                for idx, units in enumerate(loss_array[:24]):
-                                    stats[loss_type]['monthly_units'][idx] += units
-                                    stats[loss_type]['monthly_value'][idx] += units * cost
-                                
-                                # Add to product losses
-                                product_losses[f'{loss_type}_units'] = period_losses
-                                product_losses[f'{loss_type}_value'] = period_value
-                                product_losses['total_units'] += period_losses
-                                product_losses['total_value'] += period_value
+                    product_losses = {
+                        'cod': cod,
+                        'var': v,
+                        'description': description,
+                        'category': category,
+                        'broken_units': 0,
+                        'broken_value': 0.0,
+                        'expired_units': 0,
+                        'expired_value': 0.0,
+                        'internal_units': 0,
+                        'internal_value': 0.0,
+                        'total_units': 0,
+                        'total_value': 0.0
+                    }
+                    
+                    for loss_type in loss_types:
+                        loss_json = row[loss_type] or []
                         
-                        except (ValueError, TypeError):
-                            continue
-                
-                # Add to list if has losses
-                if product_losses['total_units'] > 0:
-                    all_products_list.append(product_losses)
-            
-            service.close()
+                        if loss_json:
+                            try:
+                                loss_array = loss_json
+                                
+                                # Calculate for period
+                                months_to_include = min(period_months, len(loss_array))
+                                period_losses = sum(loss_array[:months_to_include])
+                                period_value = period_losses * cost
+                                
+                                if period_losses > 0:
+                                    stats[loss_type]['total_units'] += period_losses
+                                    stats[loss_type]['total_value'] += period_value
+                                    stats[loss_type]['products'] += 1
+                                    
+                                    # Aggregate monthly data
+                                    for idx, units in enumerate(loss_array[:24]):
+                                        stats[loss_type]['monthly_units'][idx] += units
+                                        stats[loss_type]['monthly_value'][idx] += units * cost
+                                    
+                                    # Add to product losses
+                                    product_losses[f'{loss_type}_units'] = period_losses
+                                    product_losses[f'{loss_type}_value'] = period_value
+                                    product_losses['total_units'] += period_losses
+                                    product_losses['total_value'] += period_value
+                            
+                            except (ValueError, TypeError):
+                                continue
+                    
+                    # Add to list if has losses
+                    if product_losses['total_units'] > 0:
+                        all_products_list.append(product_losses)
         except Exception as e:
             logger.exception(f"Error processing losses for supermarket {sm_id}")
             continue
@@ -1373,75 +1360,59 @@ def purge_products_view(request, storage_id):
         Storage,
         id=storage_id,
         supermarket__owner=request.user
-    )
-    
+    )    
     if request.method == 'POST':
-        form = PurgeProductsForm(request.POST)
-        
+        form = PurgeProductsForm(request.POST)    
         if form.is_valid():
-            products_list = form.cleaned_data['products']
-            
+            products_list = form.cleaned_data['products']           
             try:
-                service = RestockService(storage)
-                
-                flagged = []
-                purged = []
-                errors = []
-                
-                for cod, var in products_list:
-                    try:
-                        result = service.db.flag_for_purge(cod, var)
+                with RestockService(storage) as service:               
+                    flagged = []
+                    purged = []
+                    errors = []                   
+                    for cod, var in products_list:
+                        try:
+                            result = service.db.flag_for_purge(cod, var)
+                            
+                            if result['action'] == 'flagged':
+                                flagged.append(result)
+                            elif result['action'] == 'purged':
+                                purged.append(result)
                         
-                        if result['action'] == 'flagged':
-                            flagged.append(result)
-                        elif result['action'] == 'purged':
-                            purged.append(result)
-                    
-                    except ValueError as e:
-                        errors.append(f"Product {cod}.{var}: {str(e)}")
-                    except Exception as e:
-                        logger.exception(f"Error processing {cod}.{var}")
-                        errors.append(f"Product {cod}.{var}: {str(e)}")
-                
-                service.close()
-                
-                # Show results
-                if purged:
-                    messages.success(
-                        request,
-                        f"Immediately purged {len(purged)} products with zero stock"
-                    )
-                
-                if flagged:
-                    messages.warning(
-                        request,
-                        f"Flagged {len(flagged)} products for purging (they have stock > 0). "
-                        f"They will be automatically purged when stock reaches zero."
-                    )
-                
-                if errors:
-                    for error in errors[:5]:
-                        messages.error(request, error)
-                
-                return redirect('storage-detail', pk=storage_id)
-                
+                        except ValueError as e:
+                            errors.append(f"Product {cod}.{var}: {str(e)}")
+                        except Exception as e:
+                            logger.exception(f"Error processing {cod}.{var}")
+                            errors.append(f"Product {cod}.{var}: {str(e)}")                    
+                    # Show results
+                    if purged:
+                        messages.success(
+                            request,
+                            f"Immediately purged {len(purged)} products with zero stock"
+                        )
+                    if flagged:
+                        messages.warning(
+                            request,
+                            f"Flagged {len(flagged)} products for purging (they have stock > 0). "
+                            f"They will be automatically purged when stock reaches zero."
+                        )
+                    if errors:
+                        for error in errors[:5]:
+                            messages.error(request, error)
+                    return redirect('storage-detail', pk=storage_id)               
             except Exception as e:
                 logger.exception("Error in purge operation")
                 messages.error(request, f"Error: {str(e)}")
     else:        
-        form = PurgeProductsForm()
-    
+        form = PurgeProductsForm()    
     # Get pending purges
-    service = RestockService(storage)
-    pending_purges = service.db.get_purge_pending()
-    service.close()
-    
+    with RestockService(storage) as service:
+        pending_purges = service.db.get_purge_pending()    
     return render(request, 'storages/purge_products.html', {
         'storage': storage,
         'form': form,
         'pending_purges': pending_purges
     })
-
 
 @login_required
 @require_POST
@@ -1454,10 +1425,8 @@ def check_purge_flagged_view(request, storage_id):
     )
     
     try:
-        service = RestockService(storage)
-        purged = service.db.check_and_purge_flagged()
-        service.close()
-        
+        with RestockService(storage) as service:
+            purged = service.db.check_and_purge_flagged()        
         if purged:
             messages.success(
                 request,
@@ -1534,29 +1503,25 @@ def flag_products_for_purge_view(request, log_id):
         if not products:
             return JsonResponse({'success': False, 'message': 'No products provided'}, status=400)
         
-        service = RestockService(log.storage)
-        
-        flagged_count = 0
-        purged_count = 0
-        errors = []
-        
-        for product in products:
-            cod = product['cod']
-            var = product['var']
+        with RestockService(log.storage) as service:
+            flagged_count = 0
+            purged_count = 0
+            errors = []
             
-            try:
-                result = service.db.flag_for_purge(cod, var)
+            for product in products:
+                cod = product['cod']
+                var = product['var']
                 
-                if result['action'] == 'flagged':
-                    flagged_count += 1
-                elif result['action'] == 'purged':
-                    purged_count += 1
-            except Exception as e:
-                logger.warning(f"Error flagging {cod}.{var}: {e}")
-                errors.append(f"{cod}.{var}: {str(e)}")
-        
-        service.close()
-        
+                try:
+                    result = service.db.flag_for_purge(cod, var)
+                    
+                    if result['action'] == 'flagged':
+                        flagged_count += 1
+                    elif result['action'] == 'purged':
+                        purged_count += 1
+                except Exception as e:
+                    logger.warning(f"Error flagging {cod}.{var}: {e}")
+                    errors.append(f"{cod}.{var}: {str(e)}")
         return JsonResponse({
             'success': True,
             'flagged': flagged_count,
@@ -1629,31 +1594,27 @@ def inventory_results_view(request, search_type):
                 storage = sm.storages.first()
                 if not storage:
                     continue
-                
-                service = RestockService(storage)
-                try:
-                    cur = service.db.cursor()
-                    cur.execute("""
-                        SELECT 
-                            p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita, 
-                            p.settore, p.cluster,
-                            ps.stock, ps.last_update, ps.verified
-                        FROM products p
-                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                        WHERE p.cod = %s AND p.v = %s AND ps.verified = TRUE
-                    """, (cod, var))
-                    
-                    row = cur.fetchone()
-                    if row:
-                        found = True
-                        result = dict(row)
-                        result['supermarket_name'] = sm.name
-                        results.append(result)
-                except Exception as e:
-                    logger.exception(f"Error searching in {sm.name}")
-                finally:
-                    service.close()
-            
+                with RestockService(storage) as service:
+                    try:
+                        cur = service.db.cursor()
+                        cur.execute("""
+                            SELECT 
+                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita, 
+                                p.settore, p.cluster,
+                                ps.stock, ps.last_update, ps.verified
+                            FROM products p
+                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                            WHERE p.cod = %s AND p.v = %s AND ps.verified = TRUE
+                        """, (cod, var))
+                        
+                        row = cur.fetchone()
+                        if row:
+                            found = True
+                            result = dict(row)
+                            result['supermarket_name'] = sm.name
+                            results.append(result)
+                    except Exception as e:
+                        logger.exception(f"Error searching in {sm.name}")
             # If not found, redirect to not found page
             if not found:
                 return redirect('inventory-product-not-found', cod=cod, var=var)
@@ -1671,30 +1632,28 @@ def inventory_results_view(request, search_type):
                 if not storage:
                     continue
                 
-                service = RestockService(storage)
-                try:
-                    cur = service.db.cursor()
-                    cur.execute("""
-                        SELECT 
-                            p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
-                            p.settore, p.cluster,
-                            ps.stock, ps.last_update, ps.verified
-                        FROM products p
-                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                        WHERE p.cod = %s AND ps.verified = TRUE
-                        ORDER BY p.v
-                    """, (cod,))
-                    
-                    for row in cur.fetchall():
-                        result = dict(row)
-                        result['supermarket_name'] = sm.name
-                        results.append(result)
-                    
-                    logger.info(f"Found {len(results)} variants in {sm.name}")
-                except Exception as e:
-                    logger.exception(f"Error searching in {sm.name}")
-                finally:
-                    service.close()
+                with RestockService(storage) as service:
+                    try:
+                        cur = service.db.cursor()
+                        cur.execute("""
+                            SELECT 
+                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
+                                p.settore, p.cluster,
+                                ps.stock, ps.last_update, ps.verified
+                            FROM products p
+                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                            WHERE p.cod = %s AND ps.verified = TRUE
+                            ORDER BY p.v
+                        """, (cod,))
+                        
+                        for row in cur.fetchall():
+                            result = dict(row)
+                            result['supermarket_name'] = sm.name
+                            results.append(result)
+                        
+                        logger.info(f"Found {len(results)} variants in {sm.name}")
+                    except Exception as e:
+                        logger.exception(f"Error searching in {sm.name}")
         
         elif search_type == 'settore_cluster':
             # Search by settore and optionally cluster
@@ -1728,48 +1687,46 @@ def inventory_results_view(request, search_type):
                 messages.warning(request, f"No storage found for settore: {settore}")
                 return redirect('inventory-search')
             
-            service = RestockService(storage)
-            try:
-                cur = service.db.cursor()
-                
-                if cluster:
-                    logger.info(f"Querying with cluster filter: {cluster}")
-                    cur.execute("""
-                        SELECT 
-                            p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
-                            p.settore, p.cluster,
-                            ps.stock, ps.last_update, ps.verified
-                        FROM products p
-                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                        WHERE p.settore = %s AND p.cluster = %s AND ps.verified = TRUE
-                        ORDER BY p.descrizione
-                    """, (settore, cluster))
-                else:
-                    logger.info(f"Querying all clusters for settore: {settore}")
-                    cur.execute("""
-                        SELECT 
-                            p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
-                            p.settore, p.cluster,
-                            ps.stock, ps.last_update, ps.verified
-                        FROM products p
-                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                        WHERE p.settore = %s AND ps.verified = TRUE
-                        ORDER BY p.cluster, p.descrizione
-                    """, (settore,))
-                
-                for row in cur.fetchall():
-                    result = dict(row)
-                    result['supermarket_name'] = supermarket.name
-                    results.append(result)
-                
-                logger.info(f"Found {len(results)} results for settore search")
-                
-            except Exception as e:
-                logger.exception(f"Database error in settore search")
-                messages.error(request, f"Database error: {e}")
-                return redirect('inventory-search')
-            finally:
-                service.close()
+            with RestockService(storage) as service:
+                try:
+                    cur = service.db.cursor()
+                    
+                    if cluster:
+                        logger.info(f"Querying with cluster filter: {cluster}")
+                        cur.execute("""
+                            SELECT 
+                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
+                                p.settore, p.cluster,
+                                ps.stock, ps.last_update, ps.verified
+                            FROM products p
+                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                            WHERE p.settore = %s AND p.cluster = %s AND ps.verified = TRUE
+                            ORDER BY p.descrizione
+                        """, (settore, cluster))
+                    else:
+                        logger.info(f"Querying all clusters for settore: {settore}")
+                        cur.execute("""
+                            SELECT 
+                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
+                                p.settore, p.cluster,
+                                ps.stock, ps.last_update, ps.verified
+                            FROM products p
+                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                            WHERE p.settore = %s AND ps.verified = TRUE
+                            ORDER BY p.cluster, p.descrizione
+                        """, (settore,))
+                    
+                    for row in cur.fetchall():
+                        result = dict(row)
+                        result['supermarket_name'] = supermarket.name
+                        results.append(result)
+                    
+                    logger.info(f"Found {len(results)} results for settore search")
+                    
+                except Exception as e:
+                    logger.exception(f"Database error in settore search")
+                    messages.error(request, f"Database error: {e}")
+                    return redirect('inventory-search')
     
     except Exception as e:
         logger.exception("Error in inventory search")
@@ -1802,8 +1759,7 @@ def inventory_product_not_found_view(request, cod, var):
         if not storage:
             continue
         
-        service = RestockService(storage)
-        try:
+        with RestockService(storage) as service:
             cur = service.db.cursor()
             cur.execute("""
                 SELECT ps.verified
@@ -1818,8 +1774,6 @@ def inventory_product_not_found_view(request, cod, var):
                 is_verified = row['verified']
                 supermarket_name = sm.name
                 break
-        finally:
-            service.close()
     
     context = {
         'cod': cod,
@@ -1863,15 +1817,14 @@ def get_clusters_for_settore_view(request, supermarket_id, settore):
             logger.warning(f"No storage found for settore: {settore}")
             return JsonResponse({'clusters': []})
         
-        service = RestockService(storage)
-        try:
+        with RestockService(storage) as service:
             cur = service.db.cursor()
             cur.execute("""
                 SELECT DISTINCT cluster
                 FROM products
                 WHERE settore = %s 
-                  AND cluster IS NOT NULL 
-                  AND cluster != ''
+                AND cluster IS NOT NULL 
+                AND cluster != ''
                 ORDER BY cluster
             """, (settore,))
             
@@ -1879,8 +1832,6 @@ def get_clusters_for_settore_view(request, supermarket_id, settore):
             logger.info(f"API: Loaded {len(clusters)} clusters for settore {settore}")
             
             return JsonResponse({'clusters': clusters})
-        finally:
-            service.close()
     
     except Exception as e:
         logger.exception("Error loading clusters")
@@ -1902,12 +1853,10 @@ def inventory_flag_for_purge_ajax_view(request):
         if not storage:
             return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)
         
-        service = RestockService(storage)
-        try:
+        with RestockService(storage) as service:
             result = service.db.flag_for_purge(cod, var)
             return JsonResponse({'success': True, 'message': result['message']})
-        finally:
-            service.close()
+
             
     except Exception as e:
         logger.exception("Error flagging product for purge")
@@ -2064,8 +2013,7 @@ def verify_stock_unified_enhanced_view(request):
     clusters_by_storage = {}
     for sm in supermarkets:
         for storage in sm.storages.all():
-            service = RestockService(storage)
-            try:
+            with RestockService(storage) as service:
                 cursor = service.db.cursor()
                 cursor.execute("""
                     SELECT DISTINCT cluster 
@@ -2076,9 +2024,6 @@ def verify_stock_unified_enhanced_view(request):
                 """, (storage.settore,))
                 clusters = [row['cluster'] for row in cursor.fetchall()]
                 clusters_by_storage[storage.id] = clusters
-            finally:
-                service.close()
-    
     return render(request, 'inventory/verify_stock_unified.html', {
         'supermarkets': supermarkets,
         'clusters_by_storage': json.dumps(clusters_by_storage)
@@ -2159,8 +2104,7 @@ def assign_clusters_view(request):
     clusters_by_storage = {}
     for sm in supermarkets:
         for storage in sm.storages.all():
-            service = RestockService(storage)
-            try:
+            with RestockService(storage) as service:
                 cursor = service.db.cursor()
                 cursor.execute("""
                     SELECT DISTINCT cluster 
@@ -2171,9 +2115,6 @@ def assign_clusters_view(request):
                 """, (storage.settore,))
                 clusters = [row['cluster'] for row in cursor.fetchall()]
                 clusters_by_storage[storage.id] = clusters
-            finally:
-                service.close()
-    
     return render(request, 'inventory/assign_clusters.html', {
         'supermarkets': supermarkets,
         'clusters_by_storage': json.dumps(clusters_by_storage)
@@ -2235,9 +2176,7 @@ def record_losses_unified_view(request):
                     messages.error(request, f"No storages found for {supermarket.name}")
                     return redirect('record-losses-unified')
                 
-                service = RestockService(storage)
-                
-                try:
+                with RestockService(storage) as service:
                     # Import the new function
                     from .scripts.inventory_reader import process_loss_pdf
                     
@@ -2270,24 +2209,17 @@ def record_losses_unified_view(request):
                         file_path.unlink()
                         logger.info(f"Deleted processed PDF: {file_path}")
                     except Exception as e:
-                        logger.warning(f"Could not delete PDF: {e}")
-                    
-                finally:
-                    service.close()
-                
-                return redirect('record-losses-unified')
-                
+                        logger.warning(f"Could not delete PDF: {e}")                     
+                return redirect('record-losses-unified')      
             except Exception as e:
                 logger.exception("Error saving/processing loss PDF")
                 messages.error(request, f"Error: {str(e)}")
     else:
         form = RecordLossesForm()
-    
     return render(request, 'inventory/record_losses_unified.html', {
         'supermarkets': supermarkets,
         'form': form
     })
-
 
 @login_required
 def verification_report_unified_view(request):
@@ -2363,9 +2295,7 @@ def verify_single_product_ajax_view(request):
             supermarket__owner=request.user
         )
         
-        service = RestockService(storage)
-        
-        try:
+        with RestockService(storage) as service:
             service.db.verify_stock(cod, var, stock, cluster)
             
             logger.info(
@@ -2376,11 +2306,7 @@ def verify_single_product_ajax_view(request):
             return JsonResponse({
                 'success': True,
                 'message': f'Product {cod}.{var} verified successfully!'
-            })
-            
-        finally:
-            service.close()
-            
+            })           
     except Exception as e:
         logger.exception("Error verifying single product")
         return JsonResponse({
@@ -2446,7 +2372,7 @@ def task_progress_view(request, task_id, storage_id=None):
 def task_status_ajax_view(request, task_id):
     """
     FIXED: Better handling of different task result formats.
-    Returns consistent structure for all task types.
+    Always generates a redirect_url or message for frontend.
     """
     from celery.result import AsyncResult
     
@@ -2463,29 +2389,40 @@ def task_status_ajax_view(request, task_id):
             result = task.result
             response_data['success'] = True
             
-            # ✅ FIX: Handle different result types consistently
+            # ✅ FIXED: Always ensure we have either redirect_url or message
             if isinstance(result, dict):
                 response_data['result'] = result
+                
+                # Extract message if available
+                message = result.get('message', 'Operation completed successfully')
+                response_data['message'] = message
                 
                 # Determine redirect URL based on result content
                 if 'log_id' in result:
                     # Restock operation
                     response_data['redirect_url'] = f"/logs/{result['log_id']}/"
-                elif 'storage_name' in result and 'products_added' in result:
+                
+                elif 'storage_id' in result:
+                    # Storage operation (list update, stats update, etc.)
+                    response_data['redirect_url'] = f"/storages/{result['storage_id']}/"
+                
+                elif 'products_added' in result:
                     # Add products operation
                     response_data['redirect_url'] = "/inventory/"
-                    response_data['message'] = result.get('message', 'Operation completed successfully')
-                elif 'storage_name' in result:
-                    # Generic storage operation
-                    response_data['redirect_url'] = "/dashboard/"
-                    response_data['message'] = result.get('message', 'Operation completed successfully')
+                
+                elif 'verified' in result or 'assigned' in result:
+                    # Inventory verification or cluster assignment
+                    response_data['redirect_url'] = "/inventory/"
+                
                 else:
-                    # Unknown format - just show message
-                    response_data['message'] = str(result)
+                    # Unknown format - default to dashboard
+                    response_data['redirect_url'] = "/dashboard/"
+            
             else:
-                # Non-dict result
-                response_data['result'] = {'message': str(result)}
-                response_data['message'] = str(result)
+                # Non-dict result (shouldn't happen, but handle it)
+                response_data['message'] = str(result) if result else 'Operation completed'
+                response_data['redirect_url'] = "/dashboard/"
+        
         else:
             # Task failed
             response_data['success'] = False
@@ -2496,7 +2433,8 @@ def task_status_ajax_view(request, task_id):
             elif isinstance(error_info, dict):
                 response_data['error'] = error_info.get('exc_message', str(error_info))
             else:
-                response_data['error'] = str(error_info)
+                response_data['error'] = str(error_info) if error_info else 'Unknown error'
+    
     else:
         # Task still running - extract progress info
         if isinstance(task.info, dict):
@@ -2582,55 +2520,53 @@ def edit_losses_view(request):
     for sm_id, sm_data in supermarkets_to_process.items():
         try:
             first_storage = sm_data['storages'][0]
-            service = RestockService(first_storage)
-            cursor = service.db.cursor()
-            
-            # Build WHERE clause
-            if storage_id:
-                settore_filter = f"WHERE p.settore = '{first_storage.settore}'"
-            elif len(sm_data['settores']) < len(sm_data['supermarket'].storages.all()):
-                settores_list = "', '".join(sm_data['settores'])
-                settore_filter = f"WHERE p.settore IN ('{settores_list}')"
-            else:
-                settore_filter = ""
-            
-            query = f"""
-                SELECT 
-                    el.cod, el.v,
-                    el.broken, el.broken_updated,
-                    el.expired, el.expired_updated,
-                    el.internal, el.internal_updated,
-                    p.descrizione,
-                    p.settore
-                FROM extra_losses el
-                LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
-                {settore_filter}
-                ORDER BY p.descrizione
-            """
-            
-            cursor.execute(query)
-            
-            for row in cursor.fetchall():
-                product = {
-                    'cod': row['cod'],
-                    'var': row['v'],
-                    'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
-                    'settore': row['settore'],
-                    'supermarket_name': sm_data['supermarket'].name,
-                    'supermarket_id': sm_data['supermarket'].id,
-                    'broken': row['broken'] or [],
-                    'broken_updated': row['broken_updated'],
-                    'expired': row['expired'] or [],
-                    'expired_updated': row['expired_updated'],
-                    'internal': row['internal'] or [],
-                    'internal_updated': row['internal_updated'],
-                }
+            with RestockService(first_storage) as service:
+                cursor = service.db.cursor()
                 
-                # Only include if has at least one loss recorded
-                if product['broken'] or product['expired'] or product['internal']:
-                    products_with_losses.append(product)
-            
-            service.close()
+                # Build WHERE clause
+                if storage_id:
+                    settore_filter = f"WHERE p.settore = '{first_storage.settore}'"
+                elif len(sm_data['settores']) < len(sm_data['supermarket'].storages.all()):
+                    settores_list = "', '".join(sm_data['settores'])
+                    settore_filter = f"WHERE p.settore IN ('{settores_list}')"
+                else:
+                    settore_filter = ""
+                
+                query = f"""
+                    SELECT 
+                        el.cod, el.v,
+                        el.broken, el.broken_updated,
+                        el.expired, el.expired_updated,
+                        el.internal, el.internal_updated,
+                        p.descrizione,
+                        p.settore
+                    FROM extra_losses el
+                    LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
+                    {settore_filter}
+                    ORDER BY p.descrizione
+                """
+                
+                cursor.execute(query)
+                
+                for row in cursor.fetchall():
+                    product = {
+                        'cod': row['cod'],
+                        'var': row['v'],
+                        'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                        'settore': row['settore'],
+                        'supermarket_name': sm_data['supermarket'].name,
+                        'supermarket_id': sm_data['supermarket'].id,
+                        'broken': row['broken'] or [],
+                        'broken_updated': row['broken_updated'],
+                        'expired': row['expired'] or [],
+                        'expired_updated': row['expired_updated'],
+                        'internal': row['internal'] or [],
+                        'internal_updated': row['internal_updated'],
+                    }
+                    
+                    # Only include if has at least one loss recorded
+                    if product['broken'] or product['expired'] or product['internal']:
+                        products_with_losses.append(product)
         except Exception as e:
             logger.exception(f"Error loading losses for supermarket {sm_id}")
             continue
@@ -2680,9 +2616,7 @@ def edit_loss_ajax_view(request):
                 'message': 'No storage found'
             }, status=400)
         
-        service = RestockService(storage)
-        
-        try:
+        with RestockService(storage) as service:
             cursor = service.db.cursor()
             
             # Get current array
@@ -2737,11 +2671,7 @@ def edit_loss_ajax_view(request):
                 'old_value': old_value,
                 'new_value': new_value,
                 'stock_delta_not_applied': stock_delta
-            })
-            
-        finally:
-            service.close()
-            
+            })          
     except Exception as e:
         logger.exception("Error editing loss value")
         return JsonResponse({
@@ -2771,18 +2701,14 @@ def inventory_adjust_stock_ajax_view(request):
         if not storage:
             return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)
         
-        service = RestockService(storage)
-        
-        try:
+        with RestockService(storage) as service:        
             current_stock = service.db.get_stock(cod, var)
-            
             # ✅ NEW: Map reasons to loss types
             loss_type_mapping = {
                 'broken': 'broken',
                 'expired': 'expired',
                 'internal_use': 'internal',
             }
-            
             if reason in loss_type_mapping and adjustment < 0:
                 # This is a loss adjustment - record in extra_losses
                 loss_type = loss_type_mapping[reason]
@@ -2817,17 +2743,12 @@ def inventory_adjust_stock_ajax_view(request):
                     f"Product {cod}.{var}: {current_stock} → {new_stock} ({adjustment:+d}) "
                     f"Reason: {reason}"
                 )
-                
                 return JsonResponse({
                     'success': True,
                     'message': f'Stock adjusted: {current_stock} → {new_stock}',
                     'new_stock': new_stock,
                     'loss_recorded': False
-                })
-                
-        finally:
-            service.close()
-            
+                })                            
     except Exception as e:
         logger.exception("Error in inventory stock adjustment")
         return JsonResponse({'success': False, 'message': str(e)}, status=500)

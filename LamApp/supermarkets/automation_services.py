@@ -45,6 +45,15 @@ class AutomatedRestockService:
             supermarket_name=self.supermarket.name
         )
 
+    def __enter__(self):
+        """Enable 'with' statement usage"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Auto-close database connection when exiting 'with' block"""
+        self.close()
+        return False
+
     def close(self):
         """Clean up database connection - CRITICAL for thread safety"""
         try:
@@ -66,16 +75,6 @@ class AutomatedRestockService:
         
         logger.info(f"Loaded {len(blacklist_set)} blacklisted products for {self.storage.name}")
         return blacklist_set
-    
-    def get_db_path(self):
-        """Get database path for this storage's supermarket"""
-        db_dir = Path(settings.BASE_DIR) / 'databases'
-        db_dir.mkdir(exist_ok=True)
-        
-        safe_name = "".join(c for c in self.supermarket.name if c.isalnum() or c in (' ', '_')).strip()
-        safe_name = safe_name.replace(' ', '_')
-        
-        return str(db_dir / f"{safe_name}.db")
     
     def record_losses(self):
         """

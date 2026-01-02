@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.conf import settings
 from .scripts.logger import logger
 import os
-
+from .automation_services import AutomatedRestockService
 
 @shared_task(
     bind=True,
@@ -25,8 +25,6 @@ def record_losses_all_supermarkets(self):
     (broken/expired/internal use) happen every day and need to be tracked.
     """
     from .models import Supermarket
-    from .automation_services import AutomatedRestockService
-    
     try:
         logger.info("[CELERY] Starting nightly loss recording for all supermarkets")
         
@@ -53,17 +51,14 @@ def record_losses_all_supermarkets(self):
                     error_count += 1
                     continue
                 
-                service = AutomatedRestockService(first_storage)
-                
-                try:
-                    service.record_losses()
-                    logger.info(f"✓ [CELERY] Losses recorded for {supermarket.name}")
-                    success_count += 1
-                except Exception as e:
-                    logger.exception(f"✗ [CELERY] Failed to record losses for {supermarket.name}")
-                    error_count += 1
-                finally:
-                    service.close()
+                with AutomatedRestockService(first_storage) as service:
+                    try:
+                        service.record_losses()
+                        logger.info(f"✓ [CELERY] Losses recorded for {supermarket.name}")
+                        success_count += 1
+                    except Exception as e:
+                        logger.exception(f"✗ [CELERY] Failed to record losses for {supermarket.name}")
+                        error_count += 1
                     
             except Exception as e:
                 logger.exception(f"✗ [CELERY] Error processing {supermarket.name}")
@@ -163,16 +158,14 @@ def update_stats_for_storage(self, storage_id):
     CRITICAL: Creates its own database connection to avoid threading issues.
     """
     from .models import Storage
-    from .automation_services import AutomatedRestockService
+    
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
         
         logger.info(f"[CELERY-SUBTASK] Updating stats for {storage.name}")
         
-        service = AutomatedRestockService(storage)
-        
-        try:
+        with AutomatedRestockService(storage) as service:
             # Create a log to track the update
             from .models import RestockLog
             log = RestockLog.objects.create(
@@ -188,11 +181,7 @@ def update_stats_for_storage(self, storage_id):
             log.save()
             
             logger.info(f"✓ [CELERY-SUBTASK] Stats updated for {storage.name}")
-            return f"Stats updated for {storage.name}"
-            
-        finally:
-            service.close()
-            
+            return f"Stats updated for {storage.name}"            
     except Exception as exc:
         logger.exception(f"[CELERY-SUBTASK] Error updating stats for storage {storage_id}")
         raise self.retry(exc=exc)
@@ -276,16 +265,12 @@ def run_restock_for_storage(self, storage_id):
     Uses checkpoint-based execution with automatic retry.
     """
     from .models import Storage
-    from .automation_services import AutomatedRestockService
+    
     
     try:
-        storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)
-        
-        logger.info(f"[CELERY-ORDER] Running restock for {storage.name}")
-        
-        service = AutomatedRestockService(storage)
-        
-        try:
+        storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)  
+        logger.info(f"[CELERY-ORDER] Running restock for {storage.name}")  
+        with AutomatedRestockService(storage) as service:
             # Coverage will be calculated automatically based on schedule
             log = service.run_full_restock_workflow(coverage=None)
             
@@ -294,11 +279,7 @@ def run_restock_for_storage(self, storage_id):
                 f"(Log #{log.id}: {log.products_ordered} products, {log.total_packages} packages)"
             )
             
-            return f"Restock completed for {storage.name}: {log.products_ordered} products, {log.total_packages} packages"
-            
-        finally:
-            service.close()
-            
+            return f"Restock completed for {storage.name}: {log.products_ordered} products, {log.total_packages} packages"           
     except Exception as exc:
         logger.exception(f"[CELERY-ORDER] Error running restock for storage {storage_id}")
         
@@ -343,9 +324,7 @@ def run_scheduled_list_updates(self):
             try:
                 logger.info(f"[CELERY] Updating product list for {storage.name}")
                 
-                service = ListUpdateService(storage)
-                
-                try:
+                with ListUpdateService(storage) as service:
                     result = service.update_and_import()
                     
                     if result['success']:
@@ -353,11 +332,7 @@ def run_scheduled_list_updates(self):
                         success_count += 1
                     else:
                         logger.warning(f"⚠ [CELERY] List update failed for {storage.name}: {result['message']}")
-                        error_count += 1
-                        
-                finally:
-                    service.close()
-                    
+                        error_count += 1                   
             except Exception as e:
                 logger.exception(f"✗ [CELERY] Error updating list for {storage.name}")
                 error_count += 1
@@ -390,47 +365,35 @@ def manual_restock_task(self, storage_id, coverage=None):
     - Can run 5-15 minutes without timeout
     """
     from .models import Storage, RestockLog
-    from .automation_services import AutomatedRestockService
+    
     from django.utils import timezone
     
     try:
         storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)
-        
         logger.info(f"[MANUAL RESTOCK] Starting for {storage.name}")
-        
         # Create log (will be updated by service)
         log = RestockLog.objects.create(
             storage=storage,
             status='processing',
             current_stage='pending',
             started_at=timezone.now()
-        )
-        
-        service = AutomatedRestockService(storage)
-        
-        try:
+        ) 
+        with AutomatedRestockService(storage) as service:
             # Run full workflow with checkpoint support
-            service.run_full_restock_workflow(coverage=coverage, log=log)
-            
+            service.run_full_restock_workflow(coverage=coverage, log=log) 
             logger.info(
                 f"✅ [MANUAL RESTOCK] Completed for {storage.name} "
                 f"(Log #{log.id}: {log.products_ordered} products)"
             )
-            
             return {
                 'success': True,
                 'log_id': log.id,
                 'products_ordered': log.products_ordered,
                 'total_packages': log.total_packages
-            }
-            
-        finally:
-            service.close()
-            
+            }            
     except Exception as exc:
         logger.exception(f"[MANUAL RESTOCK] Error for storage {storage_id}")
         raise self.retry(exc=exc)
-
 
 @shared_task(
     bind=True,
@@ -446,7 +409,7 @@ def manual_stats_update_task(self, storage_id):
     Moving to Celery prevents Gunicorn timeouts.
     """
     from .models import Storage, RestockLog
-    from .automation_services import AutomatedRestockService
+    
     from django.utils import timezone
     
     try:
@@ -460,9 +423,7 @@ def manual_stats_update_task(self, storage_id):
             current_stage='updating_stats'
         )
         
-        service = AutomatedRestockService(storage)
-        
-        try:
+        with AutomatedRestockService(storage) as service:
             service.update_product_stats_checkpoint(log, manual=True)
             
             log.status = 'completed'
@@ -475,11 +436,7 @@ def manual_stats_update_task(self, storage_id):
                 'success': True,
                 'log_id': log.id,
                 'storage_name': storage.name
-            }
-            
-        finally:
-            service.close()
-            
+            }      
     except Exception as exc:
         logger.exception(f"[MANUAL STATS] Error for storage {storage_id}")
         raise self.retry(exc=exc)
@@ -507,88 +464,83 @@ def add_products_unified_task(self, storage_id, products_list, settore):
         
         logger.info(f"[ADD PRODUCTS] Starting for {storage.name}: {len(products_list)} products")
         
-        service = RestockService(storage)
-        
-        # Create WebLister instance
-        temp_dir = Path(settings.BASE_DIR) / 'temp_add_products'
-        temp_dir.mkdir(exist_ok=True)
-        
-        lister = WebLister(
-            username=storage.supermarket.username,
-            password=storage.supermarket.password,
-            storage_name=storage.name,
-            download_dir=str(temp_dir),
-            headless=True
-        )
-        
-        try:
-            lister.login()
+        with RestockService(storage) as service:
+            # Create WebLister instance
+            temp_dir = Path(settings.BASE_DIR) / 'temp_add_products'
+            temp_dir.mkdir(exist_ok=True)
             
-            added = []
-            failed = []
-            
-            for cod, var in products_list:
-                try:
-                    logger.info(f"[ADD PRODUCTS] Fetching {cod}.{var}...")
-                    
-                    # Use gather_missing_product_data for consistency
-                    product_data = lister.gather_missing_product_data(cod, var)
-                    
-                    if not product_data:
-                        logger.warning(f"[ADD PRODUCTS] Product {cod}.{var} not found")
-                        failed.append((cod, var, "Not found in PAC2000A"))
-                        continue
-                    
-                    description, package, multiplier, availability, cost, price, category = product_data
-                    
-                    # Add to database
-                    service.db.add_product(
-                        cod=cod,
-                        v=var,
-                        descrizione=description or f"Product {cod}.{var}",
-                        rapp=multiplier or 1,
-                        pz_x_collo=package or 12,
-                        settore=settore,
-                        disponibilita=availability or "Si"
-                    )
-                    
-                    # Initialize stats
-                    service.db.init_product_stats(cod, var, [], [], 0, False)
-                    
-                    # Add economics
-                    if price and cost:
-                        cost = float(cost)
-                        price = float(price)
-                        cur = service.db.cursor()
-                        cur.execute("""
-                            INSERT INTO economics (cod, v, price_std, cost_std, category)
-                            VALUES (%s, %s, %s, %s, %s)
-                            ON CONFLICT (cod, v) DO NOTHING
-                        """, (cod, var, price, cost, category or "Unknown"))
-                        service.db.conn.commit()
-                    
-                    added.append((cod, var))
-                    logger.info(f"[ADD PRODUCTS] ✅ Added {cod}.{var}")
-                    
-                except Exception as e:
-                    logger.exception(f"[ADD PRODUCTS] Error adding {cod}.{var}")
-                    failed.append((cod, var, str(e)))
-            
-            logger.info(f"[ADD PRODUCTS] ✅ Complete: {len(added)} added, {len(failed)} failed")
-            
-            return {
-                'success': True,
-                'products_added': len(added),
-                'products_failed': len(failed),
-                'added': added[:50],
-                'failed': failed[:20],
-                'storage_name': storage.name
-            }
-            
-        finally:
-            lister.driver.quit()
-            service.close()
-            
+            lister = WebLister(
+                username=storage.supermarket.username,
+                password=storage.supermarket.password,
+                storage_name=storage.name,
+                download_dir=str(temp_dir),
+                headless=True
+            ) 
+            try:
+                lister.login()
+                
+                added = []
+                failed = []
+                
+                for cod, var in products_list:
+                    try:
+                        logger.info(f"[ADD PRODUCTS] Fetching {cod}.{var}...")
+                        
+                        # Use gather_missing_product_data for consistency
+                        product_data = lister.gather_missing_product_data(cod, var)
+                        
+                        if not product_data:
+                            logger.warning(f"[ADD PRODUCTS] Product {cod}.{var} not found")
+                            failed.append((cod, var, "Not found in PAC2000A"))
+                            continue
+                        
+                        description, package, multiplier, availability, cost, price, category = product_data
+                        
+                        # Add to database
+                        service.db.add_product(
+                            cod=cod,
+                            v=var,
+                            descrizione=description or f"Product {cod}.{var}",
+                            rapp=multiplier or 1,
+                            pz_x_collo=package or 12,
+                            settore=settore,
+                            disponibilita=availability or "Si"
+                        )
+                        
+                        # Initialize stats
+                        service.db.init_product_stats(cod, var, [], [], 0, False)
+                        
+                        # Add economics
+                        if price and cost:
+                            cost = float(cost)
+                            price = float(price)
+                            cur = service.db.cursor()
+                            cur.execute("""
+                                INSERT INTO economics (cod, v, price_std, cost_std, category)
+                                VALUES (%s, %s, %s, %s, %s)
+                                ON CONFLICT (cod, v) DO NOTHING
+                            """, (cod, var, price, cost, category or "Unknown"))
+                            service.db.conn.commit()
+                        
+                        added.append((cod, var))
+                        logger.info(f"[ADD PRODUCTS] ✅ Added {cod}.{var}")
+                        
+                    except Exception as e:
+                        logger.exception(f"[ADD PRODUCTS] Error adding {cod}.{var}")
+                        failed.append((cod, var, str(e)))
+                
+                logger.info(f"[ADD PRODUCTS] ✅ Complete: {len(added)} added, {len(failed)} failed")
+                
+                return {
+                    'success': True,
+                    'products_added': len(added),
+                    'products_failed': len(failed),
+                    'added': added[:50],
+                    'failed': failed[:20],
+                    'storage_name': storage.name
+                }   
+            finally:
+                lister.driver.quit()           
     except Exception as exc:
         logger.exception(f"[ADD PRODUCTS] Error for storage {storage_id}")
         raise self.retry(exc=exc)
@@ -613,9 +565,7 @@ def manual_list_update_task(self, storage_id):
         
         logger.info(f"[LIST UPDATE] Starting for {storage.name}")
         
-        service = ListUpdateService(storage)
-        
-        try:
+        with ListUpdateService(storage) as service:
             result = service.update_and_import()
             
             if result['success']:
@@ -623,11 +573,7 @@ def manual_list_update_task(self, storage_id):
             else:
                 logger.warning(f"⚠️ [LIST UPDATE] Failed for {storage.name}: {result['message']}")
             
-            return result
-            
-        finally:
-            service.close()
-            
+            return result            
     except Exception as exc:
         logger.exception(f"[LIST UPDATE] Error for storage {storage_id}")
         raise self.retry(exc=exc)
@@ -655,9 +601,7 @@ def assign_clusters_task(self, storage_id, pdf_file_path, cluster):
         
         logger.info(f"[ASSIGN CLUSTERS] Starting for {storage.name}: cluster='{cluster}'")
         
-        service = RestockService(storage)
-        
-        try:
+        with RestockService(storage) as service:
             result = assign_clusters_from_pdf(service.db, pdf_file_path, cluster)
             
             if result['success']:
@@ -675,11 +619,7 @@ def assign_clusters_task(self, storage_id, pdf_file_path, cluster):
                 'assigned': result.get('assigned', 0),
                 'skipped': result.get('skipped', 0),
                 'error': result.get('error')
-            }
-            
-        finally:
-            service.close()
-            
+            }          
     except Exception as exc:
         logger.exception(f"[ASSIGN CLUSTERS] Error for storage {storage_id}")
         raise self.retry(exc=exc)
@@ -712,9 +652,7 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
         if not storage:
             raise ValueError(f"No storages found for {supermarket.name}")
         
-        service = RestockService(storage)
-        
-        try:
+        with RestockService(storage) as service:
             # Parse PDF
             promo_list = service.helper.parse_promo_pdf(pdf_file_path)
             
@@ -734,11 +672,7 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
                 'success': True,
                 'supermarket_name': supermarket.name,
                 'promo_count': len(promo_list)
-            }
-            
-        finally:
-            service.close()
-            
+            }        
     except Exception as exc:
         logger.exception(f"[PROCESS PROMOS] Error for supermarket {supermarket_id}")
         raise self.retry(exc=exc)
@@ -768,7 +702,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
         cluster: Optional cluster name (user-provided)
     """
     from .models import Storage
-    from .automation_services import AutomatedRestockService
+    
     from .scripts.inventory_reader import parse_pdf
     from .scripts.web_lister import WebLister
     from pathlib import Path
@@ -781,9 +715,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
         if cluster:
             logger.info(f"[VERIFY+AUTO-ADD] Cluster: {cluster}")
         
-        service = AutomatedRestockService(storage)
-        
-        try:
+        with AutomatedRestockService(storage) as service:
             # STEP 1: Record losses first (as before)
             logger.info(f"[VERIFY+AUTO-ADD] Step 1: Recording losses...")
             service.record_losses()
@@ -979,11 +911,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 f"{len(failed_additions)} failed"
             )
             
-            return result
-            
-        finally:
-            service.close()
-            
+            return result    
     except Exception as exc:
         logger.exception(f"[VERIFY+AUTO-ADD] ❌ Error for storage {storage_id}")
         raise self.retry(exc=exc)

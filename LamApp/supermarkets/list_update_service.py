@@ -1,4 +1,4 @@
-# LamApp/supermarkets/list_update_service.py
+# LamApp/supermarkets/list_update_service.py - FIXED VERSION
 """
 Service to handle automatic product list updates.
 Downloads latest product list from PAC2000A and imports to database.
@@ -24,7 +24,7 @@ class ListUpdateService:
         self.supermarket = storage.supermarket
         self.helper = Helper()
         
-        # NEW: Pass supermarket name instead of db_path
+        # Pass supermarket name instead of db_path
         self.db = DatabaseManager(
             self.helper, 
             supermarket_name=self.supermarket.name
@@ -33,18 +33,15 @@ class ListUpdateService:
         # Create temp directory for downloads
         self.download_dir = Path(settings.BASE_DIR) / 'temp_lists'
         self.download_dir.mkdir(exist_ok=True)
+
+    def __enter__(self):
+        """Enable 'with' statement usage"""
+        return self
     
-    def get_db_path(self):
-        """Get database path for this storage's supermarket"""
-        db_dir = Path(settings.BASE_DIR) / 'databases'
-        db_dir.mkdir(exist_ok=True)
-        
-        safe_name = "".join(
-            c for c in self.supermarket.name 
-            if c.isalnum() or c in (' ', '_')
-        ).strip().replace(' ', '_')
-        
-        return str(db_dir / f"{safe_name}.db")
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Auto-close database connection when exiting 'with' block"""
+        self.close()
+        return False
     
     def should_update(self) -> bool:
         """
@@ -124,36 +121,30 @@ class ListUpdateService:
             # Clean up file
             Path(file_path).unlink()
             
-            # Update storage
+            # Update storage timestamp
             self.storage.last_list_update = timezone.now()
             self.storage.save()
             
-            # Update log
-            log.status = 'completed'
-            log.completed_at = timezone.now()
-            log.file_path = file_path
-            log.save()
-            
             logger.info(f"List update completed for {self.storage.name}")
             
+            # ✅ FIXED: Return proper result dict without undefined 'log'
             return {
                 'success': True,
-                'message': 'Product list updated successfully',
-                'log': log
+                'message': f'Product list updated successfully for {self.storage.name}',
+                'storage_id': self.storage.id,
+                'storage_name': self.storage.name,
+                'file_path': file_path
             }
             
         except Exception as e:
             logger.exception(f"Error updating list for {self.storage.name}")
             
-            log.status = 'failed'
-            log.error_message = str(e)
-            log.completed_at = timezone.now()
-            log.save()
-            
+            # ✅ FIXED: Return error dict instead of trying to update non-existent log
             return {
                 'success': False,
                 'message': f'Error: {str(e)}',
-                'log': log
+                'storage_id': self.storage.id,
+                'storage_name': self.storage.name
             }
     
     def close(self):

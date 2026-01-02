@@ -17,10 +17,6 @@ logger = logging.getLogger(__name__)
 
 class RestockService:
     """Service to handle restock operations"""
-    
-    def get_db_path(self):
-        """Get database path - now returns supermarket name for PostgreSQL."""
-        return self.supermarket.name
 
     def __init__(self, storage: Storage):
         self.storage = storage
@@ -35,6 +31,16 @@ class RestockService:
         )
         
         self.decision_maker = DecisionMaker(self.db, self.helper, blacklist_set=self.get_blacklist_set())
+
+    def __enter__(self):
+        """Enable 'with' statement usage"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Auto-close database connection when exiting 'with' block"""
+        self.close()
+        # Return False to propagate exceptions (standard behavior)
+        return False
     
     def get_blacklist_set(self):
         """
@@ -127,7 +133,7 @@ class RestockService:
     
     def import_products_from_excel(self, file_path):
         """Import products from Excel file"""
-        self.db.import_from_CSV(file_path, self.settore)
+        self.db.import_from_excel(file_path, self.settore)
     
     def update_product_stats(self):
         """

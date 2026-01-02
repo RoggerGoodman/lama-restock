@@ -1,5 +1,6 @@
 <!-- LamApp/supermarkets/templates/tasks/progress.html -->
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}Task in Progress{% endblock %}
 {% block page_title %}Processing...{% endblock %}
 
@@ -88,126 +89,63 @@
 {% endblock %}
 
 {% block scripts %}
+<!-- ✅ LOAD SHARED POLLER -->
+<script src="{% static 'js/task-poller.js' %}"></script>
+
 <script>
-const taskId = '{{ task_id }}';
-let pollInterval;
-let pollCount = 0;
-const MAX_POLLS = 360; // 30 minutes at 5 sec intervals
-
-function startPolling() {
-    pollInterval = setInterval(checkTaskStatus, 5000);
-    checkTaskStatus(); // Check immediately
-}
-
-function checkTaskStatus() {
-    pollCount++;
+// ✅ USE SHARED POLLER (replaces 100+ lines of duplicate code)
+const poller = new TaskPoller('{{ task_id }}', {
+    onProgress: (data) => {
+        // Update progress bar
+        const progress = data.progress || 0;
+        document.getElementById('progressBar').style.width = progress + '%';
+        document.getElementById('progressBar').textContent = progress + '%';
+        document.getElementById('progressPercent').textContent = progress + '%';
+        document.getElementById('statusText').textContent = 
+            data.status_message || 'Processing...';
+    },
     
-    if (pollCount > MAX_POLLS) {
-        clearInterval(pollInterval);
-        showError('Task timed out. Please refresh to check status.');
-        return;
-    }
-    
-    fetch(`/tasks/${taskId}/status/`)
-        .then(response => response.json())
-        .then(data => {
-            console.log('Task status:', data);
-            
-            if (data.ready) {
-                clearInterval(pollInterval);
-                
-                if (data.success) {
-                    // ✅ FIX: Handle different completion types
-                    showSuccess(data);
-                } else {
-                    showError(data.error || 'Task failed');
-                }
-            } else {
-                // Update progress
-                updateProgress(data);
-            }
-        })
-        .catch(error => {
-            console.error('Error checking status:', error);
-        });
-}
-
-function updateProgress(data) {
-    const progress = data.progress || 0;
-    const progressBar = document.getElementById('progressBar');
-    const progressPercent = document.getElementById('progressPercent');
-    const statusText = document.getElementById('statusText');
-    
-    progressBar.style.width = progress + '%';
-    progressBar.textContent = progress + '%';
-    progressPercent.textContent = progress + '%';
-    
-    // Update status text
-    if (data.status_message) {
-        statusText.textContent = data.status_message;
-    } else if (data.state === 'PENDING') {
-        statusText.textContent = 'Task queued, waiting to start...';
-    } else if (data.state === 'STARTED') {
-        statusText.textContent = 'Task started, processing...';
-    } else {
-        statusText.textContent = 'Processing...';
-    }
-}
-
-function showSuccess(data) {
-    document.getElementById('progressSection').style.display = 'none';
-    document.getElementById('successSection').style.display = 'block';
-    
-    const messageEl = document.getElementById('successMessage');
-    const actionsEl = document.getElementById('successActions');
-    
-    // ✅ FIX: Handle different success types
-    if (data.redirect_url) {
-        // Has redirect URL - use it
-        messageEl.textContent = data.message || 'Task completed successfully!';
-        actionsEl.innerHTML = `
-            <a href="${data.redirect_url}" class="btn btn-success">
-                <i class="bi bi-check"></i> View Results
-            </a>
-        `;
+    onSuccess: (data) => {
+        document.getElementById('progressSection').style.display = 'none';
+        document.getElementById('successSection').style.display = 'block';
         
-        // Auto-redirect after 3 seconds
-        setTimeout(() => {
-            window.location.href = data.redirect_url;
-        }, 3000);
-    } else if (data.result && data.result.log_id) {
-        // Restock operation
-        messageEl.innerHTML = `
-            Successfully ordered ${data.result.products_ordered || 0} products 
-            (${data.result.total_packages || 0} packages total)
-        `;
-        actionsEl.innerHTML = `
-            <a href="/logs/${data.result.log_id}/" class="btn btn-success">
-                <i class="bi bi-eye"></i> View Detailed Log
-            </a>
-        `;
+        const messageEl = document.getElementById('successMessage');
+        const actionsEl = document.getElementById('successActions');
         
-        setTimeout(() => {
-            window.location.href = `/logs/${data.result.log_id}/`;
-        }, 3000);
-    } else {
-        // Generic success
         messageEl.textContent = data.message || 'Task completed successfully!';
-        actionsEl.innerHTML = `
-            <a href="/dashboard/" class="btn btn-success">
-                <i class="bi bi-check"></i> Back to Dashboard
-            </a>
-        `;
+        
+        if (data.redirect_url) {
+            actionsEl.innerHTML = `
+                <a href="${data.redirect_url}" class="btn btn-success">
+                    <i class="bi bi-check"></i> View Results
+                </a>
+            `;
+            // Auto-redirect after 2 seconds
+            setTimeout(() => window.location.href = data.redirect_url, 2000);
+        } else {
+            actionsEl.innerHTML = `
+                <a href="/dashboard/" class="btn btn-success">
+                    <i class="bi bi-check"></i> Back to Dashboard
+                </a>
+            `;
+        }
+    },
+    
+    onError: (error) => {
+        document.getElementById('progressSection').style.display = 'none';
+        document.getElementById('errorSection').style.display = 'block';
+        document.getElementById('errorMessage').textContent = error;
+    },
+    
+    onTimeout: () => {
+        document.getElementById('progressSection').style.display = 'none';
+        document.getElementById('errorSection').style.display = 'block';
+        document.getElementById('errorMessage').textContent = 
+            'Task timed out. Please refresh to check status.';
     }
-}
-
-function showError(errorMsg) {
-    document.getElementById('progressSection').style.display = 'none';
-    document.getElementById('errorSection').style.display = 'block';
-    document.getElementById('errorMessage').textContent = errorMsg;
-}
+});
 
 // Start polling when page loads
-document.addEventListener('DOMContentLoaded', startPolling);
+document.addEventListener('DOMContentLoaded', () => poller.start());
 </script>
 {% endblock %}

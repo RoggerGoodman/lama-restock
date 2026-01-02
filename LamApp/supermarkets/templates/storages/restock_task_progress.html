@@ -1,5 +1,6 @@
 <!-- LamApp/supermarkets/templates/storages/restock_task_progress.html -->
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}Restock in Progress{% endblock %}
 {% block page_title %}Restock Operation{% endblock %}
 
@@ -91,95 +92,45 @@
 
 {% block scripts %}
 {% if not log %}
+<!-- ✅ LOAD SHARED POLLER -->
+<script src="{% static 'js/task-poller.js' %}"></script>
+
 <script>
-const taskId = '{{ task_id }}';
-let pollInterval;
-let pollCount = 0;
-const MAX_POLLS = 360; // 30 minutes at 5 sec intervals
-
-function startPolling() {
-    pollInterval = setInterval(checkTaskStatus, 5000);
-    checkTaskStatus(); // Check immediately
-}
-
-function checkTaskStatus() {
-    pollCount++;
+// ✅ SIMPLIFIED: Only ~15 lines instead of 100+
+const poller = new TaskPoller('{{ task_id }}', {
+    onProgress: (data) => {
+        const progress = data.progress || 0;
+        const progressBar = document.getElementById('progressBar');
+        progressBar.style.width = progress + '%';
+        progressBar.textContent = progress + '%';
+        
+        document.getElementById('progressPercent').textContent = progress + '%';
+        
+        if (data.status_message) {
+            document.getElementById('statusText').textContent = data.status_message;
+        }
+    },
     
-    if (pollCount > MAX_POLLS) {
-        clearInterval(pollInterval);
-        showError('Task timed out. Please refresh to check status.');
-        return;
+    onSuccess: (data) => {
+        if (data.result && data.result.log_id) {
+            // Redirect to log detail
+            window.location.href = `/logs/${data.result.log_id}/`;
+        } else if (data.redirect_url) {
+            window.location.href = data.redirect_url;
+        } else {
+            alert('Task completed! Redirecting to dashboard...');
+            window.location.href = '/dashboard/';
+        }
+    },
+    
+    onError: (error) => {
+        document.getElementById('progressSection').style.display = 'none';
+        document.getElementById('errorSection').style.display = 'block';
+        document.getElementById('errorMessage').textContent = error;
     }
-    
-    // Poll the generic task status endpoint
-    fetch(`/tasks/${taskId}/status/`)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('Task status:', data);
-            
-            // Update status display
-            document.getElementById('taskStatus').textContent = data.state;
-            
-            if (data.ready) {
-                clearInterval(pollInterval);
-                
-                if (data.success && data.result && data.result.log_id) {
-                    // Success! Redirect to log detail
-                    console.log('Task complete, redirecting to log:', data.result.log_id);
-                    window.location.href = `/logs/${data.result.log_id}/`;
-                } else if (data.success) {
-                    // Success but no log_id
-                    showError('Task completed but no log ID returned. Please check dashboard.');
-                } else {
-                    // Failed
-                    showError(data.error || 'Task failed');
-                }
-            } else {
-                // Still running - update progress
-                updateProgress(data);
-            }
-        })
-        .catch(error => {
-            console.error('Error checking status:', error);
-            // Don't stop polling on network errors
-        });
-}
+});
 
-function updateProgress(data) {
-    const progress = data.progress || 0;
-    const progressBar = document.getElementById('progressBar');
-    const progressPercent = document.getElementById('progressPercent');
-    const statusText = document.getElementById('statusText');
-    
-    progressBar.style.width = progress + '%';
-    progressBar.textContent = progress + '%';
-    progressPercent.textContent = progress + '%';
-    
-    // Update status text
-    if (data.status_message) {
-        statusText.textContent = data.status_message;
-    } else if (data.state === 'PENDING') {
-        statusText.textContent = 'Task queued, waiting to start...';
-    } else if (data.state === 'STARTED') {
-        statusText.textContent = 'Task started, processing...';
-    } else {
-        statusText.textContent = 'Processing restock operation...';
-    }
-}
-
-function showError(errorMsg) {
-    document.getElementById('progressSection').style.display = 'none';
-    document.getElementById('errorSection').style.display = 'block';
-    document.getElementById('errorMessage').textContent = errorMsg;
-}
-
-// Start polling when page loads
-document.addEventListener('DOMContentLoaded', startPolling);
+document.addEventListener('DOMContentLoaded', () => poller.start());
 </script>
 {% endif %}
 {% endblock %}

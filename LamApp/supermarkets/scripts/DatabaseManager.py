@@ -14,7 +14,6 @@ class DatabaseManager:
         
         Args:
             helper: Helper instance
-            db_path: (deprecated) kept for compatibility
             supermarket_name: Name of supermarket (determines schema)
         """
         self.helper = helper
@@ -605,7 +604,7 @@ class DatabaseManager:
                 WHERE cod=%s AND v=%s
             """, (Json(sold_arr), cod, v))
 
-    def import_from_CSV(self, file_path: str, settore: str):
+    def import_from_excel(self, file_path: str, settore: str):
         """
         Imports products from an CSV file into the database for the given settore.
         Updates existing entries or inserts new ones.
