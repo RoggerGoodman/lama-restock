@@ -31,7 +31,7 @@ urlpatterns = [
     path('storages/<int:storage_id>/update-stats/', views.update_stats_only_view, name='update-stats-only'),
     path('storages/<int:storage_id>/add-products/', views.add_products_view, name='add-products'),
     path('storages/<int:storage_id>/purge/', views.purge_products_view, name='purge-products'),
-    path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),
+    path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),    
     
     # ============ List Updates ============
     path('storages/<int:storage_id>/update-list/', views.manual_list_update_view, name='manual-list-update'),
@@ -46,6 +46,7 @@ urlpatterns = [
     path('logs/<int:log_id>/retry/', views.retry_restock_view, name='retry-restock'),
     path('logs/<int:log_id>/progress/', views.restock_progress_view, name='restock-progress'),
     path('logs/<int:log_id>/flag-products/', views.flag_products_for_purge_view, name='flag-products-for-purge'),
+    path('logs/<int:log_id>/order-new-products/', views.order_new_products_from_log_view, name='order-new-products'),
     
     # ============ Blacklists (accessed from dashboard/storage) ============
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),
@@ -62,6 +63,7 @@ urlpatterns = [
     path('inventory/auto-add/', views.auto_add_product_view, name='inventory-auto-add'),
     path('inventory/edit-losses/', views.edit_losses_view, name='edit-losses'),
     path('inventory/edit-loss/', views.edit_loss_ajax_view, name='edit-loss-ajax'),
+    path('inventory/verify-newly-added/', views.verify_newly_added_ajax_view, name='verify-newly-added'),
     
     # NEW: Unified inventory operations
     path('inventory/verify-stock-enhanced/', views.verify_stock_unified_enhanced_view, name='verify-stock-unified-enhanced'),

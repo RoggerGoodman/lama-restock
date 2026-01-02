@@ -377,7 +377,7 @@
                     </div>
                 </div>
                 {% endif %}
-                <!-- NEW PRODUCTS SECTION -->
+                <!-- NEW PRODUCTS SECTION WITH ORDER CAPABILITY -->
                 {% if enriched_new %}
                 <div class="row mt-4">
                     <div class="col-12">
@@ -386,28 +386,46 @@
                                 <h5 class="mb-0">
                                     <i class="bi bi-star text-success"></i> New Products
                                 </h5>
-                                <span class="badge bg-success">{{ enriched_new|length }} new product{{ enriched_new|length|pluralize }}</span>
+                                <div>
+                                    <span class="badge bg-success">{{ enriched_new|length }} new product{{ enriched_new|length|pluralize }}</span>
+                                    <button class="btn btn-sm btn-primary ms-2" onclick="orderSelectedNew()">
+                                        <i class="bi bi-cart-plus"></i> Order Selected
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary ms-1" onclick="orderAllNew()">
+                                        <i class="bi bi-cart-check"></i> Order All
+                                    </button>
+                                </div>
                             </div>
 
                             <div class="alert alert-success">
                                 <i class="bi bi-info-circle"></i>
-                                These are brand new products that have never been in the system. They may need special attention or initial verification.
+                                These are brand new products that have never been in the system. 
+                                Select which ones to order.
                             </div>
 
                             <div class="table-responsive">
                                 <table class="table table-hover">
                                     <thead>
                                         <tr>
+                                            <th><input type="checkbox" id="selectAllNew" onclick="toggleSelectAllNew()"></th>
                                             <th>Code</th>
                                             <th>Product Name</th>
                                             <th>Stock</th>
                                             <th>Availability</th>
+                                            <th>Quantity to Order</th>
                                             <th>Reason</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {% for item in enriched_new %}
                                         <tr>
+                                            <td>
+                                                <input type="checkbox" 
+                                                       class="new-product-checkbox" 
+                                                       value="{{ item.cod }},{{ item.var }}"
+                                                       data-cod="{{ item.cod }}"
+                                                       data-var="{{ item.var }}">
+                                            </td>
                                             <td><code>{{ item.cod }}.{{ item.var }}</code></td>
                                             <td>{{ item.name|truncatewords:6 }}</td>
                                             <td>
@@ -419,6 +437,14 @@
                                                 {% else %}
                                                     <span class="badge bg-danger">Not Available</span>
                                                 {% endif %}
+                                            </td>
+                                            <td>
+                                                <input type="number" 
+                                                       class="form-control form-control-sm qty-input" 
+                                                       id="qty-{{ item.cod }}-{{ item.var }}" 
+                                                       value="1" 
+                                                       min="1" 
+                                                       style="width: 80px;">
                                             </td>
                                             <td><small class="text-muted">{{ item.reason }}</small></td>
                                         </tr>
@@ -742,6 +768,84 @@ function flagAllZombiesForPurge() {
     if (!confirm(`Flag all ${all.length} zombie products for purging?`)) return;
     
     flagProductsForPurge(all);
+}
+function toggleSelectAllNew() {
+    const selectAll = document.getElementById('selectAllNew');
+    const checkboxes = document.querySelectorAll('.new-product-checkbox');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+}
+function orderSelectedNew() {
+    const selected = [];
+    document.querySelectorAll('.new-product-checkbox:checked').forEach(cb => {
+        const cod = parseInt(cb.dataset.cod);
+        const var_ = parseInt(cb.dataset.var);
+        const qtyInput = document.getElementById(`qty-${cod}-${var_}`);
+        const qty = parseInt(qtyInput.value) || 1;
+        
+        selected.push({cod, var: var_, qty});
+    });
+    
+    if (selected.length === 0) {
+        alert('No products selected');
+        return;
+    }
+    
+    if (!confirm(`Order ${selected.length} new product(s)?`)) return;
+    
+    placeNewProductOrder(selected);
+}
+
+function orderAllNew() {
+    const all = [];
+    document.querySelectorAll('.new-product-checkbox').forEach(cb => {
+        const cod = parseInt(cb.dataset.cod);
+        const var_ = parseInt(cb.dataset.var);
+        const qtyInput = document.getElementById(`qty-${cod}-${var_}`);
+        const qty = parseInt(qtyInput.value) || 1;
+        
+        all.push({cod, var: var_, qty});
+    });
+    
+    if (!confirm(`Order ALL ${all.length} new products?`)) return;
+    
+    placeNewProductOrder(all);
+}
+
+function placeNewProductOrder(products) {
+    // Show loading state
+    const btn = event.target;
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Ordering...';
+    
+    fetch(`/logs/{{ log.id }}/order-new-products/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({products})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Successfully ordered ${data.ordered} product(s)!${data.skipped > 0 ? `\n⚠️ ${data.skipped} skipped (disabled in system)` : ''}`);
+            
+            // Optionally reload to update view
+            if (data.ordered > 0) {
+                location.reload();
+            }
+        } else {
+            alert('Error: ' + data.message);
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    });
 }
 </script>
 {% endblock %}

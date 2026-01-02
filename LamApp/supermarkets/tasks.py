@@ -258,20 +258,15 @@ def check_and_run_orders_today(self):
     queue='selenium'
 )
 def run_restock_for_storage(self, storage_id):
-    """
-    Run full restock workflow for a single storage.
-    This is a subtask called by check_and_run_orders_today.
-    
-    Uses checkpoint-based execution with automatic retry.
-    """
+    """Automated restock (scheduled)"""
     from .models import Storage
-    
     
     try:
         storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)  
         logger.info(f"[CELERY-ORDER] Running restock for {storage.name}")  
+        
         with AutomatedRestockService(storage) as service:
-            # Coverage will be calculated automatically based on schedule
+            # run_full_restock_workflow will create log with operation_type='full_restock'
             log = service.run_full_restock_workflow(coverage=None)
             
             logger.info(
@@ -282,8 +277,6 @@ def run_restock_for_storage(self, storage_id):
             return f"Restock completed for {storage.name}: {log.products_ordered} products, {log.total_packages} packages"           
     except Exception as exc:
         logger.exception(f"[CELERY-ORDER] Error running restock for storage {storage_id}")
-        
-        # Log will have checkpoint info for manual retry if needed
         raise self.retry(exc=exc)
 
 
@@ -355,36 +348,31 @@ def run_scheduled_list_updates(self):
     queue='selenium'
 )
 def manual_restock_task(self, storage_id, coverage=None):
-    """
-    User-initiated restock (replaces synchronous run_restock_view).
-    
-    Benefits:
-    - Doesn't block Gunicorn workers
-    - Proper progress tracking
-    - Automatic retry on failure
-    - Can run 5-15 minutes without timeout
-    """
+    """User-initiated restock"""
     from .models import Storage, RestockLog
-    
     from django.utils import timezone
     
     try:
         storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)
         logger.info(f"[MANUAL RESTOCK] Starting for {storage.name}")
-        # Create log (will be updated by service)
+        
+        # UPDATED: Set operation_type
         log = RestockLog.objects.create(
             storage=storage,
             status='processing',
             current_stage='pending',
+            operation_type='full_restock',  # NEW
             started_at=timezone.now()
         ) 
+        
         with AutomatedRestockService(storage) as service:
-            # Run full workflow with checkpoint support
             service.run_full_restock_workflow(coverage=coverage, log=log) 
+            
             logger.info(
                 f"✅ [MANUAL RESTOCK] Completed for {storage.name} "
                 f"(Log #{log.id}: {log.products_ordered} products)"
             )
+            
             return {
                 'success': True,
                 'log_id': log.id,
@@ -402,14 +390,8 @@ def manual_restock_task(self, storage_id, coverage=None):
     queue='selenium'
 )
 def manual_stats_update_task(self, storage_id):
-    """
-    Update stats without ordering (replaces update_stats_only_view).
-    
-    This is one of the slowest operations (5-10 minutes).
-    Moving to Celery prevents Gunicorn timeouts.
-    """
+    """Update stats without ordering"""
     from .models import Storage, RestockLog
-    
     from django.utils import timezone
     
     try:
@@ -417,10 +399,12 @@ def manual_stats_update_task(self, storage_id):
         
         logger.info(f"[MANUAL STATS] Starting for {storage.name}")
         
+        # UPDATED: Set operation_type
         log = RestockLog.objects.create(
             storage=storage,
             status='processing',
-            current_stage='updating_stats'
+            current_stage='updating_stats',
+            operation_type='stats_update'  # NEW
         )
         
         with AutomatedRestockService(storage) as service:
@@ -435,7 +419,8 @@ def manual_stats_update_task(self, storage_id):
             return {
                 'success': True,
                 'log_id': log.id,
-                'storage_name': storage.name
+                'storage_name': storage.name,
+                'storage_id': storage_id  # For redirect
             }      
     except Exception as exc:
         logger.exception(f"[MANUAL STATS] Error for storage {storage_id}")
@@ -448,24 +433,26 @@ def manual_stats_update_task(self, storage_id):
     queue='selenium'
 )
 def add_products_unified_task(self, storage_id, products_list, settore):
-    """    
-    Args:
-        storage_id: Storage ID
-        products_list: List of (cod, var) tuples
-        settore: Settore name
-    """
-    from .models import Storage
+    """Add products with auto-fetch"""
+    from .models import Storage, RestockLog
     from .services import RestockService
     from .scripts.web_lister import WebLister
     from pathlib import Path
+    from django.utils import timezone
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
         
         logger.info(f"[ADD PRODUCTS] Starting for {storage.name}: {len(products_list)} products")
         
+        # UPDATED: Create log with operation_type
+        log = RestockLog.objects.create(
+            storage=storage,
+            status='processing',
+            operation_type='product_addition'  # NEW
+        )
+        
         with RestockService(storage) as service:
-            # Create WebLister instance
             temp_dir = Path(settings.BASE_DIR) / 'temp_add_products'
             temp_dir.mkdir(exist_ok=True)
             
@@ -476,6 +463,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                 download_dir=str(temp_dir),
                 headless=True
             ) 
+            
             try:
                 lister.login()
                 
@@ -486,7 +474,6 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                     try:
                         logger.info(f"[ADD PRODUCTS] Fetching {cod}.{var}...")
                         
-                        # Use gather_missing_product_data for consistency
                         product_data = lister.gather_missing_product_data(cod, var)
                         
                         if not product_data:
@@ -496,7 +483,6 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                         
                         description, package, multiplier, availability, cost, price, category = product_data
                         
-                        # Add to database
                         service.db.add_product(
                             cod=cod,
                             v=var,
@@ -507,10 +493,8 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             disponibilita=availability or "Si"
                         )
                         
-                        # Initialize stats
                         service.db.init_product_stats(cod, var, [], [], 0, False)
                         
-                        # Add economics
                         if price and cost:
                             cost = float(cost)
                             price = float(price)
@@ -529,6 +513,12 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                         logger.exception(f"[ADD PRODUCTS] Error adding {cod}.{var}")
                         failed.append((cod, var, str(e)))
                 
+                # Update log
+                log.status = 'completed'
+                log.completed_at = timezone.now()
+                log.products_ordered = len(added)  # Reuse this field
+                log.save()
+                
                 logger.info(f"[ADD PRODUCTS] ✅ Complete: {len(added)} added, {len(failed)} failed")
                 
                 return {
@@ -537,7 +527,8 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                     'products_failed': len(failed),
                     'added': added[:50],
                     'failed': failed[:20],
-                    'storage_name': storage.name
+                    'storage_name': storage.name,
+                    'storage_id': storage_id  # For redirect
                 }   
             finally:
                 lister.driver.quit()           
@@ -552,27 +543,39 @@ def add_products_unified_task(self, storage_id, products_list, settore):
     queue='selenium'
 )
 def manual_list_update_task(self, storage_id):
-    """
-    Manual list update (replaces manual_list_update_view).
-    
-    Can take 5-10 minutes to download and import.
-    """
-    from .models import Storage
+    """Manual list update"""
+    from .models import Storage, RestockLog
     from .list_update_service import ListUpdateService
+    from django.utils import timezone
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
         
         logger.info(f"[LIST UPDATE] Starting for {storage.name}")
         
+        # UPDATED: Create log with operation_type
+        log = RestockLog.objects.create(
+            storage=storage,
+            status='processing',
+            operation_type='list_update'  # NEW
+        )
+        
         with ListUpdateService(storage) as service:
             result = service.update_and_import()
             
             if result['success']:
+                log.status = 'completed'
+                log.completed_at = timezone.now()
                 logger.info(f"✅ [LIST UPDATE] Completed for {storage.name}")
             else:
+                log.status = 'failed'
+                log.error_message = result['message']
                 logger.warning(f"⚠️ [LIST UPDATE] Failed for {storage.name}: {result['message']}")
             
+            log.save()
+            
+            # Add storage_id for redirect
+            result['storage_id'] = storage_id
             return result            
     except Exception as exc:
         logger.exception(f"[LIST UPDATE] Error for storage {storage_id}")
@@ -584,37 +587,46 @@ def manual_list_update_task(self, storage_id):
     default_retry_delay=600
 )
 def assign_clusters_task(self, storage_id, pdf_file_path, cluster):
-    """
-    UPDATED: Assign cluster to products from PDF (not CSV).
-    
-    Args:
-        storage_id: Storage ID
-        pdf_file_path: Full path to PDF file
-        cluster: Cluster name (REQUIRED, user-provided)
-    """
-    from .models import Storage
+    """Assign clusters from PDF"""
+    from .models import Storage, RestockLog
     from .services import RestockService
     from .scripts.inventory_reader import assign_clusters_from_pdf
+    from django.utils import timezone
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
         
         logger.info(f"[ASSIGN CLUSTERS] Starting for {storage.name}: cluster='{cluster}'")
         
+        # UPDATED: Create log with operation_type
+        log = RestockLog.objects.create(
+            storage=storage,
+            status='processing',
+            operation_type='cluster_assignment'  # NEW
+        )
+        
         with RestockService(storage) as service:
             result = assign_clusters_from_pdf(service.db, pdf_file_path, cluster)
             
             if result['success']:
+                log.status = 'completed'
+                log.products_ordered = result.get('assigned', 0)  # Reuse field
                 logger.info(
                     f"✅ [ASSIGN CLUSTERS] Completed: "
                     f"{result['assigned']} assigned, {result['skipped']} skipped"
                 )
             else:
+                log.status = 'failed'
+                log.error_message = result.get('error')
                 logger.error(f"❌ [ASSIGN CLUSTERS] Failed: {result['error']}")
+            
+            log.completed_at = timezone.now()
+            log.save()
             
             return {
                 'success': result['success'],
                 'storage_name': storage.name,
+                'storage_id': storage_id,  # For redirect
                 'cluster': cluster,
                 'assigned': result.get('assigned', 0),
                 'skipped': result.get('skipped', 0),
@@ -701,7 +713,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
         pdf_file_path: Full path to PDF file
         cluster: Optional cluster name (user-provided)
     """
-    from .models import Storage
+    from .models import Storage, RestockLog
     
     from .scripts.inventory_reader import parse_pdf
     from .scripts.web_lister import WebLister
@@ -714,6 +726,12 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
         logger.info(f"[VERIFY+AUTO-ADD] Starting for {storage.name}")
         if cluster:
             logger.info(f"[VERIFY+AUTO-ADD] Cluster: {cluster}")
+
+        log = RestockLog.objects.create(
+            storage=storage,
+            status='processing',
+            operation_type='verification'  # NEW
+        )
         
         with AutomatedRestockService(storage) as service:
             # STEP 1: Record losses first (as before)
@@ -843,14 +861,13 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                             })
                             
                             logger.info(f"[AUTO-ADD] ✅ Successfully added {cod}.{var} - {description}")
+                            log.status = 'completed'
+                            log.completed_at = timezone.now()
+                            log.save()
                             
-                        except Exception as e:
-                            logger.exception(f"[AUTO-ADD] ❌ Error adding {cod}.{var}")
-                            failed_additions.append({
-                                'cod': cod,
-                                'var': var,
-                                'reason': str(e)
-                            })
+                        except Exception as exc:
+                            logger.exception(f"[VERIFY+AUTO-ADD] ❌ Error for storage {storage_id}")
+                            raise self.retry(exc=exc)
                 
                 finally:
                     lister.driver.quit()

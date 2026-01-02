@@ -1,4 +1,4 @@
-<!-- LamApp/supermarkets/templates/storages/detail.html -->
+<!-- LamApp/supermarkets/templates/storages/detail.html - ENHANCED -->
 {% extends 'base.html' %}
 
 {% block title %}{{ storage.name }} - LamaRestock{% endblock %}
@@ -18,6 +18,67 @@
             </nav>
         </div>
     </div>
+
+    <!-- ✅ NEW: Newly Added Products Section (if any exist) -->
+    {% if newly_added_products %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="bi bi-exclamation-circle text-warning"></i> Newly Added Products Needing Verification
+                    </h5>
+                    <span class="badge bg-warning">{{ newly_added_products|length }} products</span>
+                </div>
+
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    These products have been ordered but haven't been sold yet. 
+                    Please verify their package size before they appear in future orders.
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Product Name</th>
+                                <th>Current Package Size</th>
+                                <th>Edit Package Size</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in newly_added_products %}
+                            <tr id="row-{{ product.cod }}-{{ product.var }}">
+                                <td><code>{{ product.cod }}.{{ product.var }}</code></td>
+                                <td>{{ product.name|truncatewords:6 }}</td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ product.package_size }} units</span>
+                                </td>
+                                <td>
+                                    <input type="number" 
+                                           class="form-control form-control-sm" 
+                                           id="pkg-{{ product.cod }}-{{ product.var }}" 
+                                           value="{{ product.package_size }}" 
+                                           min="1" 
+                                           style="width: 100px;">
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-success" 
+                                            onclick="verifyNewlyAdded({{ product.cod }}, {{ product.var }})">
+                                        <i class="bi bi-check-circle"></i> Verify
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Storage Info Card -->
     <div class="row mb-4">
@@ -68,22 +129,6 @@
                     </a>
                 </div>
 
-                <!-- Note about loss recording -->
-                <div class="alert alert-info mt-3">
-                    <i class="bi bi-info-circle"></i>
-                    <strong>Loss Recording:</strong> To record losses (broken/expired/internal use), go to the 
-                    <a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}" class="alert-link">supermarket page</a>.
-                    Loss files contain data for all storages.
-                </div>
-
-                <!-- Danger Zone -->
-                <div class="border-top pt-3 mt-3">
-                    <h6 class="text-danger mb-2">Danger Zone</h6>
-                    <a href="{% url 'storage-delete' pk=storage.id %}" class="btn btn-outline-danger btn-sm">
-                        <i class="bi bi-trash"></i> Delete Storage
-                    </a>
-                </div>
-
                 <!-- Schedule Info -->
                 {% if schedule %}
                 <div class="alert alert-info mt-3">
@@ -109,55 +154,16 @@
                         </div>
                     </div>
                 </div>
-                {% else %}
-                <div class="alert alert-warning mt-3">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    No restock schedule configured.
-                    <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">Create schedule now</a>
-                </div>
                 {% endif %}
 
-                <!-- Automatic List Updates Info -->
-                <div class="alert alert-info mt-3">
-                    <h6 class="mb-2">
-                        <i class="bi bi-arrow-repeat"></i> Automatic Product List Updates
-                    </h6>
-                    
-                    {% if schedule %}
-                        <div class="row">
-                            <div class="col-md-6">
-                                <p class="mb-1"><strong>Status:</strong></p>
-                                <span class="badge bg-success">
-                                    <i class="bi bi-check-circle"></i> Enabled (Nightly at 3:00 AM)
-                                </span>
-                            </div>
-                            <div class="col-md-6">
-                                {% if storage.last_list_update %}
-                                <p class="mb-1"><strong>Last Update:</strong></p>
-                                <small class="text-muted">{{ storage.last_list_update|timesince }} ago</small>
-                                {% else %}
-                                <p class="mb-1"><strong>Last Update:</strong></p>
-                                <small class="text-muted">Never</small>
-                                {% endif %}
-                            </div>
-                        </div>
-                        <div class="mt-2">
-                            <small class="text-muted">
-                                <i class="bi bi-info-circle"></i>
-                                Product lists are automatically updated every night for all storages with active order schedules.
-                            </small>
-                        </div>
-                    {% else %}
-                        <p class="mb-1">
-                            <i class="bi bi-exclamation-triangle text-warning"></i>
-                            <strong>Automatic updates disabled</strong> - No order schedule configured.
-                        </p>
-                        <small class="text-muted">
-                            Automatic list updates require an active order schedule.
-                            <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">Create schedule</a> to enable.
-                        </small>
-                    {% endif %}
+                <!-- Danger Zone -->
+                <div class="border-top pt-3 mt-3">
+                    <h6 class="text-danger mb-2">Danger Zone</h6>
+                    <a href="{% url 'storage-delete' pk=storage.id %}" class="btn btn-outline-danger btn-sm">
+                        <i class="bi bi-trash"></i> Delete Storage
+                    </a>
                 </div>
+            </div>
         </div>
 
         <!-- Quick Stats -->
@@ -173,6 +179,12 @@
                         <span class="text-muted">Active Blacklists</span>
                         <strong>{{ blacklists|length }}</strong>
                     </div>
+                    {% if newly_added_products %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Needs Verification</span>
+                        <strong class="text-warning">{{ newly_added_products|length }}</strong>
+                    </div>
+                    {% endif %}
                     {% if recent_logs %}
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="text-muted">Last Run</span>
@@ -327,4 +339,62 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ✅ NEW: Verify newly added product
+function verifyNewlyAdded(cod, var_) {
+    const pkgInput = document.getElementById(`pkg-${cod}-${var_}`);
+    const newPackageSize = parseInt(pkgInput.value);
+    
+    if (newPackageSize < 1) {
+        alert('Package size must be at least 1');
+        return;
+    }
+    
+    if (!confirm(`Verify product ${cod}.${var_} with package size ${newPackageSize}?`)) {
+        return;
+    }
+    
+    fetch('/inventory/verify-newly-added/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            cod: cod,
+            var: var_,
+            package_size: newPackageSize,
+            storage_id: {{ storage.id }}
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Remove row with fade animation
+            const row = document.getElementById(`row-${cod}-${var_}`);
+            row.style.transition = 'opacity 0.3s';
+            row.style.opacity = '0';
+            setTimeout(() => row.remove(), 300);
+            
+            alert(`✅ Product ${cod}.${var_} verified!`);
+            
+            // Reload if no more products
+            setTimeout(() => {
+                const tbody = document.querySelector('tbody');
+                if (tbody.children.length === 0) {
+                    location.reload();
+                }
+            }, 500);
+        } else {
+            alert('Error: ' + data.message);
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error);
+    });
+}
+</script>
 {% endblock %}

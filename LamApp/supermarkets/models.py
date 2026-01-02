@@ -212,7 +212,24 @@ class RestockLog(models.Model):
         ('failed', 'Failed'),
     ]
     
+    # NEW: Operation type tracking
+    OPERATION_TYPE_CHOICES = [
+        ('full_restock', 'Full Restock Order'),
+        ('stats_update', 'Statistics Update Only'),
+        ('list_update', 'Product List Update'),
+        ('order_execution', 'Order Execution Only'),
+        ('verification', 'Stock Verification'),
+        ('cluster_assignment', 'Cluster Assignment'),
+        ('product_addition', 'Product Addition'),
+    ]
+    
     storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='restock_logs')
+    operation_type = models.CharField(
+        max_length=20, 
+        choices=OPERATION_TYPE_CHOICES, 
+        default='full_restock',
+        help_text="Type of operation performed"
+    )
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
@@ -239,6 +256,59 @@ class RestockLog(models.Model):
     error_message = models.TextField(blank=True)
     
     coverage_used = models.DecimalField(max_digits=4, decimal_places=1, null=True)
+    
+    # NEW: Helper methods for operation type display
+    def get_operation_icon(self):
+        """Return Bootstrap icon class for operation type"""
+        icons = {
+            'full_restock': 'bi-box-seam',
+            'stats_update': 'bi-arrow-repeat',
+            'list_update': 'bi-download',
+            'order_execution': 'bi-send',
+            'verification': 'bi-clipboard-check',
+            'cluster_assignment': 'bi-folder',
+            'product_addition': 'bi-plus-circle',
+        }
+        return icons.get(self.operation_type, 'bi-file-text')
+    
+    def get_operation_color(self):
+        """Return Bootstrap color class for operation type"""
+        colors = {
+            'full_restock': 'primary',
+            'stats_update': 'info',
+            'list_update': 'warning',
+            'order_execution': 'success',
+            'verification': 'secondary',
+            'cluster_assignment': 'dark',
+            'product_addition': 'success',
+        }
+        return colors.get(self.operation_type, 'secondary')
+    
+    def get_duration(self):
+        """Calculate operation duration"""
+        if self.completed_at and self.started_at:
+            delta = self.completed_at - self.started_at
+            total_seconds = int(delta.total_seconds())
+            
+            if total_seconds < 60:
+                return f"{total_seconds}s"
+            elif total_seconds < 3600:
+                minutes = total_seconds // 60
+                seconds = total_seconds % 60
+                return f"{minutes}m {seconds}s"
+            else:
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                return f"{hours}h {minutes}m"
+        return "—"
+    
+    def is_stale(self):
+        """Check if log status might be stale (processing for >30 min)"""
+        if self.status == 'processing':
+            from django.utils import timezone
+            age = timezone.now() - self.started_at
+            return age.total_seconds() > 1800  # 30 minutes
+        return False
 
     def set_results(self, results_dict):
         """Store results as JSON"""
@@ -248,26 +318,18 @@ class RestockLog(models.Model):
             self.results = json.dumps(results_dict)
     
     def get_results(self):
-        """
-        Retrieve results from JSON.
-        FIXED: Always return dict, never None or throw error
-        """
+        """Retrieve results from JSON"""
         if not self.results or self.results.strip() == '':
             return {}
         
         try:
             parsed = json.loads(self.results)
-            # Ensure it's a dict, not None or other type
             return parsed if isinstance(parsed, dict) else {}
-        except (json.JSONDecodeError, TypeError) as e:
+        except (json.JSONDecodeError, TypeError):
             return {}
     
     def can_retry(self):
-        """
-        Check if this log can be retried.
-        FIXED: Only allow retry if explicitly failed (not timeout-completed)
-        """
-        # Don't allow retry if order was partially executed (timeout case)
+        """Check if this log can be retried"""
         if self.status == 'completed' and self.error_message and 'timeout' in self.error_message.lower():
             return False
         
@@ -289,10 +351,10 @@ class RestockLog(models.Model):
     
     class Meta:
         ordering = ['-started_at']
-        # CRITICAL: Add database-level constraint to prevent duplicate processing
         indexes = [
             models.Index(fields=['storage', 'status', 'current_stage']),
+            models.Index(fields=['operation_type', 'status']),  # NEW: For filtering
         ]
 
     def __str__(self):
-        return f"{self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"
+        return f"{self.get_operation_type_display()} - {self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"

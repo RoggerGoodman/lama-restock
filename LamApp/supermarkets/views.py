@@ -251,21 +251,190 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['recent_logs'] = self.object.restock_logs.select_related(
-            'storage__supermarket'  # For displaying supermarket name
+            'storage__supermarket'
         ).order_by('-started_at')[:20]
         
         context['blacklists'] = self.object.blacklists.prefetch_related(
-            'entries'  # Fetch all entries in one query
+            'entries'
         ).order_by('name')
         
-        # Check if schedule exists
         try:
             context['schedule'] = self.object.schedule
         except RestockSchedule.DoesNotExist:
             context['schedule'] = None
+        
+        # ✅ NEW: Load newly added products needing verification
+        from .services import RestockService
+        
+        try:
+            with RestockService(self.object) as service:
+                cursor = service.db.cursor()
+                
+                # Get products that:
+                # 1. Have been ordered (bought_last_24 not empty)
+                # 2. Haven't been sold yet (sold_last_24 is all zeros)
+                # 3. Are NOT verified
+                cursor.execute("""
+                    SELECT 
+                        p.cod, p.v, p.descrizione, p.pz_x_collo,
+                        ps.verified, ps.bought_last_24, ps.sold_last_24
+                    FROM products p
+                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    WHERE p.settore = %s
+                        AND ps.verified = FALSE
+                        AND ps.bought_last_24 IS NOT NULL
+                        AND array_length(ps.bought_last_24, 1) > 0
+                """, (self.object.settore,))
+                
+                newly_added = []
+                for row in cursor.fetchall():
+                    bought = row['bought_last_24'] or []
+                    sold = row['sold_last_24'] or []
+                    
+                    # Check if bought but not sold
+                    if bought and (not sold or all(s == 0 for s in sold)):
+                        newly_added.append({
+                            'cod': row['cod'],
+                            'var': row['v'],
+                            'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                            'package_size': row['pz_x_collo'] or 12
+                        })
+                
+                context['newly_added_products'] = newly_added
+                logger.info(f"Found {len(newly_added)} newly added products needing verification")
+                
+        except Exception as e:
+            logger.exception("Error loading newly added products")
+            context['newly_added_products'] = []
             
         return context
 
+@login_required
+@require_POST
+def verify_newly_added_ajax_view(request):
+    """
+    AJAX endpoint to verify a newly added product.
+    Updates package size and marks as verified.
+    """
+    try:
+        data = json.loads(request.body)
+        
+        cod = int(data['cod'])
+        var = int(data['var'])
+        package_size = int(data['package_size'])
+        storage_id = int(data['storage_id'])
+        
+        storage = get_object_or_404(
+            Storage,
+            id=storage_id,
+            supermarket__owner=request.user
+        )
+        
+        with RestockService(storage) as service:
+            # Update package size in products table
+            cursor = service.db.cursor()
+            cursor.execute("""
+                UPDATE products
+                SET pz_x_collo = %s
+                WHERE cod = %s AND v = %s
+            """, (package_size, cod, var))
+            
+            # Mark as verified
+            cursor.execute("""
+                UPDATE product_stats
+                SET verified = TRUE
+                WHERE cod = %s AND v = %s
+            """, (cod, var))
+            
+            service.db.conn.commit()
+            
+            logger.info(
+                f"Verified newly added product: {storage.name} - "
+                f"{cod}.{var} with package_size={package_size}"
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Product {cod}.{var} verified with package size {package_size}'
+            })
+            
+    except Exception as e:
+        logger.exception("Error verifying newly added product")
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+@login_required
+@require_POST
+def order_new_products_from_log_view(request, log_id):
+    """
+    Place order for selected new products from restock log.
+    Uses Orderer to place the actual order.
+    """
+    log = get_object_or_404(
+        RestockLog,
+        id=log_id,
+        storage__supermarket__owner=request.user
+    )
+    
+    try:
+        data = json.loads(request.body)
+        products = data.get('products', [])
+        
+        if not products:
+            return JsonResponse({
+                'success': False,
+                'message': 'No products provided'
+            }, status=400)
+        
+        # Convert to orderer format: [(cod, var, qty), ...]
+        orders_list = [
+            (p['cod'], p['var'], p['qty'])
+            for p in products
+        ]
+        
+        logger.info(
+            f"Ordering {len(orders_list)} new products from log #{log_id}: "
+            f"{orders_list}"
+        )
+        
+        # Use Orderer to place the order
+        from .scripts.orderer import Orderer
+        
+        orderer = Orderer(
+            username=log.storage.supermarket.username,
+            password=log.storage.supermarket.password
+        )
+        
+        try:
+            orderer.login()
+            successful_orders, order_skipped = orderer.make_orders(
+                log.storage.name,
+                orders_list
+            )
+            
+            logger.info(
+                f"New products order complete: {len(successful_orders)} ordered, "
+                f"{len(order_skipped)} skipped"
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'ordered': len(successful_orders),
+                'skipped': len(order_skipped),
+                'skipped_products': order_skipped
+            })
+            
+        finally:
+            orderer.driver.quit()
+            
+    except Exception as e:
+        logger.exception(f"Error ordering new products from log #{log_id}")
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
 
 class StorageDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Storage
