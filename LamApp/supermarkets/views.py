@@ -306,7 +306,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     WHERE p.settore = %s
                         AND ps.verified = FALSE
                         AND ps.bought_last_24 IS NOT NULL
-                        AND array_length(ps.bought_last_24, 1) > 0
+                        AND jsonb_array_length(ps.bought_last_24) > 0
                 """, (self.object.settore,))
                 
                 newly_added = []
