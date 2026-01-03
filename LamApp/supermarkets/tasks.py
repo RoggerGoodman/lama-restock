@@ -932,3 +932,65 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
     except Exception as exc:
         logger.exception(f"[VERIFY+AUTO-ADD] ❌ Error for storage {storage_id}")
         raise self.retry(exc=exc)
+    
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=600,
+    queue='selenium'
+)
+def order_new_products_task(self, log_id, products_list):
+    """
+    Place order for new products from restock log.
+    
+    Args:
+        log_id: RestockLog ID
+        products_list: List of dicts with {cod, var, qty}
+    """
+    from .models import RestockLog
+    from .scripts.orderer import Orderer
+    
+    try:
+        log = RestockLog.objects.select_related(
+            'storage__supermarket'
+        ).get(id=log_id)
+        
+        logger.info(f"[ORDER NEW] Starting for log #{log_id}: {len(products_list)} products")
+        
+        # Convert to orderer format
+        orders_list = [
+            (p['cod'], p['var'], p['qty'])
+            for p in products_list
+        ]
+        
+        orderer = Orderer(
+            username=log.storage.supermarket.username,
+            password=log.storage.supermarket.password
+        )
+        
+        try:
+            orderer.login()
+            successful_orders, order_skipped = orderer.make_orders(
+                log.storage.name,
+                orders_list
+            )
+            
+            logger.info(
+                f"✅ [ORDER NEW] Complete: {len(successful_orders)} ordered, "
+                f"{len(order_skipped)} skipped"
+            )
+            
+            return {
+                'success': True,
+                'log_id': log_id,
+                'ordered': len(successful_orders),
+                'skipped': len(order_skipped),
+                'skipped_products': order_skipped
+            }
+            
+        finally:
+            orderer.driver.quit()
+            
+    except Exception as exc:
+        logger.exception(f"[ORDER NEW] Error for log #{log_id}")
+        raise self.retry(exc=exc)

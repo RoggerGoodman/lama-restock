@@ -127,7 +127,7 @@ def dashboard_view(request):
                     FROM product_stats
                     WHERE verified = FALSE
                     AND bought_last_24 IS NOT NULL
-                    AND jsonb_array_length(bought_last_24, 1) > 0
+                    AND jsonb_array_length(bought_last_24) > 0
                 """)
                 row = cursor.fetchone()
                 if row:
@@ -307,6 +307,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         AND ps.verified = FALSE
                         AND ps.bought_last_24 IS NOT NULL
                         AND jsonb_array_length(ps.bought_last_24) > 0
+                    LIMIT 20;
                 """, (self.object.settore,))
                 
                 newly_added = []
@@ -392,8 +393,8 @@ def verify_newly_added_ajax_view(request):
 @require_POST
 def order_new_products_from_log_view(request, log_id):
     """
-    Place order for selected new products from restock log.
-    Uses Orderer to place the actual order.
+    FIXED: Now dispatches Celery task instead of blocking with Selenium.
+    Returns task_id for frontend to track progress.
     """
     log = get_object_or_404(
         RestockLog,
@@ -411,49 +412,28 @@ def order_new_products_from_log_view(request, log_id):
                 'message': 'No products provided'
             }, status=400)
         
-        # Convert to orderer format: [(cod, var, qty), ...]
-        orders_list = [
-            (p['cod'], p['var'], p['qty'])
-            for p in products
-        ]
+        logger.info(f"Dispatching order for {len(products)} new products from log #{log_id}")
         
-        logger.info(
-            f"Ordering {len(orders_list)} new products from log #{log_id}: "
-            f"{orders_list}"
+        # ✅ DISPATCH TO CELERY (non-blocking)
+        from .tasks import order_new_products_task
+        
+        result = order_new_products_task.apply_async(
+            args=[log_id, products],
+            retry=True,
+            retry_policy={
+                'max_retries': 3,
+                'interval_start': 600,
+            }
         )
         
-        # Use Orderer to place the order
-        from .scripts.orderer import Orderer
-        
-        orderer = Orderer(
-            username=log.storage.supermarket.username,
-            password=log.storage.supermarket.password
-        )
-        
-        try:
-            orderer.login()
-            successful_orders, order_skipped = orderer.make_orders(
-                log.storage.name,
-                orders_list
-            )
-            
-            logger.info(
-                f"New products order complete: {len(successful_orders)} ordered, "
-                f"{len(order_skipped)} skipped"
-            )
-            
-            return JsonResponse({
-                'success': True,
-                'ordered': len(successful_orders),
-                'skipped': len(order_skipped),
-                'skipped_products': order_skipped
-            })
-            
-        finally:
-            orderer.driver.quit()
+        return JsonResponse({
+            'success': True,
+            'task_id': result.id,
+            'message': f'Order started for {len(products)} products'
+        })
             
     except Exception as e:
-        logger.exception(f"Error ordering new products from log #{log_id}")
+        logger.exception(f"Error dispatching order for log #{log_id}")
         return JsonResponse({
             'success': False,
             'message': str(e)
