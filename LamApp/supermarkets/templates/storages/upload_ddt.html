@@ -1,0 +1,94 @@
+<!-- LamApp/supermarkets/templates/storages/upload_ddt.html -->
+{% extends 'base.html' %}
+{% block title %}Upload DDT - {{ storage.name }}{% endblock %}
+{% block page_title %}Upload Delivery Document (DDT){% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Upload DDT</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-truck text-success"></i>
+                    Upload Delivery Document (DDT)
+                </h4>
+
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> What This Does</h6>
+                    <ol class="mb-0">
+                        <li>Upload the DDT (Documento Di Trasporto) from your supplier</li>
+                        <li>System extracts product codes and quantities</li>
+                        <li>Stock levels are automatically updated for all products</li>
+                        <li>Report shows what was added and any issues</li>
+                    </ol>
+                </div>
+
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Requirements</h6>
+                    <ul class="mb-0">
+                        <li>File must be a valid PDF</li>
+                        <li>PDF must contain product codes in format: XXXXX.XX</li>
+                        <li>Each line should show: CODE, description, PZ, packages, pieces/package, <strong>QUANTITY</strong></li>
+                        <li>Only products already in the database will be updated</li>
+                    </ul>
+                </div>
+
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    
+                    <div class="mb-4">
+                        {{ form.pdf_file.label_tag }}
+                        {{ form.pdf_file }}
+                        {% if form.pdf_file.help_text %}
+                        <div class="form-text">{{ form.pdf_file.help_text }}</div>
+                        {% endif %}
+                        {% if form.pdf_file.errors %}
+                        <div class="text-danger">{{ form.pdf_file.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-upload"></i> Upload and Process
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Example Section -->
+            <div class="stat-card mt-3">
+                <h6 class="mb-3"><i class="bi bi-file-text"></i> Expected PDF Format</h6>
+                <div class="bg-light p-3 rounded">
+                    <code style="display: block; white-space: pre; font-size: 0.85rem;">
+960.01  PRODUCT NAME HERE  PZ  5  12  60
+1234.02 ANOTHER PRODUCT    PZ  3  24  72
+5678.01 THIRD PRODUCT      PZ  2   6  12
+                    </code>
+                </div>
+                <p class="text-muted small mb-0 mt-2">
+                    <strong>Format:</strong> CODE.VAR | Description | Unit | Packages | Pieces/Package | <strong>Total Quantity</strong>
+                </p>
+                <p class="text-muted small mb-0">
+                    The system will extract the product code (960.01) and total quantity (60) from each line.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

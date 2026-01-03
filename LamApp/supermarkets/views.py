@@ -26,7 +26,7 @@ from .models import (
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
     BlacklistEntryForm, AddProductsForm, PromoUploadForm,
-    StockAdjustmentForm, RecordLossesForm, 
+    StockAdjustmentForm, RecordLossesForm, DDTUploadForm,
 )
 
 from .services import RestockService, StorageService
@@ -103,42 +103,54 @@ def dashboard_view(request):
         storage__supermarket__owner=request.user
     ).select_related('storage', 'storage__supermarket').order_by('-started_at')[:10]
     
-    # ✅ NEW: Get failed logs that need attention
+    # Get failed logs that need attention
     failed_logs = RestockLog.objects.filter(
         storage__supermarket__owner=request.user,
         status='failed'
     ).select_related('storage', 'storage__supermarket').order_by('-started_at')[:5]
     
-    # ✅ NEW: Get storages without schedules
+    # Get storages without schedules
     storages_without_schedule = Storage.objects.filter(
         supermarket__owner=request.user,
         schedule__isnull=True
     ).select_related('supermarket')[:5]
     
-    # ✅ NEW: Count products needing verification (across all supermarkets)
+    # ✅ FIXED: Safe pending verifications count with error handling
     pending_verifications = 0
-    for sm in supermarkets:
-        storage = sm.storages.first()
-        if storage:
-            with RestockService(storage) as service:
-                cursor = service.db.cursor()
-                cursor.execute("""
-                    SELECT COUNT(*) as count
-                    FROM product_stats
-                    WHERE verified = FALSE
-                    AND bought_last_24 IS NOT NULL
-                    AND jsonb_array_length(bought_last_24) > 0
-                """)
-                row = cursor.fetchone()
-                if row:
-                    pending_verifications += row['count']
+    try:
+        # Group by supermarket to minimize DB connections
+        supermarkets_with_storages = supermarkets.filter(storages__isnull=False).distinct()
+        
+        for sm in supermarkets_with_storages:
+            try:
+                storage = sm.storages.first()
+                if storage:
+                    with RestockService(storage) as service:
+                        cursor = service.db.cursor()
+                        cursor.execute("""
+                            SELECT COUNT(*) as count
+                            FROM product_stats
+                            WHERE verified = FALSE
+                            AND bought_last_24 IS NOT NULL
+                            AND jsonb_array_length(bought_last_24) > 0
+                        """)
+                        row = cursor.fetchone()
+                        if row and row['count']:
+                            pending_verifications += int(row['count'])
+            except Exception as e:
+                logger.warning(f"Could not count verifications for {sm.name}: {e}")
+                continue
+    except Exception as e:
+        logger.exception("Error counting pending verifications")
+        # Don't fail the entire dashboard, just skip this metric
+        pending_verifications = 0
     
     context = {
         'supermarkets': supermarkets,
         'recent_logs': recent_logs,
-        'failed_logs': failed_logs,  # ✅ NEW
-        'storages_without_schedule': storages_without_schedule,  # ✅ NEW
-        'pending_verifications': pending_verifications,  # ✅ NEW
+        'failed_logs': failed_logs,
+        'storages_without_schedule': storages_without_schedule,
+        'pending_verifications': pending_verifications,
         'total_supermarkets': supermarkets.count(),
         'total_storages': sum(s.storages.count() for s in supermarkets),
         'active_schedules': RestockSchedule.objects.filter(
@@ -2854,3 +2866,59 @@ def inventory_adjust_stock_ajax_view(request):
     except Exception as e:
         logger.exception("Error in inventory stock adjustment")
         return JsonResponse({'success': False, 'message': str(e)}, status=500)
+    
+@login_required
+def upload_ddt_view(request, storage_id):
+    """
+    Upload DDT (delivery document) to add received stock.
+    """
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    
+    if request.method == 'POST':
+        form = DDTUploadForm(request.POST, request.FILES)
+        
+        if form.is_valid():
+            pdf_file = request.FILES['pdf_file']
+            
+            try:
+                # Save file temporarily
+                temp_dir = Path(settings.BASE_DIR) / 'temp_ddt'
+                temp_dir.mkdir(exist_ok=True)
+                
+                timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+                file_path = temp_dir / f"ddt_{timestamp}_{pdf_file.name}"
+                
+                with open(file_path, 'wb+') as destination:
+                    for chunk in pdf_file.chunks():
+                        destination.write(chunk)
+                
+                # ✅ DISPATCH TO CELERY
+                from .tasks import process_ddt_task
+                
+                result = process_ddt_task.apply_async(
+                    args=[storage_id, str(file_path)],
+                    retry=True
+                )
+                
+                messages.info(
+                    request,
+                    f"Processing DDT for {storage.name}. This may take a few minutes."
+                )
+                
+                return redirect('task-progress', task_id=result.id, storage_id=storage_id)
+                
+            except Exception as e:
+                logger.exception("Error saving DDT file")
+                messages.error(request, f"Error: {str(e)}")
+                return redirect('upload-ddt', storage_id=storage_id)
+    else:
+        form = DDTUploadForm()
+    
+    return render(request, 'storages/upload_ddt.html', {
+        'storage': storage,
+        'form': form
+    })

@@ -31,7 +31,8 @@ urlpatterns = [
     path('storages/<int:storage_id>/update-stats/', views.update_stats_only_view, name='update-stats-only'),
     path('storages/<int:storage_id>/add-products/', views.add_products_view, name='add-products'),
     path('storages/<int:storage_id>/purge/', views.purge_products_view, name='purge-products'),
-    path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),    
+    path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),
+    path('storages/<int:storage_id>/upload-ddt/', views.upload_ddt_view, name='upload-ddt'),  
     
     # ============ List Updates ============
     path('storages/<int:storage_id>/update-list/', views.manual_list_update_view, name='manual-list-update'),

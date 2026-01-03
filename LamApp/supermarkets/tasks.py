@@ -994,3 +994,99 @@ def order_new_products_task(self, log_id, products_list):
     except Exception as exc:
         logger.exception(f"[ORDER NEW] Error for log #{log_id}")
         raise self.retry(exc=exc)
+    
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300
+)
+def process_ddt_task(self, storage_id, pdf_file_path):
+    """
+    Process DDT delivery document and add stock.
+    
+    Args:
+        storage_id: Storage ID
+        pdf_file_path: Full path to DDT PDF file
+    """
+    from .models import Storage, RestockLog
+    from .services import RestockService
+    from .scripts.ddt_parser import parse_ddt_pdf, process_ddt_deliveries
+    import os
+    
+    try:
+        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+        
+        logger.info(f"[PROCESS DDT] Starting for {storage.name}")
+        
+        # Create log
+        log = RestockLog.objects.create(
+            storage=storage,
+            status='processing',
+            operation_type='verification',  # Reuse this type
+            current_stage='processing'
+        )
+        
+        with RestockService(storage) as service:
+            # Parse DDT PDF
+            logger.info(f"[PROCESS DDT] Parsing PDF: {pdf_file_path}")
+            ddt_entries = parse_ddt_pdf(pdf_file_path)
+            
+            if not ddt_entries:
+                log.status = 'failed'
+                log.error_message = 'No valid entries found in DDT PDF'
+                log.save()
+                
+                return {
+                    'success': False,
+                    'error': 'No valid entries found in DDT PDF'
+                }
+            
+            # Process deliveries
+            logger.info(f"[PROCESS DDT] Processing {len(ddt_entries)} deliveries")
+            result = process_ddt_deliveries(service.db, ddt_entries)
+            
+            # Update log
+            log.status = 'completed'
+            log.completed_at = timezone.now()
+            log.products_ordered = result['processed']  # Reuse this field
+            log.total_packages = result['total_qty_added']  # Reuse for total qty
+            log.set_results({
+                'ddt_entries': [
+                    {'cod': cod, 'var': var, 'qty': qty}
+                    for cod, var, qty in ddt_entries[:100]  # Limit for storage
+                ],
+                'processed': result['processed'],
+                'total_qty_added': result['total_qty_added'],
+                'skipped': result['skipped'],
+                'errors': result['errors'],
+                'skipped_products': result['skipped_products'][:20],
+                'error_products': result['error_products'][:20]
+            })
+            log.save()
+            
+            # Clean up PDF
+            try:
+                os.remove(pdf_file_path)
+                logger.info(f"[PROCESS DDT] Deleted PDF: {pdf_file_path}")
+            except Exception as e:
+                logger.warning(f"Could not delete PDF: {e}")
+            
+            logger.info(
+                f"[PROCESS DDT] ✅ Complete: {result['processed']} processed, "
+                f"{result['total_qty_added']} total units added"
+            )
+            
+            return {
+                'success': True,
+                'storage_name': storage.name,
+                'storage_id': storage_id,
+                'log_id': log.id,
+                'processed': result['processed'],
+                'total_qty_added': result['total_qty_added'],
+                'skipped': result['skipped'],
+                'errors': result['errors']
+            }
+            
+    except Exception as exc:
+        logger.exception(f"[PROCESS DDT] Error for storage {storage_id}")
+        raise self.retry(exc=exc)

@@ -505,3 +505,15 @@ class InventorySearchForm(forms.Form):
                 raise forms.ValidationError("Settore is required for this search type")
         
         return cleaned_data
+    
+class DDTUploadForm(forms.Form):
+    """Form for uploading DDT (delivery document) PDF"""
+    
+    pdf_file = forms.FileField(
+        label="DDT PDF File",
+        help_text="Upload the delivery document (DDT) from your supplier",
+        widget=forms.FileInput(attrs={
+            'class': 'form-control',
+            'accept': '.pdf'
+        })
+    )
