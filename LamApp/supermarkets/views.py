@@ -127,7 +127,7 @@ def dashboard_view(request):
                     FROM product_stats
                     WHERE verified = FALSE
                     AND bought_last_24 IS NOT NULL
-                    AND array_length(bought_last_24, 1) > 0
+                    AND jsonb_array_length(bought_last_24, 1) > 0
                 """)
                 row = cursor.fetchone()
                 if row:
