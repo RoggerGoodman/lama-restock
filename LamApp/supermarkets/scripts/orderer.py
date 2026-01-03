@@ -226,7 +226,15 @@ class Orderer:
         
         successful_orders = []
         
-        for cod_part, var_part, qty_part in order_list:
+        for order_item in order_list:
+            # Unpack - handle both old 3-element and new 4-element formats
+            if len(order_item) == 4:
+                cod_part, var_part, qty_part, discount = order_item
+            else:
+                # Backward compatibility with old 3-element format
+                cod_part, var_part, qty_part = order_item
+                discount = None
+            
             cod_art_field.clear()
             var_art_field.clear()
 
@@ -247,7 +255,6 @@ class Orderer:
             if is_off:
                 logger.info(f"Article {cod_part}.{var_part} doesn't accept orders (disabled in ordering system)")
                 
-                # Track as skipped during ORDER EXECUTION
                 self.order_skipped_products.append({
                     'cod': cod_part,
                     'var': var_part,
@@ -263,13 +270,8 @@ class Orderer:
 
             confirm_button_order = self.driver.find_element(By.ID, "okModificaRiga")
             confirm_button_order.click()
+            successful_orders.append((cod_part, var_part, qty_part, discount))
             
-            # Track successful order
-            successful_orders.append((cod_part, var_part, qty_part))
-
-        # Switch back
-        #self.driver.switch_to.window(self.driver.window_handles[-2])
-        
         logger.info(f"Order execution complete: {len(successful_orders)} successful, {len(self.order_skipped_products)} skipped during ordering")
         self.driver.quit()
         shutil.rmtree(self.user_data_dir, ignore_errors=True)

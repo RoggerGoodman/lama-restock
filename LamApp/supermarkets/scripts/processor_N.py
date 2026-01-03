@@ -1,8 +1,8 @@
+# LamApp/supermarkets/scripts/processor_N.py
 import math
 from .logger import logger
 
-def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year, req_stock, stock):
-
+def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year, req_stock, stock, discount=None):
     order = 1   
     req_stock = round(req_stock)
     minimum_stock = max(avg_sales_last_year, 4)
@@ -39,12 +39,13 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
             order = math.ceil(order)
 
         if order >= 1:
-            return order, 1, True
+            # ✅ NEW: Return discount with results
+            return order, 1, True, discount
         
     if leftover_stock <= minimum_stock:
         order = 1
-        return order, 2, True
+        # ✅ NEW: Return discount with results
+        return order, 2, True, discount
        
-    return None, 0, False
-
-    
+    # ✅ NEW: Return discount even on failure (will be None)
+    return None, 0, False, discount

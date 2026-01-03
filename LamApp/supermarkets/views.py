@@ -93,34 +93,57 @@ def admin_create_user(request):
 @login_required
 def dashboard_view(request):
     supermarkets = Supermarket.objects.filter(owner=request.user).prefetch_related(
-        'storages__schedule',           # ← ADD THIS
-        'storages__restock_logs',       # ← ADD THIS
-        'storages__blacklists'          # ← ADD THIS (for quick stats)
+        'storages__schedule',
+        'storages__restock_logs',
+        'storages__blacklists'
     )
     
-    # Get recent logs across all storages
+    # Get recent logs
     recent_logs = RestockLog.objects.filter(
         storage__supermarket__owner=request.user
-    ).select_related('storage', 'storage__supermarket')[:10]
+    ).select_related('storage', 'storage__supermarket').order_by('-started_at')[:10]
     
-    # Count active schedules properly
-    active_schedules = RestockSchedule.objects.filter(
-        storage__supermarket__owner=request.user
-    ).count()
+    # ✅ NEW: Get failed logs that need attention
+    failed_logs = RestockLog.objects.filter(
+        storage__supermarket__owner=request.user,
+        status='failed'
+    ).select_related('storage', 'storage__supermarket').order_by('-started_at')[:5]
     
-    # Get all storages with schedules for the upcoming operations section
-    scheduled_storages = Storage.objects.filter(
+    # ✅ NEW: Get storages without schedules
+    storages_without_schedule = Storage.objects.filter(
         supermarket__owner=request.user,
-        schedule__isnull=False
-    ).select_related('schedule', 'supermarket')
+        schedule__isnull=True
+    ).select_related('supermarket')[:5]
+    
+    # ✅ NEW: Count products needing verification (across all supermarkets)
+    pending_verifications = 0
+    for sm in supermarkets:
+        storage = sm.storages.first()
+        if storage:
+            with RestockService(storage) as service:
+                cursor = service.db.cursor()
+                cursor.execute("""
+                    SELECT COUNT(*) as count
+                    FROM product_stats
+                    WHERE verified = FALSE
+                    AND bought_last_24 IS NOT NULL
+                    AND array_length(bought_last_24, 1) > 0
+                """)
+                row = cursor.fetchone()
+                if row:
+                    pending_verifications += row['count']
     
     context = {
         'supermarkets': supermarkets,
         'recent_logs': recent_logs,
+        'failed_logs': failed_logs,  # ✅ NEW
+        'storages_without_schedule': storages_without_schedule,  # ✅ NEW
+        'pending_verifications': pending_verifications,  # ✅ NEW
         'total_supermarkets': supermarkets.count(),
         'total_storages': sum(s.storages.count() for s in supermarkets),
-        'active_schedules': active_schedules,
-        'scheduled_storages': scheduled_storages,
+        'active_schedules': RestockSchedule.objects.filter(
+            storage__supermarket__owner=request.user
+        ).count(),
     }
     return render(request, 'dashboard.html', context)
 
@@ -691,6 +714,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 cod = order['cod']
                 var = order['var']
                 qty = order['qty']
+                discount = order.get('discount')
                 
                 try:                    
                     if product:
@@ -715,6 +739,8 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         'cluster': cluster,
                         'cost': cost,
                         'total_cost': cost * qty * package_size,
+                        'discount': discount,
+                        'on_sale': discount is not None  # Flag for easy filtering
                     }
                     
                     enriched_orders.append(order_item)

@@ -268,9 +268,14 @@ class Helper:
         logger.info(f"Will NOT order {product_name}!")
         logger.info(f"Reason : {category}{check}")
 
-    def order_this(self, current_list: list, product_cod: int, product_var: int, qty: int, product_name: str, category: str, check: int):
-        current_list.append((product_cod, product_var, qty))  # <-- store as tuple now
-        logger.info(f"ORDER {product_name}: {qty}!")
+    def order_this(self, current_list: list, product_cod: int, product_var: int, qty: int, product_name: str, category: str, check: int, discount: float = None):
+        current_list.append((product_cod, product_var, qty, discount))
+        
+        if discount:
+            logger.info(f"ORDER {product_name}: {qty}! 🏷️ ON SALE: {discount}% OFF")
+        else:
+            logger.info(f"ORDER {product_name}: {qty}!")
+        
         logger.info(f"Reason: {category}{check}")
               
     def line_breaker(self):

@@ -149,26 +149,30 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                     blacklist_set=self.get_blacklist_set()
                 )
                 
-                # Run decision logic
-                logger.info(f"Running decision maker with coverage={coverage}")
                 decision_maker.decide_orders_for_settore(self.settore, coverage)
                 
-                # Get results
                 orders_list = decision_maker.orders_list
                 new_products = decision_maker.new_products
                 skipped_products = decision_maker.skipped_products
                 zombie_products = decision_maker.zombie_products
                 
-                # Update log statistics
                 log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
                 log.products_ordered = len(orders_list)
-                log.total_packages = sum(qty for _, _, qty in orders_list)
+                total_packages = 0
+                for order in orders_list:
+                    if len(order) >= 3:
+                        total_packages += order[2]  # qty is always 3rd element
                 
-                # Store detailed results
+                log.total_packages = total_packages
                 log.set_results({
                     'orders': [
-                        {'cod': cod, 'var': var, 'qty': qty}
-                        for cod, var, qty in orders_list
+                        {
+                            'cod': order[0],
+                            'var': order[1],
+                            'qty': order[2],
+                            'discount': order[3] if len(order) > 3 else None
+                        }
+                        for order in orders_list
                     ],
                     'new_products': new_products,
                     'skipped_products': skipped_products,

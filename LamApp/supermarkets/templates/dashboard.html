@@ -1,4 +1,4 @@
-<!-- LamApp/LamApp/supermarkets/templates/dashboard.html -->
+<!-- LamApp/supermarkets/templates/dashboard.html - OVERHAULED -->
 {% extends 'base.html' %}
 
 {% block title %}Dashboard - LamaRestock{% endblock %}
@@ -6,323 +6,203 @@
 
 {% block content %}
 <div class="container-fluid">
-    <!-- Statistics Cards -->
-    <div class="row">
-        <div class="col-md-3">
-            <div class="stat-card">
-                <div class="icon icon-blue">
-                    <i class="bi bi-shop"></i>
-                </div>
-                <h3 class="mb-1">{{ total_supermarkets }}</h3>
-                <p class="text-muted mb-0">Supermarkets</p>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="stat-card">
-                <div class="icon icon-green">
-                    <i class="bi bi-boxes"></i>
-                </div>
-                <h3 class="mb-1">{{ total_storages }}</h3>
-                <p class="text-muted mb-0">Storages</p>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="stat-card">
-                <div class="icon icon-orange">
-                    <i class="bi bi-clock-history"></i>
-                </div>
-                <h3 class="mb-1">{{ recent_logs|length }}</h3>
-                <p class="text-muted mb-0">Recent Operations</p>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="stat-card">
-                <div class="icon icon-red">
-                    <i class="bi bi-calendar-check"></i>
-                </div>
-                <h3 class="mb-1">{{ active_schedules }}</h3>
-                <p class="text-muted mb-0">Active Schedules</p>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Quick Actions -->
-    <div class="row mt-4">
+    <!-- Quick Actions Bar -->
+    <div class="row mb-4">
         <div class="col-12">
-            <div class="stat-card">
-                <h5 class="mb-3">
-                    <i class="bi bi-lightning-charge"></i> Quick Actions
-                </h5>
-                <div class="d-flex gap-2 flex-wrap">
-                    <a href="{% url 'supermarket-add' %}" class="btn btn-primary">
-                        <i class="bi bi-plus-circle"></i> Add Supermarket
-                    </a>
-                    <a href="{% url 'restock_schedule_list' %}" class="btn btn-outline-primary">
-                        <i class="bi bi-calendar"></i> Manage Schedules
-                    </a>
-                    <a href="{% url 'blacklist-list' %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-slash-circle"></i> Manage Blacklists
-                    </a>
-                    <a href="{% url 'losses-analytics-unified' %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-graph-up"></i> Loss Analytics
-                    </a>
+            <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                    <h5 class="mb-0"><i class="bi bi-lightning-charge"></i> Quick Actions</h5>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <a href="{% url 'supermarket-add' %}" class="btn btn-light btn-sm">
+                            <i class="bi bi-plus-circle"></i> Add Supermarket
+                        </a>
+                        <a href="{% url 'inventory-search' %}" class="btn btn-light btn-sm">
+                            <i class="bi bi-search"></i> Search Inventory
+                        </a>
+                        <a href="{% url 'losses-analytics-unified' %}" class="btn btn-light btn-sm">
+                            <i class="bi bi-graph-up"></i> Loss Analytics
+                        </a>
+                        <a href="{% url 'stock-value-unified' %}" class="btn btn-light btn-sm">
+                            <i class="bi bi-cash-stack"></i> Stock Value
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Scheduled Operations Section -->
-    {% if scheduled_storages %}
-    <div class="row mt-4">
+    <!-- Attention Needed Section -->
+    {% if failed_logs or storages_without_schedule or pending_verifications %}
+    <div class="row mb-4">
         <div class="col-12">
-            <div class="stat-card">
+            <div class="stat-card border-warning" style="border-left: 4px solid #ffc107;">
                 <h5 class="mb-3">
-                    <i class="bi bi-calendar-event"></i> Scheduled Automatic Operations
+                    <i class="bi bi-exclamation-triangle text-warning"></i> Attention Needed
                 </h5>
                 
-                <p class="text-muted mb-3">
-                    <i class="bi bi-info-circle"></i>
-                    These operations run automatically at scheduled times. All times are in UTC.
-                </p>
+                <div class="row">
+                    {% if failed_logs %}
+                    <div class="col-md-4 mb-3">
+                        <div class="alert alert-danger mb-0">
+                            <h6><i class="bi bi-x-circle"></i> Failed Operations</h6>
+                            <p class="mb-2">{{ failed_logs|length }} operation(s) need retry</p>
+                            {% for log in failed_logs|slice:":3" %}
+                            <div class="small mb-1">
+                                <a href="{% url 'restock-log-detail' pk=log.id %}" class="alert-link">
+                                    {{ log.storage.name }} - {{ log.started_at|date:"M d" }}
+                                </a>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    {% if storages_without_schedule %}
+                    <div class="col-md-4 mb-3">
+                        <div class="alert alert-warning mb-0">
+                            <h6><i class="bi bi-calendar-x"></i> No Schedule</h6>
+                            <p class="mb-2">{{ storages_without_schedule|length }} storage(s) not automated</p>
+                            {% for storage in storages_without_schedule|slice:":3" %}
+                            <div class="small mb-1">
+                                <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">
+                                    {{ storage.name }}
+                                </a>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    {% if pending_verifications %}
+                    <div class="col-md-4 mb-3">
+                        <div class="alert alert-info mb-0">
+                            <h6><i class="bi bi-clipboard-check"></i> Needs Verification</h6>
+                            <p class="mb-2">{{ pending_verifications }} product(s) pending</p>
+                            <a href="{% url 'inventory-search' %}" class="btn btn-sm btn-info">
+                                <i class="bi bi-arrow-right"></i> Review
+                            </a>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
+    <!-- Storages Overview (Compact) -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="bi bi-boxes"></i> Your Storages
+                        <span class="badge bg-secondary">{{ total_storages }}</span>
+                    </h5>
+                    <a href="{% url 'restock_schedule_list' %}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-calendar-check"></i> Manage Schedules
+                    </a>
+                </div>
+                
                 <div class="table-responsive">
-                    <table class="table table-hover">
+                    <table class="table table-hover table-sm mb-0">
                         <thead>
                             <tr>
                                 <th>Storage</th>
-                                <th>Operation Type</th>
+                                <th>Supermarket</th>
                                 <th>Schedule</th>
                                 <th>Last Run</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for storage in scheduled_storages %}
-                                <!-- Restock Operations -->
-                                {% if storage.schedule %}
+                            {% for sm in supermarkets %}
+                                {% for storage in sm.storages.all %}
                                 <tr>
                                     <td>
-                                        <strong>{{ storage.supermarket.name }}</strong><br>
-                                        <small class="text-muted">{{ storage.name }}</small>
+                                        <a href="{% url 'storage-detail' pk=storage.id %}" class="text-decoration-none">
+                                            <i class="bi bi-box"></i> {{ storage.name }}
+                                        </a>
                                     </td>
+                                    <td>{{ sm.name }}</td>
                                     <td>
-                                        <span class="badge bg-primary">
-                                            <i class="bi bi-box-seam"></i> Restock Orders
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <div class="mb-1">
-                                            <strong>6:00 AM</strong> on:
-                                        </div>
-                                        <div class="d-flex gap-1 flex-wrap">
-                                            {% if storage.schedule.monday %}<span class="badge bg-secondary">Mon</span>{% endif %}
-                                            {% if storage.schedule.tuesday %}<span class="badge bg-secondary">Tue</span>{% endif %}
-                                            {% if storage.schedule.wednesday %}<span class="badge bg-secondary">Wed</span>{% endif %}
-                                            {% if storage.schedule.thursday %}<span class="badge bg-secondary">Thu</span>{% endif %}
-                                            {% if storage.schedule.friday %}<span class="badge bg-secondary">Fri</span>{% endif %}
-                                            {% if storage.schedule.saturday %}<span class="badge bg-secondary">Sat</span>{% endif %}
-                                            {% if storage.schedule.sunday %}<span class="badge bg-secondary">Sun</span>{% endif %}
-                                        </div>
-                                        <small class="text-muted d-block mt-1">
-                                            {{ storage.schedule.get_schedule_summary }}
-                                        </small>
+                                        {% if storage.schedule %}
+                                            <span class="badge bg-success">
+                                                <i class="bi bi-check-circle"></i> Active
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">None</span>
+                                        {% endif %}
                                     </td>
                                     <td>
                                         {% with last_log=storage.restock_logs.first %}
                                             {% if last_log %}
                                                 <small>{{ last_log.started_at|timesince }} ago</small>
                                             {% else %}
-                                                <span class="text-muted">Never</span>
+                                                <small class="text-muted">Never</small>
                                             {% endif %}
                                         {% endwith %}
                                     </td>
                                     <td>
-                                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-sm btn-outline-primary">
-                                            <i class="bi bi-eye"></i> View
-                                        </a>
-                                    </td>
-                                </tr>
-                                
-                                <!-- Loss Recording (daily at 22:30) -->
-                                <tr class="table-light">
-                                    <td>
-                                        <small class="text-muted">↳ {{ storage.name }}</small>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-warning text-dark">
-                                            <i class="bi bi-clipboard-data"></i> Loss Recording
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <div class="mb-1">
-                                            <strong>22:30</strong> (10:30 PM)
+                                        <div class="btn-group btn-group-sm">
+                                            <a href="{% url 'run-restock' storage_id=storage.id %}" 
+                                               class="btn btn-outline-primary" 
+                                               title="Run Restock">
+                                                <i class="bi bi-play-circle"></i>
+                                            </a>
+                                            <a href="{% url 'storage-detail' pk=storage.id %}" 
+                                               class="btn btn-outline-secondary"
+                                               title="View Details">
+                                                <i class="bi bi-eye"></i>
+                                            </a>
                                         </div>
-                                        <small class="text-muted">
-                                            Runs every night for all supermarkets
-                                        </small>
-                                    </td>
-                                    <td>
-                                        <small class="text-muted">Automatic</small>
-                                    </td>
-                                    <td>—</td>
-                                </tr>
-                                
-                                <!-- Product List Updates (nightly at 3:00 AM) -->
-                                <tr class="table-light">
-                                    <td>
-                                        <small class="text-muted">↳ {{ storage.name }}</small>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-info">
-                                            <i class="bi bi-arrow-repeat"></i> Product List Update
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <div class="mb-1">
-                                            <strong>3:00 AM</strong> daily
-                                        </div>
-                                        <small class="text-muted">
-                                            Automatic for all scheduled storages
-                                        </small>
-                                    </td>
-                                    <td>
-                                        {% if storage.last_list_update %}
-                                            <small>{{ storage.last_list_update|timesince }} ago</small>
-                                        {% else %}
-                                            <span class="text-muted">Never</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        <a href="{% url 'manual-list-update' storage_id=storage.id %}" class="btn btn-sm btn-outline-info">
-                                            <i class="bi bi-download"></i> Manual
-                                        </a>
                                     </td>
                                 </tr>
-                                {% endif %}
+                                {% endfor %}
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    </div>
 
-                <div class="alert alert-secondary mt-3 mb-0">
-                    <div class="row">
-                        <div class="col-md-4">
-                            <h6 class="mb-2"><i class="bi bi-box-seam text-primary"></i> Restock Orders</h6>
-                            <small>Calculates needed products and places orders automatically at 6:00 AM</small>
-                        </div>
-                        <div class="col-md-4">
-                            <h6 class="mb-2"><i class="bi bi-clipboard-data text-warning"></i> Loss Recording</h6>
-                            <small>Downloads inventory losses (broken/expired/internal) every night at 22:30 for all supermarkets</small>
-                        </div>
-                        <div class="col-md-4">
-                            <h6 class="mb-2"><i class="bi bi-arrow-repeat text-info"></i> List Updates</h6>
-                            <small>Downloads latest product list from PAC2000A at 3:00 AM daily for all scheduled storages</small>
-                        </div>
-                    </div>
+    <!-- Recent Activity (Compact) -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="bi bi-clock-history"></i> Recent Activity
+                    </h5>
                 </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-    
-    <!-- Supermarkets Overview -->
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="stat-card">
-                <h5 class="mb-3">
-                    <i class="bi bi-shop"></i> Your Supermarkets
-                </h5>
-                
-                {% if supermarkets %}
-                    <div class="row">
-                        {% for supermarket in supermarkets %}
-                        <div class="col-md-6 col-lg-4 mb-3">
-                            <div class="card h-100 border-0" style="background-color: #f8f9fa;">
-                                <div class="card-body">
-                                    <h6 class="card-title">
-                                        <i class="bi bi-shop text-primary"></i>
-                                        {{ supermarket.name }}
-                                    </h6>
-                                    <p class="text-muted small mb-2">
-                                        {{ supermarket.storages.count }} storage{{ supermarket.storages.count|pluralize }}
-                                    </p>
-                                    
-                                    <!-- Storage List -->
-                                    {% if supermarket.storages.all %}
-                                    <ul class="list-unstyled small">
-                                        {% for storage in supermarket.storages.all %}
-                                        <li class="mb-1">
-                                            <a href="{% url 'storage-detail' pk=storage.id %}" class="text-decoration-none">
-                                                <i class="bi bi-box"></i> {{ storage.name }}
-                                                {% if storage.schedule %}
-                                                    <span class="badge bg-success">
-                                                        <i class="bi bi-check-circle"></i>
-                                                    </span>
-                                                {% else %}
-                                                    <span class="badge bg-warning">
-                                                        <i class="bi bi-exclamation-triangle"></i>
-                                                    </span>
-                                                {% endif %}
-                                            </a>
-                                        </li>
-                                        {% endfor %}
-                                    </ul>
-                                    {% endif %}
-                                    
-                                    <div class="mt-3">
-                                        <a href="{% url 'supermarket-detail' pk=supermarket.id %}" class="btn btn-sm btn-outline-primary">
-                                            View Details
-                                        </a>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i>
-                        You haven't added any supermarkets yet.
-                        <a href="{% url 'supermarket-add' %}" class="alert-link">Add your first supermarket</a>
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-    
-    <!-- Recent Activity -->
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="stat-card">
-                <h5 class="mb-3">
-                    <i class="bi bi-activity"></i> Recent Activity
-                </h5>
                 
                 {% if recent_logs %}
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-hover table-sm mb-0">
                             <thead>
                                 <tr>
                                     <th>Time</th>
                                     <th>Storage</th>
                                     <th>Status</th>
-                                    <th>Products Ordered</th>
-                                    <th>Total Packages</th>
+                                    <th>Products</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for log in recent_logs %}
+                                {% for log in recent_logs|slice:":10" %}
                                 <tr>
-                                    <td>{{ log.started_at|date:"M d, H:i" }}</td>
+                                    <td><small>{{ log.started_at|date:"M d, H:i" }}</small></td>
                                     <td>
-                                        <strong>{{ log.storage.supermarket.name }}</strong><br>
-                                        <small class="text-muted">{{ log.storage.name }}</small>
+                                        <small>
+                                            <strong>{{ log.storage.supermarket.name }}</strong><br>
+                                            {{ log.storage.name }}
+                                        </small>
                                     </td>
                                     <td>
                                         {% if log.status == 'completed' %}
                                             <span class="badge bg-success">
-                                                <i class="bi bi-check-circle"></i> Completed
+                                                <i class="bi bi-check-circle"></i> Done
                                             </span>
                                         {% elif log.status == 'failed' %}
                                             <span class="badge bg-danger">
@@ -330,19 +210,17 @@
                                             </span>
                                         {% elif log.status == 'processing' %}
                                             <span class="badge bg-warning">
-                                                <i class="bi bi-hourglass-split"></i> Processing
-                                            </span>
-                                        {% else %}
-                                            <span class="badge bg-secondary">
-                                                <i class="bi bi-clock"></i> Pending
+                                                <i class="bi bi-hourglass-split"></i> Running
                                             </span>
                                         {% endif %}
                                     </td>
-                                    <td>{{ log.products_ordered }}</td>
-                                    <td>{{ log.total_packages }}</td>
                                     <td>
-                                        <a href="{% url 'restock-log-detail' pk=log.id %}" class="btn btn-sm btn-outline-primary">
-                                            View
+                                        <small>{{ log.products_ordered }} / {{ log.total_packages }} pkg</small>
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'restock-log-detail' pk=log.id %}" 
+                                           class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-eye"></i>
                                         </a>
                                     </td>
                                 </tr>
@@ -351,9 +229,9 @@
                         </table>
                     </div>
                 {% else %}
-                    <div class="alert alert-info">
+                    <div class="alert alert-info mb-0">
                         <i class="bi bi-info-circle"></i>
-                        No recent activity to display.
+                        No recent activity. Start by running a restock check on one of your storages.
                     </div>
                 {% endif %}
             </div>

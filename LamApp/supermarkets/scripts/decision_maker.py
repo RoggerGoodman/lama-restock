@@ -256,9 +256,9 @@ class DecisionMaker:
 
             if verified == True:
                 category = "N"
-                result, check, status = process_N_sales(
+                result, check, status, returned_discount = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales, 
-                    avg_sales_base, req_stock, stock
+                    avg_sales_base, req_stock, stock, discount
                 )
             else:
                 reason = "Not verified in system"
@@ -270,7 +270,7 @@ class DecisionMaker:
                 if avg_daily_sales <= 0.2:
                     analyzer.low_sale_recorder(descrizione, product_cod, product_var)
                 analyzer.stat_recorder(result, status)
-                self.helper.order_this(order_list, product_cod, product_var, result, descrizione, category, check)
+                self.helper.order_this(order_list, product_cod, product_var, result, descrizione, category, check, returned_discount)
                 self.helper.line_breaker()
             else:
                 analyzer.stat_recorder(0, status)
