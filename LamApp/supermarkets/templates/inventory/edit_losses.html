@@ -225,7 +225,6 @@ function renderLossArray(lossType, array) {
         return;
     }
     
-    // Show last 12 months (or all if less)
     const monthsToShow = Math.min(12, array.length);
     
     for (let i = 0; i < monthsToShow; i++) {
@@ -241,14 +240,14 @@ function renderLossArray(lossType, array) {
                        class="form-control" 
                        value="${value}" 
                        min="0"
-                       onchange="updateLossValue('${lossType}', ${i}, this.value)">
+                       onchange="updateLossValue(event, '${lossType}', ${i}, this.value)">
             </div>
         `;
         container.appendChild(col);
     }
 }
 
-function updateLossValue(lossType, monthIndex, newValue) {
+function updateLossValue(event, lossType, monthIndex, newValue) {
     const supermarketId = document.getElementById('edit_supermarket_id').value;
     const cod = document.getElementById('edit_cod').value;
     const var_ = document.getElementById('edit_var').value;
@@ -273,8 +272,8 @@ function updateLossValue(lossType, monthIndex, newValue) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Show success message briefly
-            const input = event.target;
+            // Show success feedback
+            const input = event.target;  // NOW THIS WORKS!
             const originalBorder = input.style.border;
             input.style.border = '2px solid #28a745';
             

@@ -44,7 +44,6 @@ urlpatterns = [
     # ============ Restock Logs ============
     path('logs/<int:pk>/', views.RestockLogDetailView.as_view(), name='restock-log-detail'),
     path('logs/<int:log_id>/retry/', views.retry_restock_view, name='retry-restock'),
-    path('logs/<int:log_id>/progress/', views.restock_progress_view, name='restock-progress'),
     path('logs/<int:log_id>/flag-products/', views.flag_products_for_purge_view, name='flag-products-for-purge'),
     path('logs/<int:log_id>/order-new-products/', views.order_new_products_from_log_view, name='order-new-products'),
     
@@ -85,5 +84,5 @@ urlpatterns = [
     path('tasks/<str:task_id>/progress/', views.task_progress_view, name='task-progress'),
     path('tasks/<str:task_id>/progress/<int:storage_id>/', views.task_progress_view, name='task-progress'),
     path('tasks/<str:task_id>/status/', views.task_status_ajax_view, name='task-status-ajax'),
-    path('tasks/<str:task_id>/restock-progress/', views.restock_task_progress_view, name='restock-task-progress'),
+    path('tasks/<str:task_id>/task-progress/', views.restock_task_progress_view, name='restock-task-progress'),
 ]

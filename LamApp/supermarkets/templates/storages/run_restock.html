@@ -219,7 +219,7 @@ document.getElementById('restockForm').addEventListener('submit', function(e) {
     .then(data => {
         if (data.success && data.task_id) {
             // ✅ Success! Redirect to progress page
-            window.location.href = `/tasks/${data.task_id}/restock-progress/`;
+            window.location.href = `/tasks/${data.task_id}/task-progress/`;
         } else {
             throw new Error(data.message || 'Failed to start restock');
         }

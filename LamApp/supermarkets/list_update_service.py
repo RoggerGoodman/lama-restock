@@ -43,34 +43,6 @@ class ListUpdateService:
         self.close()
         return False
     
-    def should_update(self) -> bool:
-        """
-        Check if product list should be updated.
-        
-        Returns:
-            bool: True if update is needed
-        """
-        try:
-            schedule = self.storage.list_update_schedule
-            
-            # Check if enough time has passed since last update
-            if self.storage.last_list_update:
-                days_since = (timezone.now() - self.storage.last_list_update).days
-                
-                if schedule.frequency == 'weekly':
-                    return days_since >= 7
-                elif schedule.frequency == 'biweekly':
-                    return days_since >= 14
-                elif schedule.frequency == 'monthly':
-                    return days_since >= 30
-            else:
-                # Never updated, do it now
-                return True
-                
-        except:
-            # No schedule configured
-            return False
-    
     def download_list(self) -> str:
         """
         Download product list from PAC2000A.

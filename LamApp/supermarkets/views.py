@@ -636,34 +636,6 @@ def retry_restock_view(request, log_id):
         
         messages.error(request, f"Retry failed: {str(e)}")
         return redirect('restock-log-detail', pk=log_id)
-    
-@login_required
-@require_POST
-def execute_order_view(request, log_id):
-    """Execute the order from a restock log"""
-    log = get_object_or_404(
-        RestockLog, 
-        id=log_id, 
-        storage__supermarket__owner=request.user
-    )
-    
-    try:
-        with RestockService(log.storage) as service:
-            results = log.get_results()
-            
-            # Convert back to tuple list
-            orders_list = [
-                (o['cod'], o['var'], o['qty']) 
-                for o in results.get('orders', [])
-            ]
-            
-            service.execute_order(orders_list)
-            messages.success(request, "Order executed successfully!")
-    except Exception as e:
-        logger.exception("Error executing order")
-        messages.error(request, f"Error executing order: {str(e)}")
-    return redirect('restock-log-detail', pk=log_id)
-
 
 class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
     model = RestockLog
@@ -1609,51 +1581,6 @@ def check_purge_flagged_view(request, storage_id):
         messages.error(request, f"Error: {str(e)}")
     
     return redirect('purge-products', storage_id=storage_id)
-
-@login_required
-def restock_progress_view(request, log_id):
-    """
-    AJAX endpoint to check restock progress via RestockLog.
-    ⚠️ Returns JSON for AJAX polling
-    """
-    log = get_object_or_404(
-        RestockLog,
-        id=log_id,
-        storage__supermarket__owner=request.user
-    )
-    
-    stage_info = log.get_stage_display_info()
-    
-    # Get current stage details for better UX
-    stage_details = {
-        'pending': 'Initializing...',
-        'updating_stats': 'Downloading product statistics from PAC2000A... This may take 5-10 minutes.',
-        'stats_updated': 'Statistics updated successfully!',
-        'calculating_order': 'Analyzing stock levels and calculating order quantities...',
-        'order_calculated': 'Order calculation complete!',
-        'executing_order': 'Placing order in PAC2000A system...',
-        'completed': 'All operations completed successfully!',
-        'failed': 'Operation failed. See error details below.'
-    }
-    
-    data = {
-        'status': log.status,
-        'current_stage': log.current_stage,
-        'stage_label': stage_info['label'],
-        'stage_details': stage_details.get(log.current_stage, ''),
-        'progress': stage_info['progress'],
-        'icon': stage_info['icon'],
-        'products_ordered': log.products_ordered,
-        'total_packages': log.total_packages,
-        'error_message': log.error_message if log.status == 'failed' else None,
-        'stats_updated_at': log.stats_updated_at.isoformat() if log.stats_updated_at else None,
-        'order_calculated_at': log.order_calculated_at.isoformat() if log.order_calculated_at else None,
-        'order_executed_at': log.order_executed_at.isoformat() if log.order_executed_at else None,
-        'retry_count': log.retry_count,
-        'can_retry': log.can_retry(),
-    }
-    
-    return JsonResponse(data)
 
 @login_required
 @require_POST

@@ -611,10 +611,6 @@ class DatabaseManager:
         """
         print(f"Importing from '{file_path}' into settore '{settore}'...")
 
-        # Step 1: Purge old entries for this settore
-        # self.purge_settore(settore)
-
-        # Step 2: Load CSV data
         df = pd.read_csv(file_path, sep=";", encoding="utf-8")
 
         # Expected column names (first occurrence if duplicates exist)
@@ -705,10 +701,6 @@ class DatabaseManager:
         """, econ_rows)
 
         self.conn.commit()
-
-        # Step 6: Remove stats of deleted products
-        # self.purge_orphan_stats()
-
         print(f"Imported {len(prod_rows)} products into settore '{settore}'.")
     
     def update_promos(self, promo_list):

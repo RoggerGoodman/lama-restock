@@ -30,8 +30,6 @@ class Helper:
         else:
             self.months_to_discard = 0
 
-        self.stock_list = []
-
     def clean_convert_reverse(self, values):
         cleaned_values = []
         for value in values:
