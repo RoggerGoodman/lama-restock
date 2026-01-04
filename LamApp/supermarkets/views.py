@@ -1278,11 +1278,9 @@ def stock_value_unified_view(request):
 @login_required
 def losses_analytics_unified_view(request):
     """
-    OVERHAULED: Enhanced loss analytics with monetary values and full product lists.
-    Now shows:
-    - Losses in € (using cost_s from economics)
-    - Complete product list with pagination
-    - Better category breakdown
+    UPDATED: Now uses cost snapshots stored in loss arrays.
+    Format: [[qty, cost], [qty, cost], ...] instead of [qty, qty, ...]
+    Handles both old format (qty only) and new format (qty + cost) for backward compatibility.
     """
     
     # Get user's supermarkets
@@ -1292,14 +1290,14 @@ def losses_analytics_unified_view(request):
     supermarket_id = request.GET.get('supermarket_id')
     storage_id = request.GET.get('storage_id')
     period = request.GET.get('period', '3')
-    show_category = request.GET.get('show_category', 'all')  # NEW: Filter by category
+    show_category = request.GET.get('show_category', 'all')
     
     try:
         period_months = int(period)
     except ValueError:
         period_months = 3
     
-    # Build scope description
+    # Build scope
     scope_parts = []
     if supermarket_id:
         scope_parts.append(get_object_or_404(Supermarket, id=supermarket_id, owner=request.user).name)
@@ -1317,7 +1315,7 @@ def losses_analytics_unified_view(request):
     if storage_id:
         storages = storages.filter(id=storage_id)
     
-    # Group storages by supermarket to avoid duplicate DB connections
+    # Group by supermarket
     supermarkets_to_process = {}
     for storage in storages:
         if storage.supermarket.id not in supermarkets_to_process:
@@ -1329,35 +1327,35 @@ def losses_analytics_unified_view(request):
         supermarkets_to_process[storage.supermarket.id]['storages'].append(storage)
         supermarkets_to_process[storage.supermarket.id]['settores'].add(storage.settore)
     
-    # ✅ NEW: Enhanced statistics with monetary values
+    # Enhanced statistics with monetary values
     stats = {
         'broken': {
             'total_units': 0, 
-            'total_value': 0.0,  # NEW
+            'total_value': 0.0,
             'products': 0, 
             'monthly_units': [0]*24,
-            'monthly_value': [0.0]*24  # NEW
+            'monthly_value': [0.0]*24
         },
         'expired': {
             'total_units': 0, 
-            'total_value': 0.0,  # NEW
+            'total_value': 0.0,
             'products': 0, 
             'monthly_units': [0]*24,
-            'monthly_value': [0.0]*24  # NEW
+            'monthly_value': [0.0]*24
         },
         'internal': {
             'total_units': 0, 
-            'total_value': 0.0,  # NEW
+            'total_value': 0.0,
             'products': 0, 
             'monthly_units': [0]*24,
-            'monthly_value': [0.0]*24  # NEW
+            'monthly_value': [0.0]*24
         },
     }
     
-    # ✅ NEW: Complete product list (not just top 20)
+    # Complete product list
     all_products_list = []
     
-    # Process each supermarket's database ONCE
+    # Process each supermarket's database
     for sm_id, sm_data in supermarkets_to_process.items():
         try:
             first_storage = sm_data['storages'][0]
@@ -1373,7 +1371,7 @@ def losses_analytics_unified_view(request):
                 else:
                     settore_filter = ""
                 
-                # ✅ NEW: Enhanced query with cost data
+                # Query - we still get cost_std for fallback on old data
                 query = f"""
                     SELECT 
                         el.cod, el.v,
@@ -1385,6 +1383,7 @@ def losses_analytics_unified_view(request):
                     LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
                     LEFT JOIN economics e ON el.cod = e.cod AND el.v = e.v
                     {settore_filter}
+                    ORDER BY p.descrizione
                 """
                 
                 cursor.execute(query)
@@ -1395,7 +1394,7 @@ def losses_analytics_unified_view(request):
                     cod = row['cod']
                     v = row['v']
                     description = row['descrizione'] or f"Product {cod}.{v}"
-                    cost = row['cost_std'] or 0.0
+                    fallback_cost = row['cost_std'] or 0.0  # Fallback for old format data
                     category = row['category'] or 'Unknown'
                     
                     product_losses = {
@@ -1422,8 +1421,23 @@ def losses_analytics_unified_view(request):
                                 
                                 # Calculate for period
                                 months_to_include = min(period_months, len(loss_array))
-                                period_losses = sum(loss_array[:months_to_include])
-                                period_value = period_losses * cost
+                                period_losses = 0
+                                period_value = 0.0
+                                
+                                for idx in range(months_to_include):
+                                    item = loss_array[idx]
+                                    
+                                    # Handle both formats
+                                    if isinstance(item, list) and len(item) == 2:
+                                        # New format: [qty, cost]
+                                        qty, cost = item
+                                        period_losses += qty
+                                        period_value += qty * cost
+                                    else:
+                                        # Old format: just qty (use fallback cost)
+                                        qty = item
+                                        period_losses += qty
+                                        period_value += qty * fallback_cost
                                 
                                 if period_losses > 0:
                                     stats[loss_type]['total_units'] += period_losses
@@ -1431,9 +1445,15 @@ def losses_analytics_unified_view(request):
                                     stats[loss_type]['products'] += 1
                                     
                                     # Aggregate monthly data
-                                    for idx, units in enumerate(loss_array[:24]):
-                                        stats[loss_type]['monthly_units'][idx] += units
-                                        stats[loss_type]['monthly_value'][idx] += units * cost
+                                    for idx, item in enumerate(loss_array[:24]):
+                                        if isinstance(item, list) and len(item) == 2:
+                                            qty, cost = item
+                                            stats[loss_type]['monthly_units'][idx] += qty
+                                            stats[loss_type]['monthly_value'][idx] += qty * cost
+                                        else:
+                                            qty = item
+                                            stats[loss_type]['monthly_units'][idx] += qty
+                                            stats[loss_type]['monthly_value'][idx] += qty * fallback_cost
                                     
                                     # Add to product losses
                                     product_losses[f'{loss_type}_units'] = period_losses
@@ -1441,7 +1461,8 @@ def losses_analytics_unified_view(request):
                                     product_losses['total_units'] += period_losses
                                     product_losses['total_value'] += period_value
                             
-                            except (ValueError, TypeError):
+                            except (ValueError, TypeError) as e:
+                                logger.warning(f"Error processing losses for {cod}.{v}: {e}")
                                 continue
                     
                     # Add to list if has losses
@@ -1454,7 +1475,7 @@ def losses_analytics_unified_view(request):
     # Sort products by total value (descending)
     all_products_list.sort(key=lambda x: x['total_value'], reverse=True)
     
-    # ✅ NEW: Category filtering
+    # Category filtering
     if show_category != 'all':
         filtered_products = [
             p for p in all_products_list 
@@ -1475,8 +1496,8 @@ def losses_analytics_unified_view(request):
         'scope_description': scope_description,
         'stats': stats,
         'total_units': total_units,
-        'total_value': total_value,  # NEW
-        'all_products': filtered_products,  # NEW: Complete list
+        'total_value': total_value,
+        'all_products': filtered_products,
         'total_products': len(filtered_products),
         'show_category': show_category,
         'period': period_months,
@@ -2640,8 +2661,8 @@ def restock_task_progress_view(request, task_id):
 @login_required
 def edit_losses_view(request):
     """
-    View to edit recorded losses WITHOUT affecting stock.
-    Shows all products with losses and allows editing individual array values.
+    UPDATED: View to edit recorded losses WITHOUT affecting stock.
+    Shows both quantity and cost snapshot for each month.
     """
     supermarkets = Supermarket.objects.filter(owner=request.user)
     
@@ -2661,7 +2682,7 @@ def edit_losses_view(request):
     else:
         storages = Storage.objects.filter(supermarket__in=supermarkets_filter)
     
-    # Group by supermarket to avoid duplicate DB connections
+    # Group by supermarket
     supermarkets_to_process = {}
     for storage in storages:
         if storage.supermarket.id not in supermarkets_to_process:
@@ -2691,6 +2712,7 @@ def edit_losses_view(request):
                 else:
                     settore_filter = ""
                 
+                # Also get current cost for reference
                 query = f"""
                     SELECT 
                         el.cod, el.v,
@@ -2698,9 +2720,11 @@ def edit_losses_view(request):
                         el.expired, el.expired_updated,
                         el.internal, el.internal_updated,
                         p.descrizione,
-                        p.settore
+                        p.settore,
+                        e.cost_std as current_cost
                     FROM extra_losses el
                     LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
+                    LEFT JOIN economics e ON el.cod = e.cod AND el.v = e.v
                     {settore_filter}
                     ORDER BY p.descrizione
                 """
@@ -2708,23 +2732,59 @@ def edit_losses_view(request):
                 cursor.execute(query)
                 
                 for row in cursor.fetchall():
+                    cod = row['cod']
+                    v = row['v']
+                    description = row['descrizione'] or f"Product {cod}.{v}"
+                    current_cost = row['current_cost'] or 0.0
+                    
+                    # Process arrays - convert to format with cost info
+                    def process_loss_array(loss_json, fallback_cost):
+                        """Convert array to list of {qty, cost, value} dicts"""
+                        if not loss_json:
+                            return []
+                        
+                        result = []
+                        for item in loss_json:
+                            if isinstance(item, list) and len(item) == 2:
+                                # New format: [qty, cost]
+                                qty, cost = item
+                                result.append({
+                                    'qty': qty,
+                                    'cost': cost,
+                                    'value': qty * cost
+                                })
+                            else:
+                                # Old format: just qty
+                                qty = item
+                                result.append({
+                                    'qty': qty,
+                                    'cost': fallback_cost,
+                                    'value': qty * fallback_cost
+                                })
+                        return result
+                    
+                    broken_data = process_loss_array(row['broken'], current_cost)
+                    expired_data = process_loss_array(row['expired'], current_cost)
+                    internal_data = process_loss_array(row['internal'], current_cost)
+                    
                     product = {
-                        'cod': row['cod'],
-                        'var': row['v'],
-                        'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                        'cod': cod,
+                        'var': v,
+                        'description': description,
                         'settore': row['settore'],
                         'supermarket_name': sm_data['supermarket'].name,
                         'supermarket_id': sm_data['supermarket'].id,
-                        'broken': row['broken'] or [],
+                        'current_cost': current_cost,
+                        'broken': broken_data,
                         'broken_updated': row['broken_updated'],
-                        'expired': row['expired'] or [],
+                        'expired': expired_data,
                         'expired_updated': row['expired_updated'],
-                        'internal': row['internal'] or [],
+                        'internal': internal_data,
                         'internal_updated': row['internal_updated'],
                     }
                     
                     # Only include if has at least one loss recorded
-                    if product['broken'] or product['expired'] or product['internal']:
+                    if broken_data or expired_data or internal_data:
                         products_with_losses.append(product)
         except Exception as e:
             logger.exception(f"Error loading losses for supermarket {sm_id}")
@@ -2745,8 +2805,11 @@ def edit_losses_view(request):
 @require_POST
 def edit_loss_ajax_view(request):
     """
-    AJAX endpoint to edit a specific loss value.
+    UPDATED: AJAX endpoint to edit a specific loss value.
+    Now handles new format: [[qty, cost], [qty, cost], ...]
     Updates extra_losses table WITHOUT affecting stock.
+    
+    When editing, we preserve the original cost snapshot but allow changing quantity.
     """
     try:
         data = json.loads(request.body)
@@ -2756,7 +2819,7 @@ def edit_loss_ajax_view(request):
         var = int(data['var'])
         loss_type = data['loss_type']  # 'broken', 'expired', or 'internal'
         month_index = int(data['month_index'])  # 0 = most recent month
-        new_value = int(data['new_value'])
+        new_value = int(data['new_value'])  # New quantity
         
         # Validate loss type
         if loss_type not in ['broken', 'expired', 'internal']:
@@ -2802,14 +2865,31 @@ def edit_loss_ajax_view(request):
                     'message': f'Month index {month_index} out of range (array length: {len(current_array)})'
                 }, status=400)
             
+            # Handle both old and new formats
+            item = current_array[month_index]
+            
+            if isinstance(item, list) and len(item) == 2:
+                # New format: [qty, cost]
+                old_qty = item[0]
+                stored_cost = item[1]
+                current_array[month_index] = [new_value, stored_cost]  # Keep cost, update qty
+            else:
+                # Old format: just qty
+                old_qty = item
+                # Get current cost from economics as fallback
+                cursor.execute("""
+                    SELECT cost_std FROM economics WHERE cod = %s AND v = %s
+                """, (cod, var))
+                cost_row = cursor.fetchone()
+                current_cost = float(cost_row['cost_std']) if cost_row and cost_row['cost_std'] else 0.0
+                
+                # Convert to new format with current cost as snapshot
+                current_array[month_index] = [new_value, current_cost]
+            
             # Calculate stock adjustment needed
-            old_value = current_array[month_index]
-            stock_delta = old_value - new_value  # Positive = add back to stock, negative = remove more
+            stock_delta = old_qty - new_value  # Positive = add back to stock, negative = remove more
             
-            # Update array (WITHOUT calling register_losses to avoid stock adjustment)
-            current_array[month_index] = new_value
-            
-            # Update database - ONLY the extra_losses table
+            # Update database - ONLY the extra_losses table (no stock adjustment per requirement)
             cursor.execute(f"""
                 UPDATE extra_losses
                 SET {loss_type} = %s
@@ -2820,14 +2900,14 @@ def edit_loss_ajax_view(request):
             
             logger.info(
                 f"Loss edited: {supermarket.name} - Product {cod}.{var} - "
-                f"{loss_type}[{month_index}]: {old_value} → {new_value} "
-                f"(stock NOT adjusted as per requirement)"
+                f"{loss_type}[{month_index}]: {old_qty} → {new_value} "
+                f"(stock NOT adjusted, cost snapshot preserved)"
             )
             
             return JsonResponse({
                 'success': True,
-                'message': f'Updated {loss_type} month {month_index}: {old_value} → {new_value}',
-                'old_value': old_value,
+                'message': f'Updated {loss_type} month {month_index}: {old_qty} → {new_value}',
+                'old_value': old_qty,
                 'new_value': new_value,
                 'stock_delta_not_applied': stock_delta
             })          
@@ -2837,7 +2917,6 @@ def edit_loss_ajax_view(request):
             'success': False,
             'message': str(e)
         }, status=500)
-
 
 @login_required
 @require_POST

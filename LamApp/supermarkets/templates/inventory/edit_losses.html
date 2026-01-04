@@ -208,7 +208,7 @@ function editProduct(cod, var_, description, supermarketId, brokenArray, expired
     // Set title
     document.getElementById('productTitle').textContent = `${cod}.${var_} - ${description}`;
     
-    // Render arrays
+    // Render arrays with cost information
     renderLossArray('broken', brokenArray);
     renderLossArray('expired', expiredArray);
     renderLossArray('internal', internalArray);
@@ -228,23 +228,50 @@ function renderLossArray(lossType, array) {
     const monthsToShow = Math.min(12, array.length);
     
     for (let i = 0; i < monthsToShow; i++) {
-        const value = array[i];
+        const item = array[i];
+        
+        // Handle the data format from Python: {qty, cost, value}
+        const qty = item.qty || item;
+        const cost = item.cost || 0;
+        const value = item.value || (qty * cost);
+        
         const monthLabel = i === 0 ? 'Current' : `${i} mo ago`;
         
         const col = document.createElement('div');
-        col.className = 'col-md-3';
+        col.className = 'col-md-4';
         col.innerHTML = `
-            <div class="input-group input-group-sm">
-                <span class="input-group-text">${monthLabel}</span>
-                <input type="number" 
-                       class="form-control" 
-                       value="${value}" 
-                       min="0"
-                       onchange="updateLossValue(event, '${lossType}', ${i}, this.value)">
+            <div class="card border-0 bg-light mb-2">
+                <div class="card-body p-2">
+                    <small class="text-muted d-block mb-1">${monthLabel}</small>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">Qty</span>
+                        <input type="number" 
+                               class="form-control" 
+                               value="${qty}" 
+                               min="0"
+                               onchange="updateLossValue(event, '${lossType}', ${i}, this.value)">
+                    </div>
+                    <small class="text-muted d-block mt-1">
+                        <i class="bi bi-currency-euro"></i> ${cost.toFixed(2)} × ${qty} = 
+                        <strong>€${value.toFixed(2)}</strong>
+                    </small>
+                </div>
             </div>
         `;
         container.appendChild(col);
     }
+    
+    // Add info alert about cost snapshots
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'col-12 mt-2';
+    infoDiv.innerHTML = `
+        <div class="alert alert-info alert-sm mb-0">
+            <i class="bi bi-info-circle"></i>
+            <small>Cost values are historical snapshots from when losses were recorded. 
+            Editing quantity preserves the original cost.</small>
+        </div>
+    `;
+    container.appendChild(infoDiv);
 }
 
 function updateLossValue(event, lossType, monthIndex, newValue) {
@@ -273,15 +300,41 @@ function updateLossValue(event, lossType, monthIndex, newValue) {
     .then(data => {
         if (data.success) {
             // Show success feedback
-            const input = event.target;  // NOW THIS WORKS!
+            const input = event.target;
             const originalBorder = input.style.border;
+            const originalBackground = input.style.background;
+            
             input.style.border = '2px solid #28a745';
+            input.style.background = '#d4edda';
             
             setTimeout(() => {
                 input.style.border = originalBorder;
-            }, 1000);
+                input.style.background = originalBackground;
+            }, 1500);
             
             console.log(data.message);
+            
+            // Show toast notification
+            const toastHtml = `
+                <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11000">
+                    <div class="toast show" role="alert">
+                        <div class="toast-header bg-success text-white">
+                            <i class="bi bi-check-circle me-2"></i>
+                            <strong class="me-auto">Updated</strong>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                        </div>
+                        <div class="toast-body">
+                            ${data.message}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const toastContainer = document.createElement('div');
+            toastContainer.innerHTML = toastHtml;
+            document.body.appendChild(toastContainer);
+            
+            setTimeout(() => toastContainer.remove(), 3000);
         } else {
             alert('Error: ' + data.message);
         }

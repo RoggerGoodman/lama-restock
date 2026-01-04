@@ -419,6 +419,7 @@ class DatabaseManager:
     def register_losses(self, cod: int, v: int, delta: int, type: str):
         """
         Registers a type of loss (broken, expired, internal).
+        NOW STORES COST SNAPSHOT: [[qty, cost], [qty, cost], ...]
         AUTO-CREATES extra_losses entry if missing.
         """
         allowed = ("broken", "expired", "internal")
@@ -428,12 +429,19 @@ class DatabaseManager:
 
         cur = self.cursor()
 
-        # 1) Check product exists in products table
+        # 1) Check product exists
         cur.execute("SELECT 1 FROM products WHERE cod=%s AND v=%s", (cod, v))
         if cur.fetchone() is None:
             raise ValueError(f"Product {cod}.{v} not found in products table")
 
-        # 2) Get or create extra_losses entry
+        # 2) Get current cost from economics table
+        cur.execute("""
+            SELECT cost_std FROM economics WHERE cod=%s AND v=%s
+        """, (cod, v))
+        cost_row = cur.fetchone()
+        current_cost = float(cost_row['cost_std']) if cost_row and cost_row['cost_std'] else 0.0
+
+        # 3) Get or create extra_losses entry
         cur.execute(
             f"SELECT {type}, {type}_updated FROM extra_losses WHERE cod=%s AND v=%s",
             (cod, v)
@@ -442,36 +450,34 @@ class DatabaseManager:
 
         today = date.today()
 
-
         # If no entry exists, create it
         if row is None:
-            json_array = Json([delta])
+            json_array = Json([[delta, current_cost]])  # Store [qty, cost] pair
             cur.execute(
                 f"""
                 INSERT INTO extra_losses (cod, v, {type}, {type}_updated)
                 VALUES (%s, %s, %s, %s)
                 """,
-                (cod, v, Json([delta]), today)
+                (cod, v, json_array, today)
             )
             self.conn.commit()
             self.adjust_stock(cod, v, -delta)
-            return {"action": "new_entry", "cod": cod, "v": v, "delta": delta}
+            return {"action": "new_entry", "cod": cod, "v": v, "delta": delta, "cost": current_cost}
 
-        # 3) Entry exists - get current data
+        # 4) Entry exists - get current data
         existing_json = row[type]
-        existing_updated:date = row[f"{type}_updated"]
+        existing_updated: date = row[f"{type}_updated"]
 
-        # Handle case where column exists but is NULL
+        # Handle NULL column
         if existing_json is None:
-            # Column is NULL - treat as new entry
-            json_array = Json([delta])
+            json_array = Json([[delta, current_cost]])
             cur.execute(
                 f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
                 (json_array, today, cod, v)
             )
             self.conn.commit()
             self.adjust_stock(cod, v, -delta)
-            return {"action": "initialized_null", "cod": cod, "v": v, "delta": delta}
+            return {"action": "initialized_null", "cod": cod, "v": v, "delta": delta, "cost": current_cost}
 
         # Parse existing JSON
         arr = existing_json
@@ -489,11 +495,17 @@ class DatabaseManager:
 
         # SAME MONTH: Add to the first element
         if months_passed == 0:
-            old_first = arr[0]
+            # Check format: old [qty] or new [[qty, cost]]
+            if arr and isinstance(arr[0], list):
+                # New format: [[qty, cost], ...]
+                old_qty = arr[0][0]
+                arr[0] = [arr[0][0] + delta, current_cost]  # Update qty, refresh cost
+            else:
+                # Old format: [qty, qty, ...] - convert to new format
+                old_qty = arr[0]
+                arr[0] = [arr[0] + delta, current_cost]
             
-            arr[0] =  arr[0] + delta
             self.adjust_stock(cod, v, -int(delta))
-            
             json_out = Json(arr[:24])
             cur.execute(
                 f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
@@ -505,15 +517,25 @@ class DatabaseManager:
                 "action": "same_month_update",
                 "cod": cod,
                 "v": v,
-                "old_first": old_first,
-                "change": delta
+                "old_qty": old_qty,
+                "change": delta,
+                "cost": current_cost
             }
         
-        # NEW MONTH(S): Insert new month(s) with zeros for skipped months
+        # NEW MONTH(S): Insert new month(s)
         else:
-            new_delta = delta
-            zeros = [0] * max(0, months_passed - 1)
-            new_arr = [new_delta] + zeros + arr
+            new_entry = [delta, current_cost]  # Store [qty, cost]
+            zeros = [[0, current_cost] for _ in range(max(0, months_passed - 1))]  # Fill gaps
+            
+            # Convert old format entries to new format if needed
+            converted_arr = []
+            for item in arr:
+                if isinstance(item, list) and len(item) == 2:
+                    converted_arr.append(item)  # Already new format
+                else:
+                    converted_arr.append([item, current_cost])  # Old format, convert with current_cost
+            
+            new_arr = [new_entry] + zeros + converted_arr
             new_arr = new_arr[:24]  # Trim to 24 months
             
             json_out = Json(new_arr)
@@ -523,14 +545,15 @@ class DatabaseManager:
             )
             self.conn.commit()
             
-            self.adjust_stock(cod, v, -new_delta)
+            self.adjust_stock(cod, v, -delta)
             
             return {
                 "action": "months_passed_insert",
                 "cod": cod,
                 "v": v,
                 "months_passed": months_passed,
-                "new_arr_length": len(new_arr)
+                "new_arr_length": len(new_arr),
+                "cost": current_cost
             }
 
     def adjust_stock(self, cod:int, v:int, delta:int):
