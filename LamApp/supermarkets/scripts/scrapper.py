@@ -185,7 +185,7 @@ class Scrapper:
                 cleaned_last_year_sold = self.helper.clean_convert_reverse(sold_q_last)
                 cleaned_current_year_bought = self.helper.clean_convert_reverse(bought_q_current)
                 cleaned_last_year_bought = self.helper.clean_convert_reverse(bought_q_last)
-
+                empty_list = [0,0,0,0,0,0,0,0,0,0,0,0]
                 # ✅ NEW: Detect "newly added" products
                 if (cleaned_current_year_bought is not None and 
                     cleaned_current_year_sold is None and 
@@ -203,19 +203,22 @@ class Scrapper:
                         })
                     
                     # Initialize with empty arrays
-                    empty_list = [0,0,0,0,0,0,0,0,0,0,0,0]
+                    
                     cleaned_last_year_bought = empty_list 
                     cleaned_current_year_sold = empty_list
                     cleaned_last_year_sold = empty_list
                 
-                elif not cleaned_current_year_sold or not cleaned_last_year_sold or not cleaned_current_year_bought or not cleaned_last_year_bought:
+                if cleaned_current_year_bought is None and cleaned_last_year_bought is None:
                     report["errors"] += 1
                     continue
 
-                final_array_sold = cleaned_current_year_sold + cleaned_last_year_sold
-                final_array_bought = cleaned_current_year_bought + cleaned_last_year_bought
+                final_array_sold = (cleaned_current_year_sold or empty_list) + (cleaned_last_year_sold or empty_list)
+                final_array_bought = (cleaned_current_year_bought or empty_list) + (cleaned_last_year_bought or empty_list)
 
-                final_array_bought, final_array_sold = self.helper.prepare_array(final_array_bought, final_array_sold)
+                final_array_bought, final_array_sold = self.helper.prepare_array(
+                    final_array_bought,
+                    final_array_sold
+                )
 
                 if len(final_array_bought) == 0 and len(final_array_sold) == 0:
                     report["empty"] += 1

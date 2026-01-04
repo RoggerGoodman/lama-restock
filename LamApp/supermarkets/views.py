@@ -147,7 +147,10 @@ def dashboard_view(request):
                     WHERE ps.verified = FALSE
                     AND ps.bought_last_24 IS NOT NULL
                     AND jsonb_typeof(ps.bought_last_24) = 'array'
-                    AND jsonb_array_length(ps.bought_last_24) > 0
+                    AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(ps.bought_last_24)
+                    )
                     AND p.settore IN ({settore_placeholders})
                     LIMIT 5
                 """
@@ -348,7 +351,10 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         AND ps.verified = FALSE
                         AND ps.bought_last_24 IS NOT NULL
                         AND jsonb_typeof(ps.bought_last_24) = 'array'
-                        AND jsonb_array_length(ps.bought_last_24) > 0
+                        AND EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements(ps.bought_last_24)
+                        )
                     LIMIT 20;
                 """, (self.object.settore,))
                 
@@ -3130,7 +3136,10 @@ def pending_verifications_view(request):
                     WHERE ps.verified = FALSE
                     AND ps.bought_last_24 IS NOT NULL
                     AND jsonb_typeof(ps.bought_last_24) = 'array'
-                    AND jsonb_array_length(ps.bought_last_24) > 0
+                    AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(ps.bought_last_24)
+                    )
                     AND p.settore IN ({settore_placeholders})
                     ORDER BY ps.last_update DESC
                     LIMIT 20
