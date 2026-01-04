@@ -264,8 +264,8 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             logger.exception(f"❌ [CHECKPOINT 3 FAILED]")
             raise
     
-    def run_full_restock_workflow(self, coverage=None, log=None):
-        """Run complete restock workflow with checkpoints."""
+    def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None):
+        """Run complete restock workflow with optional progress reporting"""
         logger.info(f"Starting restock workflow for {self.storage.name}")
         
         if log is None:
@@ -275,15 +275,12 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                 current_stage='pending',
                 started_at=timezone.now()
             )
-        else:
-            with transaction.atomic():
-                log = RestockLog.objects.select_for_update().get(id=log.id)
-                log.retry_count += 1
-                log.status = 'processing'
-                log.save()
         
         try:
             # CHECKPOINT 1: Update stats
+            if progress_callback:
+                progress_callback(10, 'Updating product statistics...')
+            
             with transaction.atomic():
                 log.refresh_from_db()
                 
@@ -294,6 +291,9 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                     self.update_product_stats_checkpoint(log)
             
             # CHECKPOINT 2: Calculate order
+            if progress_callback:
+                progress_callback(60, 'Calculating order quantities...')
+            
             with transaction.atomic():
                 log.refresh_from_db()
                 
@@ -309,6 +309,9 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                     orders_list = self.calculate_order_checkpoint(log, coverage)
             
             # CHECKPOINT 3: Execute order
+            if progress_callback:
+                progress_callback(80, 'Placing order in PAC2000A...')
+            
             with transaction.atomic():
                 log.refresh_from_db()
                 
@@ -317,6 +320,9 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                 else:
                     logger.info(f"[CHECKPOINT 3 START] Executing order...")
                     self.execute_order_checkpoint(log, orders_list)
+            
+            if progress_callback:
+                progress_callback(100, 'Restock completed successfully!')
             
             logger.info(f"✅ Restock workflow completed successfully")
             return log
@@ -330,9 +336,6 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                 if log.status != 'completed':
                     log.status = 'failed'
                     log.save()
-            
-            if log.can_retry():
-                logger.info(f"Will retry from checkpoint (attempt {log.retry_count + 1}/{log.max_retries})")
             
             raise
     

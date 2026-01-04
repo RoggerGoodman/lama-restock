@@ -145,7 +145,7 @@ class DatabaseManager:
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (cod, v) DO NOTHING
-        """, (cod, v, sold, bought, stock, bool(verified), today))
+        """, (cod, v, Json(sold), Json(bought), stock, bool(verified), today))
 
         self.conn.commit()
 

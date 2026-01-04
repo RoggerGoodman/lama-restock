@@ -334,7 +334,6 @@ def run_scheduled_list_updates(self):
         logger.exception("[CELERY] Fatal error in list update task")
         raise self.retry(exc=exc)
     
-
 @shared_task(
     bind=True,
     max_retries=3,
@@ -342,7 +341,7 @@ def run_scheduled_list_updates(self):
     queue='selenium'
 )
 def manual_restock_task(self, storage_id, coverage=None):
-    """User-initiated restock"""
+    """User-initiated restock WITH PROGRESS UPDATES"""
     from .models import Storage, RestockLog
     from django.utils import timezone
     
@@ -350,23 +349,43 @@ def manual_restock_task(self, storage_id, coverage=None):
         storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)
         logger.info(f"[MANUAL RESTOCK] Starting for {storage.name}")
         
-        # UPDATED: Set operation_type
+        # ✅ Report initial progress
+        self.update_state(
+            state='PROGRESS',
+            meta={'progress': 0, 'status': 'Starting restock operation...'}
+        )
+        
         log = RestockLog.objects.create(
             storage=storage,
             status='processing',
             current_stage='pending',
-            operation_type='full_restock',  # NEW
+            operation_type='full_restock',
             started_at=timezone.now()
         ) 
         
         with AutomatedRestockService(storage) as service:
-            service.run_full_restock_workflow(coverage=coverage, log=log) 
+            # ✅ Update progress: Stats update phase
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': 10, 'status': 'Updating product statistics (5-10 min)...'}
+            )
+            
+            # Run workflow with progress callbacks
+            service.run_full_restock_workflow(
+                coverage=coverage, 
+                log=log,
+                progress_callback=lambda p, msg: self.update_state(
+                    state='PROGRESS',
+                    meta={'progress': p, 'status': msg}
+                )
+            )
             
             logger.info(
                 f"✅ [MANUAL RESTOCK] Completed for {storage.name} "
                 f"(Log #{log.id}: {log.products_ordered} products)"
             )
             
+            # ✅ Final success state
             return {
                 'success': True,
                 'log_id': log.id,
@@ -375,8 +394,14 @@ def manual_restock_task(self, storage_id, coverage=None):
             }            
     except Exception as exc:
         logger.exception(f"[MANUAL RESTOCK] Error for storage {storage_id}")
+        
+        # ✅ Report error state
+        self.update_state(
+            state='FAILURE',
+            meta={'error': str(exc)}
+        )
         raise self.retry(exc=exc)
-
+    
 @shared_task(
     bind=True,
     max_retries=3,
@@ -427,10 +452,12 @@ def manual_stats_update_task(self, storage_id):
     queue='selenium'
 )
 def add_products_unified_task(self, storage_id, products_list, settore):
-    """Add products with auto-fetch"""
+    """Add products with auto-fetch and Scrapper-based stats initialization"""
     from .models import Storage, RestockLog
     from .services import RestockService
     from .scripts.web_lister import WebLister
+    from .scripts.scrapper import Scrapper  # ← ADDED
+    from .scripts.helpers import Helper  # ← ADDED
     from pathlib import Path
     from django.utils import timezone
     
@@ -439,11 +466,10 @@ def add_products_unified_task(self, storage_id, products_list, settore):
         
         logger.info(f"[ADD PRODUCTS] Starting for {storage.name}: {len(products_list)} products")
         
-        # UPDATED: Create log with operation_type
         log = RestockLog.objects.create(
             storage=storage,
             status='processing',
-            operation_type='product_addition'  # NEW
+            operation_type='product_addition'
         )
         
         with RestockService(storage) as service:
@@ -463,6 +489,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                 
                 added = []
                 failed = []
+                products_for_scrapper = []  # ← NEW: Collect for scrapper
                 
                 for cod, var in products_list:
                     try:
@@ -477,6 +504,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                         
                         description, package, multiplier, availability, cost, price, category = product_data
                         
+                        # Add to products table
                         service.db.add_product(
                             cod=cod,
                             v=var,
@@ -486,9 +514,11 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             settore=settore,
                             disponibilita=availability or "Si"
                         )
-                        #THIS MUST BE DONE BY THE SCRAPPER
-                        service.db.init_product_stats(cod, var, [0,0], [0,0], 0, False)
                         
+                        # ✅ FIXED: Collect for scrapper (don't init stats yet!)
+                        products_for_scrapper.append((cod, var, False, package or 12))
+                        
+                        # Add economics data
                         if price and cost:
                             cost = float(cost)
                             price = float(price)
@@ -507,10 +537,27 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                         logger.exception(f"[ADD PRODUCTS] Error adding {cod}.{var}")
                         failed.append((cod, var, str(e)))
                 
+                lister.driver.quit()
+                if products_for_scrapper:
+                    logger.info(f"[ADD PRODUCTS] Initializing stats for {len(products_for_scrapper)} products via Scrapper...")
+                    
+                    helper = Helper()
+                    scrapper = Scrapper(
+                        username=storage.supermarket.username,
+                        password=storage.supermarket.password,
+                        helper=helper,
+                        db=service.db
+                    )
+                    scrapper.navigate()
+                    
+                    # Process products via scrapper
+                    scrapper_report = scrapper.process_products(products_for_scrapper)
+                    logger.info(f"[ADD PRODUCTS] Scrapper initialized {scrapper_report['initialized']} products")
+                
                 # Update log
                 log.status = 'completed'
                 log.completed_at = timezone.now()
-                log.products_ordered = len(added)  # Reuse this field
+                log.products_ordered = len(added)
                 log.save()
                 
                 logger.info(f"[ADD PRODUCTS] ✅ Complete: {len(added)} added, {len(failed)} failed")
@@ -522,10 +569,11 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                     'added': added[:50],
                     'failed': failed[:20],
                     'storage_name': storage.name,
-                    'storage_id': storage_id  # For redirect
+                    'storage_id': storage_id
                 }   
             finally:
-                lister.driver.quit()           
+                scrapper.driver.quit()
+           
     except Exception as exc:
         logger.exception(f"[ADD PRODUCTS] Error for storage {storage_id}")
         raise self.retry(exc=exc)
@@ -690,27 +738,13 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
     queue='selenium'
 )
 def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=None):
-    """
-    ENHANCED: Bulk stock verification with automatic product addition.
-    
-    Workflow:
-    1. Parse PDF to get all products and their stock levels
-    2. Record losses (broken/expired/internal)
-    3. Separate products into: existing vs missing
-    4. For missing products: Auto-fetch data using gather_missing_product_data
-    5. Add missing products to database
-    6. Verify stock for ALL products (existing + newly added)
-    7. Return comprehensive report
-    
-    Args:
-        storage_id: Storage ID
-        pdf_file_path: Full path to PDF file
-        cluster: Optional cluster name (user-provided)
-    """
+    """Bulk stock verification with automatic product addition via Scrapper"""
     from .models import Storage, RestockLog
-    
+    from .automation_services import AutomatedRestockService
     from .scripts.inventory_reader import parse_pdf
     from .scripts.web_lister import WebLister
+    from .scripts.scrapper import Scrapper  # ← ADDED
+    from .scripts.helpers import Helper  # ← ADDED
     from pathlib import Path
     import pandas as pd
     
@@ -718,33 +752,28 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
         
         logger.info(f"[VERIFY+AUTO-ADD] Starting for {storage.name}")
-        if cluster:
-            logger.info(f"[VERIFY+AUTO-ADD] Cluster: {cluster}")
 
         log = RestockLog.objects.create(
             storage=storage,
             status='processing',
-            operation_type='verification'  # NEW
+            operation_type='verification'
         )
         
         with AutomatedRestockService(storage) as service:
-            # STEP 1: Record losses first (as before)
+            # Step 1: Record losses
             logger.info(f"[VERIFY+AUTO-ADD] Step 1: Recording losses...")
             service.record_losses()
             
-            # STEP 2: Parse PDF to get all products
+            # Step 2: Parse PDF
             logger.info(f"[VERIFY+AUTO-ADD] Step 2: Parsing PDF...")
             parsed_entries = parse_pdf(pdf_file_path)
             
             if not parsed_entries:
-                return {
-                    'success': False,
-                    'error': 'No valid entries found in PDF'
-                }
+                return {'success': False, 'error': 'No valid entries found in PDF'}
             
             logger.info(f"[VERIFY+AUTO-ADD] Found {len(parsed_entries)} products in PDF")
             
-            # STEP 3: Separate existing vs missing products
+            # Step 3: Separate existing vs missing
             existing_products = []
             missing_products = []
             
@@ -754,11 +783,9 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 qty = entry['qty']
                 
                 try:
-                    # Check if product exists
                     service.db.get_stock(cod, var)
                     existing_products.append((cod, var, qty))
                 except ValueError:
-                    # Product not in DB
                     missing_products.append((cod, var, qty))
             
             logger.info(
@@ -766,14 +793,14 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 f"{len(missing_products)} missing products"
             )
             
-            # STEP 4: Auto-add missing products
+            # Step 4: Auto-add missing products
             added_products = []
             failed_additions = []
+            products_for_scrapper = []  # ← NEW: Collect for scrapper
             
             if missing_products:
                 logger.info(f"[VERIFY+AUTO-ADD] Step 4: Auto-adding {len(missing_products)} missing products...")
                 
-                # Create WebLister instance for fetching product data
                 temp_dir = Path(settings.BASE_DIR) / 'temp_auto_add'
                 temp_dir.mkdir(exist_ok=True)
                 
@@ -792,11 +819,9 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                         try:
                             logger.info(f"[AUTO-ADD] Fetching data for {cod}.{var}...")
                             
-                            # Fetch product data from PAC2000A
                             product_data = lister.gather_missing_product_data(cod, var)
                             
                             if not product_data:
-                                logger.warning(f"[AUTO-ADD] ❌ Product {cod}.{var} not found in PAC2000A")
                                 failed_additions.append({
                                     'cod': cod,
                                     'var': var,
@@ -804,7 +829,6 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 })
                                 continue
                             
-                            # Unpack data
                             description, package, multiplier, availability, cost, price, category = product_data
                             
                             # Add to products table
@@ -817,18 +841,11 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 settore=storage.settore,
                                 disponibilita=availability or "Si"
                             )
-                            #THIS MUST BE DONE BY THE SCRAPPER
-                            # Initialize stats with the quantity from PDF
-                            service.db.init_product_stats(
-                                cod=cod,
-                                v=var,
-                                sold=[0,0],
-                                bought=[0,0],
-                                stock=qty,
-                                verified=True  # Mark as verified immediately
-                            )
                             
-                            # Add economics data if available
+                            # ✅ FIXED: Collect for scrapper initialization
+                            products_for_scrapper.append((cod, var, True, package or 12))
+                            
+                            # Add economics data
                             if price and cost:
                                 cost = float(cost)
                                 price = float(price)
@@ -843,10 +860,6 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 """, (cod, var, price, cost, category or "Unknown"))
                                 service.db.conn.commit()
                             
-                            # Assign cluster if provided
-                            if cluster:
-                                service.db.verify_stock(cod, var, new_stock=None, cluster=cluster)
-                            
                             added_products.append({
                                 'cod': cod,
                                 'var': var,
@@ -854,20 +867,41 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 'description': description
                             })
                             
-                            logger.info(f"[AUTO-ADD] ✅ Successfully added {cod}.{var} - {description}")
-                            log.status = 'completed'
-                            log.completed_at = timezone.now()
-                            log.save()
+                            logger.info(f"[AUTO-ADD] ✅ Successfully added {cod}.{var}")
                             
-                        except Exception as exc:
-                            logger.exception(f"[VERIFY+AUTO-ADD] ❌ Error for storage {storage_id}")
-                            raise self.retry(exc=exc)
+                        except Exception as e:
+                            logger.exception(f"[AUTO-ADD] Error adding {cod}.{var}")
+                            failed_additions.append({
+                                'cod': cod,
+                                'var': var,
+                                'reason': str(e)
+                            })
+                    lister.driver.quit()
+                    # ✅ NEW: Initialize stats using Scrapper BEFORE closing lister
+                    if products_for_scrapper:
+                        logger.info(f"[VERIFY+AUTO-ADD] Initializing stats for {len(products_for_scrapper)} products via Scrapper...")
+                        
+                        helper = Helper()
+                        scrapper = Scrapper(
+                            username=storage.supermarket.username,
+                            password=storage.supermarket.password,
+                            helper=helper,
+                            db=service.db
+                        )
+                        scrapper.navigate()
+                        
+                        # Process products
+                        scrapper_report = scrapper.process_products(products_for_scrapper)
+                        logger.info(f"[VERIFY+AUTO-ADD] Scrapper initialized {scrapper_report['initialized']} products")
+                        
+                        # Now verify stock for newly added products
+                        for cod, var, qty in [(p[0], p[1], next((m[2] for m in missing_products if m[0]==p[0] and m[1]==p[1]), 0)) for p in products_for_scrapper]:
+                            service.db.verify_stock(cod, var, qty, cluster)
                 
                 finally:
-                    lister.driver.quit()
-                    logger.info("[AUTO-ADD] Closed WebLister")
+                    scrapper.driver.quit()
             
-            # STEP 5: Verify stock for existing products
+            # Step 5: Verify existing products
             logger.info(f"[VERIFY+AUTO-ADD] Step 5: Verifying {len(existing_products)} existing products...")
             
             verified_count = 0
@@ -876,8 +910,6 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
             for cod, var, new_qty in existing_products:
                 try:
                     old_stock = service.db.get_stock(cod, var)
-                    
-                    # Update stock
                     service.db.verify_stock(cod, var, new_qty, cluster)
                     
                     if old_stock != new_qty:
@@ -895,14 +927,17 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                     logger.warning(f"[VERIFY] Error verifying {cod}.{var}: {e}")
                     continue
             
-            # STEP 6: Clean up PDF file
+            # Clean up
             try:
                 os.remove(pdf_file_path)
-                logger.info(f"[VERIFY+AUTO-ADD] Deleted PDF: {pdf_file_path}")
             except Exception as e:
                 logger.warning(f"Could not delete PDF: {e}")
             
-            # STEP 7: Generate report
+            # Complete log
+            log.status = 'completed'
+            log.completed_at = timezone.now()
+            log.save()
+            
             result = {
                 'success': True,
                 'storage_name': storage.name,
@@ -911,18 +946,18 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 'existing_verified': verified_count,
                 'products_added': len(added_products),
                 'failed_additions': len(failed_additions),
-                'stock_changes': stock_changes[:50],  # Limit for session storage
+                'stock_changes': stock_changes[:50],
                 'added_products': added_products[:50],
                 'failed_additions': failed_additions[:20]
             }
             
             logger.info(
                 f"[VERIFY+AUTO-ADD] ✅ Complete: "
-                f"{verified_count} verified, {len(added_products)} added, "
-                f"{len(failed_additions)} failed"
+                f"{verified_count} verified, {len(added_products)} added"
             )
             
-            return result    
+            return result
+            
     except Exception as exc:
         logger.exception(f"[VERIFY+AUTO-ADD] ❌ Error for storage {storage_id}")
         raise self.retry(exc=exc)
