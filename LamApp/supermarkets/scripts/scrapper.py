@@ -187,28 +187,24 @@ class Scrapper:
                 cleaned_last_year_bought = self.helper.clean_convert_reverse(bought_q_last)
                 empty_list = [0,0,0,0,0,0,0,0,0,0,0,0]
                 # ✅ NEW: Detect "newly added" products
-                if (cleaned_current_year_bought is not None and 
-                    cleaned_current_year_sold is None and 
-                    cleaned_last_year_bought is None):
+                if (
+                        cleaned_current_year_bought != empty_list and
+                        cleaned_current_year_sold  == empty_list and
+                        cleaned_last_year_bought   == empty_list
+                    ):
                     
                     print(f"Newly added product detected: {cod}.{v}")
                     
                     # Only add to list if NOT verified
-                    if not is_verified:
+                    if is_verified == False:
                         report["newly_added"].append({
                             'cod': cod,
                             'var': v,
                             'package_size': package_size,
                             'reason': 'Product ordered but not yet sold (needs verification)'
                         })
-                    
-                    # Initialize with empty arrays
-                    
-                    cleaned_last_year_bought = empty_list 
-                    cleaned_current_year_sold = empty_list
-                    cleaned_last_year_sold = empty_list
                 
-                if cleaned_current_year_bought is None and cleaned_last_year_bought is None:
+                if cleaned_current_year_bought is None or cleaned_last_year_bought is None or cleaned_current_year_sold is None or cleaned_last_year_sold is None:
                     report["errors"] += 1
                     continue
 
