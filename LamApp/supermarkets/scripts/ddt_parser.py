@@ -13,61 +13,69 @@ logger = logging.getLogger(__name__)
 def parse_ddt_pdf(pdf_path):
     """
     Parse DDT PDF and extract product deliveries.
-    
+
     Args:
         pdf_path: Path to DDT PDF file
-        
+
     Returns:
         list: List of tuples (cod, var, qty)
     """
-    # Regex to match DDT lines
     line_regex = re.compile(
         r"""
         ^\s*
-        (?P<cod>\d+\.\d+)          # CODICE ARTICOLO (e.g., 960.01)
+        (?P<cod>\d+\.\d+)      # CODICE ARTICOLO
         \s+.+?\s+
         PZ\s+
-        \d+\s+                     # colli (packages)
-        \d+\s+                     # pezzi per collo (pieces per package)
-        (?P<qty>\d+)               # QUANTITA' TOTALE (total quantity)
+        \d+\s+                 # colli
+        \d+\s+                 # pezzi per collo
+        (?P<qty>[\d,]+)        # QUANTITA' (allow comma)
+        \s+[\d,]+              # prezzo unitario
+        \s+[\d,]+              # totale
         """,
         re.VERBOSE
     )
-    
+
     results = []
-    
+
     try:
         with pdfplumber.open(pdf_path) as pdf:
             logger.info(f"Parsing DDT PDF: {pdf_path} ({len(pdf.pages)} pages)")
-            
+
             for page_num, page in enumerate(pdf.pages, 1):
                 text = page.extract_text()
                 if not text:
                     logger.warning(f"No text found on page {page_num}")
                     continue
-                
+
                 for line in text.splitlines():
                     match = line_regex.search(line)
-                    if match:
-                        full_code = match.group("cod")  # e.g., "960.01"
-                        
-                        try:
-                            cod_str, v_str = full_code.split(".")
-                            cod = int(cod_str)
-                            var = int(v_str)
-                            qty = int(match.group("qty"))
-                            
-                            results.append((cod, var, qty))
-                            logger.debug(f"Extracted: {cod}.{var} = {qty}")
-                            
-                        except (ValueError, AttributeError) as e:
-                            logger.warning(f"Could not parse line: {line} ({e})")
+                    if not match:
+                        continue
+
+                    try:
+                        full_code = match.group("cod")
+                        qty_str = match.group("qty")
+
+                        # ❌ Skip KG-based products (e.g. "3,5")
+                        if "," in qty_str:
+                            logger.debug(f"Skipping KG product line: {line}")
                             continue
-            
+
+                        cod_str, v_str = full_code.split(".")
+                        cod = int(cod_str)
+                        var = int(v_str)
+                        qty = int(qty_str)
+
+                        results.append((cod, var, qty))
+                        logger.debug(f"Extracted: {cod}.{var} = {qty}")
+
+                    except (ValueError, AttributeError) as e:
+                        logger.warning(f"Could not parse line: {line} ({e})")
+
             logger.info(f"DDT parsing complete: found {len(results)} products")
             return results
-            
-    except Exception as e:
+
+    except Exception:
         logger.exception(f"Error parsing DDT PDF: {pdf_path}")
         raise
 

@@ -151,14 +151,8 @@ def update_stats_all_scheduled_storages(self):
     queue='selenium'
 )
 def update_stats_for_storage(self, storage_id):
-    """
-    Update product stats for a single storage.
-    This is a subtask called by update_stats_all_scheduled_storages.
-    
-    CRITICAL: Creates its own database connection to avoid threading issues.
-    """
+    """Update product stats for a single storage."""
     from .models import Storage
-    
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
@@ -166,12 +160,12 @@ def update_stats_for_storage(self, storage_id):
         logger.info(f"[CELERY-SUBTASK] Updating stats for {storage.name}")
         
         with AutomatedRestockService(storage) as service:
-            # Create a log to track the update
             from .models import RestockLog
             log = RestockLog.objects.create(
                 storage=storage,
                 status='processing',
-                current_stage='updating_stats'
+                current_stage='updating_stats',
+                operation_type='stats_update'  # ← ADDED THIS
             )
             
             service.update_product_stats_checkpoint(log)

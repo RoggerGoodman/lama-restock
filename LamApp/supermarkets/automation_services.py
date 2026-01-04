@@ -66,12 +66,9 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             raise
     
     def update_product_stats_checkpoint(self, log: RestockLog, full: bool = True):
-        """
-        CHECKPOINT 1: Update product statistics from PAC2000A
-        """
+        """CHECKPOINT 1: Update product statistics from PAC2000A"""
         logger.info(f"[CHECKPOINT 1] Updating product stats for {self.storage.name}")
         
-        # CRITICAL: Mark as started BEFORE doing anything
         with transaction.atomic():
             log = RestockLog.objects.select_for_update().get(id=log.id)
             
@@ -94,12 +91,10 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                 scrapper.navigate()
                 scrapper.init_product_stats_for_settore(self.settore, full)
                 
-                # Auto-purge check
                 purged_products = self.db.check_and_purge_flagged()
                 if purged_products:
                     logger.info(f"[AUTO-PURGE] ✅ Purged {len(purged_products)} products")
                 
-                # Update timestamp atomically
                 with transaction.atomic():
                     log = RestockLog.objects.select_for_update().get(id=log.id)
                     log.current_stage = 'stats_updated'
@@ -108,14 +103,15 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                 
                 logger.info(f"✅ [CHECKPOINT 1 COMPLETE] Stats updated")
                 return True
-                
+                    
             finally:
                 scrapper.driver.quit()
-                
+                    
         except Exception as e:
             with transaction.atomic():
                 log = RestockLog.objects.select_for_update().get(id=log.id)
                 log.current_stage = 'failed'
+                log.status = 'failed'
                 log.error_message = f"Stats update failed: {str(e)}"
                 log.save()
             
@@ -123,10 +119,7 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             raise
     
     def calculate_order_checkpoint(self, log: RestockLog, coverage=None):
-        """
-        CHECKPOINT 2: Calculate what needs to be ordered.
-        Returns orders_list on success, raises exception on failure.
-        """
+        """CHECKPOINT 2: Calculate what needs to be ordered."""
         logger.info(f"[CHECKPOINT 2] Calculating order for {self.storage.name}")
         
         log.current_stage = 'calculating_order'
@@ -200,6 +193,7 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             
         except Exception as e:
             log.current_stage = 'failed'
+            log.status = 'failed'
             log.error_message = f"Order calculation failed: {str(e)}"
             log.save()
             
@@ -271,10 +265,7 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             raise
     
     def run_full_restock_workflow(self, coverage=None, log=None):
-        """
-        Run complete restock workflow with checkpoints.
-        Uses database locks to prevent duplicate execution.
-        """
+        """Run complete restock workflow with checkpoints."""
         logger.info(f"Starting restock workflow for {self.storage.name}")
         
         if log is None:

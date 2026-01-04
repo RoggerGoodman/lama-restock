@@ -125,26 +125,23 @@ def dashboard_view(request):
             supermarkets_with_storages[sm.id] = sm
     
     # Process each supermarket's database once
-    for sm_id, sm in supermarkets_with_storages.items():
+    top_pending_products = []
+    for sm_id, sm in list(supermarkets_with_storages.items())[:3]:  # Limit to 3 supermarkets
         try:
-            # Use first storage to access the supermarket's database
             storage = sm.storages.first()
-            
             with RestockService(storage) as service:
                 cursor = service.db.cursor()
-                
-                # Get all settores for this supermarket
                 settores = list(sm.storages.values_list('settore', flat=True).distinct())
                 
                 if not settores:
                     continue
                 
-                # Build WHERE clause for multiple settores
                 settore_placeholders = ','.join(['%s'] * len(settores))
                 
-                # ✅ FIXED: Add type check to prevent "non-array" error
                 query = f"""
-                    SELECT COUNT(DISTINCT (ps.cod, ps.v)) as count
+                    SELECT 
+                        p.cod, p.v, p.descrizione,
+                        ps.stock
                     FROM product_stats ps
                     JOIN products p ON ps.cod = p.cod AND ps.v = p.v
                     WHERE ps.verified = FALSE
@@ -152,20 +149,30 @@ def dashboard_view(request):
                     AND jsonb_typeof(ps.bought_last_24) = 'array'
                     AND jsonb_array_length(ps.bought_last_24) > 0
                     AND p.settore IN ({settore_placeholders})
+                    LIMIT 5
                 """
                 
                 cursor.execute(query, settores)
-                row = cursor.fetchone()
                 
-                if row and row['count']:
-                    count = int(row['count'])
-                    pending_verifications += count
-                    logger.debug(f"Found {count} pending verifications in {sm.name}")
+                for row in cursor.fetchall():
+                    top_pending_products.append({
+                        'supermarket': sm.name,
+                        'cod': row['cod'],
+                        'var': row['v'],
+                        'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                        'stock': row['stock'] or 0
+                    })
                     
+                    if len(top_pending_products) >= 5:
+                        break
+                
+                if len(top_pending_products) >= 5:
+                    break
         except Exception as e:
-            logger.warning(f"Could not count verifications for {sm.name}: {e}")
-            # Continue to next supermarket instead of failing entirely
+            logger.warning(f"Could not load sample verifications for {sm.name}: {e}")
             continue
+
+    context['top_pending_products'] = top_pending_products
     
     logger.info(f"Dashboard: {pending_verifications} total pending verifications across {len(supermarkets_with_storages)} supermarkets")
     
