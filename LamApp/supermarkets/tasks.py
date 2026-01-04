@@ -486,8 +486,8 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             settore=settore,
                             disponibilita=availability or "Si"
                         )
-                        
-                        service.db.init_product_stats(cod, var, [], [], 0, False)
+                        #THIS MUST BE DONE BY THE SCRAPPER
+                        service.db.init_product_stats(cod, var, [0,0], [0,0], 0, False)
                         
                         if price and cost:
                             cost = float(cost)
@@ -817,13 +817,13 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 settore=storage.settore,
                                 disponibilita=availability or "Si"
                             )
-                            
+                            #THIS MUST BE DONE BY THE SCRAPPER
                             # Initialize stats with the quantity from PDF
                             service.db.init_product_stats(
                                 cod=cod,
                                 v=var,
-                                sold=[],
-                                bought=[],
+                                sold=[0,0],
+                                bought=[0,0],
                                 stock=qty,
                                 verified=True  # Mark as verified immediately
                             )

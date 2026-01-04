@@ -133,14 +133,11 @@ class DatabaseManager:
         """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
         self.conn.commit()
 
-    def init_product_stats(self, cod, v, sold=None, bought=None, stock=None, verified=False):
+    def init_product_stats(self, cod:int, v:int, sold:list, bought:list, stock:int=0, verified:bool=False):
         """
         Initialize with variable-length arrays (empty if not provided).
         """
-        sold_array = sold or []
-        bought_array = bought or []
         today = date.today() 
-
         cur = self.cursor()
         cur.execute("""
             INSERT INTO product_stats (
@@ -148,7 +145,7 @@ class DatabaseManager:
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (cod, v) DO NOTHING
-        """, (cod, v, sold_array, bought_array, stock, bool(verified), today))
+        """, (cod, v, sold, bought, stock, bool(verified), today))
 
         self.conn.commit()
 
@@ -206,19 +203,9 @@ class DatabaseManager:
         """, (cod, v))
         row = cur.fetchone()
 
-        if not row:
-            # Auto-initialize if missing
-            self.init_product_stats(cod, v, sold=[], bought=[], stock=0, verified=False)
-            cur.execute("""
-                SELECT sold_last_24, bought_last_24, stock, last_update, sales_sets
-                FROM product_stats
-                WHERE cod=%s AND v=%s
-            """, (cod, v))
-            row = cur.fetchone()
-
         # --- Load arrays and previous metadata ---
-        sold_array = row["sold_last_24"] or []
-        bought_array = row["bought_last_24"] or []
+        sold_array = row["sold_last_24"]
+        bought_array = row["bought_last_24"]
         stock = int(row["stock"]) if row["stock"] is not None else 0
         sales_sets = row["sales_sets"] or []
         last_update_date = row["last_update"]

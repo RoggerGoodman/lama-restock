@@ -129,22 +129,41 @@ class Scrapper:
 
         products = cur.fetchall()
 
+        product_tuples = [
+            (
+                row["cod"],
+                row["v"],
+                row.get("verified", False),
+                row.get("pz_x_collo", 12),
+            )
+            for row in products
+        ]
+        self.process_products(product_tuples)
+
+    def process_products(self, product_tuples):
+        """
+        Process a list of products.
+
+        products: iterable of tuples
+            (cod, v, verified, pz_x_collo)
+
+        Returns:
+            report dict
+        """
+        timeout=10
+        cur = self.db.cursor()
         report = {
-            "total": len(products),
+            "total": len(product_tuples),
             "processed": 0,
             "initialized": 0,
             "updated": 0,
             "skipped_exists": 0,
             "empty": 0,
             "errors": 0,
-            "newly_added": []  # NEW: Track newly added products
+            "newly_added": [],
         }
 
-        for row in products:
-            cod = row["cod"]
-            v = row["v"]
-            is_verified = row.get("verified", False)
-            package_size = row.get("pz_x_collo", 12)
+        for cod, v, is_verified, package_size in product_tuples:
             
             report["processed"] += 1
 
@@ -209,8 +228,8 @@ class Scrapper:
                     report["errors"] += 1
                     continue
 
-                final_array_sold = (cleaned_current_year_sold or empty_list) + (cleaned_last_year_sold or empty_list)
-                final_array_bought = (cleaned_current_year_bought or empty_list) + (cleaned_last_year_bought or empty_list)
+                final_array_sold = (cleaned_current_year_sold) + (cleaned_last_year_sold)
+                final_array_bought = (cleaned_current_year_bought) + (cleaned_last_year_bought)
 
                 final_array_bought, final_array_sold = self.helper.prepare_array(
                     final_array_bought,
