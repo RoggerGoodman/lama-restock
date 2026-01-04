@@ -402,7 +402,7 @@ def manual_stats_update_task(self, storage_id):
         )
         
         with AutomatedRestockService(storage) as service:
-            service.update_product_stats_checkpoint(log, manual=True)
+            service.update_product_stats_checkpoint(log)
             
             log.status = 'completed'
             log.completed_at = timezone.now()
