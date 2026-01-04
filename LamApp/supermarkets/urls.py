@@ -64,6 +64,7 @@ urlpatterns = [
     path('inventory/edit-losses/', views.edit_losses_view, name='edit-losses'),
     path('inventory/edit-loss/', views.edit_loss_ajax_view, name='edit-loss-ajax'),
     path('inventory/verify-newly-added/', views.verify_newly_added_ajax_view, name='verify-newly-added'),
+    path('inventory/pending-verifications/', views.pending_verifications_view, name='pending-verifications'),
     
     # NEW: Unified inventory operations
     path('inventory/verify-stock-enhanced/', views.verify_stock_unified_enhanced_view, name='verify-stock-unified-enhanced'),

@@ -1,0 +1,222 @@
+<!-- LamApp/supermarkets/templates/inventory/pending_verifications.html -->
+{% extends 'base.html' %}
+{% block title %}Pending Verifications{% endblock %}
+{% block page_title %}Products Needing Verification{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Pending Verifications</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h3 class="mb-1">
+                            <i class="bi bi-clipboard-check"></i> 
+                            Pending Verifications
+                        </h3>
+                        <p class="mb-0 opacity-75">Products that have been ordered but not yet verified</p>
+                    </div>
+                    <div>
+                        <h1 class="display-4 mb-0">{{ total_pending }}</h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info Alert -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <h6><i class="bi bi-info-circle"></i> What Are These?</h6>
+                <p class="mb-2">These products have been ordered (bought) but haven't been sold yet. They need verification to confirm their package size.</p>
+                <ul class="mb-0">
+                    <li>Click "Verify" to confirm the package size</li>
+                    <li>This allows the product to appear in future restock orders</li>
+                    <li>Newly added products always need verification</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Products List -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-list-check"></i> Products to Verify
+                </h5>
+
+                {% if pending_products %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Supermarket</th>
+                                    <th>Settore</th>
+                                    <th>Code</th>
+                                    <th>Product Name</th>
+                                    <th>Current Package Size</th>
+                                    <th>Stock</th>
+                                    <th>Last Updated</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for product in pending_products %}
+                                <tr id="row-{{ product.cod }}-{{ product.var }}">
+                                    <td>
+                                        <small>{{ product.supermarket_name }}</small>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ product.settore }}</small>
+                                    </td>
+                                    <td>
+                                        <code>{{ product.cod }}.{{ product.var }}</code>
+                                    </td>
+                                    <td>
+                                        <strong>{{ product.name|truncatewords:8 }}</strong>
+                                    </td>
+                                    <td>
+                                        <input type="number" 
+                                               class="form-control form-control-sm" 
+                                               id="pkg-{{ product.cod }}-{{ product.var }}" 
+                                               value="{{ product.package_size }}" 
+                                               min="1" 
+                                               style="width: 100px;">
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">{{ product.stock }} units</span>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">
+                                            {% if product.last_update %}
+                                                {{ product.last_update|timesince }} ago
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-success" 
+                                                onclick="verifyProduct({{ product.cod }}, {{ product.var }}, {{ product.supermarket_id }}, '{{ product.settore }}')">
+                                            <i class="bi bi-check-circle"></i> Verify
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="alert alert-secondary mt-3">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>{{ total_pending }}</strong> product{{ total_pending|pluralize }} pending verification
+                    </div>
+                {% else %}
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle"></i>
+                        <strong>All caught up!</strong> No products need verification at this time.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function verifyProduct(cod, var_, supermarketId, settore) {
+    const pkgInput = document.getElementById(`pkg-${cod}-${var_}`);
+    const newPackageSize = parseInt(pkgInput.value);
+    
+    if (newPackageSize < 1) {
+        alert('Package size must be at least 1');
+        return;
+    }
+    
+    if (!confirm(`Verify product ${cod}.${var_} with package size ${newPackageSize}?`)) {
+        return;
+    }
+    
+    // Show loading state
+    const btn = event.target.closest('button');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    
+    fetch('/inventory/verify-single/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            cod: cod,
+            var: var_,
+            stock: null,  // Don't change stock, just verify
+            cluster: null,  // No cluster assignment
+            supermarket_id: supermarketId,
+            settore: settore,
+            package_size: newPackageSize  // Update package size
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Remove row with fade animation
+            const row = document.getElementById(`row-${cod}-${var_}`);
+            row.style.transition = 'opacity 0.3s';
+            row.style.opacity = '0';
+            setTimeout(() => {
+                row.remove();
+                
+                // Update count
+                const tbody = document.querySelector('tbody');
+                if (tbody.children.length === 0) {
+                    location.reload();
+                }
+            }, 300);
+            
+            // Show success message
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-success alert-dismissible fade show';
+            alertDiv.innerHTML = `
+                <i class="bi bi-check-circle"></i>
+                Product ${cod}.${var_} verified successfully!
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.querySelector('.container-fluid').insertBefore(
+                alertDiv, 
+                document.querySelector('.container-fluid').firstChild
+            );
+            
+            // Auto-dismiss after 3 seconds
+            setTimeout(() => alertDiv.remove(), 3000);
+        } else {
+            alert('Error: ' + data.message);
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error);
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    });
+}
+</script>
+{% endblock %}

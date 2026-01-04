@@ -115,35 +115,58 @@ def dashboard_view(request):
         schedule__isnull=True
     ).select_related('supermarket')[:5]
     
-    # ✅ FIXED: Safe pending verifications count with error handling
+    # ✅ FIXED: Efficient pending verifications count
     pending_verifications = 0
-    try:
-        # Group by supermarket to minimize DB connections
-        supermarkets_with_storages = supermarkets.filter(storages__isnull=False).distinct()
-        
-        for sm in supermarkets_with_storages:
-            try:
-                storage = sm.storages.first()
-                if storage:
-                    with RestockService(storage) as service:
-                        cursor = service.db.cursor()
-                        cursor.execute("""
-                            SELECT COUNT(*) as count
-                            FROM product_stats
-                            WHERE verified = FALSE
-                            AND bought_last_24 IS NOT NULL
-                            AND jsonb_array_length(bought_last_24) > 0
-                        """)
-                        row = cursor.fetchone()
-                        if row and row['count']:
-                            pending_verifications += int(row['count'])
-            except Exception as e:
-                logger.warning(f"Could not count verifications for {sm.name}: {e}")
-                continue
-    except Exception as e:
-        logger.exception("Error counting pending verifications")
-        # Don't fail the entire dashboard, just skip this metric
-        pending_verifications = 0
+    
+    # Group storages by supermarket to minimize DB connections
+    supermarkets_with_storages = {}
+    for sm in supermarkets:
+        if sm.storages.exists():
+            supermarkets_with_storages[sm.id] = sm
+    
+    # Process each supermarket's database once
+    for sm_id, sm in supermarkets_with_storages.items():
+        try:
+            # Use first storage to access the supermarket's database
+            storage = sm.storages.first()
+            
+            with RestockService(storage) as service:
+                cursor = service.db.cursor()
+                
+                # Get all settores for this supermarket
+                settores = list(sm.storages.values_list('settore', flat=True).distinct())
+                
+                if not settores:
+                    continue
+                
+                # Build WHERE clause for multiple settores
+                settore_placeholders = ','.join(['%s'] * len(settores))
+                
+                # Query for unverified products that have been ordered
+                query = f"""
+                    SELECT COUNT(DISTINCT (ps.cod, ps.v)) as count
+                    FROM product_stats ps
+                    JOIN products p ON ps.cod = p.cod AND ps.v = p.v
+                    WHERE ps.verified = FALSE
+                    AND ps.bought_last_24 IS NOT NULL
+                    AND jsonb_array_length(ps.bought_last_24) > 0
+                    AND p.settore IN ({settore_placeholders})
+                """
+                
+                cursor.execute(query, settores)
+                row = cursor.fetchone()
+                
+                if row and row['count']:
+                    count = int(row['count'])
+                    pending_verifications += count
+                    logger.debug(f"Found {count} pending verifications in {sm.name}")
+                    
+        except Exception as e:
+            logger.warning(f"Could not count verifications for {sm.name}: {e}")
+            # Continue to next supermarket instead of failing entirely
+            continue
+    
+    logger.info(f"Dashboard: {pending_verifications} total pending verifications across {len(supermarkets_with_storages)} supermarkets")
     
     context = {
         'supermarkets': supermarkets,
@@ -2388,8 +2411,8 @@ def verification_report_unified_view(request):
 @require_POST
 def verify_single_product_ajax_view(request):
     """
-    AJAX endpoint for verifying single product from inventory modal
-    Uses supermarket + settore instead of storage_id
+    ENHANCED: AJAX endpoint for verifying single product from inventory modal
+    Now also handles package_size updates for newly added products
     """
     try:
         data = json.loads(request.body)
@@ -2398,8 +2421,9 @@ def verify_single_product_ajax_view(request):
         settore = data.get('settore')
         cod = int(data.get('cod'))
         var = int(data.get('var'))
-        stock = int(data.get('stock'))
+        stock = data.get('stock')  # Can be None
         cluster = data.get('cluster', None) or None
+        package_size = data.get('package_size', None)  # NEW: Optional package size
         
         # Find storage by supermarket + settore
         storage = get_object_or_404(
@@ -2410,16 +2434,37 @@ def verify_single_product_ajax_view(request):
         )
         
         with RestockService(storage) as service:
-            service.db.verify_stock(cod, var, stock, cluster)
+            # Update package size if provided
+            if package_size is not None:
+                cursor = service.db.cursor()
+                cursor.execute("""
+                    UPDATE products
+                    SET pz_x_collo = %s
+                    WHERE cod = %s AND v = %s
+                """, (int(package_size), cod, var))
+                service.db.conn.commit()
+                logger.info(f"Updated package size for {cod}.{var} to {package_size}")
+            
+            # Verify stock (this also marks as verified)
+            if stock is not None:
+                service.db.verify_stock(cod, var, int(stock), cluster)
+            else:
+                # Just mark as verified without changing stock
+                service.db.verify_stock(cod, var, new_stock=None, cluster=cluster)
+            
+            message = f'Product {cod}.{var} verified successfully!'
+            if package_size:
+                message += f' Package size updated to {package_size}.'
             
             logger.info(
                 f"Single product verified: {storage.supermarket.name} - {settore} - "
-                f"{cod}.{var} = {stock}" + (f" (cluster: {cluster})" if cluster else "")
+                f"{cod}.{var}" + (f" (package: {package_size})" if package_size else "") +
+                (f" (cluster: {cluster})" if cluster else "")
             )
             
             return JsonResponse({
                 'success': True,
-                'message': f'Product {cod}.{var} verified successfully!'
+                'message': message
             })           
     except Exception as e:
         logger.exception("Error verifying single product")
@@ -2922,3 +2967,81 @@ def upload_ddt_view(request, storage_id):
         'storage': storage,
         'form': form
     })
+
+@login_required
+def pending_verifications_view(request):
+    """
+    Show all products that need verification across all supermarkets.
+    These are products that have been ordered but not yet verified.
+    """
+    supermarkets = Supermarket.objects.filter(owner=request.user)
+    
+    all_pending = []
+    
+    # Group by supermarket to minimize DB connections
+    for sm in supermarkets:
+        if not sm.storages.exists():
+            continue
+        
+        try:
+            storage = sm.storages.first()
+            
+            with RestockService(storage) as service:
+                cursor = service.db.cursor()
+                
+                # Get all settores for this supermarket
+                settores = list(sm.storages.values_list('settore', flat=True).distinct())
+                
+                if not settores:
+                    continue
+                
+                settore_placeholders = ','.join(['%s'] * len(settores))
+                
+                # Get unverified products with details
+                query = f"""
+                    SELECT 
+                        p.cod, p.v, p.descrizione, p.pz_x_collo, p.settore,
+                        ps.stock, ps.bought_last_24,
+                        ps.last_update
+                    FROM product_stats ps
+                    JOIN products p ON ps.cod = p.cod AND ps.v = p.v
+                    WHERE ps.verified = FALSE
+                    AND ps.bought_last_24 IS NOT NULL
+                    AND jsonb_array_length(ps.bought_last_24) > 0
+                    AND p.settore IN ({settore_placeholders})
+                    ORDER BY ps.last_update DESC
+                    LIMIT 20
+                """
+                
+                cursor.execute(query, settores)
+                
+                for row in cursor.fetchall():
+                    bought = row['bought_last_24'] or []
+                    sold = []  # They haven't sold any yet
+                    
+                    # Only include if bought but not sold
+                    if bought and (not sold or all(s == 0 for s in sold)):
+                        all_pending.append({
+                            'supermarket_name': sm.name,
+                            'supermarket_id': sm.id,
+                            'settore': row['settore'],
+                            'cod': row['cod'],
+                            'var': row['v'],
+                            'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                            'package_size': row['pz_x_collo'] or 12,
+                            'stock': row['stock'] or 0,
+                            'last_update': row['last_update']
+                        })
+        except Exception as e:
+            logger.exception(f"Error loading pending verifications for {sm.name}")
+            continue
+    
+    # Sort by last_update (most recent first)
+    all_pending.sort(key=lambda x: x['last_update'] if x['last_update'] else timezone.now(), reverse=True)
+    
+    context = {
+        'pending_products': all_pending,
+        'total_pending': len(all_pending)
+    }
+    
+    return render(request, 'inventory/pending_verifications.html', context)
