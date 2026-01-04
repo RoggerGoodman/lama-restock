@@ -184,8 +184,9 @@
                                 <tr>
                                     <th>Time</th>
                                     <th>Storage</th>
+                                    <th>Operation</th>
                                     <th>Status</th>
-                                    <th>Products</th>
+                                    <th>Details</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
@@ -198,6 +199,12 @@
                                             <strong>{{ log.storage.supermarket.name }}</strong><br>
                                             {{ log.storage.name }}
                                         </small>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-{{ log.get_operation_color }}">
+                                            <i class="bi {{ log.get_operation_icon }}"></i>
+                                            {{ log.get_operation_type_display }}
+                                        </span>
                                     </td>
                                     <td>
                                         {% if log.status == 'completed' %}
@@ -215,13 +222,45 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <small>{{ log.products_ordered }} / {{ log.total_packages }} pkg</small>
+                                        <small>
+                                            {% if log.operation_type == 'full_restock' %}
+                                                {{ log.products_ordered }} products / {{ log.total_packages }} pkg
+                                            {% elif log.operation_type == 'stats_update' %}
+                                                Stats updated
+                                            {% elif log.operation_type == 'list_update' %}
+                                                Product list updated
+                                            {% elif log.operation_type == 'verification' %}
+                                                {{ log.products_ordered|default:0 }} verified
+                                            {% elif log.operation_type == 'cluster_assignment' %}
+                                                {{ log.products_ordered|default:0 }} assigned
+                                            {% elif log.operation_type == 'product_addition' %}
+                                                {{ log.products_ordered|default:0 }} added
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                        </small>
                                     </td>
                                     <td>
-                                        <a href="{% url 'restock-log-detail' pk=log.id %}" 
-                                           class="btn btn-sm btn-outline-primary">
-                                            <i class="bi bi-eye"></i>
-                                        </a>
+                                        {% if log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
+                                            <a href="{% url 'restock-log-detail' pk=log.id %}" 
+                                            class="btn btn-sm btn-outline-primary">
+                                                <i class="bi bi-eye"></i>
+                                            </a>
+                                        {% elif log.status == 'completed' %}
+                                            <a href="{% url 'storage-detail' pk=log.storage.id %}" 
+                                            class="btn btn-sm btn-outline-secondary"
+                                            title="View Storage">
+                                                <i class="bi bi-box"></i>
+                                            </a>
+                                        {% elif log.status == 'failed' %}
+                                            <a href="{% url 'restock-log-detail' pk=log.id %}" 
+                                            class="btn btn-sm btn-outline-danger"
+                                            title="View Error">
+                                                <i class="bi bi-exclamation-triangle"></i>
+                                            </a>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Processing</span>
+                                        {% endif %}
                                     </td>
                                 </tr>
                                 {% endfor %}

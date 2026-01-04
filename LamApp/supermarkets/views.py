@@ -115,7 +115,7 @@ def dashboard_view(request):
         schedule__isnull=True
     ).select_related('supermarket')[:5]
     
-    # ✅ FIXED: Efficient pending verifications count
+    # ✅ FIXED: Efficient pending verifications count with type checking
     pending_verifications = 0
     
     # Group storages by supermarket to minimize DB connections
@@ -142,13 +142,14 @@ def dashboard_view(request):
                 # Build WHERE clause for multiple settores
                 settore_placeholders = ','.join(['%s'] * len(settores))
                 
-                # Query for unverified products that have been ordered
+                # ✅ FIXED: Add type check to prevent "non-array" error
                 query = f"""
                     SELECT COUNT(DISTINCT (ps.cod, ps.v)) as count
                     FROM product_stats ps
                     JOIN products p ON ps.cod = p.cod AND ps.v = p.v
                     WHERE ps.verified = FALSE
                     AND ps.bought_last_24 IS NOT NULL
+                    AND jsonb_typeof(ps.bought_last_24) = 'array'
                     AND jsonb_array_length(ps.bought_last_24) > 0
                     AND p.settore IN ({settore_placeholders})
                 """
@@ -321,17 +322,14 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         except RestockSchedule.DoesNotExist:
             context['schedule'] = None
         
-        # ✅ NEW: Load newly added products needing verification
+        # ✅ FIXED: Load newly added products with type checking
         from .services import RestockService
         
         try:
             with RestockService(self.object) as service:
                 cursor = service.db.cursor()
                 
-                # Get products that:
-                # 1. Have been ordered (bought_last_24 not empty)
-                # 2. Haven't been sold yet (sold_last_24 is all zeros)
-                # 3. Are NOT verified
+                # ✅ FIXED: Add jsonb_typeof check to prevent "non-array" error
                 cursor.execute("""
                     SELECT 
                         p.cod, p.v, p.descrizione, p.pz_x_collo,
@@ -341,6 +339,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     WHERE p.settore = %s
                         AND ps.verified = FALSE
                         AND ps.bought_last_24 IS NOT NULL
+                        AND jsonb_typeof(ps.bought_last_24) = 'array'
                         AND jsonb_array_length(ps.bought_last_24) > 0
                     LIMIT 20;
                 """, (self.object.settore,))
@@ -687,136 +686,172 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         context = super().get_context_data(**kwargs)
         results = self.object.get_results()
         
-        # Get all lists from results
-        orders = results.get('orders', [])
-        new_products = results.get('new_products', [])
-        skipped_products = results.get('skipped_products', [])
-        zombie_products = results.get('zombie_products', [])
-        order_skipped_products = results.get('order_skipped_products', [])
+        # ✅ HANDLE DIFFERENT OPERATION TYPES
+        operation_type = self.object.operation_type
         
-        # Enrich orders with product details
-        enriched_orders = []
-        with RestockService(self.object.storage) as service:
-            # Collect all (cod, var) pairs first
-            product_keys = [(o['cod'], o['var']) for o in orders]
-
-            # Single query for all products
-            placeholders = ','.join(['(%s,%s)'] * len(product_keys))
-            flat_keys = [item for pair in product_keys for item in pair]
-            cur = service.db.cursor()
-            cur.execute(f"""
-                SELECT 
-                    p.cod, p.v, p.descrizione, p.cluster, p.pz_x_collo, p.rapp,
-                    CASE
-                        WHEN e.sale_start IS NOT NULL
-                        AND e.sale_end IS NOT NULL
-                        AND CURRENT_DATE BETWEEN e.sale_start AND e.sale_end
-                        THEN e.cost_s
-                        ELSE e.cost_std
-                    END AS cost
-                FROM products p
-                LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
-                WHERE (p.cod, p.v) IN ({placeholders})
-            """, flat_keys)
-
-            # Build lookup dict
-            products_dict = {(row['cod'], row['v']): row for row in cur.fetchall()}
-
-            clusters = {}
+        # Set defaults
+        context['results'] = results
+        context['enriched_orders'] = []
+        context['clusters'] = {}
+        context['summary'] = {
+            'total_items': 0,
+            'total_packages': self.object.total_packages or 0,
+            'total_clusters': 0,
+            'total_cost': 0,
+            'total_new': 0,
+            'total_skipped': 0,
+            'total_zombie': 0,
+            'total_order_skipped': 0,
+        }
+        
+        # ✅ Operations WITHOUT orders (show simple info)
+        if operation_type in ['stats_update', 'list_update', 'cluster_assignment', 'product_addition']:
+            # These operations don't have order details
+            # Just show the basic log info
+            logger.info(f"Displaying {operation_type} log #{self.object.id} - no order enrichment needed")
+            return context
+        
+        # ✅ Operations WITH orders/products (full enrichment)
+        if operation_type in ['full_restock', 'order_execution', 'verification']:
+            # Get all lists from results
+            orders = results.get('orders', [])
+            new_products = results.get('new_products', [])
+            skipped_products = results.get('skipped_products', [])
+            zombie_products = results.get('zombie_products', [])
+            order_skipped_products = results.get('order_skipped_products', [])
             
-            for order in orders:
-                product = products_dict.get((order['cod'], order['var']))
-                cod = order['cod']
-                var = order['var']
-                qty = order['qty']
-                discount = order.get('discount')
-                
-                try:                    
-                    if product:
-                        descrizione = product['descrizione']
-                        cluster = product['cluster'] or 'Uncategorized'
-                        package_size = product['pz_x_collo'] or 0
-                        rapp = product['rapp'] or 1
-                        cost = product['cost'] or 0
-                        cost = cost/rapp
-                    else:
-                        descrizione = f"Product {cod}.{var}"
-                        cluster = 'Uncategorized'
-                        package_size = 0
-                        rapp = 1
-                        cost = 0
+            # Only enrich if we have orders
+            if not orders:
+                logger.info(f"No orders found in {operation_type} log #{self.object.id}")
+                return context
+            
+            # Enrich orders with product details
+            enriched_orders = []
+            
+            try:
+                with RestockService(self.object.storage) as service:
+                    # Collect all (cod, var) pairs first
+                    product_keys = [(o['cod'], o['var']) for o in orders]
+
+                    # Single query for all products
+                    placeholders = ','.join(['(%s,%s)'] * len(product_keys))
+                    flat_keys = [item for pair in product_keys for item in pair]
+                    cur = service.db.cursor()
+                    cur.execute(f"""
+                        SELECT 
+                            p.cod, p.v, p.descrizione, p.cluster, p.pz_x_collo, p.rapp,
+                            CASE
+                                WHEN e.sale_start IS NOT NULL
+                                AND e.sale_end IS NOT NULL
+                                AND CURRENT_DATE BETWEEN e.sale_start AND e.sale_end
+                                THEN e.cost_s
+                                ELSE e.cost_std
+                            END AS cost
+                        FROM products p
+                        LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
+                        WHERE (p.cod, p.v) IN ({placeholders})
+                    """, flat_keys)
+
+                    # Build lookup dict
+                    products_dict = {(row['cod'], row['v']): row for row in cur.fetchall()}
+
+                    clusters = {}
                     
-                    order_item = {
-                        'cod': cod,
-                        'var': var,
-                        'qty': qty,
-                        'name': descrizione,
-                        'cluster': cluster,
-                        'cost': cost,
-                        'total_cost': cost * qty * package_size,
-                        'discount': discount,
-                        'on_sale': discount is not None  # Flag for easy filtering
+                    for order in orders:
+                        product = products_dict.get((order['cod'], order['var']))
+                        cod = order['cod']
+                        var = order['var']
+                        qty = order['qty']
+                        discount = order.get('discount')
+                        
+                        try:                    
+                            if product:
+                                descrizione = product['descrizione']
+                                cluster = product['cluster'] or 'Uncategorized'
+                                package_size = product['pz_x_collo'] or 0
+                                rapp = product['rapp'] or 1
+                                cost = product['cost'] or 0
+                                cost = cost/rapp
+                            else:
+                                descrizione = f"Product {cod}.{var}"
+                                cluster = 'Uncategorized'
+                                package_size = 0
+                                rapp = 1
+                                cost = 0
+                            
+                            order_item = {
+                                'cod': cod,
+                                'var': var,
+                                'qty': qty,
+                                'name': descrizione,
+                                'cluster': cluster,
+                                'cost': cost,
+                                'total_cost': cost * qty * package_size,
+                                'discount': discount,
+                                'on_sale': discount is not None
+                            }
+                            
+                            enriched_orders.append(order_item)
+                            
+                            if cluster not in clusters:
+                                clusters[cluster] = {
+                                    'items': [],
+                                    'total_packages': 0,
+                                    'total_cost': 0,
+                                    'count': 0
+                                }
+                            
+                            clusters[cluster]['items'].append(order_item)
+                            clusters[cluster]['total_packages'] += qty
+                            clusters[cluster]['total_cost'] += cost * qty * package_size
+                            clusters[cluster]['count'] += 1
+                            
+                        except Exception as e:
+                            logger.warning(f"Could not enrich order {cod}.{var}: {e}")
+                            continue
+                    
+                    # Enrich all product lists
+                    enriched_new = self._enrich_product_list(service, new_products)
+                    enriched_skipped = self._enrich_product_list(service, skipped_products)
+                    enriched_zombie = self._enrich_product_list(service, zombie_products)
+                    enriched_order_skipped = self._enrich_product_list(service, order_skipped_products)
+                    
+                    # Calculate summary
+                    summary = {
+                        'total_items': len(enriched_orders),
+                        'total_packages': sum(o['qty'] for o in enriched_orders),
+                        'total_clusters': len(clusters),
+                        'total_cost': sum(o['total_cost'] for o in enriched_orders),
+                        'total_new': len(enriched_new),
+                        'total_skipped': len(enriched_skipped),
+                        'total_zombie': len(enriched_zombie),
+                        'total_order_skipped': len(enriched_order_skipped),
                     }
                     
-                    enriched_orders.append(order_item)
+                    context['enriched_orders'] = enriched_orders
+                    context['clusters'] = clusters
+                    context['summary'] = summary
                     
-                    if cluster not in clusters:
-                        clusters[cluster] = {
-                            'items': [],
-                            'total_packages': 0,
-                            'total_cost': 0,
-                            'count': 0
-                        }
+                    # Add all lists to context
+                    context['enriched_new'] = enriched_new
+                    context['enriched_skipped'] = enriched_skipped
+                    context['enriched_zombie'] = enriched_zombie
+                    context['enriched_order_skipped'] = enriched_order_skipped
                     
-                    clusters[cluster]['items'].append(order_item)
-                    clusters[cluster]['total_packages'] += qty
-                    clusters[cluster]['total_cost'] += cost * qty * package_size
-                    clusters[cluster]['count'] += 1
+                    logger.info(
+                        f"Context prepared: {len(enriched_orders)} orders, "
+                        f"{len(enriched_new)} new, {len(enriched_skipped)} skipped, "
+                        f"{len(enriched_zombie)} zombie, {len(enriched_order_skipped)} order-skipped"
+                    )
+            except Exception as e:
+                logger.exception(f"Error enriching orders for log #{self.object.id}")
+                # Don't fail completely - just show what we have
+                context['error_enriching'] = str(e)
                     
-                except Exception as e:
-                    logger.warning(f"Could not enrich order {cod}.{var}: {e}")
-                    continue
-            
-            # Enrich all three product lists
-            enriched_new = self._enrich_product_list(service, new_products)
-            enriched_skipped = self._enrich_product_list(service, skipped_products)
-            enriched_zombie = self._enrich_product_list(service, zombie_products)
-            enriched_order_skipped = self._enrich_product_list(service, order_skipped_products)
-            
-            # Calculate summary
-            summary = {
-                'total_items': len(enriched_orders),
-                'total_packages': sum(o['qty'] for o in enriched_orders),
-                'total_clusters': len(clusters),
-                'total_cost': sum(o['total_cost'] for o in enriched_orders),
-                'total_new': len(enriched_new),
-                'total_skipped': len(enriched_skipped),
-                'total_zombie': len(enriched_zombie),
-                'total_order_skipped': len(enriched_order_skipped),
-            }
-            
-            context['enriched_orders'] = enriched_orders
-            context['clusters'] = clusters
-            context['summary'] = summary
-            context['results'] = results
-            
-            # Add all three lists to context
-            context['enriched_new'] = enriched_new
-            context['enriched_skipped'] = enriched_skipped
-            context['enriched_zombie'] = enriched_zombie
-            context['enriched_order_skipped'] = enriched_order_skipped
-            
-            logger.info(
-                f"Context prepared: {len(enriched_orders)} orders, "
-                f"{len(enriched_new)} new, {len(enriched_skipped)} skipped, "
-                f"{len(enriched_zombie)} zombie, {len(enriched_order_skipped)} order-skipped"
-            )    
         return context
     
     def _enrich_product_list(self, service, product_list):
-        """
-        Helper to enrich a list of products with database details.
-        """
+        """Helper to enrich a list of products with database details."""
         enriched = []
         
         for item in product_list:
@@ -3076,7 +3111,7 @@ def pending_verifications_view(request):
                 
                 settore_placeholders = ','.join(['%s'] * len(settores))
                 
-                # Get unverified products with details
+                # ✅ FIXED: Add type check to prevent "non-array" error
                 query = f"""
                     SELECT 
                         p.cod, p.v, p.descrizione, p.pz_x_collo, p.settore,
@@ -3086,6 +3121,7 @@ def pending_verifications_view(request):
                     JOIN products p ON ps.cod = p.cod AND ps.v = p.v
                     WHERE ps.verified = FALSE
                     AND ps.bought_last_24 IS NOT NULL
+                    AND jsonb_typeof(ps.bought_last_24) = 'array'
                     AND jsonb_array_length(ps.bought_last_24) > 0
                     AND p.settore IN ({settore_placeholders})
                     ORDER BY ps.last_update DESC

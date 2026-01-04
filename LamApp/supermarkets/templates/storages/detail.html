@@ -269,10 +269,9 @@
                             <thead>
                                 <tr>
                                     <th>Date & Time</th>
+                                    <th>Operation Type</th>
                                     <th>Status</th>
-                                    <th>Coverage</th>
-                                    <th>Products Ordered</th>
-                                    <th>Packages</th>
+                                    <th>Details</th>
                                     <th>Duration</th>
                                     <th>Action</th>
                                 </tr>
@@ -283,6 +282,12 @@
                                     <td>
                                         <strong>{{ log.started_at|date:"M d, Y" }}</strong><br>
                                         <small class="text-muted">{{ log.started_at|time:"H:i" }}</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-{{ log.get_operation_color }}">
+                                            <i class="bi {{ log.get_operation_icon }}"></i>
+                                            {{ log.get_operation_type_display }}
+                                        </span>
                                     </td>
                                     <td>
                                         {% if log.status == 'completed' %}
@@ -304,27 +309,50 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% if log.coverage_used %}
-                                            {{ log.coverage_used }} days
+                                        {% if log.operation_type == 'full_restock' %}
+                                            {% if log.coverage_used %}
+                                                <small class="text-muted">Coverage: {{ log.coverage_used }} days</small><br>
+                                            {% endif %}
+                                            <strong>{{ log.products_ordered }}</strong> products / 
+                                            <strong>{{ log.total_packages }}</strong> packages
+                                        {% elif log.operation_type == 'stats_update' %}
+                                            <small class="text-muted">Product statistics updated</small>
+                                        {% elif log.operation_type == 'list_update' %}
+                                            <small class="text-muted">Product list refreshed</small>
+                                        {% elif log.operation_type == 'verification' %}
+                                            <strong>{{ log.products_ordered|default:0 }}</strong> products verified
+                                        {% elif log.operation_type == 'cluster_assignment' %}
+                                            <strong>{{ log.products_ordered|default:0 }}</strong> products assigned
+                                        {% elif log.operation_type == 'product_addition' %}
+                                            <strong>{{ log.products_ordered|default:0 }}</strong> products added
+                                        {% elif log.operation_type == 'order_execution' %}
+                                            <strong>{{ log.products_ordered }}</strong> products / 
+                                            <strong>{{ log.total_packages }}</strong> packages
                                         {% else %}
                                             —
                                         {% endif %}
                                     </td>
-                                    <td>{{ log.products_ordered }}</td>
-                                    <td>{{ log.total_packages }}</td>
                                     <td>
-                                        {% if log.completed_at %}
-                                            {% with duration=log.completed_at|timeuntil:log.started_at %}
-                                                {{ duration }}
-                                            {% endwith %}
-                                        {% else %}
-                                            —
-                                        {% endif %}
+                                        {{ log.get_duration }}
                                     </td>
                                     <td>
-                                        <a href="{% url 'restock-log-detail' pk=log.id %}" class="btn btn-sm btn-outline-primary">
-                                            <i class="bi bi-eye"></i> View
-                                        </a>
+                                        {% if log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
+                                            <a href="{% url 'restock-log-detail' pk=log.id %}" 
+                                            class="btn btn-sm btn-outline-primary"
+                                            title="View Order Details">
+                                                <i class="bi bi-eye"></i> View
+                                            </a>
+                                        {% elif log.status == 'failed' %}
+                                            <a href="{% url 'restock-log-detail' pk=log.id %}" 
+                                            class="btn btn-sm btn-outline-danger"
+                                            title="View Error Details">
+                                                <i class="bi bi-exclamation-triangle"></i> Error
+                                            </a>
+                                        {% else %}
+                                            <span class="badge bg-secondary">
+                                                <i class="bi bi-check-circle"></i> Done
+                                            </span>
+                                        {% endif %}
                                     </td>
                                 </tr>
                                 {% endfor %}
