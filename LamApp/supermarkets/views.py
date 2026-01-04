@@ -172,22 +172,23 @@ def dashboard_view(request):
             logger.warning(f"Could not load sample verifications for {sm.name}: {e}")
             continue
 
-    context['top_pending_products'] = top_pending_products
-    
     logger.info(f"Dashboard: {pending_verifications} total pending verifications across {len(supermarkets_with_storages)} supermarkets")
     
+    # ✅ FIX: Create context dict FIRST, then all assignments work
     context = {
         'supermarkets': supermarkets,
         'recent_logs': recent_logs,
         'failed_logs': failed_logs,
         'storages_without_schedule': storages_without_schedule,
         'pending_verifications': pending_verifications,
+        'top_pending_products': top_pending_products,  # ← NOW DEFINED INSIDE DICT
         'total_supermarkets': supermarkets.count(),
         'total_storages': sum(s.storages.count() for s in supermarkets),
         'active_schedules': RestockSchedule.objects.filter(
             storage__supermarket__owner=request.user
         ).count(),
     }
+    
     return render(request, 'dashboard.html', context)
 
 
