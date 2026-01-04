@@ -12,6 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
 from .DatabaseManager import DatabaseManager
 from .helpers import Helper
+from .logger import logger
 import os, uuid, shutil
 
 
@@ -243,7 +244,7 @@ class Scrapper:
                 report["errors"] += 1
                 continue
 
-        print(report)
+        logger.info(report)
         print(f"Found {len(report['newly_added'])} newly added products needing verification")
         
         self.driver.quit()
