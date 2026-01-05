@@ -326,76 +326,69 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
 def parse_pdf(pdf_path: str):
     """
     Parse loss PDF file and extract product data.
-    
-    Expected format in PDF:
-    - Barcode | Article (cod v) | Description | Quantity | Messages
-    - Example: "8025916760282 | 36508 1 | TAGLIACAPELLI... | 5,00 | ..."
-    
-    Returns:
-        list[dict]: List of {cod, v, qty} dictionaries
+
+    Aggregates quantities when the same (cod, v) appears multiple times.
     """
-    results = []
-    
+    aggregated = {}  # (cod, v) -> qty
+
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for page in pdf.pages:
-                # Extract text from page
                 text = page.extract_text()
-                
                 if not text:
                     continue
-                
-                # Split into lines
+
                 lines = text.split('\n')
-                
+
                 for line in lines:
                     # Skip headers, empty lines, and page markers
                     if not line.strip():
                         continue
-                    if 'Stampa Articoli' in line:
+                    if any(x in line for x in (
+                        'Stampa Articoli',
+                        'Punto Vendita',
+                        'Codice a Barre',
+                        'Fine Stampa',
+                        'Pagina'
+                    )):
                         continue
-                    if 'Punto Vendita' in line:
-                        continue
-                    if 'Codice a Barre' in line:
-                        continue
-                    if 'Fine Stampa' in line:
-                        continue
-                    if 'Pagina' in line:
-                        continue
-                    
+
                     try:
                         # Split on last " PZ "
                         left, qty_part = line.rsplit(" PZ ", 1)
 
-                        # Quantity
                         qty = float(qty_part.replace(",", "."))
 
-                        # Split left side
                         parts = left.split()
                         if len(parts) < 3:
                             continue
 
                         cod = int(parts[1])
                         v = int(parts[2])
-    
 
                     except Exception:
                         continue
-                        
-                    
-                    results.append({
-                        'cod': cod,
-                        'v': v,
-                        'qty': int(qty)  # Convert to int for database
-                    })
-                    
-                    logger.debug(f"Parsed: {cod}.{v} = {int(qty)}")
-    
-    except Exception as e:
+
+                    key = (cod, v)
+
+                    # ✅ Aggregate quantity
+                    aggregated[key] = aggregated.get(key, 0) + int(qty)
+
+                    logger.debug(
+                        f"Accumulated: {cod}.{v} -> {aggregated[key]}"
+                    )
+
+    except Exception:
         logger.exception(f"Error parsing PDF {pdf_path}")
         return []
-    
-    logger.info(f"Parsed {len(results)} loss entries from PDF")
+
+    # Convert aggregated dict to final result format
+    results = [
+        {'cod': cod, 'v': v, 'qty': qty}
+        for (cod, v), qty in aggregated.items()
+    ]
+
+    logger.info(f"Parsed {len(results)} unique entries from PDF")
     return results
 
 

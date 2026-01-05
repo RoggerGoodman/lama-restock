@@ -6,6 +6,7 @@ import os
 from psycopg2.extras import Json
 from datetime import date
 from .helpers import Helper
+from .logger import logger
 
 class DatabaseManager:
     def __init__(self, helper: Helper, supermarket_name=None):
@@ -574,12 +575,12 @@ class DatabaseManager:
         if new_stock != None:
             cur.execute("UPDATE product_stats SET stock=%s, verified=TRUE WHERE cod=%s AND v=%s", (new_stock, cod, v))
             if cur.rowcount == 0:
-                raise ValueError(f"No product_stats found for {cod}.{v}")
+                logger.warning(f"No product_stats found for {cod}.{v}")
         
         if cluster != None:
             cur.execute("UPDATE products SET cluster = %s WHERE cod=%s AND v=%s", (cluster, cod, v))
             if cur.rowcount == 0:
-                raise ValueError(f"No products found for {cod}.{v}")
+                logger.warning(f"No products found for {cod}.{v}")
         
         self.conn.commit()
 
