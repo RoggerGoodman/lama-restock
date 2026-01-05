@@ -252,23 +252,40 @@ def check_and_run_orders_today(self):
     queue='selenium'
 )
 def run_restock_for_storage(self, storage_id):
-    """Automated restock (scheduled)"""
+    """Automated restock (scheduled) - NOW WITH PROGRESS"""
     from .models import Storage
     
     try:
         storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)  
-        logger.info(f"[CELERY-ORDER] Running restock for {storage.name}")  
+        logger.info(f"[CELERY-ORDER] Running restock for {storage.name}")
+        
+        # ✅ Report progress for scheduled tasks too
+        def report_progress(progress, message):
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': progress, 'status': message}
+            )
+            logger.info(f"[AUTO-RESTOCK] {progress}% - {message}")
         
         with AutomatedRestockService(storage) as service:
             # run_full_restock_workflow will create log with operation_type='full_restock'
-            log = service.run_full_restock_workflow(coverage=None)
+            log = service.run_full_restock_workflow(
+                coverage=None,
+                progress_callback=report_progress
+            )
             
             logger.info(
                 f"✓ [CELERY-ORDER] Successfully completed restock for {storage.name} "
                 f"(Log #{log.id}: {log.products_ordered} products, {log.total_packages} packages)"
             )
             
-            return f"Restock completed for {storage.name}: {log.products_ordered} products, {log.total_packages} packages"           
+            return {
+                'success': True,
+                'log_id': log.id,
+                'storage_name': storage.name,
+                'products_ordered': log.products_ordered,
+                'total_packages': log.total_packages
+            }           
     except Exception as exc:
         logger.exception(f"[CELERY-ORDER] Error running restock for storage {storage_id}")
         raise self.retry(exc=exc)
@@ -341,7 +358,7 @@ def run_scheduled_list_updates(self):
     queue='selenium'
 )
 def manual_restock_task(self, storage_id, coverage=None):
-    """User-initiated restock WITH PROGRESS UPDATES"""
+    """User-initiated restock WITH PROPER PROGRESS UPDATES"""
     from .models import Storage, RestockLog
     from django.utils import timezone
     
@@ -352,7 +369,7 @@ def manual_restock_task(self, storage_id, coverage=None):
         # ✅ Report initial progress
         self.update_state(
             state='PROGRESS',
-            meta={'progress': 0, 'status': 'Starting restock operation...'}
+            meta={'progress': 0, 'status': 'Initializing restock operation...'}
         )
         
         log = RestockLog.objects.create(
@@ -364,20 +381,19 @@ def manual_restock_task(self, storage_id, coverage=None):
         ) 
         
         with AutomatedRestockService(storage) as service:
-            # ✅ Update progress: Stats update phase
-            self.update_state(
-                state='PROGRESS',
-                meta={'progress': 10, 'status': 'Updating product statistics (5-10 min)...'}
-            )
+            # ✅ Define progress callback that updates Celery state
+            def report_progress(progress, message):
+                self.update_state(
+                    state='PROGRESS',
+                    meta={'progress': progress, 'status': message}
+                )
+                logger.info(f"[PROGRESS] {progress}% - {message}")
             
-            # Run workflow with progress callbacks
+            # Run workflow with progress callback
             service.run_full_restock_workflow(
                 coverage=coverage, 
                 log=log,
-                progress_callback=lambda p, msg: self.update_state(
-                    state='PROGRESS',
-                    meta={'progress': p, 'status': msg}
-                )
+                progress_callback=report_progress
             )
             
             logger.info(
@@ -390,7 +406,8 @@ def manual_restock_task(self, storage_id, coverage=None):
                 'success': True,
                 'log_id': log.id,
                 'products_ordered': log.products_ordered,
-                'total_packages': log.total_packages
+                'total_packages': log.total_packages,
+                'redirect_url': f'/logs/{log.id}/'
             }            
     except Exception as exc:
         logger.exception(f"[MANUAL RESTOCK] Error for storage {storage_id}")
@@ -409,7 +426,7 @@ def manual_restock_task(self, storage_id, coverage=None):
     queue='selenium'
 )
 def manual_stats_update_task(self, storage_id):
-    """Update stats without ordering"""
+    """Update stats without ordering - WITH PROGRESS"""
     from .models import Storage, RestockLog
     from django.utils import timezone
     
@@ -418,16 +435,27 @@ def manual_stats_update_task(self, storage_id):
         
         logger.info(f"[MANUAL STATS] Starting for {storage.name}")
         
-        # UPDATED: Set operation_type
+        # ✅ Report progress
+        self.update_state(
+            state='PROGRESS',
+            meta={'progress': 10, 'status': 'Connecting to PAC2000A...'}
+        )
+        
         log = RestockLog.objects.create(
             storage=storage,
             status='processing',
             current_stage='updating_stats',
-            operation_type='stats_update'  # NEW
+            operation_type='stats_update'
         )
         
+        def report_progress(progress, message):
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': progress, 'status': message}
+            )
+        
         with AutomatedRestockService(storage) as service:
-            service.update_product_stats_checkpoint(log)
+            service.update_product_stats_checkpoint(log, progress_callback=report_progress)
             
             log.status = 'completed'
             log.completed_at = timezone.now()
@@ -439,7 +467,8 @@ def manual_stats_update_task(self, storage_id):
                 'success': True,
                 'log_id': log.id,
                 'storage_name': storage.name,
-                'storage_id': storage_id  # For redirect
+                'storage_id': storage_id,
+                'redirect_url': f'/storages/{storage_id}/'
             }      
     except Exception as exc:
         logger.exception(f"[MANUAL STATS] Error for storage {storage_id}")

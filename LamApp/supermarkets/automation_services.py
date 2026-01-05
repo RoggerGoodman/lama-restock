@@ -9,7 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
 from .models import Storage, RestockLog
-from .services import RestockService  # ← NEW: Import base class
+from .services import RestockService
 from .scripts.decision_maker import DecisionMaker
 from .scripts.inventory_scrapper import Inventory_Scrapper
 from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
@@ -19,24 +19,13 @@ from .scripts.orderer import Orderer
 logger = logging.getLogger(__name__)
 
 
-class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockService
+class AutomatedRestockService(RestockService):
     """
     Handles automated restock operations with checkpoint recovery.
+    """
     
-    Inherits database access and basic helpers from RestockService.
-    Adds workflow capabilities for automated operations.
-    
-    Each operation is divided into stages:
-    1. Update product stats (scrapper)
-    2. Calculate order (decision maker)
-    3. Execute order (orderer)
-    
-    If a stage fails, it can be retried from that checkpoint.
-    """    
     def record_losses(self):
-        """
-        Record product losses by downloading and processing inventory files.
-        """
+        """Record product losses by downloading and processing inventory files."""
         logger.info(f"Starting loss recording for {self.supermarket.name}")
         
         try:
@@ -65,9 +54,12 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
-    def update_product_stats_checkpoint(self, log: RestockLog, full: bool = True):
+    def update_product_stats_checkpoint(self, log: RestockLog, full: bool = True, progress_callback=None):
         """CHECKPOINT 1: Update product statistics from PAC2000A"""
         logger.info(f"[CHECKPOINT 1] Updating product stats for {self.storage.name}")
+        
+        if progress_callback:
+            progress_callback(10, 'Connecting to PAC2000A...')
         
         with transaction.atomic():
             log = RestockLog.objects.select_for_update().get(id=log.id)
@@ -80,6 +72,9 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             log.save()
         
         try:
+            if progress_callback:
+                progress_callback(15, 'Downloading product statistics (5-10 min)...')
+            
             scrapper = Scrapper(
                 username=self.supermarket.username,
                 password=self.supermarket.password,
@@ -89,7 +84,14 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             
             try:
                 scrapper.navigate()
+                
+                if progress_callback:
+                    progress_callback(30, 'Processing product data...')
+                
                 scrapper.init_product_stats_for_settore(self.settore, full)
+                
+                if progress_callback:
+                    progress_callback(50, 'Finalizing statistics update...')
                 
                 purged_products = self.db.check_and_purge_flagged()
                 if purged_products:
@@ -118,9 +120,12 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             logger.exception(f"[CHECKPOINT 1 FAILED]")
             raise
     
-    def calculate_order_checkpoint(self, log: RestockLog, coverage=None):
+    def calculate_order_checkpoint(self, log: RestockLog, coverage=None, progress_callback=None):
         """CHECKPOINT 2: Calculate what needs to be ordered."""
         logger.info(f"[CHECKPOINT 2] Calculating order for {self.storage.name}")
+        
+        if progress_callback:
+            progress_callback(60, 'Analyzing product needs...')
         
         log.current_stage = 'calculating_order'
         log.save()
@@ -134,6 +139,9 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             
             log.coverage_used = coverage
             log.save()
+            
+            if progress_callback:
+                progress_callback(65, 'Running decision algorithm...')
             
             try:
                 decision_maker = DecisionMaker(
@@ -151,12 +159,16 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                 
                 log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
                 log.products_ordered = len(orders_list)
+                
+                # ✅ FIX: Handle 4-element tuples (with discount)
                 total_packages = 0
                 for order in orders_list:
                     if len(order) >= 3:
                         total_packages += order[2]  # qty is always 3rd element
                 
                 log.total_packages = total_packages
+                
+                # ✅ FIX: Store discount in results
                 log.set_results({
                     'orders': [
                         {
@@ -179,6 +191,9 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                 log.order_calculated_at = timezone.now()
                 log.save()
                 
+                if progress_callback:
+                    progress_callback(70, f'Order calculated: {len(orders_list)} products')
+                
                 logger.info(
                     f"✅ [CHECKPOINT 2 COMPLETE] Order calculated: "
                     f"{len(orders_list)} products ordered, "
@@ -200,11 +215,12 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             logger.exception(f"❌ [CHECKPOINT 2 FAILED]")
             raise
    
-    def execute_order_checkpoint(self, log: RestockLog, orders_list):
-        """
-        CHECKPOINT 3: Execute the order in PAC2000A.
-        """
+    def execute_order_checkpoint(self, log: RestockLog, orders_list, progress_callback=None):
+        """CHECKPOINT 3: Execute the order in PAC2000A."""
         logger.info(f"[CHECKPOINT 3] Executing order for {self.storage.name}")
+        
+        if progress_callback:
+            progress_callback(80, 'Connecting to ordering system...')
         
         log.current_stage = 'executing_order'
         log.save()
@@ -219,6 +235,9 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                 return True
             
             logger.info(f"Executing order with {len(orders_list)} items")
+            
+            if progress_callback:
+                progress_callback(85, f'Placing order for {len(orders_list)} products...')
             
             orderer = Orderer(
                 username=self.supermarket.username,
@@ -239,15 +258,18 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
                 results['order_skipped_products'].extend(order_skipped)
                 log.set_results(results)
                 
-                # Update statistics
+                # ✅ FIX: Handle 4-element tuples from orderer
                 log.products_ordered = len(successful_orders)
-                log.total_packages = sum(qty for _, _, qty in successful_orders)
+                log.total_packages = sum(order[2] for order in successful_orders)  # Index access is safe
                 
                 log.current_stage = 'completed'
                 log.status = 'completed'
                 log.order_executed_at = timezone.now()
                 log.completed_at = timezone.now()
                 log.save()
+                
+                if progress_callback:
+                    progress_callback(100, 'Order placed successfully!')
                 
                 logger.info(f"✅ [CHECKPOINT 3 COMPLETE] Order executed successfully")
                 return True
@@ -265,7 +287,7 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
             raise
     
     def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None):
-        """Run complete restock workflow with optional progress reporting"""
+        """Run complete restock workflow with progress reporting"""
         logger.info(f"Starting restock workflow for {self.storage.name}")
         
         if log is None:
@@ -278,51 +300,46 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
         
         try:
             # CHECKPOINT 1: Update stats
-            if progress_callback:
-                progress_callback(10, 'Updating product statistics...')
-            
             with transaction.atomic():
                 log.refresh_from_db()
                 
                 if log.stats_updated_at:
                     logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated")
+                    if progress_callback:
+                        progress_callback(50, 'Stats already updated, calculating order...')
                 else:
                     logger.info(f"[CHECKPOINT 1 START] Updating stats...")
-                    self.update_product_stats_checkpoint(log)
+                    self.update_product_stats_checkpoint(log, progress_callback=progress_callback)
             
             # CHECKPOINT 2: Calculate order
-            if progress_callback:
-                progress_callback(60, 'Calculating order quantities...')
-            
             with transaction.atomic():
                 log.refresh_from_db()
                 
                 if log.order_calculated_at:
                     results = log.get_results()
+                    # ✅ FIX: Include discount when reconstructing
                     orders_list = [
-                        (o['cod'], o['var'], o['qty']) 
+                        (o['cod'], o['var'], o['qty'], o.get('discount'))
                         for o in results.get('orders', [])
                     ]
                     logger.info(f"[CHECKPOINT 2 SKIP] Order already calculated")
+                    if progress_callback:
+                        progress_callback(70, 'Order already calculated, placing order...')
                 else:
                     logger.info(f"[CHECKPOINT 2 START] Calculating order...")
-                    orders_list = self.calculate_order_checkpoint(log, coverage)
+                    orders_list = self.calculate_order_checkpoint(log, coverage, progress_callback=progress_callback)
             
             # CHECKPOINT 3: Execute order
-            if progress_callback:
-                progress_callback(80, 'Placing order in PAC2000A...')
-            
             with transaction.atomic():
                 log.refresh_from_db()
                 
                 if log.order_executed_at:
                     logger.info(f"[CHECKPOINT 3 SKIP] Order already executed")
+                    if progress_callback:
+                        progress_callback(100, 'Order already placed!')
                 else:
                     logger.info(f"[CHECKPOINT 3 START] Executing order...")
-                    self.execute_order_checkpoint(log, orders_list)
-            
-            if progress_callback:
-                progress_callback(100, 'Restock completed successfully!')
+                    self.execute_order_checkpoint(log, orders_list, progress_callback=progress_callback)
             
             logger.info(f"✅ Restock workflow completed successfully")
             return log
@@ -354,8 +371,9 @@ class AutomatedRestockService(RestockService):  # ← NEW: Inherit from RestockS
         if log.order_calculated_at:
             logger.info(f"[CHECKPOINT 2 SKIP] Order already calculated")
             results = log.get_results()
+            # ✅ FIX: Include discount when reconstructing
             orders_list = [
-                (o['cod'], o['var'], o['qty'])
+                (o['cod'], o['var'], o['qty'], o.get('discount'))
                 for o in results.get('orders', [])
             ]
         else:
