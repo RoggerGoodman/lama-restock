@@ -114,7 +114,7 @@ def process_ddt_deliveries(db_manager, ddt_entries):
                 continue
             
             # Add quantity to stock
-            db_manager.adjust_stock(cod, var, -qty)
+            db_manager.adjust_stock(cod, var, qty)
             new_stock = db_manager.get_stock(cod, var)
             
             logger.info(f"Added {qty} to {cod}.{var}: {current_stock} → {new_stock}")
