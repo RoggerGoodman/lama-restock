@@ -830,11 +830,13 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     enriched_zombie = self._enrich_product_list(service, zombie_products)
                     enriched_order_skipped = self._enrich_product_list(service, order_skipped_products)
                     
+                    sorted_clusters = dict(sorted(clusters.items(), key=lambda x: x[0]))
+                    
                     # Calculate summary
                     summary = {
                         'total_items': len(enriched_orders),
                         'total_packages': sum(o['qty'] for o in enriched_orders),
-                        'total_clusters': len(clusters),
+                        'total_clusters': len(sorted_clusters),
                         'total_cost': sum(o['total_cost'] for o in enriched_orders),
                         'total_new': len(enriched_new),
                         'total_skipped': len(enriched_skipped),
@@ -843,7 +845,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     }
                     
                     context['enriched_orders'] = enriched_orders
-                    context['clusters'] = clusters
+                    context['clusters'] = sorted_clusters
                     context['summary'] = summary
                     
                     # Add all lists to context

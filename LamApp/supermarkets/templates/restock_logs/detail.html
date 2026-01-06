@@ -410,10 +410,19 @@
                                 </thead>
                                 <tbody>
                                     {% for order in enriched_orders %}
-                                    <tr>
+                                    <tr {% if order.on_sale %}class="on-sale"{% endif %}>
                                         <td><code>{{ order.cod }}</code></td>
                                         <td><code>{{ order.var }}</code></td>
-                                        <td>{{ order.name|truncatewords:5 }}</td>
+                                        <td>
+                                            {{ order.name|truncatewords:5 }}
+                                            <!-- ✅ NEW: Show discount badge if on sale -->
+                                            {% if order.on_sale %}
+                                                <span class="discount-badge ms-2">
+                                                    <i class="bi bi-star-fill discount-icon"></i>
+                                                    -{{ order.discount|floatformat:0 }}%
+                                                </span>
+                                            {% endif %}
+                                        </td>
                                         <td><span class="badge bg-secondary">{{ order.cluster }}</span></td>
                                         <td class="text-end">
                                             <span class="badge bg-success">{{ order.qty }} pkg</span>
@@ -660,42 +669,61 @@
                     </div>
                     {% endif %}
 
-                    <!-- Cluster View -->
+                    <!-- Collapsible Cluster View with sorted clusters -->
                     <div id="clusterView">
                         {% for cluster_name, cluster_data in clusters.items %}
-                        <div class="cluster-section mb-4">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h6 class="mb-0">
-                                    <i class="bi bi-folder"></i> {{ cluster_name }}
-                                </h6>
+                        <div class="cluster-section mb-3">
+                            <!-- Collapsible Header -->
+                            <div class="d-flex justify-content-between align-items-center p-3 bg-light rounded cursor-pointer"
+                                data-bs-toggle="collapse" 
+                                data-bs-target="#cluster-{{ forloop.counter }}"
+                                aria-expanded="false"
+                                style="cursor: pointer;">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-chevron-right me-2" id="icon-{{ forloop.counter }}"></i>
+                                    <h6 class="mb-0">
+                                        <i class="bi bi-folder"></i> {{ cluster_name }}
+                                    </h6>
+                                </div>
                                 <div>
-                                    <span class="badge bg-primary">{{ cluster_data.count }} items</span>
-                                    <span class="badge bg-success">{{ cluster_data.total_packages }} packages</span>
+                                    <span class="badge bg-primary me-2">{{ cluster_data.count }} items</span>
+                                    <span class="badge bg-success me-2">{{ cluster_data.total_packages }} packages</span>
                                     <span class="badge bg-info">€{{ cluster_data.total_cost|floatformat:2 }}</span>
                                 </div>
                             </div>
                             
-                            <div class="table-responsive">
-                                <table class="table table-sm">
-                                    <thead>
-                                        <tr>
-                                            <th>Code</th>
-                                            <th>Product Name</th>
-                                            <th class="text-end">Qty</th>
-                                            <th class="text-end">Cost</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for item in cluster_data.items %}
-                                        <tr>
-                                            <td><code>{{ item.cod }}.{{ item.var }}</code></td>
-                                            <td>{{ item.name|truncatewords:6 }}</td>
-                                            <td class="text-end">{{ item.qty }}</td>
-                                            <td class="text-end">€{{ item.total_cost|floatformat:2 }}</td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
+                            <!-- Collapsible Content -->
+                            <div class="collapse" id="cluster-{{ forloop.counter }}">
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Code</th>
+                                                <th>Product Name</th>
+                                                <th class="text-end">Qty</th>
+                                                <th class="text-end">Cost</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for item in cluster_data.items %}
+                                            <tr {% if item.on_sale %}class="on-sale"{% endif %}>
+                                                <td><code>{{ item.cod }}.{{ item.var }}</code></td>
+                                                <td>
+                                                    {{ item.name|truncatewords:6 }}
+                                                    {% if item.on_sale %}
+                                                        <span class="discount-badge ms-1">
+                                                            <i class="bi bi-star-fill discount-icon"></i>
+                                                            -{{ item.discount|floatformat:0 }}%
+                                                        </span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="text-end">{{ item.qty }}</td>
+                                                <td class="text-end">€{{ item.total_cost|floatformat:2 }}</td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                         {% endfor %}
@@ -725,6 +753,33 @@
 <script>
 let currentSortColumn = -1;
 let currentSortDirection = 'asc';
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Get all collapsible clusters
+    const collapseElements = document.querySelectorAll('[id^="cluster-"]');
+    
+    collapseElements.forEach(function(element) {
+        element.addEventListener('show.bs.collapse', function() {
+            // When opening, rotate icon down
+            const iconId = 'icon-' + this.id.split('-')[1];
+            const icon = document.getElementById(iconId);
+            if (icon) {
+                icon.classList.remove('bi-chevron-right');
+                icon.classList.add('bi-chevron-down');
+            }
+        });
+        
+        element.addEventListener('hide.bs.collapse', function() {
+            // When closing, rotate icon right
+            const iconId = 'icon-' + this.id.split('-')[1];
+            const icon = document.getElementById(iconId);
+            if (icon) {
+                icon.classList.remove('bi-chevron-down');
+                icon.classList.add('bi-chevron-right');
+            }
+        });
+    });
+});
 
 function showView(viewType) {
     const tableView = document.getElementById('tableView');
