@@ -358,18 +358,21 @@ def run_scheduled_list_updates(self):
     queue='selenium'
 )
 def manual_restock_task(self, storage_id, coverage=None):
-    """User-initiated restock WITH PROPER PROGRESS UPDATES"""
+    """
+    User-initiated restock WITH PROGRESS UPDATES.
+    SKIPS stats update since it's done daily at 5 AM.
+    """
     from .models import Storage, RestockLog
     from django.utils import timezone
     
     try:
         storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)
-        logger.info(f"[MANUAL RESTOCK] Starting for {storage.name}")
+        logger.info(f"[MANUAL RESTOCK] Starting for {storage.name} (SKIP STATS UPDATE)")
         
         # ✅ Report initial progress
         self.update_state(
             state='PROGRESS',
-            meta={'progress': 0, 'status': 'Initializing restock operation...'}
+            meta={'progress': 5, 'status': 'Starting order calculation (stats already updated)...'}
         )
         
         log = RestockLog.objects.create(
@@ -381,19 +384,15 @@ def manual_restock_task(self, storage_id, coverage=None):
         ) 
         
         with AutomatedRestockService(storage) as service:
-            # ✅ Define progress callback that updates Celery state
-            def report_progress(progress, message):
-                self.update_state(
-                    state='PROGRESS',
-                    meta={'progress': progress, 'status': message}
-                )
-                logger.info(f"[PROGRESS] {progress}% - {message}")
-            
-            # Run workflow with progress callback
+            # ✅ SKIP STATS UPDATE (it's done daily at 5 AM)
             service.run_full_restock_workflow(
                 coverage=coverage, 
                 log=log,
-                progress_callback=report_progress
+                skip_stats_update=True,  # ← NEW: Skip stats!
+                progress_callback=lambda p, msg: self.update_state(
+                    state='PROGRESS',
+                    meta={'progress': p, 'status': msg}
+                )
             )
             
             logger.info(
@@ -767,20 +766,29 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
     queue='selenium'
 )
 def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=None):
-    """Bulk stock verification with automatic product addition via Scrapper"""
+    """
+    Bulk stock verification with automatic product addition.
+    NOW PROPERLY TRACKS PROGRESS AND UPDATES LOG.
+    """
     from .models import Storage, RestockLog
     from .automation_services import AutomatedRestockService
     from .scripts.inventory_reader import parse_pdf
     from .scripts.web_lister import WebLister
-    from .scripts.scrapper import Scrapper  # ← ADDED
-    from .scripts.helpers import Helper  # ← ADDED
+    from .scripts.scrapper import Scrapper
+    from .scripts.helpers import Helper
     from pathlib import Path
-    import pandas as pd
+    import os
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
         
         logger.info(f"[VERIFY+AUTO-ADD] Starting for {storage.name}")
+        
+        # ✅ Report initial progress
+        self.update_state(
+            state='PROGRESS',
+            meta={'progress': 5, 'status': 'Starting stock verification...'}
+        )
 
         log = RestockLog.objects.create(
             storage=storage,
@@ -790,19 +798,35 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
         
         with AutomatedRestockService(storage) as service:
             # Step 1: Record losses
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': 10, 'status': 'Recording losses...'}
+            )
             logger.info(f"[VERIFY+AUTO-ADD] Step 1: Recording losses...")
             service.record_losses()
             
             # Step 2: Parse PDF
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': 20, 'status': 'Parsing inventory PDF...'}
+            )
             logger.info(f"[VERIFY+AUTO-ADD] Step 2: Parsing PDF...")
             parsed_entries = parse_pdf(pdf_file_path)
             
             if not parsed_entries:
+                log.status = 'failed'
+                log.error_message = 'No valid entries found in PDF'
+                log.save()
                 return {'success': False, 'error': 'No valid entries found in PDF'}
             
             logger.info(f"[VERIFY+AUTO-ADD] Found {len(parsed_entries)} products in PDF")
             
             # Step 3: Separate existing vs missing
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': 30, 'status': f'Analyzing {len(parsed_entries)} products...'}
+            )
+            
             existing_products = []
             missing_products = []
             
@@ -825,9 +849,13 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
             # Step 4: Auto-add missing products
             added_products = []
             failed_additions = []
-            products_for_scrapper = []  # ← NEW: Collect for scrapper
+            products_for_scrapper = []
             
             if missing_products:
+                self.update_state(
+                    state='PROGRESS',
+                    meta={'progress': 40, 'status': f'Auto-adding {len(missing_products)} missing products (10-20 min)...'}
+                )
                 logger.info(f"[VERIFY+AUTO-ADD] Step 4: Auto-adding {len(missing_products)} missing products...")
                 
                 temp_dir = Path(settings.BASE_DIR) / 'temp_auto_add'
@@ -844,7 +872,14 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 try:
                     lister.login()
                     
-                    for cod, var, qty in missing_products:
+                    for idx, (cod, var, qty) in enumerate(missing_products, 1):
+                        # ✅ Update progress for each product
+                        progress = 40 + int((idx / len(missing_products)) * 20)  # 40-60%
+                        self.update_state(
+                            state='PROGRESS',
+                            meta={'progress': progress, 'status': f'Auto-adding product {idx}/{len(missing_products)}: {cod}.{var}...'}
+                        )
+                        
                         try:
                             logger.info(f"[AUTO-ADD] Fetching data for {cod}.{var}...")
                             
@@ -871,7 +906,6 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 disponibilita=availability or "Si"
                             )
                             
-                            # ✅ FIXED: Collect for scrapper initialization
                             products_for_scrapper.append((cod, var, True, package or 12))
                             
                             # Add economics data
@@ -905,9 +939,15 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 'var': var,
                                 'reason': str(e)
                             })
+                    
                     lister.driver.quit()
-                    # ✅ NEW: Initialize stats using Scrapper BEFORE closing lister
+                    
+                    # Initialize stats using Scrapper
                     if products_for_scrapper:
+                        self.update_state(
+                            state='PROGRESS',
+                            meta={'progress': 65, 'status': f'Initializing stats for {len(products_for_scrapper)} products (5-10 min)...'}
+                        )
                         logger.info(f"[VERIFY+AUTO-ADD] Initializing stats for {len(products_for_scrapper)} products via Scrapper...")
                         
                         helper = Helper()
@@ -919,7 +959,6 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                         )
                         scrapper.navigate()
                         
-                        # Process products
                         scrapper_report = scrapper.process_products(products_for_scrapper)
                         logger.info(f"[VERIFY+AUTO-ADD] Scrapper initialized {scrapper_report['initialized']} products")
                         
@@ -928,15 +967,28 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                             service.db.verify_stock(cod, var, qty, cluster)
                 
                 finally:
-                    scrapper.driver.quit()
+                    if 'scrapper' in locals():
+                        scrapper.driver.quit()
             
             # Step 5: Verify existing products
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': 75, 'status': f'Verifying {len(existing_products)} existing products...'}
+            )
             logger.info(f"[VERIFY+AUTO-ADD] Step 5: Verifying {len(existing_products)} existing products...")
             
             verified_count = 0
             stock_changes = []
             
-            for cod, var, new_qty in existing_products:
+            for idx, (cod, var, new_qty) in enumerate(existing_products, 1):
+                # ✅ Update progress periodically
+                if idx % 50 == 0:
+                    progress = 75 + int((idx / len(existing_products)) * 15)  # 75-90%
+                    self.update_state(
+                        state='PROGRESS',
+                        meta={'progress': progress, 'status': f'Verifying product {idx}/{len(existing_products)}...'}
+                    )
+                
                 try:
                     old_stock = service.db.get_stock(cod, var)
                     service.db.verify_stock(cod, var, new_qty, cluster)
@@ -957,19 +1009,27 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                     continue
             
             # Clean up
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': 95, 'status': 'Finalizing verification...'}
+            )
+            
             try:
                 os.remove(pdf_file_path)
             except Exception as e:
                 logger.warning(f"Could not delete PDF: {e}")
             
-            # Complete log
+            # ✅ UPDATE LOG WITH PROPER COUNTS
             log.status = 'completed'
             log.completed_at = timezone.now()
+            log.products_ordered = verified_count + len(added_products)  # Total verified/added
+            log.total_packages = len(added_products)  # Reuse for added count
             log.save()
             
             result = {
                 'success': True,
                 'storage_name': storage.name,
+                'storage_id': storage_id,
                 'cluster': cluster,
                 'total_products': len(parsed_entries),
                 'existing_verified': verified_count,
@@ -977,7 +1037,8 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 'failed_additions': len(failed_additions),
                 'stock_changes': stock_changes[:50],
                 'added_products': added_products[:50],
-                'failed_additions': failed_additions[:20]
+                'failed_additions': failed_additions[:20],
+                'redirect_url': f'/inventory/verification-report/?task_id={self.request.id}'  # ✅ Proper redirect
             }
             
             logger.info(
@@ -985,10 +1046,22 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 f"{verified_count} verified, {len(added_products)} added"
             )
             
+            # ✅ Final progress state
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': 100, 'status': 'Verification complete!'}
+            )
+            
             return result
             
     except Exception as exc:
         logger.exception(f"[VERIFY+AUTO-ADD] ❌ Error for storage {storage_id}")
+        
+        # ✅ Report error state
+        self.update_state(
+            state='FAILURE',
+            meta={'error': str(exc)}
+        )
         raise self.retry(exc=exc)
     
 @shared_task(

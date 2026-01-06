@@ -2431,23 +2431,40 @@ def record_losses_unified_view(request):
 @login_required
 def verification_report_unified_view(request):
     """
-    UPDATED: Now displays auto-added products separately.
-    Shows comprehensive report with all three categories.
+    UPDATED: Now properly displays report from Celery task result.
+    Shows comprehensive report with verified, added, and failed products.
     """
+    from celery.result import AsyncResult
+    from LamApp.celery import app as celery_app
+    
     # Try to get from Celery task result first
     task_id = request.GET.get('task_id')
     
+    report = None
+    
     if task_id:
-        from celery.result import AsyncResult
-        from LamApp.celery import app as celery_app
-        
         task = AsyncResult(task_id, app=celery_app)
         
         if task.ready() and task.successful():
-            report = task.result
+            result = task.result
+            
+            # ✅ Convert task result to report format
+            report = {
+                'total_products': result.get('total_products', 0),
+                'products_verified': result.get('existing_verified', 0),
+                'products_added': result.get('products_added', 0),
+                'stock_changes': result.get('stock_changes', []),
+                'added_products': result.get('added_products', []),
+                'failed_additions': result.get('failed_additions', []),
+                'cluster': result.get('cluster'),
+                'storage_name': result.get('storage_name'),
+            }
         else:
-            report = request.session.get('verification_report')
+            # Task not ready or failed
+            messages.warning(request, "Verification still in progress or failed")
+            return redirect('inventory-search')
     else:
+        # Fallback to session (for backward compatibility)
         report = request.session.get('verification_report')
     
     if not report:
@@ -2456,21 +2473,31 @@ def verification_report_unified_view(request):
     
     # Calculate statistics
     total_difference = 0
+    total_stock_after = 0
     
     if report.get('stock_changes'):
         total_difference = sum(
             change.get('difference', 0) 
             for change in report['stock_changes']
         )
+        total_stock_after = sum(
+            change.get('new_stock', 0)
+            for change in report['stock_changes']
+        )
     
-    # Add auto-added products to difference
+    # Add auto-added products to totals
     if report.get('added_products'):
         total_difference += sum(
             product.get('qty', 0) 
             for product in report['added_products']
         )
+        total_stock_after += sum(
+            product.get('qty', 0)
+            for product in report['added_products']
+        )
     
     report['total_difference'] = total_difference
+    report['total_stock_after'] = total_stock_after
     
     return render(request, 'inventory/verification_report_unified.html', {
         'report': report

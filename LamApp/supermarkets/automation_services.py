@@ -286,9 +286,17 @@ class AutomatedRestockService(RestockService):
             logger.exception(f"❌ [CHECKPOINT 3 FAILED]")
             raise
     
-    def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None):
-        """Run complete restock workflow with progress reporting"""
-        logger.info(f"Starting restock workflow for {self.storage.name}")
+    def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None, skip_stats_update=False):
+        """
+        Run complete restock workflow with optional progress reporting.
+        
+        Args:
+            coverage: Days to cover (None = auto-calculate)
+            log: Existing RestockLog or None to create new
+            progress_callback: Function to call with (progress_pct, status_msg)
+            skip_stats_update: If True, skip CHECKPOINT 1 (stats update)
+        """
+        logger.info(f"Starting restock workflow for {self.storage.name} (skip_stats={skip_stats_update})")
         
         if log is None:
             log = RestockLog.objects.create(
@@ -299,47 +307,57 @@ class AutomatedRestockService(RestockService):
             )
         
         try:
-            # CHECKPOINT 1: Update stats
-            with transaction.atomic():
-                log.refresh_from_db()
+            # CHECKPOINT 1: Update stats (SKIP IF REQUESTED)
+            if skip_stats_update:
+                logger.info(f"[CHECKPOINT 1 SKIP] Stats update skipped (manual order)")
+                if progress_callback:
+                    progress_callback(10, 'Skipping stats update (already done daily)...')
+            else:
+                if progress_callback:
+                    progress_callback(10, 'Updating product statistics...')
                 
-                if log.stats_updated_at:
-                    logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated")
-                    if progress_callback:
-                        progress_callback(50, 'Stats already updated, calculating order...')
-                else:
-                    logger.info(f"[CHECKPOINT 1 START] Updating stats...")
-                    self.update_product_stats_checkpoint(log, progress_callback=progress_callback)
+                with transaction.atomic():
+                    log.refresh_from_db()
+                    
+                    if log.stats_updated_at:
+                        logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated")
+                    else:
+                        logger.info(f"[CHECKPOINT 1 START] Updating stats...")
+                        self.update_product_stats_checkpoint(log)
             
             # CHECKPOINT 2: Calculate order
+            if progress_callback:
+                progress_callback(60, 'Calculating order quantities...')
+            
             with transaction.atomic():
                 log.refresh_from_db()
                 
                 if log.order_calculated_at:
                     results = log.get_results()
-                    # ✅ FIX: Include discount when reconstructing
                     orders_list = [
-                        (o['cod'], o['var'], o['qty'], o.get('discount'))
+                        (o['cod'], o['var'], o['qty']) 
                         for o in results.get('orders', [])
                     ]
                     logger.info(f"[CHECKPOINT 2 SKIP] Order already calculated")
-                    if progress_callback:
-                        progress_callback(70, 'Order already calculated, placing order...')
                 else:
                     logger.info(f"[CHECKPOINT 2 START] Calculating order...")
-                    orders_list = self.calculate_order_checkpoint(log, coverage, progress_callback=progress_callback)
+                    orders_list = self.calculate_order_checkpoint(log, coverage)
             
             # CHECKPOINT 3: Execute order
+            if progress_callback:
+                progress_callback(80, 'Placing order in PAC2000A...')
+            
             with transaction.atomic():
                 log.refresh_from_db()
                 
                 if log.order_executed_at:
                     logger.info(f"[CHECKPOINT 3 SKIP] Order already executed")
-                    if progress_callback:
-                        progress_callback(100, 'Order already placed!')
                 else:
                     logger.info(f"[CHECKPOINT 3 START] Executing order...")
-                    self.execute_order_checkpoint(log, orders_list, progress_callback=progress_callback)
+                    self.execute_order_checkpoint(log, orders_list)
+            
+            if progress_callback:
+                progress_callback(100, 'Restock completed successfully!')
             
             logger.info(f"✅ Restock workflow completed successfully")
             return log

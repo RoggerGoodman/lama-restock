@@ -76,7 +76,7 @@ class DecisionMaker:
         
         # Find the matching entry
         match = next((r for r in extra_losses if r["cod"] == cod and r["v"] == v), None)
-    
+
         # Compute months passed since internal_updated
         updated_date:date = match["internal_updated"]
         today = date.today()
@@ -85,12 +85,20 @@ class DecisionMaker:
         # Pad internal list with zeros
         internal = match["internal"].copy()
         for _ in range(months_passed):
-            internal.insert(0, 0)
+            internal.insert(0, 0)  # This will be int for old format, that's fine
 
-        summed = [
-            (internal[i] if i < len(internal) else 0) + sold_array[i]
-            for i in range(len(sold_array))
-        ]
+        # ✅ FIX: Handle both old format (int) and new format ([qty, cost])
+        summed = []
+        for i in range(len(sold_array)):
+            internal_value = internal[i] if i < len(internal) else 0
+            
+            # Extract quantity from new format [qty, cost] or use old format (int)
+            if isinstance(internal_value, list) and len(internal_value) == 2:
+                internal_qty = internal_value[0]  # New format: [qty, cost]
+            else:
+                internal_qty = internal_value  # Old format: just qty (int)
+            
+            summed.append(internal_qty + sold_array[i])
 
         return summed
     
