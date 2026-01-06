@@ -745,7 +745,14 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             try:
                 with RestockService(self.object.storage) as service:
                     # Collect all (cod, var) pairs first
-                    product_keys = [(o['cod'], o['var']) for o in orders]
+                    product_keys = [
+                        (o['cod'], o['var'])
+                        for o in orders
+                        if 'cod' in o and 'var' in o
+                    ]
+                    if not product_keys:
+                        logger.warning(f"No valid product keys in log #{self.object.id}")
+                        return context
 
                     # Single query for all products
                     placeholders = ','.join(['(%s,%s)'] * len(product_keys))
@@ -835,9 +842,9 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     # Calculate summary
                     summary = {
                         'total_items': len(enriched_orders),
-                        'total_packages': sum(o['qty'] for o in enriched_orders),
+                        'total_packages': sum(int(o.get('qty', 0) or 0) for o in enriched_orders),
                         'total_clusters': len(sorted_clusters),
-                        'total_cost': sum(o['total_cost'] for o in enriched_orders),
+                        'total_cost': sum(float(o.get('total_cost', 0) or 0) for o in enriched_orders),
                         'total_new': len(enriched_new),
                         'total_skipped': len(enriched_skipped),
                         'total_zombie': len(enriched_zombie),
