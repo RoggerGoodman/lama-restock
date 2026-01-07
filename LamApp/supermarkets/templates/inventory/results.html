@@ -38,12 +38,103 @@
     .sort-icon.neutral::before {
         content: '⇅';
     }
+
+    /* ✅ PRINT STYLES */
+    @media print {
+        /* Hide navigation, buttons, and UI elements */
+        .sidebar,
+        .top-navbar,
+        .breadcrumb,
+        .btn,
+        .no-print {
+            display: none !important;
+        }
+        
+        /* Remove margins from main content */
+        .main-content {
+            margin-left: 0 !important;
+            padding: 0 !important;
+        }
+        
+        /* Optimize page layout */
+        .stat-card {
+            box-shadow: none !important;
+            border: 1px solid #dee2e6 !important;
+            page-break-inside: avoid;
+            margin-bottom: 20px;
+        }
+        
+        /* Print header */
+        .print-header {
+            display: block !important;
+            border-bottom: 2px solid #000;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        
+        /* Table optimizations */
+        table {
+            page-break-inside: avoid;
+            font-size: 11pt;
+        }
+        
+        thead {
+            display: table-header-group;
+            background-color: #f8f9fa !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        
+        tr {
+            page-break-inside: avoid;
+        }
+        
+        /* Checkboxes for manual verification */
+        .print-checkbox {
+            display: inline-block !important;
+            width: 15px;
+            height: 15px;
+            border: 2px solid #000;
+            margin-right: 10px;
+        }
+        
+        /* Status badges */
+        .badge {
+            border: 1px solid #000;
+            padding: 3px 8px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        
+        /* Footer on each page */
+        @page {
+            margin: 1.5cm;
+            @bottom-right {
+                content: "Page " counter(page) " of " counter(pages);
+            }
+        }
+    }
+    
+    /* Screen-only: hide print elements */
+    @media screen {
+        .print-only {
+            display: none;
+        }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid">
-    <div class="row mb-4">
+    <!-- ✅ PRINT HEADER (hidden on screen, shown on print) -->
+    <div class="print-only print-header">
+        <h2>{{ search_description }}</h2>
+        <p><strong>Date:</strong> {% now "F d, Y H:i" %}</p>
+        <p><strong>Total Products:</strong> {{ results|length }}</p>
+    </div>
+
+    <!-- Breadcrumb (hidden on print) -->
+    <div class="row mb-4 no-print">
         <div class="col-12">
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
@@ -55,11 +146,11 @@
         </div>
     </div>
 
+    <!-- Results Card -->
     <div class="row mb-4">
         <div class="col-12">
             <div class="stat-card">
-                <!-- UPDATED: Header with Edit Losses button -->
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-3 no-print">
                     <h4 class="mb-0">
                         <i class="bi bi-box-seam text-primary"></i>
                         {{ search_description }}
@@ -71,44 +162,61 @@
                         <a href="{% url 'edit-losses' %}" class="btn btn-outline-warning">
                             <i class="bi bi-pencil-square"></i> Edit Recorded Losses
                         </a>
+                        <!-- ✅ PRINT BUTTON -->
+                        <button onclick="window.print()" class="btn btn-success">
+                            <i class="bi bi-printer"></i> Print for Verification
+                        </button>
                     </div>
                 </div>
 
-                <div class="alert alert-info">
+                <div class="alert alert-info no-print">
                     <strong>{{ results|length }}</strong> verified product{{ results|length|pluralize }} found
                 </div>
 
                 {% if results %}
                 <div class="table-responsive">
-                    <table class="table table-hover" id="inventoryTable">
+                    <table class="table table-hover table-bordered" id="inventoryTable">
                         <thead>
                             <tr>
+                                <!-- ✅ PRINT: Checkbox column for manual verification -->
+                                <th class="print-only" style="width: 40px;">✓</th>
                                 <th>Code</th>
                                 <th>Description</th>
-                                <th class="sortable-header" onclick="sortTable('stock')" data-column="stock">
+                                <th class="sortable-header no-print" onclick="sortTable('stock')" data-column="stock">
                                     Stock
                                     <span class="sort-icon neutral" id="sort-stock"></span>
                                 </th>
+                                <!-- ✅ PRINT: Show stock without sorting -->
+                                <th class="print-only">Stock</th>
                                 <th>Pkg Size</th>
                                 <th>Cluster</th>
-                                <th>Last Update</th>
-                                <th class="sortable-header" onclick="sortTable('status')" data-column="status">
+                                <th class="no-print">Last Update</th>
+                                <th class="sortable-header no-print" onclick="sortTable('status')" data-column="status">
                                     Status
                                     <span class="sort-icon neutral" id="sort-status"></span>
                                 </th>
-                                <th>Actions</th>
+                                <th class="no-print">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="tableBody">
                             {% for product in results %}
                             <tr data-stock="{{ product.stock }}" data-status="{{ product.disponibilita }}">
+                                <!-- ✅ PRINT: Empty checkbox for manual checking -->
+                                <td class="print-only">
+                                    <div class="print-checkbox"></div>
+                                </td>
                                 <td><code>{{ product.cod }}.{{ product.v }}</code></td>
                                 <td>
-                                    {{ product.descrizione|truncatewords:6 }}
+                                    {{ product.descrizione|truncatewords:8 }}
                                     <br><small class="text-muted">{{ product.supermarket_name }}</small>
                                 </td>
-                                <td>
+                                <td class="no-print">
                                     <strong>{{ product.stock }}</strong>
+                                </td>
+                                <!-- ✅ PRINT: Stock with space for notes -->
+                                <td class="print-only">
+                                    <strong>{{ product.stock }}</strong>
+                                    <span style="margin-left: 20px; border-bottom: 1px solid #000; display: inline-block; width: 60px;"></span>
                                 </td>
                                 <td>{{ product.pz_x_collo }}</td>
                                 <td>
@@ -118,14 +226,14 @@
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                <td>
+                                <td class="no-print">
                                     {% if product.last_update %}
                                         {{ product.last_update|date:"M d, Y" }}
                                     {% else %}
                                         <span class="text-muted">Never</span>
                                     {% endif %}
                                 </td>
-                                <td>
+                                <td class="no-print">
                                     {% if product.disponibilita == 'Si' %}
                                         <span class="badge bg-success">
                                             <i class="bi bi-circle-fill"></i> Available
@@ -136,7 +244,7 @@
                                         </span>
                                     {% endif %}
                                 </td>
-                                <td>
+                                <td class="no-print">
                                     <div class="btn-group btn-group-sm">
                                         <button class="btn btn-outline-primary" 
                                                 onclick="adjustStock({{ product.cod }}, {{ product.v }}, '{{ product.supermarket_name }}', {{ product.stock }})">
@@ -155,6 +263,21 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- ✅ PRINT: Summary footer -->
+                <div class="print-only mt-4" style="border-top: 2px solid #000; padding-top: 15px;">
+                    <div class="row">
+                        <div class="col-6">
+                            <p><strong>Verified by:</strong> _______________________</p>
+                            <p><strong>Date:</strong> _______________________</p>
+                        </div>
+                        <div class="col-6">
+                            <p><strong>Total Products:</strong> {{ results|length }}</p>
+                            <p><strong>Notes:</strong></p>
+                            <div style="border: 1px solid #000; height: 80px; padding: 5px;"></div>
+                        </div>
+                    </div>
+                </div>
                 {% else %}
                 <div class="alert alert-warning">
                     <i class="bi bi-exclamation-triangle"></i>
@@ -166,7 +289,7 @@
     </div>
 </div>
 
-<!-- Adjust Stock Modal -->
+<!-- Adjust Stock Modal (keep existing modal code) -->
 <div class="modal fade" id="adjustStockModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -198,7 +321,6 @@
                         <div class="form-text">Use negative for removing stock, positive for adding</div>
                     </div>
                     
-                    <!-- UPDATED: Grouped reasons with loss categories -->
                     <div class="mb-3">
                         <label for="reason" class="form-label">Reason</label>
                         <select class="form-select" id="reason" name="reason" required>
@@ -243,7 +365,6 @@ function sortTable(column) {
     const tbody = document.getElementById('tableBody');
     const rows = Array.from(tbody.querySelectorAll('tr'));
     
-    // Toggle direction if same column
     if (currentSortColumn === column) {
         currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
     } else {
@@ -251,7 +372,6 @@ function sortTable(column) {
         currentSortDirection = 'asc';
     }
     
-    // Sort rows
     rows.sort((a, b) => {
         let aValue, bValue;
         
@@ -259,7 +379,6 @@ function sortTable(column) {
             aValue = parseInt(a.dataset.stock);
             bValue = parseInt(b.dataset.stock);
         } else if (column === 'status') {
-            // Si = 1 (available), No = 0 (unavailable)
             aValue = a.dataset.status === 'Si' ? 1 : 0;
             bValue = b.dataset.status === 'Si' ? 1 : 0;
         }
@@ -271,10 +390,8 @@ function sortTable(column) {
         }
     });
     
-    // Update DOM
     rows.forEach(row => tbody.appendChild(row));
     
-    // Update sort icons
     document.querySelectorAll('.sort-icon').forEach(icon => {
         icon.className = 'sort-icon neutral';
     });

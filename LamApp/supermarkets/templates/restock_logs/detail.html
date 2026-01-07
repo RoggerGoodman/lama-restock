@@ -34,6 +34,50 @@
         margin-bottom: 20px;
     }
     
+    /* ✅ NEW: Collapsible section styling */
+    .collapsible-section {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        overflow: hidden;
+    }
+    
+    .collapsible-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px 20px;
+        cursor: pointer;
+        transition: all 0.3s;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .collapsible-header:hover {
+        opacity: 0.9;
+    }
+    
+    .collapsible-header.warning {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+    
+    .collapsible-header.success {
+        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    }
+    
+    .collapsible-header.secondary {
+        background: linear-gradient(135deg, #a8a8a8 0%, #7f7f7f 100%);
+    }
+    
+    .chevron-icon {
+        transition: transform 0.3s;
+        font-size: 1.2rem;
+    }
+    
+    .chevron-icon.rotated {
+        transform: rotate(90deg);
+    }
+    
     .sortable-header {
         cursor: pointer;
         user-select: none;
@@ -52,7 +96,6 @@
         opacity: 1;
     }
     
-    /* ✅ NEW: Discount badge styling */
     .discount-badge {
         background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         color: white;
@@ -75,7 +118,6 @@
         50% { opacity: 0.6; }
     }
     
-    /* Table row highlight for sale items */
     tr.on-sale {
         background-color: #fff3f3 !important;
     }
@@ -384,7 +426,7 @@
                         </div>
                     </div>
 
-                    <!-- Table View -->
+                     <!-- Table View with discount sorting -->
                     <div id="tableView" style="display: none;">
                         <div class="table-responsive">
                             <table class="table table-hover" id="ordersTable">
@@ -406,29 +448,35 @@
                                             Total Cost 
                                             <i class="bi bi-arrow-down-up sort-icon"></i>
                                         </th>
+                                        <!-- ✅ NEW: Discount column -->
+                                        <th class="text-center sortable-header" onclick="sortTable(7)">
+                                            Discount
+                                            <i class="bi bi-arrow-down-up sort-icon"></i>
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for order in enriched_orders %}
-                                    <tr {% if order.on_sale %}class="on-sale"{% endif %}>
+                                    <tr {% if order.on_sale %}class="on-sale"{% endif %} data-discount="{{ order.discount|default:0 }}">
                                         <td><code>{{ order.cod }}</code></td>
                                         <td><code>{{ order.var }}</code></td>
-                                        <td>
-                                            {{ order.name|truncatewords:5 }}
-                                            <!-- ✅ NEW: Show discount badge if on sale -->
-                                            {% if order.on_sale %}
-                                                <span class="discount-badge ms-2">
-                                                    <i class="bi bi-star-fill discount-icon"></i>
-                                                    -{{ order.discount|floatformat:0 }}%
-                                                </span>
-                                            {% endif %}
-                                        </td>
+                                        <td>{{ order.name|truncatewords:5 }}</td>
                                         <td><span class="badge bg-secondary">{{ order.cluster }}</span></td>
                                         <td class="text-end">
                                             <span class="badge bg-success">{{ order.qty }} pkg</span>
                                         </td>
                                         <td class="text-end">€{{ order.cost|floatformat:2 }}</td>
                                         <td class="text-end"><strong>€{{ order.total_cost|floatformat:2 }}</strong></td>
+                                        <td class="text-center">
+                                            {% if order.on_sale %}
+                                                <span class="discount-badge">
+                                                    <i class="bi bi-star-fill discount-icon"></i>
+                                                    -{{ order.discount|floatformat:0 }}%
+                                                </span>
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                        </td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -438,6 +486,7 @@
                                         <td class="text-end"><strong>{{ log.total_packages }} pkg</strong></td>
                                         <td></td>
                                         <td class="text-end"><strong>€{{ summary.total_cost|floatformat:2 }}</strong></td>
+                                        <td></td>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -446,24 +495,28 @@
 
                     <!-- Skipped Products Section -->
                     {% if enriched_skipped %}
-                    <div class="row mt-4">
-                        <div class="col-12">
-                            <div class="stat-card">
-                                <div class="d-flex justify-content-between align-items-center mb-4">
-                                    <h5 class="mb-0">
-                                        <i class="bi bi-exclamation-triangle text-warning"></i> Skipped Products
-                                    </h5>
-                                    <div>
-                                        <span class="badge bg-warning">{{ enriched_skipped|length }} products skipped</span>
-                                        <button class="btn btn-sm btn-danger" onclick="flagAllForPurge()">
-                                            <i class="bi bi-trash"></i> Flag All for Purge
-                                        </button>
-                                    </div>
-                                </div>
-
+                    <div class="collapsible-section">
+                        <div class="collapsible-header warning" onclick="toggleCollapse('skippedSection')">
+                            <div>
+                                <h5 class="mb-0">
+                                    <i class="bi bi-exclamation-triangle"></i> Skipped Products
+                                    <span class="badge bg-light text-dark ms-2">{{ enriched_skipped|length }} products</span>
+                                </h5>
+                            </div>
+                            <i class="bi bi-chevron-right chevron-icon" id="skippedChevron"></i>
+                        </div>
+                        
+                        <div class="collapse" id="skippedSection">
+                            <div class="p-4">
                                 <div class="alert alert-info">
                                     <i class="bi bi-info-circle"></i>
-                                    These products were skipped during the restock process. You can flag them for purging to remove them from future orders.
+                                    These products were skipped during the restock process. You can flag them for purging.
+                                </div>
+
+                                <div class="mb-3">
+                                    <button class="btn btn-danger" onclick="flagAllForPurge()">
+                                        <i class="bi bi-trash"></i> Flag All for Purge
+                                    </button>
                                 </div>
 
                                 <div class="table-responsive">
@@ -481,7 +534,7 @@
                                         </thead>
                                         <tbody>
                                             {% for item in enriched_skipped %}
-                                            <tr data-cod="{{ item.cod }}" data-var="{{ item.var }}">
+                                            <tr>
                                                 <td><input type="checkbox" class="product-checkbox" value="{{ item.cod }},{{ item.var }}"></td>
                                                 <td><code>{{ item.cod }}.{{ item.var }}</code></td>
                                                 <td>{{ item.name|truncatewords:6 }}</td>
@@ -521,29 +574,32 @@
                     </div>
                     {% endif %}
                     <!-- NEW PRODUCTS SECTION WITH ORDER CAPABILITY -->
-                    {% if enriched_new %}
-                    <div class="row mt-4">
-                        <div class="col-12">
-                            <div class="stat-card">
-                                <div class="d-flex justify-content-between align-items-center mb-4">
-                                    <h5 class="mb-0">
-                                        <i class="bi bi-star text-success"></i> New Products
-                                    </h5>
-                                    <div>
-                                        <span class="badge bg-success">{{ enriched_new|length }} new product{{ enriched_new|length|pluralize }}</span>
-                                        <button class="btn btn-sm btn-primary ms-2" onclick="orderSelectedNew()">
-                                            <i class="bi bi-cart-plus"></i> Order Selected
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-primary ms-1" onclick="orderAllNew()">
-                                            <i class="bi bi-cart-check"></i> Order All
-                                        </button>
-                                    </div>
-                                </div>
-
+                     {% if enriched_new %}
+                    <div class="collapsible-section">
+                        <div class="collapsible-header success" onclick="toggleCollapse('newSection')">
+                            <div>
+                                <h5 class="mb-0">
+                                    <i class="bi bi-star"></i> New Products
+                                    <span class="badge bg-light text-dark ms-2">{{ enriched_new|length }} products</span>
+                                </h5>
+                            </div>
+                            <i class="bi bi-chevron-right chevron-icon" id="newChevron"></i>
+                        </div>
+                        
+                        <div class="collapse" id="newSection">
+                            <div class="p-4">
                                 <div class="alert alert-success">
                                     <i class="bi bi-info-circle"></i>
-                                    These are brand new products that have never been in the system. 
-                                    Select which ones to order.
+                                    These are brand new products that have never been in the system. Select which ones to order.
+                                </div>
+
+                                <div class="mb-3">
+                                    <button class="btn btn-primary" onclick="orderSelectedNew()">
+                                        <i class="bi bi-cart-plus"></i> Order Selected
+                                    </button>
+                                    <button class="btn btn-outline-primary ms-2" onclick="orderAllNew()">
+                                        <i class="bi bi-cart-check"></i> Order All
+                                    </button>
                                 </div>
 
                                 <div class="table-responsive">
@@ -602,24 +658,28 @@
 
                     <!-- ZOMBIE PRODUCTS SECTION -->
                     {% if enriched_zombie %}
-                    <div class="row mt-4">
-                        <div class="col-12">
-                            <div class="stat-card">
-                                <div class="d-flex justify-content-between align-items-center mb-4">
-                                    <h5 class="mb-0">
-                                        <i class="bi bi-archive text-secondary"></i> Zombie Products
-                                    </h5>
-                                    <div>
-                                        <span class="badge bg-secondary">{{ enriched_zombie|length }} zombie product{{ enriched_zombie|length|pluralize }}</span>
-                                        <button class="btn btn-sm btn-danger" onclick="flagAllZombiesForPurge()">
-                                            <i class="bi bi-trash"></i> Flag All for Purge
-                                        </button>
-                                    </div>
-                                </div>
-
+                    <div class="collapsible-section">
+                        <div class="collapsible-header secondary" onclick="toggleCollapse('zombieSection')">
+                            <div>
+                                <h5 class="mb-0">
+                                    <i class="bi bi-archive"></i> Zombie Products
+                                    <span class="badge bg-light text-dark ms-2">{{ enriched_zombie|length }} products</span>
+                                </h5>
+                            </div>
+                            <i class="bi bi-chevron-right chevron-icon" id="zombieChevron"></i>
+                        </div>
+                        
+                        <div class="collapse" id="zombieSection">
+                            <div class="p-4">
                                 <div class="alert alert-secondary">
                                     <i class="bi bi-info-circle"></i>
-                                    These products are finished and not restockable (disponibilita=No, stock=0). Consider purging them from the database.
+                                    These products are finished and not restockable (disponibilita=No, stock=0). Consider purging them.
+                                </div>
+
+                                <div class="mb-3">
+                                    <button class="btn btn-danger" onclick="flagAllZombiesForPurge()">
+                                        <i class="bi bi-trash"></i> Flag All for Purge
+                                    </button>
                                 </div>
 
                                 <div class="table-responsive">
@@ -754,13 +814,26 @@
 let currentSortColumn = -1;
 let currentSortDirection = 'asc';
 
+// ✅ NEW: Toggle collapse function
+function toggleCollapse(sectionId) {
+    const section = document.getElementById(sectionId);
+    const chevronId = sectionId.replace('Section', 'Chevron');
+    const chevron = document.getElementById(chevronId);
+    
+    const collapse = new bootstrap.Collapse(section, {
+        toggle: true
+    });
+    
+    // Toggle chevron rotation
+    chevron.classList.toggle('rotated');
+}
+
+// Cluster collapse handlers
 document.addEventListener('DOMContentLoaded', function() {
-    // Get all collapsible clusters
     const collapseElements = document.querySelectorAll('[id^="cluster-"]');
     
     collapseElements.forEach(function(element) {
         element.addEventListener('show.bs.collapse', function() {
-            // When opening, rotate icon down
             const iconId = 'icon-' + this.id.split('-')[1];
             const icon = document.getElementById(iconId);
             if (icon) {
@@ -770,7 +843,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         element.addEventListener('hide.bs.collapse', function() {
-            // When closing, rotate icon right
             const iconId = 'icon-' + this.id.split('-')[1];
             const icon = document.getElementById(iconId);
             if (icon) {
@@ -804,7 +876,6 @@ function sortTable(columnIndex) {
     const tbody = table.querySelector('tbody');
     const rows = Array.from(tbody.querySelectorAll('tr'));
     
-    // Toggle direction if same column
     if (currentSortColumn === columnIndex) {
         currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
     } else {
@@ -819,7 +890,8 @@ function sortTable(columnIndex) {
         icon.classList.add('bi-arrow-down-up');
     });
     
-    const currentIcon = table.querySelectorAll('.sortable-header')[columnIndex === 0 ? 0 : columnIndex === 4 ? 1 : 2].querySelector('.sort-icon');
+    const headers = table.querySelectorAll('.sortable-header');
+    const currentIcon = headers[columnIndex === 0 ? 0 : columnIndex === 4 ? 1 : columnIndex === 6 ? 2 : 3].querySelector('.sort-icon');
     currentIcon.classList.add('active');
     currentIcon.classList.remove('bi-arrow-down-up');
     currentIcon.classList.add(currentSortDirection === 'asc' ? 'bi-arrow-up' : 'bi-arrow-down');
@@ -840,6 +912,10 @@ function sortTable(columnIndex) {
             // Total cost
             aValue = parseFloat(a.cells[6].textContent.replace('€', ''));
             bValue = parseFloat(b.cells[6].textContent.replace('€', ''));
+        } else if (columnIndex === 7) {
+            // ✅ NEW: Discount sorting
+            aValue = parseFloat(a.dataset.discount || 0);
+            bValue = parseFloat(b.dataset.discount || 0);
         }
         
         if (currentSortDirection === 'asc') {
@@ -849,7 +925,6 @@ function sortTable(columnIndex) {
         }
     });
     
-    // Reattach sorted rows
     rows.forEach(row => tbody.appendChild(row));
 }
 
