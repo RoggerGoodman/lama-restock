@@ -207,7 +207,7 @@
                                 <td class="print-only">
                                     <div class="print-checkbox"></div>
                                 </td>
-                                <td><code>{{ product.cod }}.{{ product.var }}</code></td>
+                                <td><code>{{ product.cod }}.{{ product.v }}</code></td>
                                 <td>
                                     {{ product.descrizione|truncatewords:8 }}
                                     <br><small class="text-muted">{{ product.supermarket_name }}</small>
@@ -251,7 +251,7 @@
                                         <button class="btn btn-outline-primary" 
                                             onclick="adjustStock(
                                                 {{ product.cod }}, 
-                                                {{ product.var }}, 
+                                                {{ product.v }}, 
                                                 '{{ product.supermarket_name }}', 
                                                 {{ product.stock }},
                                                 {{ product.minimum_stock|default:4 }}
@@ -260,7 +260,7 @@
                                         </button>
                                         {% if product.disponibilita == 'No' %}
                                         <button class="btn btn-outline-danger"
-                                                onclick="flagForPurge({{ product.cod }}, {{ product.var }}, '{{ product.supermarket_name }}')">
+                                                onclick="flagForPurge({{ product.cod }}, {{ product.v }}, '{{ product.supermarket_name }}')">
                                             <i class="bi bi-trash"></i> Flag
                                         </button>
                                         {% endif %}
