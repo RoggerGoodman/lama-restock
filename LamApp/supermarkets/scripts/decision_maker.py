@@ -1,6 +1,7 @@
 # LamApp/supermarkets/scripts/decision_maker.py
 from .DatabaseManager import DatabaseManager
-from datetime import date
+from datetime import date, timedelta
+from math import ceil
 from .helpers import Helper
 from .logger import logger
 from .analyzer import analyzer
@@ -33,11 +34,10 @@ class DecisionMaker:
     def get_products_by_settore(self, settore):
         """
         Retrieve all products (and their stats) for a given settore.
-        Returns a list of dict-like rows.
         """
         query = """
             SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
-                p.pz_x_collo, p.rapp, ps.verified, p.disponibilita
+                p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, ps.minimum_stock
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
             WHERE p.settore = %s
@@ -103,10 +103,10 @@ class DecisionMaker:
         return summed
     
     def retrive_products_on_sale(self):
-        today = date.today() 
+        today = date.today()
 
         self.cursor.execute("""
-            SELECT cod, v, price_std, price_s
+            SELECT cod, v, price_std, price_s, sale_start, sale_end
             FROM economics
             WHERE sale_start IS NOT NULL
             AND sale_end IS NOT NULL
@@ -122,21 +122,34 @@ class DecisionMaker:
 
             price_std = row["price_std"]
             price_s = row["price_s"]
+            sale_start = row["sale_start"]
+            sale_end = row["sale_end"]
 
             if price_std is None or price_s is None:
                 continue
-            # avoid division errors
+
             if price_std > price_s:
                 discount_pct = round((price_std - price_s) / price_std * 100, 2)
             else:
-                discount_pct = 10
+                discount_pct = 10  # fallback
 
-            sale_discounts[(cod, v)] = discount_pct
+            sale_discounts[(cod, v)] = {
+                "discount": discount_pct,
+                "sale_start": sale_start,
+                "sale_end": sale_end,
+            }
 
         return sale_discounts
 
     def get_discount_for(self, cod, v):
-        return self.sale_discounts.get((cod, v))  
+        return self.sale_discounts.get((cod, v))
+    
+    def is_in_last_60_percent(today, sale_start, sale_end):
+        total_days = (sale_end - sale_start).days + 1
+        threshold_day = ceil(total_days * 0.6)
+
+        threshold_date = sale_start + timedelta(days=threshold_day - 1)
+        return today <= threshold_date
 
     def decide_orders_for_settore(self, settore, coverage):
         """
@@ -175,6 +188,7 @@ class DecisionMaker:
             package_multi = row["rapp"]
             verified = row["verified"]
             disponibilita = row["disponibilita"]
+            minimum_stock_base = row.get("minimum_stock", 4)
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
             
@@ -251,22 +265,32 @@ class DecisionMaker:
             package_consumption = req_stock / package_size 
             logger.info(f"Package consumption = {package_consumption:.2f}")
 
-            discount = self.get_discount_for(product_cod, product_var)
+            sale_info = self.get_discount_for(product_cod, product_var)
 
-            if discount is not None:
+            if sale_info is not None:
+                discount = sale_info["discount"]
+                sale_start = sale_info["sale_start"]
+                sale_end = sale_info["sale_end"]
+
                 if discount == 0:
                     discount = 15
-                    logger.info(f"This product is currently on sale: {discount}% with default value")
+                    logger.info("This product is currently on sale: default 15%")
                 else:
                     logger.info(f"This product is currently on sale: {discount}%")
 
-                req_stock += (req_stock * discount/100)
+                if self.is_in_last_60_percent(date.today(), sale_start, sale_end):
+                    req_stock += req_stock * discount / 100
+                    logger.info("Stock buff applied (first 60% of sale period)")
+                else:
+                    logger.info("Sale active, but stock buff NOT applied (late sale phase)")
+            else : 
+                discount = None
 
             if verified == True:
                 category = "N"
                 result, check, status, returned_discount = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales, 
-                    avg_sales_base, req_stock, stock, discount
+                    avg_sales_base, req_stock, stock, discount, minimum_stock_base
                 )
             else:
                 reason = "Not verified in system"

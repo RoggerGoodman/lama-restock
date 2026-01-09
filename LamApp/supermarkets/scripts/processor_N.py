@@ -1,14 +1,22 @@
 # LamApp/supermarkets/scripts/processor_N.py
 import math
 from .logger import logger
-
-def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year, req_stock, stock, discount=None):
+def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year, 
+                   req_stock, stock, discount=None, minimum_stock_base=4):
+    """
+    Process N category sales and calculate order quantity.
+    
+    Args:
+        minimum_stock_base: Base minimum stock from database (default 4)
+    """
     order = 1   
     req_stock = round(req_stock)
-    minimum_stock = max(avg_sales_last_year, 4)
+    
+    # Use database value instead of hardcoded 4
+    minimum_stock = max(avg_sales_last_year, minimum_stock_base)
     leftover_stock = stock - req_stock
     
-    if avg_daily_sales >= 1 :
+    if avg_daily_sales >= 1:
         minimum_stock += round(avg_daily_sales)
         minimum_stock += math.floor(req_stock * 0.1)
     elif avg_daily_sales < 0.6:
@@ -16,7 +24,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
         if avg_daily_sales < 0.2:
             minimum_stock -= 1
 
-    logger.info(f"Minimum Stock = {minimum_stock}")
+    logger.info(f"Minimum Stock = {minimum_stock} (base: {minimum_stock_base})")
 
     if deviation_corrected >= 40:
         minimum_stock = math.floor(minimum_stock * 1.2)
@@ -39,13 +47,10 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
             order = math.ceil(order)
 
         if order >= 1:
-            # ✅ NEW: Return discount with results
             return order, 1, True, discount
         
     if leftover_stock <= minimum_stock:
         order = 1
-        # ✅ NEW: Return discount with results
         return order, 2, True, discount
        
-    # ✅ NEW: Return discount even on failure (will be None)
     return None, 0, False, discount

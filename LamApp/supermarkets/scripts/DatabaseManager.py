@@ -50,6 +50,7 @@ class DatabaseManager:
     def create_tables(self):
         cur = self.cursor()
         cur.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
+        
         # Main product table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS products (
@@ -66,7 +67,7 @@ class DatabaseManager:
             )
         """)
 
-        # Stats table - Remove json_valid, PostgreSQL validates JSON automatically
+        # Stats table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS product_stats (
                 cod INTEGER NOT NULL,
@@ -76,6 +77,7 @@ class DatabaseManager:
                 sales_sets JSONB,
                 stock INTEGER DEFAULT 0,
                 verified BOOLEAN DEFAULT FALSE,
+                minimum_stock INTEGER DEFAULT 4,
                 last_update DATE,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)

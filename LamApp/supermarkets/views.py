@@ -1787,10 +1787,9 @@ def inventory_search_view(request):
     
     return render(request, 'inventory/search.html', {'form': form})
 
-
 @login_required  
 def inventory_results_view(request, search_type):
-    """Display inventory search results - FULLY FIXED"""
+    """Display inventory search results - NOW INCLUDES minimum_stock"""
     
     results = []
     search_description = ""
@@ -1804,7 +1803,6 @@ def inventory_results_view(request, search_type):
             var = int(request.GET.get('var'))
             search_description = f"Product {cod}.{var}"
             
-            # Search across all supermarkets
             found = False
             for sm in Supermarket.objects.filter(owner=request.user):
                 storage = sm.storages.first()
@@ -1817,7 +1815,7 @@ def inventory_results_view(request, search_type):
                             SELECT 
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita, 
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified
+                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.cod = %s AND p.v = %s AND ps.verified = TRUE
@@ -1828,21 +1826,18 @@ def inventory_results_view(request, search_type):
                             found = True
                             result = dict(row)
                             result['supermarket_name'] = sm.name
+                            result['minimum_stock'] = row['minimum_stock'] or 4  # ← ADD THIS
                             results.append(result)
                     except Exception as e:
                         logger.exception(f"Error searching in {sm.name}")
-            # If not found, redirect to not found page
+            
             if not found:
                 return redirect('inventory-product-not-found', cod=cod, var=var)
         
         elif search_type == 'cod_all':
-            # NEW: Search for all variants of a product code
             cod = int(request.GET.get('cod'))
             search_description = f"All variants of product code {cod}"
             
-            logger.info(f"Searching for all variants of code: {cod}")
-            
-            # Search across all supermarkets
             for sm in Supermarket.objects.filter(owner=request.user):
                 storage = sm.storages.first()
                 if not storage:
@@ -1855,7 +1850,7 @@ def inventory_results_view(request, search_type):
                             SELECT 
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified
+                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.cod = %s AND ps.verified = TRUE
@@ -1865,19 +1860,15 @@ def inventory_results_view(request, search_type):
                         for row in cur.fetchall():
                             result = dict(row)
                             result['supermarket_name'] = sm.name
+                            result['minimum_stock'] = row['minimum_stock'] or 4  # ← ADD THIS
                             results.append(result)
-                        
-                        logger.info(f"Found {len(results)} variants in {sm.name}")
                     except Exception as e:
                         logger.exception(f"Error searching in {sm.name}")
         
         elif search_type == 'settore_cluster':
-            # Search by settore and optionally cluster
             supermarket_id = request.GET.get('supermarket_id')
             settore = request.GET.get('settore')
             cluster = request.GET.get('cluster', '')
-            
-            logger.info(f"Settore search: supermarket={supermarket_id}, settore={settore}, cluster={cluster}")
             
             if not supermarket_id or not settore:
                 messages.error(request, "Missing search parameters")
@@ -1908,24 +1899,22 @@ def inventory_results_view(request, search_type):
                     cur = service.db.cursor()
                     
                     if cluster:
-                        logger.info(f"Querying with cluster filter: {cluster}")
                         cur.execute("""
                             SELECT 
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified
+                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.settore = %s AND p.cluster = %s AND ps.verified = TRUE
                             ORDER BY p.descrizione
                         """, (settore, cluster))
                     else:
-                        logger.info(f"Querying all clusters for settore: {settore}")
                         cur.execute("""
                             SELECT 
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified
+                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.settore = %s AND ps.verified = TRUE
@@ -1935,9 +1924,8 @@ def inventory_results_view(request, search_type):
                     for row in cur.fetchall():
                         result = dict(row)
                         result['supermarket_name'] = supermarket.name
+                        result['minimum_stock'] = row['minimum_stock'] or 4  # ← ADD THIS
                         results.append(result)
-                    
-                    logger.info(f"Found {len(results)} results for settore search")
                     
                 except Exception as e:
                     logger.exception(f"Database error in settore search")
@@ -3007,8 +2995,7 @@ def edit_loss_ajax_view(request):
 @require_POST
 def inventory_adjust_stock_ajax_view(request):
     """
-    UPDATED: Now links stock adjustments to loss categories.
-    If reason is broken/expired/internal, records in extra_losses automatically.
+    UPDATED: Now handles both stock adjustment AND minimum_stock updates
     """
     try:
         cod = int(request.POST.get('cod'))
@@ -3016,8 +3003,8 @@ def inventory_adjust_stock_ajax_view(request):
         adjustment = int(request.POST.get('adjustment'))
         reason = request.POST.get('reason')
         supermarket_name = request.POST.get('supermarket')
+        minimum_stock = request.POST.get('minimum_stock')  # ✅ GET THIS
         
-        # Find the supermarket
         supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
         storage = supermarket.storages.first()
         
@@ -3026,20 +3013,41 @@ def inventory_adjust_stock_ajax_view(request):
         
         with RestockService(storage) as service:        
             current_stock = service.db.get_stock(cod, var)
-            # ✅ NEW: Map reasons to loss types
+            
+            # ✅ UPDATE minimum_stock if provided
+            minimum_stock_updated = False
+            if minimum_stock is not None and minimum_stock != '':
+                minimum_stock_val = int(minimum_stock)
+                if minimum_stock_val < 1:
+                    return JsonResponse({
+                        'success': False, 
+                        'message': 'Minimum stock must be at least 1'
+                    }, status=400)
+                
+                cursor = service.db.cursor()
+                cursor.execute("""
+                    UPDATE product_stats
+                    SET minimum_stock = %s
+                    WHERE cod = %s AND v = %s
+                """, (minimum_stock_val, cod, var))
+                service.db.conn.commit()
+                minimum_stock_updated = True
+                logger.info(
+                    f"Updated minimum_stock for {supermarket_name} - {cod}.{var} to {minimum_stock_val}"
+                )
+            
+            # ✅ Handle stock adjustment
             loss_type_mapping = {
                 'broken': 'broken',
                 'expired': 'expired',
                 'internal_use': 'internal',
             }
+            
             if reason in loss_type_mapping and adjustment < 0:
-                # This is a loss adjustment - record in extra_losses
+                # This is a loss - record in extra_losses
                 loss_type = loss_type_mapping[reason]
-                loss_amount = abs(adjustment)  # Make positive for loss recording
-                
-                # register_losses() handles both array update AND stock adjustment
+                loss_amount = abs(adjustment)
                 service.db.register_losses(cod, var, loss_amount, loss_type)
-                
                 new_stock = service.db.get_stock(cod, var)
                 
                 logger.info(
@@ -3054,7 +3062,8 @@ def inventory_adjust_stock_ajax_view(request):
                     'new_stock': new_stock,
                     'loss_recorded': True,
                     'loss_type': loss_type,
-                    'loss_amount': loss_amount
+                    'loss_amount': loss_amount,
+                    'minimum_stock_updated': minimum_stock_updated
                 })
             else:
                 # Regular stock adjustment (not a loss)
@@ -3066,12 +3075,15 @@ def inventory_adjust_stock_ajax_view(request):
                     f"Product {cod}.{var}: {current_stock} → {new_stock} ({adjustment:+d}) "
                     f"Reason: {reason}"
                 )
+                
                 return JsonResponse({
                     'success': True,
                     'message': f'Stock adjusted: {current_stock} → {new_stock}',
                     'new_stock': new_stock,
-                    'loss_recorded': False
-                })                            
+                    'loss_recorded': False,
+                    'minimum_stock_updated': minimum_stock_updated
+                })
+                                            
     except Exception as e:
         logger.exception("Error in inventory stock adjustment")
         return JsonResponse({'success': False, 'message': str(e)}, status=500)

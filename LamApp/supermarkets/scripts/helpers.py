@@ -334,4 +334,3 @@ class Helper:
                         continue
 
         return data
-
