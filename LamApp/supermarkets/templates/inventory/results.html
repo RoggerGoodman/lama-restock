@@ -254,7 +254,8 @@
                                                 {{ product.v }}, 
                                                 '{{ product.supermarket_name }}', 
                                                 {{ product.stock }},
-                                                {{ product.minimum_stock|default:4 }}
+                                                {{ product.minimum_stock|default:4 }},
+                                                '{{ product.cluster|default:'' }}'
                                             )">
                                             <i class="bi bi-pencil"></i> Adjust
                                         </button>
@@ -329,7 +330,7 @@
                         <div class="form-text">Use negative for removing stock, positive for adding</div>
                     </div>
                     
-                    <!-- ✅ NEW: Minimum Stock Field -->
+                    <!-- Minimum Stock Field -->
                     <div class="mb-3">
                         <label for="minimum_stock" class="form-label">
                             <i class="bi bi-shield-check"></i> Minimum Stock Level
@@ -337,10 +338,19 @@
                         <input type="number" class="form-control" id="minimum_stock" name="minimum_stock" 
                                min="1" max="100" required>
                         <div class="form-text">
-                            <strong>Base minimum stock for restock calculations.</strong><br>
-                            • Default: 4 units<br>
-                            • Higher values = more conservative ordering<br>
-                            • This is the starting point before daily sales adjustments
+                            Base minimum stock for restock calculations (default: 4)
+                        </div>
+                    </div>
+                    
+                    <!-- ✅ NEW: Cluster Field -->
+                    <div class="mb-3">
+                        <label for="cluster" class="form-label">
+                            <i class="bi bi-folder"></i> Cluster
+                        </label>
+                        <input type="text" class="form-control" id="cluster" name="cluster" 
+                               placeholder="e.g., FREEZER, DAIRY" style="text-transform: uppercase;">
+                        <div class="form-text">
+                            Assign or change cluster (leave empty to keep current, type 'NONE' to remove)
                         </div>
                     </div>
                     
@@ -422,7 +432,7 @@ function sortTable(column) {
     activeIcon.className = `sort-icon ${currentSortDirection} active`;
 }
 
-function adjustStock(cod, var_, supermarket, currentStock, minimumStock) {
+function adjustStock(cod, var_, supermarket, currentStock, minimumStock, currentCluster) {
     document.getElementById('adjust_cod').value = cod;
     document.getElementById('adjust_var').value = var_;
     document.getElementById('adjust_supermarket').value = supermarket;
@@ -430,6 +440,7 @@ function adjustStock(cod, var_, supermarket, currentStock, minimumStock) {
     document.getElementById('adjust_current_stock').textContent = currentStock;
     document.getElementById('adjustment').value = '';
     document.getElementById('minimum_stock').value = minimumStock || 4;
+    document.getElementById('cluster').value = currentCluster || '';
     
     adjustModal.show();
 }
@@ -450,6 +461,8 @@ function submitAdjustment() {
         return;
     }
     
+    const cluster = formData.get('cluster').trim().toUpperCase();
+    
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     
     const data = new URLSearchParams();
@@ -458,7 +471,8 @@ function submitAdjustment() {
     data.append('adjustment', formData.get('adjustment'));
     data.append('reason', formData.get('reason'));
     data.append('supermarket', formData.get('supermarket'));
-    data.append('minimum_stock', minimumStock);  // ✅ INCLUDE THIS
+    data.append('minimum_stock', minimumStock);
+    data.append('cluster', cluster);  // ✅ INCLUDE CLUSTER
     data.append('csrfmiddlewaretoken', csrfToken);
     
     fetch('/inventory/adjust-stock/', {
@@ -478,6 +492,9 @@ function submitAdjustment() {
             if (data.minimum_stock_updated) {
                 message += `\n✅ Minimum stock level updated`;
             }
+            if (data.cluster_updated) {
+                message += `\n✅ Cluster updated to: ${data.new_cluster}`;
+            }
             alert(message);
             adjustModal.hide();
             location.reload();
@@ -491,6 +508,9 @@ function submitAdjustment() {
     });
 }
 
+document.getElementById('cluster').addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+});
 
 function flagForPurge(cod, var_, supermarket) {
     if (!confirm(`Flag product ${cod}.${var_} for purging?\n\nThis product will be automatically deleted when stock reaches zero.`)) {

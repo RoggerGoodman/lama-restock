@@ -807,7 +807,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                                 'name': descrizione,
                                 'cluster': cluster,
                                 'cost': cost,
-                                'total_cost': cost * qty * package_size,
+                                'total_cost': cost * qty * package_size * rapp,
                                 'discount': discount,
                                 'on_sale': discount is not None
                             }
@@ -832,7 +832,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                             continue
                     
                     # Enrich all product lists
-                    enriched_new = self._enrich_product_list(service, new_products)
+                    enriched_new = self._enrich_product_list(service, new_products, include_pricing=True)
                     enriched_skipped = self._enrich_product_list(service, skipped_products)
                     enriched_zombie = self._enrich_product_list(service, zombie_products)
                     enriched_order_skipped = self._enrich_product_list(service, order_skipped_products)
@@ -873,8 +873,13 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     
         return context
     
-    def _enrich_product_list(self, service, product_list):
-        """Helper to enrich a list of products with database details."""
+    def _enrich_product_list(self, service, product_list, include_pricing=False):
+        """
+        Helper to enrich a list of products with database details.
+        
+        Args:
+            include_pricing: If True, includes cost, price, and package info (for new products)
+        """
         enriched = []
         
         for item in product_list:
@@ -884,24 +889,68 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             
             try:
                 cur = service.db.cursor()
-                cur.execute("""
-                    SELECT p.descrizione, ps.stock, p.disponibilita
-                    FROM products p
-                    LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                    WHERE p.cod = %s AND p.v = %s
-                """, (cod, var))
+                
+                if include_pricing:
+                    # Enhanced query for new products with pricing info
+                    cur.execute("""
+                        SELECT 
+                            p.descrizione, p.pz_x_collo, p.rapp, p.disponibilita,
+                            ps.stock,
+                            e.cost_std, e.price_std
+                        FROM products p
+                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
+                        WHERE p.cod = %s AND p.v = %s
+                    """, (cod, var))
+                else:
+                    # Standard query for other lists
+                    cur.execute("""
+                        SELECT p.descrizione, ps.stock, p.disponibilita
+                        FROM products p
+                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.cod = %s AND p.v = %s
+                    """, (cod, var))
                 
                 row = cur.fetchone()
                 
                 if row:
-                    enriched.append({
+                    product_data = {
                         'cod': cod,
                         'var': var,
                         'name': row['descrizione'] or f"Product {cod}.{var}",
                         'stock': row['stock'] or 0,
                         'disponibilita': row['disponibilita'] or 'Unknown',
                         'reason': reason
-                    })
+                    }
+                    
+                    # Add pricing info only for new products
+                    if include_pricing:
+                        pz_x_collo = row['pz_x_collo'] or 12
+                        rapp = row['rapp'] or 1
+                        package_size = pz_x_collo * rapp
+                        
+                        cost_std = row['cost_std'] or 0
+                        price_std = row['price_std'] or 0
+                        
+                        # Calculate per-unit cost and price
+                        unit_cost = cost_std / rapp if rapp > 0 else cost_std
+                        unit_price = price_std / rapp if rapp > 0 else price_std
+                        
+                        # Calculate margin
+                        margin_pct = 0
+                        if unit_price > 0 and unit_cost > 0:
+                            margin_pct = ((unit_price - unit_cost) / unit_price) * 100
+                        
+                        product_data.update({
+                            'package_size': package_size,
+                            'unit_cost': unit_cost,
+                            'unit_price': unit_price,
+                            'package_cost': cost_std,
+                            'package_price': price_std,
+                            'margin_pct': margin_pct
+                        })
+                    
+                    enriched.append(product_data)
                 else:
                     enriched.append({
                         'cod': cod,
@@ -2995,7 +3044,7 @@ def edit_loss_ajax_view(request):
 @require_POST
 def inventory_adjust_stock_ajax_view(request):
     """
-    UPDATED: Now handles both stock adjustment AND minimum_stock updates
+    UPDATED: Now handles stock adjustment, minimum_stock, AND cluster updates
     """
     try:
         cod = int(request.POST.get('cod'))
@@ -3003,7 +3052,8 @@ def inventory_adjust_stock_ajax_view(request):
         adjustment = int(request.POST.get('adjustment'))
         reason = request.POST.get('reason')
         supermarket_name = request.POST.get('supermarket')
-        minimum_stock = request.POST.get('minimum_stock')  # ✅ GET THIS
+        minimum_stock = request.POST.get('minimum_stock')
+        cluster = request.POST.get('cluster', '').strip().upper()  # ✅ GET CLUSTER
         
         supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
         storage = supermarket.storages.first()
@@ -3014,7 +3064,7 @@ def inventory_adjust_stock_ajax_view(request):
         with RestockService(storage) as service:        
             current_stock = service.db.get_stock(cod, var)
             
-            # ✅ UPDATE minimum_stock if provided
+            # Update minimum_stock if provided
             minimum_stock_updated = False
             if minimum_stock is not None and minimum_stock != '':
                 minimum_stock_val = int(minimum_stock)
@@ -3032,11 +3082,36 @@ def inventory_adjust_stock_ajax_view(request):
                 """, (minimum_stock_val, cod, var))
                 service.db.conn.commit()
                 minimum_stock_updated = True
-                logger.info(
-                    f"Updated minimum_stock for {supermarket_name} - {cod}.{var} to {minimum_stock_val}"
-                )
+                logger.info(f"Updated minimum_stock for {cod}.{var} to {minimum_stock_val}")
             
-            # ✅ Handle stock adjustment
+            # ✅ UPDATE CLUSTER if provided
+            cluster_updated = False
+            new_cluster_value = None
+            if cluster != '':
+                cursor = service.db.cursor()
+                
+                if cluster == 'NONE':
+                    # Remove cluster
+                    cursor.execute("""
+                        UPDATE products
+                        SET cluster = NULL
+                        WHERE cod = %s AND v = %s
+                    """, (cod, var))
+                    new_cluster_value = "None"
+                else:
+                    # Set new cluster
+                    cursor.execute("""
+                        UPDATE products
+                        SET cluster = %s
+                        WHERE cod = %s AND v = %s
+                    """, (cluster, cod, var))
+                    new_cluster_value = cluster
+                
+                service.db.conn.commit()
+                cluster_updated = True
+                logger.info(f"Updated cluster for {cod}.{var} to {new_cluster_value}")
+            
+            # Handle stock adjustment
             loss_type_mapping = {
                 'broken': 'broken',
                 'expired': 'expired',
@@ -3063,7 +3138,9 @@ def inventory_adjust_stock_ajax_view(request):
                     'loss_recorded': True,
                     'loss_type': loss_type,
                     'loss_amount': loss_amount,
-                    'minimum_stock_updated': minimum_stock_updated
+                    'minimum_stock_updated': minimum_stock_updated,
+                    'cluster_updated': cluster_updated,
+                    'new_cluster': new_cluster_value
                 })
             else:
                 # Regular stock adjustment (not a loss)
@@ -3081,7 +3158,9 @@ def inventory_adjust_stock_ajax_view(request):
                     'message': f'Stock adjusted: {current_stock} → {new_stock}',
                     'new_stock': new_stock,
                     'loss_recorded': False,
-                    'minimum_stock_updated': minimum_stock_updated
+                    'minimum_stock_updated': minimum_stock_updated,
+                    'cluster_updated': cluster_updated,
+                    'new_cluster': new_cluster_value
                 })
                                             
     except Exception as e:

@@ -130,6 +130,9 @@
                     <a href="{% url 'upload-ddt' storage_id=storage.id %}" class="btn btn-outline-success">
                         <i class="bi bi-truck"></i> Upload DDT (Delivery)
                     </a>
+                    <a href="{% url 'purge-products' storage_id=storage.id %}" class="btn btn-outline-danger">
+                        <i class="bi bi-trash"></i> Purge Products
+                    </a>
                 </div>
 
                 <!-- Schedule Info -->
@@ -158,14 +161,6 @@
                     </div>
                 </div>
                 {% endif %}
-
-                <!-- Danger Zone -->
-                <div class="border-top pt-3 mt-3">
-                    <h6 class="text-danger mb-2">Danger Zone</h6>
-                    <a href="{% url 'storage-delete' pk=storage.id %}" class="btn btn-outline-danger btn-sm">
-                        <i class="bi bi-trash"></i> Delete Storage
-                    </a>
-                </div>
             </div>
         </div>
 

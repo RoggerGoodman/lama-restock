@@ -609,6 +609,10 @@
                                                 <th><input type="checkbox" id="selectAllNew" onclick="toggleSelectAllNew()"></th>
                                                 <th>Code</th>
                                                 <th>Product Name</th>
+                                                <th>Package</th>
+                                                <th>Unit Cost</th>
+                                                <th>Unit Price</th>
+                                                <th>Margin</th>
                                                 <th>Stock</th>
                                                 <th>Availability</th>
                                                 <th>Quantity to Order</th>
@@ -627,6 +631,24 @@
                                                 </td>
                                                 <td><code>{{ item.cod }}.{{ item.var }}</code></td>
                                                 <td>{{ item.name|truncatewords:6 }}</td>
+                                                <td>
+                                                    <span class="badge bg-info">{{ item.package_size }} units</span>
+                                                </td>
+                                                <td>
+                                                    <strong>€{{ item.unit_cost|floatformat:2 }}</strong>
+                                                    <br><small class="text-muted">Pkg: €{{ item.package_cost|floatformat:2 }}</small>
+                                                </td>
+                                                <td>
+                                                    <strong>€{{ item.unit_price|floatformat:2 }}</strong>
+                                                    <br><small class="text-muted">Pkg: €{{ item.package_price|floatformat:2 }}</small>
+                                                </td>
+                                                <td>
+                                                    {% if item.margin_pct > 0 %}
+                                                        <span class="badge bg-success">{{ item.margin_pct|floatformat:1 }}%</span>
+                                                    {% else %}
+                                                        <span class="badge bg-danger">{{ item.margin_pct|floatformat:1 }}%</span>
+                                                    {% endif %}
+                                                </td>
                                                 <td>
                                                     <span class="badge bg-secondary">{{ item.stock }} units</span>
                                                 </td>
