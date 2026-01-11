@@ -144,7 +144,7 @@ class DecisionMaker:
     def get_discount_for(self, cod, v):
         return self.sale_discounts.get((cod, v))
     
-    def is_in_last_60_percent(today, sale_start, sale_end):
+    def is_in_last_60_percent(self, today, sale_start, sale_end):
         total_days = (sale_end - sale_start).days + 1
         threshold_day = ceil(total_days * 0.6)
 

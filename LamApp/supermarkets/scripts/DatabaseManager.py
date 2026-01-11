@@ -408,11 +408,11 @@ class DatabaseManager:
 
     def register_losses(self, cod: int, v: int, delta: int, type: str):
         """
-        Registers a type of loss (broken, expired, internal).
+        Registers a type of loss (broken, expired, internal, stolen).
         NOW STORES COST SNAPSHOT: [[qty, cost], [qty, cost], ...]
         AUTO-CREATES extra_losses entry if missing.
         """
-        allowed = ("broken", "expired", "internal")
+        allowed = ("broken", "expired", "internal", "stolen")  # ✅ ADDED STOLEN
         delta = int(delta)
         if type not in allowed:
             raise ValueError(f"Invalid type '{type}'. Allowed: {allowed}")
@@ -442,7 +442,7 @@ class DatabaseManager:
 
         # If no entry exists, create it
         if row is None:
-            json_array = Json([[delta, current_cost]])  # Store [qty, cost] pair
+            json_array = Json([[delta, current_cost]])
             cur.execute(
                 f"""
                 INSERT INTO extra_losses (cod, v, {type}, {type}_updated)
@@ -485,13 +485,10 @@ class DatabaseManager:
 
         # SAME MONTH: Add to the first element
         if months_passed == 0:
-            # Check format: old [qty] or new [[qty, cost]]
             if arr and isinstance(arr[0], list):
-                # New format: [[qty, cost], ...]
                 old_qty = arr[0][0]
-                arr[0] = [arr[0][0] + delta, current_cost]  # Update qty, refresh cost
+                arr[0] = [arr[0][0] + delta, current_cost]
             else:
-                # Old format: [qty, qty, ...] - convert to new format
                 old_qty = arr[0]
                 arr[0] = [arr[0] + delta, current_cost]
             
@@ -514,19 +511,19 @@ class DatabaseManager:
         
         # NEW MONTH(S): Insert new month(s)
         else:
-            new_entry = [delta, current_cost]  # Store [qty, cost]
-            zeros = [[0, current_cost] for _ in range(max(0, months_passed - 1))]  # Fill gaps
+            new_entry = [delta, current_cost]
+            zeros = [[0, current_cost] for _ in range(max(0, months_passed - 1))]
             
             # Convert old format entries to new format if needed
             converted_arr = []
             for item in arr:
                 if isinstance(item, list) and len(item) == 2:
-                    converted_arr.append(item)  # Already new format
+                    converted_arr.append(item)
                 else:
-                    converted_arr.append([item, current_cost])  # Old format, convert with current_cost
+                    converted_arr.append([item, current_cost])
             
             new_arr = [new_entry] + zeros + converted_arr
-            new_arr = new_arr[:24]  # Trim to 24 months
+            new_arr = new_arr[:24]
             
             json_out = Json(new_arr)
             cur.execute(

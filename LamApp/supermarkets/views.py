@@ -98,12 +98,13 @@ def dashboard_view(request):
         'storages__blacklists'
     )
     
-    # Get recent logs
+    # ✅ FIXED: Only show KEY operations (full_restock and order_execution)
     recent_logs = RestockLog.objects.filter(
-        storage__supermarket__owner=request.user
+        storage__supermarket__owner=request.user,
+        operation_type__in=['full_restock', 'order_execution']  # ← FILTER KEY OPERATIONS ONLY
     ).select_related('storage', 'storage__supermarket').order_by('-started_at')[:10]
     
-    # Get failed logs that need attention
+    # Get failed logs that need attention (all types)
     failed_logs = RestockLog.objects.filter(
         storage__supermarket__owner=request.user,
         status='failed'
@@ -115,7 +116,7 @@ def dashboard_view(request):
         schedule__isnull=True
     ).select_related('supermarket')[:5]
     
-    # ✅ FIXED: Efficient pending verifications count with type checking
+    # Pending verifications count (efficient)
     pending_verifications = 0
     
     # Group storages by supermarket to minimize DB connections
@@ -177,14 +178,13 @@ def dashboard_view(request):
 
     logger.info(f"Dashboard: {pending_verifications} total pending verifications across {len(supermarkets_with_storages)} supermarkets")
     
-    # ✅ FIX: Create context dict FIRST, then all assignments work
     context = {
         'supermarkets': supermarkets,
-        'recent_logs': recent_logs,
+        'recent_logs': recent_logs,  # ← NOW ONLY ORDERS
         'failed_logs': failed_logs,
         'storages_without_schedule': storages_without_schedule,
         'pending_verifications': pending_verifications,
-        'top_pending_products': top_pending_products,  # ← NOW DEFINED INSIDE DICT
+        'top_pending_products': top_pending_products,
         'total_supermarkets': supermarkets.count(),
         'total_storages': sum(s.storages.count() for s in supermarkets),
         'active_schedules': RestockSchedule.objects.filter(
@@ -1385,10 +1385,11 @@ def stock_value_unified_view(request):
 @login_required
 def losses_analytics_unified_view(request):
     """
-    UPDATED: Now uses cost snapshots stored in loss arrays.
-    Format: [[qty, cost], [qty, cost], ...] instead of [qty, qty, ...]
-    Handles both old format (qty only) and new format (qty + cost) for backward compatibility.
+    FIXED: Proper type filtering, added category filter from economics table,
+    added stolen items, and improved chart labels with month names.
     """
+    from datetime import datetime, timedelta
+    from calendar import month_abbr
     
     # Get user's supermarkets
     supermarkets = Supermarket.objects.filter(owner=request.user)
@@ -1397,7 +1398,8 @@ def losses_analytics_unified_view(request):
     supermarket_id = request.GET.get('supermarket_id')
     storage_id = request.GET.get('storage_id')
     period = request.GET.get('period', '3')
-    show_category = request.GET.get('show_category', 'all')
+    show_type = request.GET.get('show_type', 'all')  # ✅ RENAMED from show_category
+    show_category = request.GET.get('show_category', 'all')  # ✅ NEW: Economics category filter
     
     try:
         period_months = int(period)
@@ -1434,7 +1436,10 @@ def losses_analytics_unified_view(request):
         supermarkets_to_process[storage.supermarket.id]['storages'].append(storage)
         supermarkets_to_process[storage.supermarket.id]['settores'].add(storage.settore)
     
-    # Enhanced statistics with monetary values
+    # ✅ ADDED: Collect all available categories for filter
+    all_categories = set()
+    
+    # Enhanced statistics with monetary values + STOLEN
     stats = {
         'broken': {
             'total_units': 0, 
@@ -1451,6 +1456,13 @@ def losses_analytics_unified_view(request):
             'monthly_value': [0.0]*24
         },
         'internal': {
+            'total_units': 0, 
+            'total_value': 0.0,
+            'products': 0, 
+            'monthly_units': [0]*24,
+            'monthly_value': [0.0]*24
+        },
+        'stolen': {  # ✅ NEW TYPE
             'total_units': 0, 
             'total_value': 0.0,
             'products': 0, 
@@ -1478,11 +1490,11 @@ def losses_analytics_unified_view(request):
                 else:
                     settore_filter = ""
                 
-                # Query - we still get cost_std for fallback on old data
+                # Query - now includes stolen column
                 query = f"""
                     SELECT 
                         el.cod, el.v,
-                        el.broken, el.expired, el.internal,
+                        el.broken, el.expired, el.internal, el.stolen,
                         p.descrizione,
                         e.cost_std,
                         e.category
@@ -1495,14 +1507,22 @@ def losses_analytics_unified_view(request):
                 
                 cursor.execute(query)
                 
-                loss_types = ['broken', 'expired', 'internal']
+                loss_types = ['broken', 'expired', 'internal', 'stolen']  # ✅ ADDED STOLEN
                 
                 for row in cursor.fetchall():
                     cod = row['cod']
                     v = row['v']
                     description = row['descrizione'] or f"Product {cod}.{v}"
-                    fallback_cost = row['cost_std'] or 0.0  # Fallback for old format data
+                    fallback_cost = row['cost_std'] or 0.0
                     category = row['category'] or 'Unknown'
+                    
+                    # ✅ COLLECT CATEGORIES
+                    if category != 'Unknown':
+                        all_categories.add(category)
+                    
+                    # ✅ SKIP IF CATEGORY FILTER DOESN'T MATCH
+                    if show_category != 'all' and category != show_category:
+                        continue
                     
                     product_losses = {
                         'cod': cod,
@@ -1515,6 +1535,8 @@ def losses_analytics_unified_view(request):
                         'expired_value': 0.0,
                         'internal_units': 0,
                         'internal_value': 0.0,
+                        'stolen_units': 0,  # ✅ NEW
+                        'stolen_value': 0.0,  # ✅ NEW
                         'total_units': 0,
                         'total_value': 0.0
                     }
@@ -1541,28 +1563,30 @@ def losses_analytics_unified_view(request):
                                         period_losses += qty
                                         period_value += qty * cost
                                     else:
-                                        # Old format: just qty (use fallback cost)
+                                        # Old format: just qty
                                         qty = item
                                         period_losses += qty
                                         period_value += qty * fallback_cost
                                 
                                 if period_losses > 0:
-                                    stats[loss_type]['total_units'] += period_losses
-                                    stats[loss_type]['total_value'] += period_value
-                                    stats[loss_type]['products'] += 1
+                                    # ✅ ONLY COUNT IF TYPE FILTER MATCHES
+                                    if show_type == 'all' or show_type == loss_type:
+                                        stats[loss_type]['total_units'] += period_losses
+                                        stats[loss_type]['total_value'] += period_value
+                                        stats[loss_type]['products'] += 1
+                                        
+                                        # Aggregate monthly data
+                                        for idx, item in enumerate(loss_array[:24]):
+                                            if isinstance(item, list) and len(item) == 2:
+                                                qty, cost = item
+                                                stats[loss_type]['monthly_units'][idx] += qty
+                                                stats[loss_type]['monthly_value'][idx] += qty * cost
+                                            else:
+                                                qty = item
+                                                stats[loss_type]['monthly_units'][idx] += qty
+                                                stats[loss_type]['monthly_value'][idx] += qty * fallback_cost
                                     
-                                    # Aggregate monthly data
-                                    for idx, item in enumerate(loss_array[:24]):
-                                        if isinstance(item, list) and len(item) == 2:
-                                            qty, cost = item
-                                            stats[loss_type]['monthly_units'][idx] += qty
-                                            stats[loss_type]['monthly_value'][idx] += qty * cost
-                                        else:
-                                            qty = item
-                                            stats[loss_type]['monthly_units'][idx] += qty
-                                            stats[loss_type]['monthly_value'][idx] += qty * fallback_cost
-                                    
-                                    # Add to product losses
+                                    # Add to product losses (for table)
                                     product_losses[f'{loss_type}_units'] = period_losses
                                     product_losses[f'{loss_type}_value'] = period_value
                                     product_losses['total_units'] += period_losses
@@ -1582,18 +1606,29 @@ def losses_analytics_unified_view(request):
     # Sort products by total value (descending)
     all_products_list.sort(key=lambda x: x['total_value'], reverse=True)
     
-    # Category filtering
-    if show_category != 'all':
+    # Type filtering for product list
+    if show_type != 'all':
         filtered_products = [
             p for p in all_products_list 
-            if p[f'{show_category}_units'] > 0
+            if p[f'{show_type}_units'] > 0
         ]
     else:
         filtered_products = all_products_list
     
-    # Calculate totals
-    total_units = sum(s['total_units'] for s in stats.values())
-    total_value = sum(s['total_value'] for s in stats.values())
+    # ✅ CALCULATE TOTALS BASED ON TYPE FILTER
+    if show_type == 'all':
+        total_units = sum(s['total_units'] for s in stats.values())
+        total_value = sum(s['total_value'] for s in stats.values())
+    else:
+        total_units = stats[show_type]['total_units']
+        total_value = stats[show_type]['total_value']
+    
+    # ✅ GENERATE MONTH LABELS (last 12 months)
+    today = datetime.now()
+    month_labels = []
+    for i in range(11, -1, -1):  # 12 months ago to current
+        month_date = today - timedelta(days=30 * i)
+        month_labels.append(month_abbr[month_date.month])  # "Jan", "Feb", etc.
     
     context = {
         'supermarkets': supermarkets,
@@ -1606,8 +1641,11 @@ def losses_analytics_unified_view(request):
         'total_value': total_value,
         'all_products': filtered_products,
         'total_products': len(filtered_products),
+        'show_type': show_type,
         'show_category': show_category,
+        'all_categories': sorted(list(all_categories)),
         'period': period_months,
+        'month_labels': json.dumps(month_labels),
         'period_options': [
             {'value': 1, 'label': 'Last Month'},
             {'value': 3, 'label': 'Last 3 Months'},
@@ -3044,7 +3082,7 @@ def edit_loss_ajax_view(request):
 @require_POST
 def inventory_adjust_stock_ajax_view(request):
     """
-    UPDATED: Now handles stock adjustment, minimum_stock, AND cluster updates
+    UPDATED: Now handles stock adjustment, minimum_stock, cluster, AND stolen losses
     """
     try:
         cod = int(request.POST.get('cod'))
@@ -3053,7 +3091,7 @@ def inventory_adjust_stock_ajax_view(request):
         reason = request.POST.get('reason')
         supermarket_name = request.POST.get('supermarket')
         minimum_stock = request.POST.get('minimum_stock')
-        cluster = request.POST.get('cluster', '').strip().upper()  # ✅ GET CLUSTER
+        cluster = request.POST.get('cluster', '').strip().upper()
         
         supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
         storage = supermarket.storages.first()
@@ -3084,14 +3122,13 @@ def inventory_adjust_stock_ajax_view(request):
                 minimum_stock_updated = True
                 logger.info(f"Updated minimum_stock for {cod}.{var} to {minimum_stock_val}")
             
-            # ✅ UPDATE CLUSTER if provided
+            # Update cluster if provided
             cluster_updated = False
             new_cluster_value = None
             if cluster != '':
                 cursor = service.db.cursor()
                 
                 if cluster == 'NONE':
-                    # Remove cluster
                     cursor.execute("""
                         UPDATE products
                         SET cluster = NULL
@@ -3099,7 +3136,6 @@ def inventory_adjust_stock_ajax_view(request):
                     """, (cod, var))
                     new_cluster_value = "None"
                 else:
-                    # Set new cluster
                     cursor.execute("""
                         UPDATE products
                         SET cluster = %s
@@ -3111,11 +3147,12 @@ def inventory_adjust_stock_ajax_view(request):
                 cluster_updated = True
                 logger.info(f"Updated cluster for {cod}.{var} to {new_cluster_value}")
             
-            # Handle stock adjustment
+            # ✅ FIXED: Handle stock adjustment with stolen loss type
             loss_type_mapping = {
                 'broken': 'broken',
                 'expired': 'expired',
                 'internal_use': 'internal',
+                'stolen': 'stolen',
             }
             
             if reason in loss_type_mapping and adjustment < 0:
