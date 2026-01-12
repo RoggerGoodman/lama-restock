@@ -70,7 +70,7 @@
                         </select>
                     </div>
                     
-                    <!-- Category Filter  -->
+                    <!-- Category Filter -->
                     <div class="col-md-2">
                         <label for="show_category" class="form-label">Category Filter</label>
                         <select name="show_category" id="show_category" class="form-select" onchange="this.form.submit()">
@@ -99,13 +99,15 @@
             <div class="alert alert-primary">
                 <strong>Analyzing:</strong> {{ scope_description }} | 
                 <strong>{{ total_products }}</strong> products with losses
+                {% if show_type != 'all' %}| <strong>Showing only {{ show_type }} losses</strong>{% endif %}
             </div>
         </div>
     </div>
 
-    <!-- Summary Cards - Enhanced with Monetary Values + STOLEN -->
+    <!-- Summary Cards - Only show selected type if filtered -->
     <div class="row mb-4">
-        <div class="col-md-3">
+        {% if show_type == 'all' or show_type == 'broken' %}
+        <div class="{% if show_type == 'broken' %}col-md-6{% else %}col-md-3{% endif %}">
             <div class="stat-card">
                 <div class="icon icon-red">
                     <i class="bi bi-x-octagon"></i>
@@ -116,7 +118,10 @@
                 <small class="text-muted">{{ stats.broken.products }} product{{ stats.broken.products|pluralize }}</small>
             </div>
         </div>
-        <div class="col-md-2">
+        {% endif %}
+        
+        {% if show_type == 'all' or show_type == 'expired' %}
+        <div class="{% if show_type == 'expired' %}col-md-6{% else %}col-md-2{% endif %}">
             <div class="stat-card">
                 <div class="icon icon-orange">
                     <i class="bi bi-calendar-x"></i>
@@ -127,7 +132,10 @@
                 <small class="text-muted">{{ stats.expired.products }} product{{ stats.expired.products|pluralize }}</small>
             </div>
         </div>
-        <div class="col-md-2">
+        {% endif %}
+        
+        {% if show_type == 'all' or show_type == 'internal' %}
+        <div class="{% if show_type == 'internal' %}col-md-6{% else %}col-md-2{% endif %}">
             <div class="stat-card">
                 <div class="icon icon-blue">
                     <i class="bi bi-people"></i>
@@ -138,8 +146,10 @@
                 <small class="text-muted">{{ stats.internal.products }} product{{ stats.internal.products|pluralize }}</small>
             </div>
         </div>
-        <!-- Stolen Card -->
-        <div class="col-md-2">
+        {% endif %}
+        
+        {% if show_type == 'all' or show_type == 'stolen' %}
+        <div class="{% if show_type == 'stolen' %}col-md-6{% else %}col-md-2{% endif %}">
             <div class="stat-card">
                 <div class="icon" style="background-color: #fff3cd; color: #856404;">
                     <i class="bi bi-exclamation-triangle-fill"></i>
@@ -150,6 +160,8 @@
                 <small class="text-muted">{{ stats.stolen.products }} product{{ stats.stolen.products|pluralize }}</small>
             </div>
         </div>
+        {% endif %}
+        
         <div class="col-md-3">
             <div class="stat-card">
                 <div class="icon icon-red">
@@ -183,7 +195,7 @@
         </div>
     </div>
 
-    <!-- Complete Products List -->
+    <!-- Complete Products List - Dynamic columns based on filter -->
     <div class="row">
         <div class="col-12">
             <div class="stat-card">
@@ -205,10 +217,24 @@
                                 <th>Code</th>
                                 <th>Description</th>
                                 <th>Category</th>
+                                
+                                <!-- ✅ FIXED: Only show selected type columns -->
+                                {% if show_type == 'all' or show_type == 'broken' %}
                                 <th class="text-end">Broken</th>
+                                {% endif %}
+                                
+                                {% if show_type == 'all' or show_type == 'expired' %}
                                 <th class="text-end">Expired</th>
+                                {% endif %}
+                                
+                                {% if show_type == 'all' or show_type == 'internal' %}
                                 <th class="text-end">Internal</th>
+                                {% endif %}
+                                
+                                {% if show_type == 'all' or show_type == 'stolen' %}
                                 <th class="text-end">Stolen</th>
+                                {% endif %}
+                                
                                 <th class="text-end">Total Units</th>
                                 <th class="text-end">Total Value</th>
                             </tr>
@@ -219,6 +245,8 @@
                                 <td><code>{{ product.cod }}.{{ product.var }}</code></td>
                                 <td>{{ product.description|truncatewords:6 }}</td>
                                 <td><small class="text-muted">{{ product.category }}</small></td>
+                                
+                                {% if show_type == 'all' or show_type == 'broken' %}
                                 <td class="text-end">
                                     {% if product.broken_units > 0 %}
                                         <span class="badge bg-danger">{{ product.broken_units }}</span>
@@ -227,6 +255,9 @@
                                         —
                                     {% endif %}
                                 </td>
+                                {% endif %}
+                                
+                                {% if show_type == 'all' or show_type == 'expired' %}
                                 <td class="text-end">
                                     {% if product.expired_units > 0 %}
                                         <span class="badge bg-warning">{{ product.expired_units }}</span>
@@ -235,6 +266,9 @@
                                         —
                                     {% endif %}
                                 </td>
+                                {% endif %}
+                                
+                                {% if show_type == 'all' or show_type == 'internal' %}
                                 <td class="text-end">
                                     {% if product.internal_units > 0 %}
                                         <span class="badge bg-info">{{ product.internal_units }}</span>
@@ -243,6 +277,9 @@
                                         —
                                     {% endif %}
                                 </td>
+                                {% endif %}
+                                
+                                {% if show_type == 'all' or show_type == 'stolen' %}
                                 <td class="text-end">
                                     {% if product.stolen_units > 0 %}
                                         <span class="badge" style="background-color: #856404;">{{ product.stolen_units }}</span>
@@ -251,6 +288,8 @@
                                         —
                                     {% endif %}
                                 </td>
+                                {% endif %}
+                                
                                 <td class="text-end">
                                     <strong>{{ product.total_units }}</strong>
                                 </td>
@@ -262,7 +301,14 @@
                         </tbody>
                         <tfoot class="table-light">
                             <tr>
-                                <td colspan="7"><strong>Totals</strong></td>
+                                <td colspan="3"><strong>Totals</strong></td>
+                                
+                                {% if show_type == 'all' %}
+                                    <td></td><td></td><td></td><td></td>
+                                {% else %}
+                                    <td></td>
+                                {% endif %}
+                                
                                 <td class="text-end"><strong>{{ total_units }}</strong></td>
                                 <td class="text-end"><strong class="text-danger">€{{ total_value|floatformat:2 }}</strong></td>
                             </tr>
@@ -284,8 +330,72 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-// ✅ USE MONTH NAMES FROM BACKEND
 const monthLabels = {{ month_labels|safe }};
+const showType = '{{ show_type }}';
+
+// ✅ FIXED: Build datasets based on filter
+const unitsDatasets = [];
+const valueDatasets = [];
+
+if (showType === 'all' || showType === 'broken') {
+    unitsDatasets.push({
+        label: 'Broken',
+        data: {{ stats.broken.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        borderColor: 'rgb(220, 53, 69)',
+        backgroundColor: 'rgba(220, 53, 69, 0.1)',
+        tension: 0.4
+    });
+    valueDatasets.push({
+        label: 'Broken',
+        data: {{ stats.broken.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        backgroundColor: 'rgba(220, 53, 69, 0.7)',
+    });
+}
+
+if (showType === 'all' || showType === 'expired') {
+    unitsDatasets.push({
+        label: 'Expired',
+        data: {{ stats.expired.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        borderColor: 'rgb(255, 193, 7)',
+        backgroundColor: 'rgba(255, 193, 7, 0.1)',
+        tension: 0.4
+    });
+    valueDatasets.push({
+        label: 'Expired',
+        data: {{ stats.expired.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        backgroundColor: 'rgba(255, 193, 7, 0.7)',
+    });
+}
+
+if (showType === 'all' || showType === 'internal') {
+    unitsDatasets.push({
+        label: 'Internal Use',
+        data: {{ stats.internal.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        borderColor: 'rgb(13, 110, 253)',
+        backgroundColor: 'rgba(13, 110, 253, 0.1)',
+        tension: 0.4
+    });
+    valueDatasets.push({
+        label: 'Internal Use',
+        data: {{ stats.internal.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        backgroundColor: 'rgba(13, 110, 253, 0.7)',
+    });
+}
+
+if (showType === 'all' || showType === 'stolen') {
+    unitsDatasets.push({
+        label: 'Stolen',
+        data: {{ stats.stolen.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        borderColor: 'rgb(133, 100, 4)',
+        backgroundColor: 'rgba(133, 100, 4, 0.1)',
+        tension: 0.4
+    });
+    valueDatasets.push({
+        label: 'Stolen',
+        data: {{ stats.stolen.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        backgroundColor: 'rgba(133, 100, 4, 0.7)',
+    });
+}
 
 // Units chart
 const unitsCtx = document.getElementById('unitsChart').getContext('2d');
@@ -293,36 +403,7 @@ new Chart(unitsCtx, {
     type: 'line',
     data: {
         labels: monthLabels,
-        datasets: [
-            {
-                label: 'Broken',
-                data: {{ stats.broken.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
-                borderColor: 'rgb(220, 53, 69)',
-                backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                tension: 0.4
-            },
-            {
-                label: 'Expired',
-                data: {{ stats.expired.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
-                borderColor: 'rgb(255, 193, 7)',
-                backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                tension: 0.4
-            },
-            {
-                label: 'Internal Use',
-                data: {{ stats.internal.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
-                borderColor: 'rgb(13, 110, 253)',
-                backgroundColor: 'rgba(13, 110, 253, 0.1)',
-                tension: 0.4
-            },
-            {
-                label: 'Stolen',
-                data: {{ stats.stolen.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
-                borderColor: 'rgb(133, 100, 4)',
-                backgroundColor: 'rgba(133, 100, 4, 0.1)',
-                tension: 0.4
-            }
-        ]
+        datasets: unitsDatasets
     },
     options: {
         responsive: true,
@@ -350,28 +431,7 @@ new Chart(valueCtx, {
     type: 'bar',
     data: {
         labels: monthLabels,
-        datasets: [
-            {
-                label: 'Broken',
-                data: {{ stats.broken.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
-                backgroundColor: 'rgba(220, 53, 69, 0.7)',
-            },
-            {
-                label: 'Expired',
-                data: {{ stats.expired.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
-                backgroundColor: 'rgba(255, 193, 7, 0.7)',
-            },
-            {
-                label: 'Internal Use',
-                data: {{ stats.internal.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
-                backgroundColor: 'rgba(13, 110, 253, 0.7)',
-            },
-            {
-                label: 'Stolen',
-                data: {{ stats.stolen.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
-                backgroundColor: 'rgba(133, 100, 4, 0.7)',
-            }
-        ]
+        datasets: valueDatasets
     },
     options: {
         responsive: true,
@@ -413,7 +473,6 @@ function exportToCSV() {
     table.querySelectorAll('tbody tr').forEach(tr => {
         const row = [];
         tr.querySelectorAll('td').forEach(td => {
-            // Clean text and escape commas
             let text = td.textContent.trim().replace(/\n/g, ' ').replace(/\s+/g, ' ');
             if (text.includes(',')) {
                 text = `"${text}"`;

@@ -37,7 +37,7 @@ class DecisionMaker:
         """
         query = """
             SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
-                p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, ps.minimum_stock
+                p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag, ps.minimum_stock
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
             WHERE p.settore = %s
@@ -140,6 +140,41 @@ class DecisionMaker:
             }
 
         return sale_discounts
+    
+    def retrive_products_recently_ended_sale(self):
+        today = date.today()
+
+        self.cursor.execute("""
+            SELECT cod, v, sale_start, sale_end
+            FROM economics
+            WHERE sale_start IS NOT NULL
+            AND sale_end IS NOT NULL
+            AND %s > sale_end
+            AND (%s - sale_end) <= 14;
+        """, (today, today))
+
+        rows = self.cursor.fetchall()
+        sale_discounts_ended = {}
+
+        for row in rows:
+            cod = row["cod"]
+            v = row["v"]
+
+            sale_start = row["sale_start"]
+            sale_end = row["sale_end"]
+
+            # Duration of the sale
+            days_lasted = (sale_end - sale_start).days
+
+            # Days passed since sale ended
+            days_since_the_end = (today - sale_end).days
+
+            sale_discounts_ended[(cod, v)] = {
+                "days_lasted": days_lasted,
+                "days_since_the_end": days_since_the_end,
+            }
+
+        return sale_discounts_ended
 
     def get_discount_for(self, cod, v):
         return self.sale_discounts.get((cod, v))
@@ -174,9 +209,16 @@ class DecisionMaker:
             product_cod = row["cod"]
             product_var = row["v"]
             
-            # CHECK BLACKLIST FIRST!
+            # CHECK BLACKLIST
             if (product_cod, product_var) in self.blacklist:
                 logger.info(f"Skipping blacklisted product: {product_cod}.{product_var}")
+                continue
+
+            product_flag = row["purge_flag"]
+
+            # CHECK Purge
+            if product_flag == True:
+                logger.info(f"Skipping purging product: {product_cod}.{product_var}")
                 continue
             
             descrizione = row["descrizione"]
@@ -215,7 +257,7 @@ class DecisionMaker:
                 analyzer.anomalous_stock_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
             
             if len(bought_array) == 0 and len(sold_array) == 0:
-                if disponibilita == "Si":
+                if verified == False and (disponibilita == "Si" or settore == "DEPERIBILI"):
                     reason = "Never been in system (brand new product)"
                     analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
