@@ -233,8 +233,8 @@ class DatabaseManager:
                 sold_delta = cur_sold_val + (prev_sold_val - old_previous_stored)
            
             if days_since > 0:
-                pair = [int(sold_delta), int(days_since)]
-                sales_sets.insert(0, pair)
+                value = int(sold_delta)
+                sales_sets.insert(0, value)
                 # Keep most recent 30 days
                 sales_sets = sales_sets[:30]
 

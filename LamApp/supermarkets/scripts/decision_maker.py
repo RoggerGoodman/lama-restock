@@ -25,6 +25,7 @@ class DecisionMaker:
         self.zombie_products = []   # Products that are finished/not restockable
         
         self.sale_discounts = self.retrive_products_on_sale()
+        self.sale_discounts_ended = self.retrive_products_recently_ended_sale()
         
         # Store blacklist - if None, create empty set
         self.blacklist = blacklist_set if blacklist_set is not None else set()
@@ -141,6 +142,9 @@ class DecisionMaker:
 
         return sale_discounts
     
+    def get_discount_for(self, cod, v):
+        return self.sale_discounts.get((cod, v))
+    
     def retrive_products_recently_ended_sale(self):
         today = date.today()
 
@@ -176,8 +180,8 @@ class DecisionMaker:
 
         return sale_discounts_ended
 
-    def get_discount_for(self, cod, v):
-        return self.sale_discounts.get((cod, v))
+    def get_ended_discount_for(self, cod, v):
+        return self.sale_discounts_ended.get((cod, v))
     
     def is_in_last_60_percent(self, today, sale_start, sale_end):
         total_days = (sale_end - sale_start).days + 1
@@ -277,9 +281,19 @@ class DecisionMaker:
             if (product_cod, product_var) in extra_losses_lookup:
                 sold_array = self.integrate_internal_losses(product_cod, product_var, sold_array, extra_losses_list)
 
+            sale_end_info = self.get_ended_discount_for(product_cod, product_var)
+
+            if sale_end_info is not None:
+                days_lasted = sale_end_info["days_lasted"]
+                days_since_the_end = sale_end_info["days_since_the_end"]
+                sales_sets = sales_sets[:days_since_the_end] + sales_sets[days_since_the_end + days_lasted:]
+                sale_info = None
+            else : 
+                sale_info = self.get_discount_for(product_cod, product_var)
+
             avg_daily_sales = self.helper.avg_daily_sales_from_sales_sets(sales_sets)
             avg_sales_base = avg_daily_sales
-            if avg_daily_sales == 0: 
+            if avg_daily_sales == None: 
                 avg_daily_sales, avg_sales_base = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
             if len(sold_array) >= 4:                    
@@ -306,8 +320,6 @@ class DecisionMaker:
 
             package_consumption = req_stock / package_size 
             logger.info(f"Package consumption = {package_consumption:.2f}")
-
-            sale_info = self.get_discount_for(product_cod, product_var)
 
             if sale_info is not None:
                 discount = sale_info["discount"]

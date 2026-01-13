@@ -124,57 +124,45 @@ class Helper:
 
         return avg_daily_sales, avg_sales_base
     
-    def avg_daily_sales_from_sales_sets(self, sales_sets):
+    def avg_daily_sales_from_sales_sets(self, daily_sales: list):
         """
-        Compute a recency-weighted average daily sales rate from sales_sets.
-        If observed_days < min_days: fallback to old method.
+        Compute a recency-weighted average daily sales rate.
 
         Args:
-            sales_sets: list of [sold, days], oldest -> newest.
+            daily_sales: list[int], oldest → newest
         Returns:
-            float: estimated avg daily sales.
+            float
         """
 
-        if not sales_sets:
-            return 0
-        
+        if not daily_sales:
+            return None
+
         min_days = 20
         half_life = 14
 
-        # Total observed days across all intervals
-        observed_days = sum(days for _, days in sales_sets)
-
-        # If not enough data → use old method
+        observed_days = len(daily_sales)
         if observed_days < min_days:
-            return 0
+            return None
 
-        # Exponential recency weighting
         lam = math.log(2) / half_life
 
-        weighted_num = 0.0
-        weighted_den = 0.0
-        cumulative_days_from_now = 0  # used to compute age midpoint
+        weighted_sum = 0.0
+        weight_total = 0.0
 
-        # Process newest → oldest
-        for sold, days in sales_sets:
-            rate = sold / days  # daily rate for this interval
+        # newest day has age = 0
+        for age, sold in enumerate(reversed(daily_sales)):
+            weight = math.exp(-lam * age)
+            weighted_sum += sold * weight
+            weight_total += weight
 
-            # age of midpoint of this interval
-            age_mid = cumulative_days_from_now + (days / 2)
-            weight = math.exp(-lam * age_mid)
+        avg_daily_sales = weighted_sum / weight_total
 
-            # Weighted by days so long intervals matter proportionally
-            weighted_num += rate * days * weight
-            weighted_den += days * weight
-
-            cumulative_days_from_now += days
-
-        avg_daily_sales = weighted_num / weighted_den
         try:
             logger.info(f"avg_daily_sales={avg_daily_sales:.2f}")
         except Exception:
             pass
-        return avg_daily_sales 
+
+        return avg_daily_sales
     
     def calculate_data_recent_months(self, list: list, period: int):
         weights = [0.7, 0.2, 0.1]  # You can adjust these weights

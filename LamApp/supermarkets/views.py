@@ -1947,8 +1947,6 @@ def inventory_results_view(request, search_type):
         
         elif search_type == 'settore_cluster':
             supermarket_id = request.GET.get('supermarket_id')
-            if not supermarket_id and sm.count() == 1:
-                supermarket_id = str(sm.first().id)
             settore = request.GET.get('settore')
             cluster = request.GET.get('cluster', '')
             
@@ -3084,7 +3082,7 @@ def inventory_adjust_stock_ajax_view(request):
     try:
         cod = int(request.POST.get('cod'))
         var = int(request.POST.get('var'))
-        adjustment = int(request.POST.get('adjustment'))
+        adjustment_raw = request.POST.get('adjustment', '').strip()
         reason = request.POST.get('reason')
         supermarket_name = request.POST.get('supermarket')
         minimum_stock = request.POST.get('minimum_stock', '').strip()  # ← FIX: strip whitespace
@@ -3098,7 +3096,7 @@ def inventory_adjust_stock_ajax_view(request):
         
         with RestockService(storage) as service:        
             current_stock = service.db.get_stock(cod, var)
-            
+
             # Update minimum_stock if provided AND not empty
             minimum_stock_updated = False
             if minimum_stock:  # ← FIX: Check if not empty string
@@ -3156,7 +3154,18 @@ def inventory_adjust_stock_ajax_view(request):
                 'stolen': 'stolen',
             }
             
-            if reason in loss_type_mapping and adjustment < 0:
+            adjustment = None
+
+            if adjustment_raw != '':
+                try:
+                    adjustment = int(adjustment_raw)
+                except ValueError:
+                    return JsonResponse(
+                        {'success': False, 'message': 'Adjustment must be a number'},
+                        status=400
+                    )
+                
+            if adjustment is not None and reason in loss_type_mapping and adjustment < 0:
                 # This is a loss - record in extra_losses
                 loss_type = loss_type_mapping[reason]
                 loss_amount = abs(adjustment)
@@ -3180,7 +3189,7 @@ def inventory_adjust_stock_ajax_view(request):
                     'cluster_updated': cluster_updated,
                     'new_cluster': new_cluster_value
                 })
-            else:
+            elif adjustment is not None:
                 # Regular stock adjustment (not a loss)
                 service.db.adjust_stock(cod, var, adjustment)
                 new_stock = service.db.get_stock(cod, var)
@@ -3195,6 +3204,17 @@ def inventory_adjust_stock_ajax_view(request):
                     'success': True,
                     'message': f'Stock adjusted: {current_stock} → {new_stock}',
                     'new_stock': new_stock,
+                    'loss_recorded': False,
+                    'minimum_stock_updated': minimum_stock_updated,
+                    'cluster_updated': cluster_updated,
+                    'new_cluster': new_cluster_value
+                })
+            else:
+                # No stock change, only metadata updated
+                return JsonResponse({
+                    'success': True,
+                    'message': 'Product updated',
+                    'new_stock': current_stock,
                     'loss_recorded': False,
                     'minimum_stock_updated': minimum_stock_updated,
                     'cluster_updated': cluster_updated,
