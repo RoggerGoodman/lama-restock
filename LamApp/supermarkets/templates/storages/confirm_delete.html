@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/storages/confirm_delete.html -->
 {% extends 'base.html' %}
-{% block title %}Delete Magazzino{% endblock %}
-{% block page_title %}Confirm Deletion{% endblock %}
+{% block title %}Elimina Magazzino{% endblock %}
+{% block page_title %}Conferma Eliminazione{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,29 +10,29 @@
             <div class="stat-card">
                 <h4 class="mb-4 text-danger">
                     <i class="bi bi-exclamation-triangle"></i>
-                    Delete Magazzino
+                    Elimina Magazzino
                 </h4>
 
                 <div class="alert alert-danger">
-                    <p class="mb-2"><strong>Warning:</strong> This will delete:</p>
+                    <p class="mb-2"><strong>Warning:</strong> Questo eliminerà:</p>
                     <ul class="mt-2 mb-0">
-                        <li>The storage</li>
-                        <li>Its schedule (if any)</li>
-                        <li>All blacklists for this storage</li>
-                        <li>All restock logs</li>
+                        <li>Il magazzino</li>
+                        <li>La sua agenda ordini (se presente)</li>
+                        <li>Tutte le blacklist per questo magazzino</li>
+                        <li>Tutti i resoconti ordine</li>
                     </ul>
                 </div>
 
-                <p>Are you sure you want to delete <strong>{{ object.name }}</strong>?</p>
+                <p>Sei sicuro di voler eliminare <strong>{{ object.name }}</strong>?</p>
 
                 <form method="post">
                     {% csrf_token %}
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'storage-detail' pk=object.pk %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-danger">
-                            <i class="bi bi-trash"></i> Yes, Delete
+                            <i class="bi bi-trash"></i> Si, elimina
                         </button>
                     </div>
                 </form>

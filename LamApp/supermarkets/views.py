@@ -2708,16 +2708,23 @@ def task_status_ajax_view(request, task_id):
     Always generates a redirect_url or message for frontend.
     """
     from celery.result import AsyncResult
-    
+
     task = AsyncResult(task_id, app=celery_app)
-    
+
+    # Debug logging to diagnose infinite loading issues
+    logger.debug(f"Task {task_id}: state={task.state}, ready={task.ready()}, info={task.info}")
+
+    # ✅ FIX: Check both task.ready() AND explicit SUCCESS/FAILURE states
+    # This fixes cases where task.ready() returns False incorrectly
+    is_complete = task.ready() or task.state in ['SUCCESS', 'FAILURE']
+
     response_data = {
         'state': task.state,
-        'ready': task.ready(),
+        'ready': is_complete,  # Use our corrected completion check
         'task_id': task_id,
     }
-    
-    if task.ready():
+
+    if is_complete:
         if task.successful():
             result = task.result
             response_data['success'] = True
@@ -2776,7 +2783,36 @@ def task_status_ajax_view(request, task_id):
         else:
             response_data['progress'] = 0
             response_data['status_message'] = 'Processing...'
-    
+
+        # ✅ FIX: If task has been PENDING for too long, check if result exists anyway
+        # This handles edge cases where Celery doesn't update state properly
+        if task.state == 'PENDING':
+            try:
+                # Try to get the result anyway - if it exists, the task is actually done
+                result = task.result
+                if result is not None:
+                    logger.warning(f"Task {task_id} stuck in PENDING but has result. Marking as complete.")
+                    response_data['ready'] = True
+                    response_data['success'] = True
+                    response_data['result'] = result
+
+                    # Extract redirect URL from result
+                    if isinstance(result, dict):
+                        response_data['message'] = result.get('message', 'Operation completed')
+
+                        if 'log_id' in result:
+                            response_data['redirect_url'] = f"/logs/{result['log_id']}/"
+                        elif 'storage_id' in result:
+                            response_data['redirect_url'] = f"/storages/{result['storage_id']}/"
+                        else:
+                            response_data['redirect_url'] = "/dashboard/"
+                    else:
+                        response_data['message'] = 'Operation completed'
+                        response_data['redirect_url'] = "/dashboard/"
+            except Exception as e:
+                logger.debug(f"Task {task_id} is genuinely pending: {e}")
+
+    logger.debug(f"Task {task_id} response: ready={response_data.get('ready')}, state={response_data.get('state')}")
     return JsonResponse(response_data)
 
 @login_required

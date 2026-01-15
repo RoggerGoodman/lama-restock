@@ -401,15 +401,23 @@ def manual_restock_task(self, storage_id, coverage=None):
                 f"✅ [MANUAL RESTOCK] Completed for {storage.name} "
                 f"(Log #{log.id}: {log.products_ordered} products)"
             )
-            
-            # ✅ Final success state
-            return {
+
+            # ✅ CRITICAL FIX: Explicitly set state to SUCCESS
+            # Without this, the task stays in PROGRESS state and frontend keeps polling
+            result = {
                 'success': True,
                 'log_id': log.id,
                 'products_ordered': log.products_ordered,
                 'total_packages': log.total_packages,
                 'redirect_url': f'/logs/{log.id}/'
-            }            
+            }
+
+            self.update_state(
+                state='SUCCESS',
+                meta=result
+            )
+
+            return result            
     except Exception as exc:
         logger.exception(f"[MANUAL RESTOCK] Error for storage {storage_id}")
         
@@ -461,16 +469,25 @@ def manual_stats_update_task(self, storage_id):
             log.status = 'completed'
             log.completed_at = timezone.now()
             log.save()
-            
+
             logger.info(f"✅ [MANUAL STATS] Completed for {storage.name}")
-            
-            return {
+
+            # ✅ CRITICAL FIX: Explicitly set state to SUCCESS
+            # Without this, the task stays in PROGRESS state and frontend keeps polling
+            result = {
                 'success': True,
                 'log_id': log.id,
                 'storage_name': storage.name,
                 'storage_id': storage_id,
                 'redirect_url': f'/storages/{storage_id}/'
-            }      
+            }
+
+            self.update_state(
+                state='SUCCESS',
+                meta=result
+            )
+
+            return result      
     except Exception as exc:
         logger.exception(f"[MANUAL STATS] Error for storage {storage_id}")
         raise self.retry(exc=exc)
@@ -1047,13 +1064,14 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 f"[VERIFY+AUTO-ADD] ✅ Complete: "
                 f"{verified_count} verified, {len(added_products)} added"
             )
-            
-            # ✅ Final progress state
+
+            # ✅ CRITICAL FIX: Explicitly set state to SUCCESS
+            # Without this, the task stays in PROGRESS state and frontend keeps polling
             self.update_state(
-                state='PROGRESS',
-                meta={'progress': 100, 'status': 'Verification complete!'}
+                state='SUCCESS',
+                meta=result
             )
-            
+
             return result
             
     except Exception as exc:

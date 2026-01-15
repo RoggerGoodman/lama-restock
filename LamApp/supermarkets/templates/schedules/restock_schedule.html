@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/schedules/restock_schedule.html -->
 {% extends "base.html" %}
-{% block title %}Schedule - {{ storage.name }}{% endblock %}
-{% block page_title %}Restock Schedule{% endblock %}
+{% block title %}Agenda ordini - {{ storage.name }}{% endblock %}
+{% block page_title %}Agenda ordini{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -13,7 +13,7 @@
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
-                    <li class="breadcrumb-item active">Schedule</li>
+                    <li class="breadcrumb-item active">Agenda ordini</li>
                 </ol>
             </nav>
         </div>
@@ -24,16 +24,16 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-calendar-check text-primary"></i>
-                    Configure Restock Schedule
+                    Configura Agenda ordini
                 </h4>
 
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> How It Works</h6>
+                    <h6><i class="bi bi-info-circle"></i> Come funziona</h6>
                     <ul class="mb-0">
-                        <li><strong>Order Days:</strong> Select which days to place orders</li>
-                        <li><strong>Delivery Offset:</strong> Configure when delivery arrives (0=same day, 1=next day, 2=two days later)</li>
-                        <li><strong>Coverage:</strong> Automatically calculated from order day to next delivery day</li>
-                        <li><strong>Timing:</strong> Orders run at 6:00 AM on order days</li>
+                        <li><strong>Giorni di ordine:</strong> Seleziona i giorni in cui effettuare gli ordini</li>
+                        <li><strong>Tempi di consegna:</strong> Configura quando arriva la consegna (0=lo stesso giorno, 1=il giorno successivo, 2=due giorni dopo)</li>
+                        <li><strong>Copertura:</strong> Calcolato automaticamente dal giorno dell'ordine al giorno di consegna successivo</li>
+                        <li><strong>Tempistiche:</strong> Gli ordini vengono eseguiti alle 6:00 nei giorni degli ordini</li>
                     </ul>
                 </div>
 
@@ -41,101 +41,101 @@
                     {% csrf_token %}
                     
                     <div class="mb-4">
-                        <h5 class="mb-3">Configure Order & Delivery Days</h5>
-                        <p class="text-muted small">For each day, enable ordering and set when delivery arrives:</p>
+                        <h5 class="mb-3">Configura i giorni di ordine e consegna</h5>
+                        <p class="text-muted small">Per ogni giorno, abilita l'ordinazione e imposta quando arriva la consegna:</p>
                         
                         <div class="table-responsive">
                             <table class="table table-bordered">
                                 <thead>
                                     <tr>
-                                        <th style="width: 15%">Day</th>
-                                        <th style="width: 15%">Order</th>
-                                        <th style="width: 35%">Delivery Offset</th>
-                                        <th style="width: 35%">Delivery Day</th>
+                                        <th style="width: 15%">Giorno</th>
+                                        <th style="width: 15%">Ordine</th>
+                                        <th style="width: 35%">Tempi di consegna</th>
+                                        <th style="width: 35%">Giorno di consegna</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr id="row_monday">
-                                        <td><strong>Monday</strong></td>
+                                        <td><strong>Lunedi</strong></td>
                                         <td><div class="form-check">{{ form.monday }}</div></td>
                                         <td>
                                             <div class="input-group input-group-sm">
                                                 {{ form.monday_delivery_offset }}
-                                                <span class="input-group-text">days</span>
+                                                <span class="input-group-text">giorni</span>
                                             </div>
-                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
                                         </td>
                                         <td><span class="badge bg-secondary" id="delivery_monday">-</span></td>
                                     </tr>
                                     <tr id="row_tuesday">
-                                        <td><strong>Tuesday</strong></td>
+                                        <td><strong>Martedì</strong></td>
                                         <td><div class="form-check">{{ form.tuesday }}</div></td>
                                         <td>
                                             <div class="input-group input-group-sm">
                                                 {{ form.tuesday_delivery_offset }}
-                                                <span class="input-group-text">days</span>
+                                                <span class="input-group-text">giorni</span>
                                             </div>
-                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
                                         </td>
                                         <td><span class="badge bg-secondary" id="delivery_tuesday">-</span></td>
                                     </tr>
                                     <tr id="row_wednesday">
-                                        <td><strong>Wednesday</strong></td>
+                                        <td><strong>Mercoledì</strong></td>
                                         <td><div class="form-check">{{ form.wednesday }}</div></td>
                                         <td>
                                             <div class="input-group input-group-sm">
                                                 {{ form.wednesday_delivery_offset }}
-                                                <span class="input-group-text">days</span>
+                                                <span class="input-group-text">giorni</span>
                                             </div>
-                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
                                         </td>
                                         <td><span class="badge bg-secondary" id="delivery_wednesday">-</span></td>
                                     </tr>
                                     <tr id="row_thursday">
-                                        <td><strong>Thursday</strong></td>
+                                        <td><strong>Giovedì</strong></td>
                                         <td><div class="form-check">{{ form.thursday }}</div></td>
                                         <td>
                                             <div class="input-group input-group-sm">
                                                 {{ form.thursday_delivery_offset }}
-                                                <span class="input-group-text">days</span>
+                                                <span class="input-group-text">giorni</span>
                                             </div>
-                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
                                         </td>
                                         <td><span class="badge bg-secondary" id="delivery_thursday">-</span></td>
                                     </tr>
                                     <tr id="row_friday">
-                                        <td><strong>Friday</strong></td>
+                                        <td><strong>Venerdì</strong></td>
                                         <td><div class="form-check">{{ form.friday }}</div></td>
                                         <td>
                                             <div class="input-group input-group-sm">
                                                 {{ form.friday_delivery_offset }}
-                                                <span class="input-group-text">days</span>
+                                                <span class="input-group-text">giorni</span>
                                             </div>
-                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
                                         </td>
                                         <td><span class="badge bg-secondary" id="delivery_friday">-</span></td>
                                     </tr>
                                     <tr id="row_saturday">
-                                        <td><strong>Saturday</strong></td>
+                                        <td><strong>Sabato</strong></td>
                                         <td><div class="form-check">{{ form.saturday }}</div></td>
                                         <td>
                                             <div class="input-group input-group-sm">
                                                 {{ form.saturday_delivery_offset }}
-                                                <span class="input-group-text">days</span>
+                                                <span class="input-group-text">giorni</span>
                                             </div>
-                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
                                         </td>
                                         <td><span class="badge bg-secondary" id="delivery_saturday">-</span></td>
                                     </tr>
                                     <tr id="row_sunday">
-                                        <td><strong>Sunday</strong></td>
+                                        <td><strong>Domenica</strong></td>
                                         <td><div class="form-check">{{ form.sunday }}</div></td>
                                         <td>
                                             <div class="input-group input-group-sm">
                                                 {{ form.sunday_delivery_offset }}
-                                                <span class="input-group-text">days</span>
+                                                <span class="input-group-text">giorni</span>
                                             </div>
-                                            <small class="form-text text-muted">0=same day, 1=next day, etc.</small>
+                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
                                         </td>
                                         <td><span class="badge bg-secondary" id="delivery_sunday">-</span></td>
                                     </tr>
@@ -146,16 +146,16 @@
 
                     <!-- Coverage Preview -->
                     <div id="coveragePreview" class="alert alert-secondary mb-4" style="display: none;">
-                        <h6><i class="bi bi-calculator"></i> Coverage Preview</h6>
+                        <h6><i class="bi bi-calculator"></i> Anteprima della copertura</h6>
                         <div id="coverageDisplay"></div>
                     </div>
 
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-save"></i> Save Schedule
+                            <i class="bi bi-save"></i> Salava agenda ordini
                         </button>
                     </div>
                 </form>

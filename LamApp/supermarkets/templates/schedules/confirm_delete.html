@@ -1,6 +1,6 @@
 <!-- LamApp/supermarkets/templates/schedules/confirm_delete.html -->
 {% extends 'base.html' %}
-{% block title %}Elimina agenda{% endblock %}
+{% block title %}Elimina agenda ordini{% endblock %}
 {% block page_title %}Conferma eliminazione{% endblock %}
 
 {% block content %}
@@ -10,11 +10,11 @@
             <div class="stat-card">
                 <h4 class="mb-4 text-danger">
                     <i class="bi bi-exclamation-triangle"></i>
-                    Elimina agenda
+                    Elimina agenda ordini
                 </h4>
 
                 <div class="alert alert-warning">
-                    Ciò eliminerà l'agenda per <strong>{{ object.storage.name }}</strong>.
+                    Ciò eliminerà l'agenda ordini per <strong>{{ object.storage.name }}</strong>.
                     Gli ordini automatici non saranno più eseguiti.
                 </div>
 
