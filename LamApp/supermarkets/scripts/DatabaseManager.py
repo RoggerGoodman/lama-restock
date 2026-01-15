@@ -6,7 +6,10 @@ import os
 from psycopg2.extras import Json
 from datetime import date
 from .helpers import Helper
-from .logger import logger
+import logging
+
+# Use Django's logging system
+logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     def __init__(self, helper: Helper, supermarket_name=None):
@@ -614,7 +617,7 @@ class DatabaseManager:
                 WHERE cod=%s AND v=%s
             """, (Json(sold_arr), cod, v))
 
-    def import_from_excel(self, file_path: str, settore: str):
+    def import_from_CSV(self, file_path: str, settore: str):
         """
         Imports products from an CSV file into the database for the given settore.
         Updates existing entries or inserts new ones.

@@ -1,9 +1,9 @@
 <!-- templates/supermarkets/list.html -->
 {% extends 'base.html' %}
-{% block title %}My Supermarkets{% endblock %}
+{% block title %}My Supermercati{% endblock %}
 {% block content %}
-  <h1>My Supermarkets</h1>
-  <a href="{% url 'supermarket-add' %}" class="btn btn-primary mb-3">Add New Supermarket</a>
+  <h1>My Supermercati</h1>
+  <a href="{% url 'supermarket-add' %}" class="btn btn-primary mb-3">Add New Supermercato</a>
   <ul class="list-group">
     {% for supermarket in supermarkets %}
       <li class="list-group-item">

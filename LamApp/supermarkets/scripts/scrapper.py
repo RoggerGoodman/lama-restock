@@ -12,8 +12,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
 from .DatabaseManager import DatabaseManager
 from .helpers import Helper
-from .logger import logger
+import logging
 import os, uuid, shutil
+
+# Use Django's logging system
+logger = logging.getLogger(__name__)
 
 
 class Scrapper:
@@ -88,7 +91,7 @@ class Scrapper:
         emarket_link.click()
 
         WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, '//a[@title="Statistiche Articolo"]'))
+            EC.element_to_be_clickable((By.XPATH, '//a[@title="Statistiche Articolo"]')) 
         )
 
         stat_link = self.driver.find_element(By.XPATH, '//a[@title="Statistiche Articolo"]')

@@ -274,7 +274,7 @@ class WebLister:
         Execute the complete download workflow.
         
         Returns:
-            str: Path to downloaded Excel file
+            str: Path to downloaded CSV file
         """
         try:
             self.login()
@@ -390,7 +390,7 @@ def download_product_list(username: str, password: str, storage_name: str,
         headless: Run browser in headless mode
     
     Returns:
-        str: Path to downloaded Excel file
+        str: Path to downloaded CSV file
     """
     lister = WebLister(username, password, storage_name, download_dir, headless)
     return lister.run()

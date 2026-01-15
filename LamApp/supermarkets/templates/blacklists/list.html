@@ -3,7 +3,7 @@
 {% block title %}Blacklists{% endblock %}
 {% block content %}
   <h1>Blacklists</h1>
-  <a href="{% url 'blacklist-add' %}" class="btn btn-primary mb-3">Create New Blacklist</a>
+  <a href="{% url 'blacklist-add' %}" class="btn btn-primary mb-3">Crea una nuova Blacklist</a>
 
   <!-- Group blacklists by their category -->
   {% regroup blacklists by category as grouped_blacklists %}
@@ -18,6 +18,6 @@
       {% endfor %}
     </ul>
   {% empty %}
-    <p>No blacklists found.</p>
+    <p>Non ci sono Blacklists.</p>
   {% endfor %}
 {% endblock %}

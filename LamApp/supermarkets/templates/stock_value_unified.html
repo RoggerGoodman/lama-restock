@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}Stock Value Analysis{% endblock %}
-{% block page_title %}Stock Value Analysis{% endblock %}
+{% block title %}Valorizzazione inventario{% endblock %}
+{% block page_title %}Valorizzazione inventario{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -9,7 +9,7 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item active">Stock Value</li>
+                    <li class="breadcrumb-item active">Valorizzazione inventario</li>
                 </ol>
             </nav>
         </div>
@@ -19,12 +19,12 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="stat-card">
-                <h5 class="mb-3"><i class="bi bi-funnel"></i> Filters</h5>
+                <h5 class="mb-3"><i class="bi bi-funnel"></i> Filtri</h5>
                 <form method="get" class="row g-3">
                     <div class="col-md-4">
-                        <label for="supermarket_id" class="form-label">Supermarket</label>
+                        <label for="supermarket_id" class="form-label">Supermercato</label>
                         <select name="supermarket_id" id="supermarket_id" class="form-select" onchange="updateStorages()">
-                            <option value="">All Supermarkets</option>
+                            <option value="">Tutti i Supermercati</option>
                             {% for sm in supermarkets %}
                             <option value="{{ sm.id }}" {% if sm.id|stringformat:"s" == selected_supermarket %}selected{% endif %}>
                                 {{ sm.name }}
@@ -34,9 +34,9 @@
                     </div>
                     
                     <div class="col-md-4">
-                        <label for="storage_id" class="form-label">Sector</label>
+                        <label for="storage_id" class="form-label">Settore</label>
                         <select name="storage_id" id="storage_id" class="form-select" onchange="updateClusters()">
-                            <option value="">All Sectors</option>
+                            <option value="">Tutti i Settori</option>
                             {% for storage in storages %}
                             <option value="{{ storage.id }}" data-supermarket="{{ storage.supermarket.id }}" 
                                     {% if storage.id|stringformat:"s" == selected_storage %}selected{% endif %}>
@@ -47,9 +47,9 @@
                     </div>
                     
                     <div class="col-md-4">
-                        <label for="cluster" class="form-label">Cluster (Optional)</label>
+                        <label for="cluster" class="form-label">Cluster (Opzionale)</label>
                         <select name="cluster" id="cluster" class="form-select">
-                            <option value="">All Clusters</option>
+                            <option value="">Tutti i Clusters</option>
                             {% for cluster in clusters %}
                             <option value="{{ cluster }}" {% if cluster == selected_cluster %}selected{% endif %}>
                                 {{ cluster }}
@@ -60,10 +60,10 @@
                     
                     <div class="col-12">
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-search"></i> Apply Filters
+                            <i class="bi bi-search"></i> Applica Filtri
                         </button>
                         <a href="{% url 'stock-value-unified' %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Clear
+                            <i class="bi bi-x-circle"></i> Togli i Filtri
                         </a>
                     </div>
                 </form>
@@ -77,7 +77,7 @@
             <div class="stat-card text-center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                 <h2 class="mb-2"><i class="bi bi-box"></i> {{ scope_description }}</h2>
                 <h1 class="display-3 mb-2">€{{ total_value|floatformat:2 }}</h1>
-                <p class="mb-0 opacity-75">Total Inventory Value</p>
+                <p class="mb-0 opacity-75">Valore totale dell'inventario</p>
             </div>
         </div>
     </div>
@@ -86,16 +86,16 @@
     <div class="row">
         <div class="col-12">
             <div class="stat-card">
-                <h5 class="mb-4"><i class="bi bi-pie-chart"></i> Value by Category</h5>
+                <h5 class="mb-4"><i class="bi bi-pie-chart"></i> Valore per categoria</h5>
                 {% if category_values %}
                 <div class="table-responsive">
                     <table class="table table-hover">
                         <thead>
                             <tr>
-                                <th>Category</th>
-                                <th class="text-end">Value</th>
-                                <th>Percentage</th>
-                                <th style="width: 40%">Distribution</th>
+                                <th>Categoria</th>
+                                <th class="text-end">Valore</th>
+                                <th>Percentuale</th>
+                                <th style="width: 40%">Distribuzione</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -117,7 +117,7 @@
                         </tbody>
                         <tfoot class="table-light">
                             <tr>
-                                <td><strong>Total</strong></td>
+                                <td><strong>Totale</strong></td>
                                 <td class="text-end"><strong>€{{ total_value|floatformat:2 }}</strong></td>
                                 <td colspan="2"></td>
                             </tr>
@@ -126,7 +126,7 @@
                 </div>
                 {% else %}
                 <div class="alert alert-info">
-                    <i class="bi bi-info-circle"></i> No data available for the selected filters.
+                    <i class="bi bi-info-circle"></i> Nessun dato disponibile per i filtri selezionati.
                 </div>
                 {% endif %}
             </div>

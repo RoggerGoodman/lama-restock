@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/blacklists/confirm_delete.html -->
 {% extends 'base.html' %}
-{% block title %}Delete Blacklist{% endblock %}
-{% block page_title %}Confirm Deletion{% endblock %}
+{% block title %}Elimina Blacklist{% endblock %}
+{% block page_title %}Conferma eliminazione{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,23 +10,23 @@
             <div class="stat-card">
                 <h4 class="mb-4 text-danger">
                     <i class="bi bi-exclamation-triangle"></i>
-                    Delete Blacklist
+                    Elimina Blacklist
                 </h4>
 
                 <div class="alert alert-warning">
-                    This will delete the blacklist <strong>{{ object.name }}</strong> and all its entries.
+                    Stai per eliminare la blacklist <strong>{{ object.name }}</strong> e tutte le sue voci.
                 </div>
 
-                <p>Are you sure you want to continue?</p>
+                <p>Sei sicuro di voler continuare?</p>
 
                 <form method="post">
                     {% csrf_token %}
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'blacklist-detail' pk=object.pk %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-danger">
-                            <i class="bi bi-trash"></i> Yes, Delete
+                            <i class="bi bi-trash"></i> Si, elimina
                         </button>
                     </div>
                 </form>

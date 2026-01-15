@@ -48,7 +48,7 @@ class ListUpdateService:
         Download product list from PAC2000A.
         
         Returns:
-            str: Path to downloaded Excel file
+            str: Path to downloaded CSV file
         """
         logger.info(f"Downloading product list for {self.storage.name}")
         
@@ -68,11 +68,11 @@ class ListUpdateService:
         Import product list to database.
         
         Args:
-            file_path: Path to Excel file
+            file_path: Path to CSV file
         """
         logger.info(f"Importing products from {file_path}")
         
-        self.db.import_from_excel(file_path, self.settore)
+        self.db.import_from_CSV(file_path, self.settore)
         
         logger.info(f"Import completed for {self.storage.name}")
     

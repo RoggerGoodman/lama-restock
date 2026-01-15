@@ -125,3 +125,5 @@ test.py
 Notes.txt
 settings.py
 LamApp/LamApp/settings.py
+LOGGING_GUIDE.md
+DEPLOYMENT_CHANGES.md

@@ -1,7 +1,7 @@
 <!-- Enhanced verification_report_unified.html -->
 {% extends 'base.html' %}
-{% block title %}Verification Report{% endblock %}
-{% block page_title %}Stock Verification Report{% endblock %}
+{% block title %}Resoconto verifica{% endblock %}
+{% block page_title %}Resoconto di verifica delle giacenza{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,8 +10,8 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventory</a></li>
-                    <li class="breadcrumb-item active">Verification Report</li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item active">Resoconto verifica</li>
                 </ol>
             </nav>
         </div>
@@ -25,7 +25,7 @@
                     <i class="bi bi-box-seam"></i>
                 </div>
                 <h3 class="mb-1">{{ report.total_products }}</h3>
-                <p class="text-muted mb-0">Total Products</p>
+                <p class="text-muted mb-0">Prodotti totali</p>
             </div>
         </div>
         <div class="col-md-3">
@@ -34,7 +34,7 @@
                     <i class="bi bi-arrow-left-right"></i>
                 </div>
                 <h3 class="mb-1">{{ report.products_verified }}</h3>
-                <p class="text-muted mb-0">Stock Updated</p>
+                <p class="text-muted mb-0">Prodotti con giacenza aggiornata</p>
             </div>
         </div>
         <div class="col-md-3">
@@ -43,7 +43,7 @@
                     <i class="bi bi-plus-circle"></i>
                 </div>
                 <h3 class="mb-1">{{ report.products_added|default:0 }}</h3>
-                <p class="text-muted mb-0">Auto-Added</p>
+                <p class="text-muted mb-0">Prodotti aggiunti e verificati</p>
             </div>
         </div>
         <div class="col-md-3">
@@ -54,7 +54,7 @@
                 <h3 class="mb-1">
                     {% if report.total_difference >= 0 %}+{% endif %}{{ report.total_difference|default:0 }}
                 </h3>
-                <p class="text-muted mb-0">Net Change</p>
+                <p class="text-muted mb-0">Variazione netta</p>
             </div>
         </div>
     </div>
@@ -65,8 +65,8 @@
         <div class="col-12">
             <div class="stat-card">
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> Products That Could Not Be Auto-Added</h6>
-                    <p class="mb-2">The following products were not found in PAC2000A or could not be added:</p>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Prodotti che non possono essere aggiunti automaticamente</h6>
+                    <p class="mb-2">I seguenti prodotti non sono stati trovati in PAC2000A o non è stato possibile aggiungerli:</p>
                     <ul class="mb-0">
                         {% for failed in report.failed_additions %}
                         <li><code>{{ failed.cod }}.{{ failed.var }}</code> - {{ failed.reason }}</li>
@@ -83,7 +83,7 @@
         <div class="col-12">
             <div class="stat-card">
                 <h5 class="mb-4">
-                    <i class="bi bi-list-ul"></i> Detailed Changes
+                    <i class="bi bi-list-ul"></i> Modifiche dettagliate
                 </h5>
 
                 {% if report.stock_changes %}
@@ -91,13 +91,13 @@
                     <table class="table table-hover">
                         <thead>
                             <tr>
-                                <th>Product Code</th>
-                                <th>Variant</th>
-                                <th>Type</th>
-                                <th class="text-end">Before</th>
+                                <th>Codice prodotto</th>
+                                <th>Variante</th>
+                                <th>Tipo</th>
+                                <th class="text-end">Prima</th>
                                 <th class="text-center">→</th>
-                                <th class="text-end">After</th>
-                                <th class="text-end">Difference</th>
+                                <th class="text-end">Dopo</th>
+                                <th class="text-end">Differenza</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -108,11 +108,11 @@
                                 <td>
                                     {% if change.added %}
                                         <span class="badge bg-success">
-                                            <i class="bi bi-plus-circle"></i> Auto-Added
+                                            <i class="bi bi-plus-circle"></i> Aggiunti
                                         </span>
                                     {% else %}
                                         <span class="badge bg-info">
-                                            <i class="bi bi-arrow-repeat"></i> Updated
+                                            <i class="bi bi-arrow-repeat"></i> Aggiornati
                                         </span>
                                     {% endif %}
                                 </td>
@@ -131,9 +131,9 @@
                         </tbody>
                         <tfoot>
                             <tr class="table-light">
-                                <td colspan="5"><strong>Totals</strong></td>
+                                <td colspan="5"><strong>Totali</strong></td>
                                 <td class="text-end">
-                                    <strong>{{ report.total_stock_after|default:0 }} units</strong>
+                                    <strong>{{ report.total_stock_after|default:0 }} unità</strong>
                                 </td>
                                 <td class="text-end">
                                     <strong>
@@ -148,7 +148,7 @@
                 {% else %}
                 <div class="alert alert-success">
                     <i class="bi bi-check-circle"></i>
-                    Perfect match! No changes needed.
+                    Abbinamento perfetto! Nessuna modifica necessaria.
                 </div>
                 {% endif %}
             </div>
@@ -159,10 +159,10 @@
         <div class="col-12">
             <div class="d-flex gap-2">
                 <a href="{% url 'inventory-search' %}" class="btn btn-primary">
-                    <i class="bi bi-arrow-left"></i> Back to Inventory
+                    <i class="bi bi-arrow-left"></i> Torna a Inventario
                 </a>
                 <button onclick="window.print()" class="btn btn-outline-secondary">
-                    <i class="bi bi-printer"></i> Print Report
+                    <i class="bi bi-printer"></i> Stampa Resoconto
                 </button>
             </div>
         </div>

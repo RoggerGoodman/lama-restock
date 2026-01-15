@@ -11,19 +11,19 @@
         <div class="col-12">
             <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
-                    <h5 class="mb-0"><i class="bi bi-lightning-charge"></i> Quick Actions</h5>
+                    <h5 class="mb-0"><i class="bi bi-lightning-charge"></i> Azioni rapide</h5>
                     <div class="d-flex gap-2 flex-wrap">
                         <a href="{% url 'supermarket-add' %}" class="btn btn-light btn-sm">
-                            <i class="bi bi-plus-circle"></i> Add Supermarket
+                            <i class="bi bi-plus-circle"></i> Aggiungi Supermercato
                         </a>
                         <a href="{% url 'inventory-search' %}" class="btn btn-light btn-sm">
-                            <i class="bi bi-search"></i> Search Inventory
+                            <i class="bi bi-search"></i> Ricerca Inventario
                         </a>
                         <a href="{% url 'losses-analytics-unified' %}" class="btn btn-light btn-sm">
-                            <i class="bi bi-graph-up"></i> Loss Analytics
+                            <i class="bi bi-graph-up"></i> Analisi delle perdite
                         </a>
                         <a href="{% url 'stock-value-unified' %}" class="btn btn-light btn-sm">
-                            <i class="bi bi-cash-stack"></i> Stock Value
+                            <i class="bi bi-cash-stack"></i> Valorizzazione inventario
                         </a>
                     </div>
                 </div>
@@ -37,15 +37,15 @@
         <div class="col-12">
             <div class="stat-card border-warning" style="border-left: 4px solid #ffc107;">
                 <h5 class="mb-3">
-                    <i class="bi bi-exclamation-triangle text-warning"></i> Attention Needed
+                    <i class="bi bi-exclamation-triangle text-warning"></i> Attenzione richiesta
                 </h5>
                 
                 <div class="row">
                     {% if failed_logs %}
                     <div class="col-md-4 mb-3">
                         <div class="alert alert-danger mb-0">
-                            <h6><i class="bi bi-x-circle"></i> Failed Operations</h6>
-                            <p class="mb-2">{{ failed_logs|length }} operation(s) need retry</p>
+                            <h6><i class="bi bi-x-circle"></i> Operazioni fallite</h6>
+                            <p class="mb-2">{{ failed_logs|length }} operazione/i necessitano attenzione</p>
                             {% for log in failed_logs|slice:":3" %}
                             <div class="small mb-1">
                                 <a href="{% url 'restock-log-detail' pk=log.id %}" class="alert-link">
@@ -60,8 +60,8 @@
                     {% if storages_without_schedule %}
                     <div class="col-md-4 mb-3">
                         <div class="alert alert-warning mb-0">
-                            <h6><i class="bi bi-calendar-x"></i> No Schedule</h6>
-                            <p class="mb-2">{{ storages_without_schedule|length }} storage(s) not automated</p>
+                            <h6><i class="bi bi-calendar-x"></i> Nessun agenda ordini</h6>
+                            <p class="mb-2">{{ storages_without_schedule|length }} Magazzini senza agenda ordini</p>
                             {% for storage in storages_without_schedule|slice:":3" %}
                             <div class="small mb-1">
                                 <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">
@@ -76,13 +76,13 @@
                     {% if pending_verifications %}
                     <div class="col-md-4 mb-3">
                         <div class="alert alert-info mb-0">
-                            <h6><i class="bi bi-clipboard-check"></i> Needs Verification</h6>
-                            <p class="mb-2">{{ pending_verifications }} product(s) pending</p>
+                            <h6><i class="bi bi-clipboard-check"></i> Necessita di verifica</h6>
+                            <p class="mb-2">{{ pending_verifications }} prodotti in attesa</p>
                             
                             <!-- Sample products -->
                             {% if top_pending_products %}
                             <div class="mb-2">
-                                <small class="text-muted">Recent:</small>
+                                <small class="text-muted">Recenti:</small>
                                 {% for product in top_pending_products %}
                                 <div class="small">
                                     <code>{{ product.cod }}.{{ product.var }}</code> - {{ product.name|truncatewords:4 }}
@@ -92,7 +92,7 @@
                             {% endif %}
                             
                             <a href="{% url 'pending-verifications' %}" class="btn btn-sm btn-info">
-                                <i class="bi bi-arrow-right"></i> Review & Verify
+                                <i class="bi bi-arrow-right"></i> Revisione e verifica
                             </a>
                         </div>
                     </div>
@@ -109,11 +109,11 @@
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0">
-                        <i class="bi bi-boxes"></i> Your Storages
+                        <i class="bi bi-boxes"></i> I tuoi magazzini
                         <span class="badge bg-secondary">{{ total_storages }}</span>
                     </h5>
                     <a href="{% url 'restock_schedule_list' %}" class="btn btn-sm btn-outline-primary">
-                        <i class="bi bi-calendar-check"></i> Manage Schedules
+                        <i class="bi bi-calendar-check"></i> Gestisci le agende ordini
                     </a>
                 </div>
                 
@@ -121,11 +121,11 @@
                     <table class="table table-hover table-sm mb-0">
                         <thead>
                             <tr>
-                                <th>Storage</th>
-                                <th>Supermarket</th>
-                                <th>Schedule</th>
-                                <th>Last Run</th>
-                                <th>Actions</th>
+                                <th>Magazzino</th>
+                                <th>Supermercato</th>
+                                <th>Agenda Ordini</th>
+                                <th>Ultima operazione</th>
+                                <th>Azioni</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -141,16 +141,16 @@
                                     <td>
                                         {% if storage.schedule %}
                                             <span class="badge bg-success">
-                                                <i class="bi bi-check-circle"></i> Active
+                                                <i class="bi bi-check-circle"></i> Attivo
                                             </span>
                                         {% else %}
-                                            <span class="badge bg-secondary">None</span>
+                                            <span class="badge bg-secondary">Nessuno</span>
                                         {% endif %}
                                     </td>
                                     <td>
                                         {% with last_log=storage.restock_logs.first %}
                                             {% if last_log %}
-                                                <small>{{ last_log.started_at|timesince }} ago</small>
+                                                <small>{{ last_log.started_at|timesince }} fa</small>
                                             {% else %}
                                                 <small class="text-muted">Never</small>
                                             {% endif %}
@@ -186,7 +186,7 @@
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0">
-                        <i class="bi bi-clock-history"></i> Recent Activity
+                        <i class="bi bi-clock-history"></i> Attività recenti
                     </h5>
                 </div>
                 
@@ -195,12 +195,12 @@
                         <table class="table table-hover table-sm mb-0">
                             <thead>
                                 <tr>
-                                    <th>Time</th>
-                                    <th>Storage</th>
-                                    <th>Operation</th>
-                                    <th>Status</th>
-                                    <th>Details</th>
-                                    <th>Action</th>
+                                    <th>Data</th>
+                                    <th>Magazzino</th>
+                                    <th>Operazione</th>
+                                    <th>Stato</th>
+                                    <th>Dettagli</th>
+                                    <th>Azione</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -222,32 +222,32 @@
                                     <td>
                                         {% if log.status == 'completed' %}
                                             <span class="badge bg-success">
-                                                <i class="bi bi-check-circle"></i> Done
+                                                <i class="bi bi-check-circle"></i> Fatto
                                             </span>
                                         {% elif log.status == 'failed' %}
                                             <span class="badge bg-danger">
-                                                <i class="bi bi-x-circle"></i> Failed
+                                                <i class="bi bi-x-circle"></i> Fallito
                                             </span>
                                         {% elif log.status == 'processing' %}
                                             <span class="badge bg-warning">
-                                                <i class="bi bi-hourglass-split"></i> Running
+                                                <i class="bi bi-hourglass-split"></i> In corso
                                             </span>
                                         {% endif %}
                                     </td>
                                     <td>
                                         <small>
                                             {% if log.operation_type == 'full_restock' %}
-                                                {{ log.products_ordered }} products / {{ log.total_packages }} pkg
+                                                {{ log.products_ordered }} prodotti / {{ log.total_packages }} colli
                                             {% elif log.operation_type == 'stats_update' %}
-                                                Stats updated
+                                                Statistiche aggiornate
                                             {% elif log.operation_type == 'list_update' %}
-                                                Product list updated
+                                                Listino prodotti aggiornato
                                             {% elif log.operation_type == 'verification' %}
-                                                {{ log.products_ordered|default:0 }} verified
+                                                {{ log.products_ordered|default:0 }} verificati
                                             {% elif log.operation_type == 'cluster_assignment' %}
-                                                {{ log.products_ordered|default:0 }} assigned
+                                                {{ log.products_ordered|default:0 }} assegnati
                                             {% elif log.operation_type == 'product_addition' %}
-                                                {{ log.products_ordered|default:0 }} added
+                                                {{ log.products_ordered|default:0 }} aggiunti
                                             {% else %}
                                                 —
                                             {% endif %}
@@ -262,7 +262,7 @@
                                         {% elif log.status == 'completed' %}
                                             <a href="{% url 'storage-detail' pk=log.storage.id %}" 
                                             class="btn btn-sm btn-outline-secondary"
-                                            title="View Storage">
+                                            title="View Magazzino">
                                                 <i class="bi bi-box"></i>
                                             </a>
                                         {% elif log.status == 'failed' %}
@@ -272,7 +272,7 @@
                                                 <i class="bi bi-exclamation-triangle"></i>
                                             </a>
                                         {% else %}
-                                            <span class="badge bg-secondary">Processing</span>
+                                            <span class="badge bg-secondary">Elaborazione</span>
                                         {% endif %}
                                     </td>
                                 </tr>
@@ -283,7 +283,7 @@
                 {% else %}
                     <div class="alert alert-info mb-0">
                         <i class="bi bi-info-circle"></i>
-                        No recent activity. Start by running a restock check on one of your storages.
+                        Nessuna attività recente. Inizia eseguendo un controllo delle scorte su uno dei tuoi magazzini.
                     </div>
                 {% endif %}
             </div>

@@ -45,13 +45,10 @@
                 <!-- Actions -->
                 <div class="d-flex gap-2 mb-3">
                     <a href="{% url 'blacklistentry-add' blacklist_pk=blacklist.pk %}" class="btn btn-primary">
-                        <i class="bi bi-plus-circle"></i> Add Product
-                    </a>
-                    <a href="{% url 'storage-detail' pk=blacklist.storage.id %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-arrow-left"></i> Back to Storage
+                        <i class="bi bi-plus-circle"></i> Aggiungi prodotto
                     </a>
                     <a href="{% url 'blacklist-delete' pk=blacklist.pk %}" class="btn btn-outline-danger">
-                        <i class="bi bi-trash"></i> Delete Blacklist
+                        <i class="bi bi-trash"></i> Elimina Blacklist
                     </a>
                 </div>
             </div>
@@ -59,13 +56,13 @@
 
         <div class="col-lg-4">
             <div class="stat-card">
-                <h6 class="mb-3">Statistics</h6>
+                <h6 class="mb-3">Statistiche</h6>
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="text-muted">Total Products</span>
+                    <span class="text-muted">Totale prodotti</span>
                     <strong>{{ blacklist.entries.count }}</strong>
                 </div>
                 <div class="d-flex justify-content-between align-items-center">
-                    <span class="text-muted">Created</span>
+                    <span class="text-muted">Data creazione</span>
                     <strong>{{ blacklist.created_at|date:"M d, Y" }}</strong>
                 </div>
             </div>

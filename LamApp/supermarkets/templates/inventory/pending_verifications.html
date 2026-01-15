@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/inventory/pending_verifications.html -->
 {% extends 'base.html' %}
-{% block title %}Pending Verifications{% endblock %}
-{% block page_title %}Products Needing Verification{% endblock %}
+{% block title %}Verifiche in sospeso{% endblock %}
+{% block page_title %}Prodotti che necessitano di verifica{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,7 +10,7 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item active">Pending Verifications</li>
+                    <li class="breadcrumb-item active">Verifiche in sospeso</li>
                 </ol>
             </nav>
         </div>
@@ -24,9 +24,9 @@
                     <div>
                         <h3 class="mb-1">
                             <i class="bi bi-clipboard-check"></i> 
-                            Pending Verifications
+                            Verifiche in sospeso
                         </h3>
-                        <p class="mb-0 opacity-75">Products that have been ordered but not yet verified</p>
+                        <p class="mb-0 opacity-75">Prodotti ordinati ma non ancora verificati</p>
                     </div>
                     <div>
                         <h1 class="display-4 mb-0">{{ total_pending }}</h1>
@@ -40,12 +40,12 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="alert alert-info">
-                <h6><i class="bi bi-info-circle"></i> What Are These?</h6>
-                <p class="mb-2">These products have been ordered (bought) but haven't been sold yet. They need verification to confirm their package size.</p>
+                <h6><i class="bi bi-info-circle"></i> Cosa sono questi?</h6>
+                <p class="mb-2">Questi prodotti sono stati ordinati (acquistati) ma non sono ancora stati venduti. È necessaria una verifica per confermare la giacenza.</p>
                 <ul class="mb-0">
-                    <li>Click "Verify" to confirm the package size</li>
-                    <li>This allows the product to appear in future restock orders</li>
-                    <li>Newly added products always need verification</li>
+                    <li>Fare clic su "Verifica" per confermare la giacenza</li>
+                    <li>Ciò consente al prodotto di apparire nei futuri ordini di riassortimento</li>
+                    <li>I prodotti appena aggiunti necessitano sempre di verifica</li>
                 </ul>
             </div>
         </div>
@@ -56,7 +56,7 @@
         <div class="col-12">
             <div class="stat-card">
                 <h5 class="mb-3">
-                    <i class="bi bi-list-check"></i> Products to Verify
+                    <i class="bi bi-list-check"></i> Prodotti da verificare
                 </h5>
 
                 {% if pending_products %}
@@ -64,14 +64,14 @@
                         <table class="table table-hover">
                             <thead>
                                 <tr>
-                                    <th>Supermarket</th>
+                                    <th>Supermercato</th>
                                     <th>Settore</th>
-                                    <th>Code</th>
-                                    <th>Product Name</th>
-                                    <th>Current Package Size</th>
-                                    <th>Stock</th>
-                                    <th>Last Updated</th>
-                                    <th>Action</th>
+                                    <th>Codice</th>
+                                    <th>Nome prodotto</th>
+                                    <th>Dimensione imballo</th>
+                                    <th>Giacenza</th>
+                                    <th>Ultimo aggiornamento</th>
+                                    <th>Azione</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -98,12 +98,12 @@
                                                style="width: 100px;">
                                     </td>
                                     <td>
-                                        <span class="badge bg-info">{{ product.stock }} units</span>
+                                        <span class="badge bg-info">{{ product.stock }} unità</span>
                                     </td>
                                     <td>
                                         <small class="text-muted">
                                             {% if product.last_update %}
-                                                {{ product.last_update|timesince }} ago
+                                                {{ product.last_update|timesince }} fa
                                             {% else %}
                                                 —
                                             {% endif %}
@@ -112,7 +112,7 @@
                                     <td>
                                         <button class="btn btn-sm btn-success" 
                                                 onclick="verifyProduct({{ product.cod }}, {{ product.var }}, {{ product.supermarket_id }}, '{{ product.settore }}')">
-                                            <i class="bi bi-check-circle"></i> Verify
+                                            <i class="bi bi-check-circle"></i> Verifica
                                         </button>
                                     </td>
                                 </tr>
@@ -123,12 +123,12 @@
 
                     <div class="alert alert-secondary mt-3">
                         <i class="bi bi-info-circle"></i>
-                        <strong>{{ total_pending }}</strong> product{{ total_pending|pluralize }} pending verification
+                        <strong>{{ total_pending }}</strong> product{{ total_pending|pluralize }} Verifiche in sospeso
                     </div>
                 {% else %}
                     <div class="alert alert-success">
                         <i class="bi bi-check-circle"></i>
-                        <strong>All caught up!</strong> No products need verification at this time.
+                        <strong>Tutto in regola!</strong> Al momento non è necessario verificare alcun prodotto.
                     </div>
                 {% endif %}
             </div>

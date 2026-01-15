@@ -1,7 +1,7 @@
 <!-- Replace LamApp/supermarkets/templates/inventory/record_losses_unified.html -->
 {% extends 'base.html' %}
-{% block title %}Record Losses{% endblock %}
-{% block page_title %}Record Product Losses{% endblock %}
+{% block title %}Reggistra Perdite{% endblock %}
+{% block page_title %}Reggistra Perdite prodotti{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,8 +10,8 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventory</a></li>
-                    <li class="breadcrumb-item active">Record Losses</li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item active">Reggistra Perdite</li>
                 </ol>
             </nav>
         </div>
@@ -22,25 +22,25 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-clipboard-data text-warning"></i>
-                    Record Product Losses
+                    Reggistra Perdite prodotti
                 </h4>
 
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> Loss Types</h6>
+                    <h6><i class="bi bi-info-circle"></i> Tipologia di Perdite</h6>
                     <ul class="mb-0">
-                        <li><strong>ROTTURE:</strong> Broken or damaged products</li>
-                        <li><strong>SCADUTO:</strong> Expired products</li>
-                        <li><strong>UTILIZZO INTERNO:</strong> Internal usage (staff, samples, etc.)</li>
+                        <li><strong>ROTTURE:</strong> Prodotti rotti o danneggiati</li>
+                        <li><strong>SCADUTO:</strong> Prodotti scaduti</li>
+                        <li><strong>UTILIZZO INTERNO:</strong> Utilizzo interno</li>
                     </ul>
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> New PDF Format</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Formato PDF</h6>
                     <p class="mb-2">
-                        <strong>Important:</strong> The system now accepts PDF files exported from the inventory terminal instead of CSV files.
+                        <strong>Nota bene:</strong> Il sistema accetta file PDF esportati da Dropzone.
                     </p>
                     <p class="mb-0">
-                        Stock will be automatically reduced by the loss amounts parsed from the PDF.
+                        Le giacenze verranno automaticamente ridotte in base agli importi delle perdite analizzati dal PDF.
                     </p>
                 </div>
 
@@ -48,9 +48,9 @@
                     {% csrf_token %}
                     
                     <div class="mb-3">
-                        <label for="supermarket_id" class="form-label">Supermarket</label>
+                        <label for="supermarket_id" class="form-label">Supermercato</label>
                         <select name="supermarket_id" id="supermarket_id" class="form-select" required>
-                            <option value="">-- Select Supermarket --</option>
+                            <option value="">-- Seleziona Supermercato --</option>
                             {% for sm in supermarkets %}
                             <option value="{{ sm.id }}">{{ sm.name }}</option>
                             {% endfor %}
@@ -70,16 +70,16 @@
                         </label>
                         {{ form.pdf_file }}
                         <div class="form-text">
-                            Upload the PDF file exported from the inventory terminal
+                            Carica il file PDF esportato da Dropzone
                         </div>
                     </div>
 
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-upload"></i> Upload and Process
+                            <i class="bi bi-upload"></i> Carica ed elabora
                         </button>
                     </div>
                 </form>
@@ -87,23 +87,23 @@
 
             <!-- PDF Format Example -->
             <div class="stat-card mt-3">
-                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Expected PDF Format</h6>
+                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Formato PDF previsto</h6>
                 <div class="bg-light p-3 rounded">
-                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Terminalino
-Punto Vendita: [Store Name]
-Inventario: [Inventory Number]
+                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Dropzone
+Punto Vendita: [Nome Supermercato]
+Inventario: [Numero Inventario]
 
-Codice a Barre | Articolo | Descrizione | Quantità | Messaggi
+Codice a Barre | Articolo | Descrizione  | Quantità | 
 8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  | 
 8025916119969  | 22582 1  | PRODUCT DESC | PZ 4,00  |
 ...</pre>
                 </div>
                 <p class="text-muted small mb-0 mt-2">
-                    <strong>Key columns:</strong><br>
-                    • <strong>Articolo:</strong> Product code and variant (e.g., "36508 1")<br>
-                    • <strong>Quantità:</strong> Quantity lost (e.g., "PZ 5,00")<br>
+                    <strong>Colonne chiave:</strong><br>
+                    • <strong>Articolo:</strong> Codice prodotto e variante (e.g., "36508 1")<br>
+                    • <strong>Quantità:</strong> Quantità persa (e.g., "PZ 5,00")<br>
                     <br>
-                    The system will extract: cod=36508, v=1, qty=5
+                    Il sistema estrarrà: cod=36508, v=1, qty=5
                 </p>
             </div>
         </div>

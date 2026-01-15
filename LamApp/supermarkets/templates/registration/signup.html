@@ -1,11 +1,11 @@
 <!-- templates/registration/signup.html -->
 {% extends 'base.html' %}
-{% block title %}Sign Up{% endblock %}
+{% block title %}Iscrizione{% endblock %}
 {% block content %}
-  <h1>Sign Up</h1>
+  <h1>Iscrizione</h1>
   <form method="post">
     {% csrf_token %}
     {{ form.as_p }}
-    <button type="submit" class="btn btn-primary">Sign Up</button>
+    <button type="submit" class="btn btn-primary">Iscrizione</button>
   </form>
 {% endblock %}

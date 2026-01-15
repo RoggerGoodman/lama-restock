@@ -52,9 +52,9 @@ class RestockService:
         logger.info(f"Loaded {len(blacklist_set)} blacklisted products for {self.storage.name}")
         return blacklist_set
     
-    def import_products_from_excel(self, file_path):
-        """Import products from Excel/CSV file"""
-        self.db.import_from_excel(file_path, self.settore)
+    def import_products_from_CSV(self, file_path):
+        """Import products from CSV file"""
+        self.db.import_from_CSV(file_path, self.settore)
     
     def close(self):
         """Clean up resources - CRITICAL for thread safety"""

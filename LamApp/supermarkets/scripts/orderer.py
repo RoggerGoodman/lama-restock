@@ -10,7 +10,10 @@ from selenium.webdriver.chrome.service import Service
 import time
 import re
 import os, uuid, shutil
-from .logger import logger
+import logging
+
+# Use Django's logging system
+logger = logging.getLogger(__name__)
 
 
 class Orderer:

@@ -1,6 +1,10 @@
 # LamApp/supermarkets/scripts/processor_N.py
 import math
-from .logger import logger
+import logging
+
+# Use Django's logging system
+logger = logging.getLogger(__name__)
+
 def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year, 
                    req_stock, stock, discount=None, minimum_stock_base=4):
     """

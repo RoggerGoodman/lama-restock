@@ -1,4 +1,7 @@
-from .logger import logger
+import logging
+
+# Use Django's logging system
+logger = logging.getLogger(__name__)
 
 class Analyzer:
     CLASS_NAME = "N"

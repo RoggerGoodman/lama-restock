@@ -1,11 +1,11 @@
 <!-- templates/blacklists/form.html -->
 {% extends 'base.html' %}
-{% block title %}Create Blacklist{% endblock %}
+{% block title %}Crea Blacklist{% endblock %}
 {% block content %}
-  <h1>Create a New Blacklist</h1>
+  <h1>Crea una nuova Blacklist</h1>
   <form method="post">
     {% csrf_token %}
     {{ form.as_p }}
-    <button type="submit" class="btn btn-primary">Create Blacklist</button>
+    <button type="submit" class="btn btn-primary">Crea Blacklist</button>
   </form>
 {% endblock %}

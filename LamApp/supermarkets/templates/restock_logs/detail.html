@@ -1,8 +1,8 @@
 <!-- LamApp/supermarkets/templates/restock_logs/detail.html - Enhanced version -->
 {% extends 'base.html' %}
 
-{% block title %}Restock Log - {{ log.storage.name }}{% endblock %}
-{% block page_title %}Restock Operation Details{% endblock %}
+{% block title %}Riepilogo ordine - {{ log.storage.name }}{% endblock %}
+{% block page_title %}Dettagli riepilogo ordine{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -147,7 +147,7 @@
                     <div>
                         <h4 class="mb-1">
                             <i class="bi bi-file-text text-primary"></i>
-                            Restock Log #{{ log.id }}
+                            Riepilogo ordine #{{ log.id }}
                         </h4>
                         <p class="text-muted mb-0">
                             {{ log.storage.supermarket.name }} - {{ log.storage.name }}
@@ -156,19 +156,19 @@
                     <div>
                         {% if log.status == 'completed' %}
                             <span class="badge bg-success" style="font-size: 1rem;">
-                                <i class="bi bi-check-circle"></i> Completed
+                                <i class="bi bi-check-circle"></i> Completato
                             </span>
                         {% elif log.status == 'failed' %}
                             <span class="badge bg-danger" style="font-size: 1rem;">
-                                <i class="bi bi-x-circle"></i> Failed
+                                <i class="bi bi-x-circle"></i> Fallito
                             </span>
                         {% elif log.status == 'processing' %}
                             <span class="badge bg-warning" style="font-size: 1rem;">
-                                <i class="bi bi-hourglass-split"></i> Processing
+                                <i class="bi bi-hourglass-split"></i> Elaborazione
                             </span>
                         {% else %}
                             <span class="badge bg-secondary" style="font-size: 1rem;">
-                                <i class="bi bi-clock"></i> Pending
+                                <i class="bi bi-clock"></i> In attesa
                             </span>
                         {% endif %}
                     </div>
@@ -178,7 +178,7 @@
                 {% with stage_info=log.get_stage_display_info %}
                 <div class="mb-4">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span><strong>Progress:</strong> {{ stage_info.label }}</span>
+                        <span><strong>Stato:</strong> {{ stage_info.label }}</span>
                         <span class="text-muted">{{ stage_info.progress }}%</span>
                     </div>
                     <div class="progress" style="height: 25px;">
@@ -198,14 +198,14 @@
                 <!-- Time Info -->
                 <div class="row mb-4">
                     <div class="col-md-4">
-                        <p class="text-muted mb-1">Started At</p>
+                        <p class="text-muted mb-1">Iniziato</p>
                         <p class="mb-0">
                             <strong>{{ log.started_at|date:"M d, Y" }}</strong><br>
                             <small>{{ log.started_at|time:"H:i:s" }}</small>
                         </p>
                     </div>
                     <div class="col-md-4">
-                        <p class="text-muted mb-1">Completed At</p>
+                        <p class="text-muted mb-1">Completato</p>
                         <p class="mb-0">
                             {% if log.completed_at %}
                                 <strong>{{ log.completed_at|date:"M d, Y" }}</strong><br>
@@ -216,14 +216,14 @@
                         </p>
                     </div>
                     <div class="col-md-4">
-                        <p class="text-muted mb-1">Duration</p>
+                        <p class="text-muted mb-1">Durata</p>
                         <p class="mb-0">
                             {% if log.completed_at %}
                                 {% with duration=log.completed_at|timeuntil:log.started_at %}
                                     <strong>{{ duration }}</strong>
                                 {% endwith %}
                             {% else %}
-                                <span class="text-muted">In progress...</span>
+                                <span class="text-muted">In corso...</span>
                             {% endif %}
                         </p>
                     </div>
@@ -232,7 +232,7 @@
                 <!-- Error Message (if failed) -->
                 {% if log.status == 'failed' and log.error_message %}
                 <div class="alert alert-danger">
-                    <h6><i class="bi bi-exclamation-triangle"></i> Error at Stage: {{ log.get_current_stage_display }}</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Errore in fase: {{ log.get_current_stage_display }}</h6>
                     <pre class="mb-0" style="white-space: pre-wrap;">{{ log.error_message }}</pre>
                 </div>
                 {% endif %}
@@ -240,14 +240,14 @@
                 <!-- Retry Section -->
                 {% if log.status == 'failed' and log.can_retry %}
                 <div class="retry-section">
-                    <h6><i class="bi bi-arrow-repeat"></i> Retry from Checkpoint</h6>
+                    <h6><i class="bi bi-arrow-repeat"></i> Riprova dal checkpoint</h6>
                     <p class="mb-2">
-                        Retry attempts: <strong>{{ log.retry_count }} / {{ log.max_retries }}</strong>
+                        Tentativi: <strong>{{ log.retry_count }} / {{ log.max_retries }}</strong>
                     </p>
                     <form method="post" action="{% url 'retry-restock' log_id=log.id %}">
                         {% csrf_token %}
                         <button type="submit" class="btn btn-warning">
-                            <i class="bi bi-arrow-repeat"></i> Retry from Checkpoint
+                            <i class="bi bi-arrow-repeat"></i> Riprova dal checkpoint
                         </button>
                     </form>
                 </div>
@@ -258,28 +258,28 @@
         <!-- Statistics Card -->
         <div class="col-lg-4">
             <div class="stat-card">
-                <h6 class="mb-3">Statistics</h6>
+                <h6 class="mb-3">Statistiche</h6>
                 <div class="mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="text-muted">Coverage Used</span>
+                        <span class="text-muted">Copertura usata</span>
                         <strong>
                             {% if log.coverage_used %}
-                                {{ log.coverage_used }} days
+                                {{ log.coverage_used }} giorni
                             {% else %}
                                 —
                             {% endif %}
                         </strong>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="text-muted">Total Products</span>
+                        <span class="text-muted">Prodotti totali</span>
                         <strong>{{ log.total_products }}</strong>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="text-muted">Products Ordered</span>
+                        <span class="text-muted">Prodotti ordinati</span>
                         <strong class="text-primary">{{ log.products_ordered }}</strong>
                     </div>
                     <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted">Total Packages</span>
+                        <span class="text-muted">Colli totali</span>
                         <strong class="text-success">{{ log.total_packages }}</strong>
                     </div>
                 </div>
@@ -292,7 +292,7 @@
                         <strong>{{ summary.total_clusters }}</strong>
                     </div>
                     <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted">Total Cost</span>
+                        <span class="text-muted">Costi totali</span>
                         <strong class="text-info">€{{ summary.total_cost|floatformat:2 }}</strong>
                     </div>
                 </div>
@@ -308,13 +308,13 @@
             <div class="col-12">
                 <div class="stat-card">
                     <div class="alert alert-success">
-                        <h6><i class="bi bi-check-circle"></i> Statistics Update Completed</h6>
-                        <p class="mb-0">Product statistics have been successfully updated from PAC2000A.</p>
+                        <h6><i class="bi bi-check-circle"></i> Aggiornamento delle statistiche completato</h6>
+                        <p class="mb-0">Le statistiche del prodotto sono state aggiornate correttamente da PAC2000A.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
                         <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-primary">
-                            <i class="bi bi-arrow-left"></i> Back to Storage
+                            <i class="bi bi-arrow-left"></i> Torna al Magazzino
                         </a>
                     </div>
                 </div>
@@ -327,13 +327,13 @@
             <div class="col-12">
                 <div class="stat-card">
                     <div class="alert alert-success">
-                        <h6><i class="bi bi-check-circle"></i> Product List Updated</h6>
-                        <p class="mb-0">Product list has been successfully downloaded and imported from PAC2000A.</p>
+                        <h6><i class="bi bi-check-circle"></i> Elenco prodotti aggiornato</h6>
+                        <p class="mb-0">L'elenco dei prodotti è stato scaricato e importato correttamente da PAC2000A.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
                         <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-primary">
-                            <i class="bi bi-arrow-left"></i> Back to Storage
+                            <i class="bi bi-arrow-left"></i> Torna al Magazzino
                         </a>
                     </div>
                 </div>
@@ -346,16 +346,16 @@
             <div class="col-12">
                 <div class="stat-card">
                     <div class="alert alert-success">
-                        <h6><i class="bi bi-check-circle"></i> Cluster Assignment Completed</h6>
-                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> products assigned to clusters.</p>
+                        <h6><i class="bi bi-check-circle"></i> Assegnazione del cluster completata</h6>
+                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> prodotti assegnati al cluster.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
                         <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-primary">
-                            <i class="bi bi-arrow-left"></i> Back to Storage
+                            <i class="bi bi-arrow-left"></i> Torna al Magazzino
                         </a>
                         <a href="{% url 'inventory-search' %}" class="btn btn-outline-secondary">
-                            <i class="bi bi-search"></i> Search Inventory
+                            <i class="bi bi-search"></i> Ricerca Inventario
                         </a>
                     </div>
                 </div>
@@ -368,16 +368,16 @@
             <div class="col-12">
                 <div class="stat-card">
                     <div class="alert alert-success">
-                        <h6><i class="bi bi-check-circle"></i> Products Added Successfully</h6>
-                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> products added to database.</p>
+                        <h6><i class="bi bi-check-circle"></i> Prodotti aggiunti con successo</h6>
+                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> prodotti aggiunti al database.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
                         <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-primary">
-                            <i class="bi bi-arrow-left"></i> Back to Storage
+                            <i class="bi bi-arrow-left"></i> Torna al Magazzino
                         </a>
                         <a href="{% url 'inventory-search' %}" class="btn btn-outline-secondary">
-                            <i class="bi bi-search"></i> Search Inventory
+                            <i class="bi bi-search"></i> Ricerca Inventario
                         </a>
                     </div>
                 </div>
@@ -390,16 +390,16 @@
             <div class="col-12">
                 <div class="stat-card">
                     <div class="alert alert-success">
-                        <h6><i class="bi bi-check-circle"></i> Stock Verification Completed</h6>
-                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> products verified.</p>
+                        <h6><i class="bi bi-check-circle"></i> Verifica delle giacenza completata</h6>
+                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> prodotti verificati.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
                         <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-primary">
-                            <i class="bi bi-arrow-left"></i> Back to Storage
+                            <i class="bi bi-arrow-left"></i> Torna al Magazzino
                         </a>
                         <a href="{% url 'inventory-search' %}" class="btn btn-outline-secondary">
-                            <i class="bi bi-search"></i> Search Inventory
+                            <i class="bi bi-search"></i> Ricerca Inventario
                         </a>
                     </div>
                 </div>
@@ -414,14 +414,14 @@
                 <div class="stat-card">
                     <div class="d-flex justify-content-between align-items-center mb-4">
                         <h5 class="mb-0">
-                            <i class="bi bi-list-check"></i> Order Details
+                            <i class="bi bi-list-check"></i> Dettagli dell'ordine
                         </h5>
                         <div class="btn-group" role="group">
                             <button type="button" class="btn btn-sm btn-outline-primary" onclick="showView('table')">
-                                <i class="bi bi-table"></i> Table View
+                                <i class="bi bi-table"></i> Vista tabella
                             </button>
                             <button type="button" class="btn btn-sm btn-outline-primary active" onclick="showView('cluster')">
-                                <i class="bi bi-grid-3x3"></i> By Cluster
+                                <i class="bi bi-grid-3x3"></i> Per Cluster
                             </button>
                         </div>
                     </div>
@@ -433,24 +433,24 @@
                                 <thead>
                                     <tr>
                                         <th class="sortable-header" onclick="sortTable(0)">
-                                            Product Code 
+                                            Codice prodotto
                                             <i class="bi bi-arrow-down-up sort-icon"></i>
                                         </th>
-                                        <th>Variant</th>
-                                        <th>Product Name</th>
+                                        <th>Variante</th>
+                                        <th>Descrizione</th>
                                         <th>Cluster</th>
                                         <th class="text-end sortable-header" onclick="sortTable(4)">
-                                            Quantity 
+                                            Quantità 
                                             <i class="bi bi-arrow-down-up sort-icon"></i>
                                         </th>
-                                        <th class="text-end">Unit Cost</th>
+                                        <th class="text-end">Costo unitario</th>
                                         <th class="text-end sortable-header" onclick="sortTable(6)">
-                                            Total Cost 
+                                            Costo totale 
                                             <i class="bi bi-arrow-down-up sort-icon"></i>
                                         </th>
                                         <!-- ✅ NEW: Discount column -->
                                         <th class="text-center sortable-header" onclick="sortTable(7)">
-                                            Discount
+                                            Sconto
                                             <i class="bi bi-arrow-down-up sort-icon"></i>
                                         </th>
                                     </tr>
@@ -463,7 +463,7 @@
                                         <td>{{ order.name|truncatewords:5 }}</td>
                                         <td><span class="badge bg-secondary">{{ order.cluster }}</span></td>
                                         <td class="text-end">
-                                            <span class="badge bg-success">{{ order.qty }} pkg</span>
+                                            <span class="badge bg-success">{{ order.qty }} colli</span>
                                         </td>
                                         <td class="text-end">€{{ order.cost|floatformat:2 }}</td>
                                         <td class="text-end"><strong>€{{ order.total_cost|floatformat:2 }}</strong></td>
@@ -483,7 +483,7 @@
                                 <tfoot>
                                     <tr class="table-light">
                                         <td colspan="4"><strong>Total</strong></td>
-                                        <td class="text-end"><strong>{{ log.total_packages }} pkg</strong></td>
+                                        <td class="text-end"><strong>{{ log.total_packages }} colli</strong></td>
                                         <td></td>
                                         <td class="text-end"><strong>€{{ summary.total_cost|floatformat:2 }}</strong></td>
                                         <td></td>
@@ -499,8 +499,8 @@
                         <div class="collapsible-header warning" onclick="toggleCollapse('skippedSection')">
                             <div>
                                 <h5 class="mb-0">
-                                    <i class="bi bi-exclamation-triangle"></i> Skipped Products
-                                    <span class="badge bg-light text-dark ms-2">{{ enriched_skipped|length }} products</span>
+                                    <i class="bi bi-exclamation-triangle"></i> Prodotti saltati
+                                    <span class="badge bg-light text-dark ms-2">{{ enriched_skipped|length }} prodotti</span>
                                 </h5>
                             </div>
                             <i class="bi bi-chevron-right chevron-icon" id="skippedChevron"></i>
@@ -510,12 +510,12 @@
                             <div class="p-4">
                                 <div class="alert alert-info">
                                     <i class="bi bi-info-circle"></i>
-                                    These products were skipped during the restock process. You can flag them for purging.
+                                    Questi prodotti sono stati saltati durante il processo di riassortimento. Puoi segnalarli per l'eliminazione.
                                 </div>
 
                                 <div class="mb-3">
                                     <button class="btn btn-danger" onclick="flagAllForPurge()">
-                                        <i class="bi bi-trash"></i> Flag All for Purge
+                                        <i class="bi bi-trash"></i> Segnala tutto per la cancellazione
                                     </button>
                                 </div>
 
@@ -524,12 +524,12 @@
                                         <thead>
                                             <tr>
                                                 <th><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th>
-                                                <th>Code</th>
-                                                <th>Product Name</th>
-                                                <th>Stock</th>
-                                                <th>Availability</th>
-                                                <th>Reason</th>
-                                                <th>Action</th>
+                                                <th>Codice</th>
+                                                <th>Descrizione</th>
+                                                <th>Giacenza</th>
+                                                <th>Disponibilità</th>
+                                                <th>Motivo</th>
+                                                <th>Azione</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -540,22 +540,22 @@
                                                 <td>{{ item.name|truncatewords:6 }}</td>
                                                 <td>
                                                     {% if item.stock > 0 %}
-                                                        <span class="badge bg-info">{{ item.stock }} units</span>
+                                                        <span class="badge bg-info">{{ item.stock }} unità</span>
                                                     {% else %}
-                                                        <span class="badge bg-secondary">0 units</span>
+                                                        <span class="badge bg-secondary">0 unità</span>
                                                     {% endif %}
                                                 </td>
                                                 <td>
                                                     {% if item.disponibilita == 'Si' %}
-                                                        <span class="badge bg-success">Available</span>
+                                                        <span class="badge bg-success">Disponibile</span>
                                                     {% else %}
-                                                        <span class="badge bg-danger">Not Available</span>
+                                                        <span class="badge bg-danger">Non Disponibile</span>
                                                     {% endif %}
                                                 </td>
                                                 <td><small class="text-muted">{{ item.reason }}</small></td>
                                                 <td>
                                                     <button class="btn btn-sm btn-outline-danger" onclick="flagSingleForPurge({{ item.cod }}, {{ item.var }})">
-                                                        <i class="bi bi-trash"></i> Flag
+                                                        <i class="bi bi-trash"></i> Segnala
                                                     </button>
                                                 </td>
                                             </tr>
@@ -566,7 +566,7 @@
 
                                 <div class="mt-3">
                                     <button class="btn btn-warning" onclick="flagSelectedForPurge()">
-                                        <i class="bi bi-trash"></i> Flag Selected for Purge
+                                        <i class="bi bi-trash"></i> Segnala i selezionati per la cancellazione
                                     </button>
                                 </div>
                             </div>
@@ -579,8 +579,8 @@
                         <div class="collapsible-header success" onclick="toggleCollapse('newSection')">
                             <div>
                                 <h5 class="mb-0">
-                                    <i class="bi bi-star"></i> New Products
-                                    <span class="badge bg-light text-dark ms-2">{{ enriched_new|length }} products</span>
+                                    <i class="bi bi-star"></i> Nuovi prodotti
+                                    <span class="badge bg-light text-dark ms-2">{{ enriched_new|length }} prodotti</span>
                                 </h5>
                             </div>
                             <i class="bi bi-chevron-right chevron-icon" id="newChevron"></i>
@@ -590,15 +590,15 @@
                             <div class="p-4">
                                 <div class="alert alert-success">
                                     <i class="bi bi-info-circle"></i>
-                                    These are brand new products that have never been in the system. Select which ones to order.
+                                    Si tratta di prodotti nuovi di zecca che non sono mai stati nel sistema. Seleziona quali ordinare.
                                 </div>
 
                                 <div class="mb-3">
                                     <button class="btn btn-primary" onclick="orderSelectedNew()">
-                                        <i class="bi bi-cart-plus"></i> Order Selected
+                                        <i class="bi bi-cart-plus"></i> Ordina i selezionati
                                     </button>
                                     <button class="btn btn-outline-primary ms-2" onclick="orderAllNew()">
-                                        <i class="bi bi-cart-check"></i> Order All
+                                        <i class="bi bi-cart-check"></i> Ordina tutti
                                     </button>
                                 </div>
 
@@ -607,16 +607,16 @@
                                         <thead>
                                             <tr>
                                                 <th><input type="checkbox" id="selectAllNew" onclick="toggleSelectAllNew()"></th>
-                                                <th>Code</th>
-                                                <th>Product Name</th>
-                                                <th>Package</th>
-                                                <th>Unit Cost</th>
-                                                <th>Unit Price</th>
-                                                <th>Margin</th>
-                                                <th>Stock</th>
-                                                <th>Availability</th>
-                                                <th>Quantity to Order</th>
-                                                <th>Reason</th>
+                                                <th>Codice</th>
+                                                <th>Descrizione</th>
+                                                <th>Imballo</th>
+                                                <th>Costo unitario</th>
+                                                <th>Prezzo unitario</th>
+                                                <th>Margine</th>
+                                                <th>Giacenza</th>
+                                                <th>Disponibilità</th>
+                                                <th>Quantità da ordinare</th>
+                                                <th>Motivo</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -632,15 +632,15 @@
                                                 <td><code>{{ item.cod }}.{{ item.var }}</code></td>
                                                 <td>{{ item.name|truncatewords:6 }}</td>
                                                 <td>
-                                                    <span class="badge bg-info">{{ item.package_size }} units</span>
+                                                    <span class="badge bg-info">{{ item.package_size }} unità</span>
                                                 </td>
                                                 <td>
                                                     <strong>€{{ item.unit_cost|floatformat:2 }}</strong>
-                                                    <br><small class="text-muted">Pkg: €{{ item.package_cost|floatformat:2 }}</small>
+                                                    <br><small class="text-muted">Collo: €{{ item.package_cost|floatformat:2 }}</small>
                                                 </td>
                                                 <td>
                                                     <strong>€{{ item.unit_price|floatformat:2 }}</strong>
-                                                    <br><small class="text-muted">Pkg: €{{ item.package_price|floatformat:2 }}</small>
+                                                    <br><small class="text-muted">Collo: €{{ item.package_price|floatformat:2 }}</small>
                                                 </td>
                                                 <td>
                                                     {% if item.margin_pct > 0 %}
@@ -650,13 +650,13 @@
                                                     {% endif %}
                                                 </td>
                                                 <td>
-                                                    <span class="badge bg-secondary">{{ item.stock }} units</span>
+                                                    <span class="badge bg-secondary">{{ item.stock }} unità</span>
                                                 </td>
                                                 <td>
                                                     {% if item.disponibilita == 'Si' %}
-                                                        <span class="badge bg-success">Available</span>
+                                                        <span class="badge bg-success">Disponibile</span>
                                                     {% else %}
-                                                        <span class="badge bg-danger">Not Available</span>
+                                                        <span class="badge bg-danger">Non Disponibile</span>
                                                     {% endif %}
                                                 </td>
                                                 <td>
@@ -684,8 +684,8 @@
                         <div class="collapsible-header secondary" onclick="toggleCollapse('zombieSection')">
                             <div>
                                 <h5 class="mb-0">
-                                    <i class="bi bi-archive"></i> Zombie Products
-                                    <span class="badge bg-light text-dark ms-2">{{ enriched_zombie|length }} products</span>
+                                    <i class="bi bi-archive"></i> Prodotti non disponibili
+                                    <span class="badge bg-light text-dark ms-2">{{ enriched_zombie|length }} prodotti</span>
                                 </h5>
                             </div>
                             <i class="bi bi-chevron-right chevron-icon" id="zombieChevron"></i>
@@ -695,12 +695,12 @@
                             <div class="p-4">
                                 <div class="alert alert-secondary">
                                     <i class="bi bi-info-circle"></i>
-                                    These products are finished and not restockable (disponibilita=No, stock=0). Consider purging them.
+                                    Questi prodotti sono terminati e non sono più disponibili (disponibilità=No, stock=0). Valuta la possibilità di eliminarli.
                                 </div>
 
                                 <div class="mb-3">
                                     <button class="btn btn-danger" onclick="flagAllZombiesForPurge()">
-                                        <i class="bi bi-trash"></i> Flag All for Purge
+                                        <i class="bi bi-trash"></i> Segnala tutti per la cancellazione
                                     </button>
                                 </div>
 
@@ -709,12 +709,12 @@
                                         <thead>
                                             <tr>
                                                 <th><input type="checkbox" id="selectAllZombies" onclick="toggleSelectAllZombies()"></th>
-                                                <th>Code</th>
-                                                <th>Product Name</th>
-                                                <th>Stock</th>
-                                                <th>Availability</th>
-                                                <th>Reason</th>
-                                                <th>Action</th>
+                                                <th>Codice</th>
+                                                <th>Descrizione</th>
+                                                <th>Giacenza</th>
+                                                <th>Disponibilità</th>
+                                                <th>Motivo</th>
+                                                <th>Azione</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -724,15 +724,15 @@
                                                 <td><code>{{ item.cod }}.{{ item.var }}</code></td>
                                                 <td>{{ item.name|truncatewords:6 }}</td>
                                                 <td>
-                                                    <span class="badge bg-secondary">{{ item.stock }} units</span>
+                                                    <span class="badge bg-secondary">{{ item.stock }} unità</span>
                                                 </td>
                                                 <td>
-                                                    <span class="badge bg-danger">Not Available</span>
+                                                    <span class="badge bg-danger">Non Disponibile</span>
                                                 </td>
                                                 <td><small class="text-muted">{{ item.reason }}</small></td>
                                                 <td>
                                                     <button class="btn btn-sm btn-outline-danger" onclick="flagSingleForPurge({{ item.cod }}, {{ item.var }})">
-                                                        <i class="bi bi-trash"></i> Flag
+                                                        <i class="bi bi-trash"></i> Segnala
                                                     </button>
                                                 </td>
                                             </tr>
@@ -743,7 +743,7 @@
 
                                 <div class="mt-3">
                                     <button class="btn btn-warning" onclick="flagSelectedZombiesForPurge()">
-                                        <i class="bi bi-trash"></i> Flag Selected for Purge
+                                        <i class="bi bi-trash"></i> Segnala i selezionati per la cancellazione
                                     </button>
                                 </div>
                             </div>
@@ -768,8 +768,8 @@
                                     </h6>
                                 </div>
                                 <div>
-                                    <span class="badge bg-primary me-2">{{ cluster_data.count }} items</span>
-                                    <span class="badge bg-success me-2">{{ cluster_data.total_packages }} packages</span>
+                                    <span class="badge bg-primary me-2">{{ cluster_data.count }} voci</span>
+                                    <span class="badge bg-success me-2">{{ cluster_data.total_packages }} colli</span>
                                     <span class="badge bg-info">€{{ cluster_data.total_cost|floatformat:2 }}</span>
                                 </div>
                             </div>
@@ -780,10 +780,10 @@
                                     <table class="table table-sm">
                                         <thead>
                                             <tr>
-                                                <th>Code</th>
-                                                <th>Product Name</th>
-                                                <th class="text-end">Qty</th>
-                                                <th class="text-end">Cost</th>
+                                                <th>Codice</th>
+                                                <th>Descrizione</th>
+                                                <th class="text-end">Quantità</th>
+                                                <th class="text-end">Costo</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -821,10 +821,10 @@
         <div class="col-12">
             <div class="d-flex gap-2">
                 <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-outline-secondary">
-                    <i class="bi bi-arrow-left"></i> Back to Storage
+                    <i class="bi bi-arrow-left"></i> Torna al Magazzino
                 </a>
                 <button onclick="window.print()" class="btn btn-outline-secondary">
-                    <i class="bi bi-printer"></i> Print
+                    <i class="bi bi-printer"></i> Stampa
                 </button>
             </div>
         </div>

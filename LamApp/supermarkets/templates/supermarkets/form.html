@@ -1,10 +1,10 @@
 <!-- templates/supermarkets/form.html -->
 {% extends 'base.html' %}
 {% block title %}
-  {% if object %}Edit Supermarket{% else %}Add New Supermarket{% endif %}
+  {% if object %}Edit Supermercato{% else %}Add New Supermercato{% endif %}
 {% endblock %}
 {% block content %}
-  <h1>{% if object %}Edit Supermarket{% else %}Add New Supermarket{% endif %}</h1>
+  <h1>{% if object %}Edit Supermercato{% else %}Add New Supermercato{% endif %}</h1>
   <form method="post">
     {% csrf_token %}
     {{ form.as_p }}

@@ -1,7 +1,7 @@
 <!-- Enhanced product_not_found.html with auto-add -->
 {% extends 'base.html' %}
-{% block title %}Product Not Found{% endblock %}
-{% block page_title %}Product Not Found{% endblock %}
+{% block title %}Prodotto non trovato{% endblock %}
+{% block page_title %}Prodotto non trovato{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,52 +10,52 @@
             <div class="stat-card">
                 <h4 class="mb-4 text-warning">
                     <i class="bi bi-exclamation-triangle"></i>
-                    Product {{ cod }}.{{ var }} Not Found
+                    Prodotto {{ cod }}.{{ var }} non trovato/verificato
                 </h4>
 
                 {% if product_exists and not is_verified %}
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-info-circle"></i> Product Not Verified</h6>
+                    <h6><i class="bi bi-info-circle"></i> Prodotto non verificato</h6>
                     <p class="mb-2">
-                        This product exists in the database ({{ supermarket_name }}) but has not been verified yet.
+                        Questo prodotto esiste nel database ({{ supermarket_name }}) ma non è stato ancora verificato.
                     </p>
                     <p class="mb-0">
-                        Would you like to verify the stock now?
+                        Vuoi verificare la giacenza adesso?
                     </p>
                 </div>
 
                 <div class="d-flex gap-2 justify-content-end">
                     <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
-                        <i class="bi bi-arrow-left"></i> Back to Search
+                        <i class="bi bi-arrow-left"></i> Torna alla ricerca
                     </a>
                     <button onclick="showVerifyModal()" class="btn btn-primary">
-                        <i class="bi bi-clipboard-check"></i> Verify Stock Now
+                        <i class="bi bi-clipboard-check"></i> Verifica
                     </button>
                 </div>
 
                 {% elif not product_exists %}
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> Product Not Registered</h6>
+                    <h6><i class="bi bi-info-circle"></i> Prodotto non registrato</h6>
                     <p class="mb-2">
-                        This product does not exist in any of your supermarket databases.
+                        Questo prodotto non esiste in nessuno dei database dei tuoi supermercati.
                     </p>
                     <p class="mb-0">
-                        <strong>Click "Auto-Add Product" below</strong> to automatically fetch product details from PAC2000A and add it to your database.
+                        <strong>Fare clic su "Aggiungi prodotto" qui sotto</strong> per recuperare automaticamente i dettagli del prodotto da PAC2000A e aggiungerli al tuo database.
                     </p>
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-clock"></i> Processing Time</h6>
+                    <h6><i class="bi bi-clock"></i> Tempo di elaborazione</h6>
                     <p class="mb-0">
-                        <strong>Please be patient:</strong> Auto-adding will connect to PAC2000A to fetch product details. This may take 15-30 seconds.
+                        <strong>Si prega di essere pazienti:</strong> il processo si collegherà a PAC2000A per recuperare i dettagli del prodotto. L'operazione potrebbe richiedere dai 15 ai 30 secondi.
                     </p>
                 </div>
 
                 <form id="autoAddForm" class="mb-3">
                     <div class="mb-3">
-                        <label class="form-label">Supermarket</label>
+                        <label class="form-label">Supermercato</label>
                         <select id="add_supermarket" class="form-select" required onchange="loadStoragesForAdd()">
-                            <option value="">-- Select Supermarket --</option>
+                            <option value="">-- Seleziona Supermercato --</option>
                             {% for sm in user.supermarkets.all %}
                             <option value="{{ sm.id }}">{{ sm.name }}</option>
                             {% endfor %}
@@ -63,11 +63,11 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Storage (Settore)</label>
+                        <label class="form-label">Magazzino (Settore)</label>
                         <select id="add_storage" class="form-select" required disabled>
-                            <option value="">-- Select Supermarket First --</option>
+                            <option value="">-- Seleziona prima Supermercato --</option>
                         </select>
-                        <div class="form-text">The product will be added to this settore</div>
+                        <div class="form-text">Il prodotto verrà aggiunto a questo settore</div>
                     </div>
                 </form>
 
@@ -75,39 +75,39 @@
                     <div class="alert alert-info">
                         <div class="d-flex align-items-center">
                             <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                            <span id="progressText">Connecting to PAC2000A...</span>
+                            <span id="progressText">Connessione a PAC2000A...</span>
                         </div>
                     </div>
                 </div>
 
                 <div id="successMessage" style="display: none;" class="alert alert-success">
-                    <h6><i class="bi bi-check-circle"></i> Product Added Successfully!</h6>
+                    <h6><i class="bi bi-check-circle"></i> Prodotto aggiunto con successo!</h6>
                     <p id="successDetails" class="mb-2"></p>
-                    <p class="mb-0">Redirecting to product details...</p>
+                    <p class="mb-0">Reindirizzamento ai dettagli del prodotto...</p>
                 </div>
 
                 <div id="errorMessage" style="display: none;" class="alert alert-danger">
-                    <h6><i class="bi bi-x-circle"></i> Error</h6>
+                    <h6><i class="bi bi-x-circle"></i> Errore</h6>
                     <p id="errorDetails" class="mb-0"></p>
                 </div>
 
                 <div class="d-flex gap-2 justify-content-end">
                     <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
-                        <i class="bi bi-arrow-left"></i> Back to Search
+                        <i class="bi bi-arrow-left"></i> Torna alla ricerca
                     </a>
                     <button type="button" class="btn btn-success" id="autoAddBtn" onclick="submitAutoAdd()">
-                        <i class="bi bi-magic"></i> Auto-Add Product
+                        <i class="bi bi-magic"></i> Aggiungi prodotto
                     </button>
                 </div>
 
                 {% else %}
                 <div class="alert alert-secondary">
-                    <p class="mb-0">Product not found in verified inventory.</p>
+                    <p class="mb-0">Prodotto non trovato nell'inventario verificato.</p>
                 </div>
 
                 <div class="d-flex gap-2 justify-content-end">
                     <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
-                        <i class="bi bi-arrow-left"></i> Back to Search
+                        <i class="bi bi-arrow-left"></i> Torna alla ricerca
                     </a>
                 </div>
                 {% endif %}
@@ -121,19 +121,19 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Verify Product {{ cod }}.{{ var }}</h5>
+                <h5 class="modal-title">Verifica prodotto {{ cod }}.{{ var }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-info">
-                    <strong>Product Code:</strong> {{ cod }}.{{ var }}
+                    <strong>Codice prodotto:</strong> {{ cod }}.{{ var }}
                 </div>
                 
                 <form id="verifySingleForm">
                     <div class="mb-3">
-                        <label class="form-label">Supermarket</label>
+                        <label class="form-label">Supermercato</label>
                         <select id="verify_supermarket" class="form-select" required onchange="loadStoragesForVerify()">
-                            <option value="">-- Select Supermarket --</option>
+                            <option value="">-- Seleziona Supermercato --</option>
                             {% for sm in user.supermarkets.all %}
                             <option value="{{ sm.id }}">{{ sm.name }}</option>
                             {% endfor %}
@@ -141,25 +141,25 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Storage (Settore)</label>
+                        <label class="form-label">Magazzino (Settore)</label>
                         <select id="verify_storage" class="form-select" required disabled>
-                            <option value="">-- Select Supermarket First --</option>
+                            <option value="">-- Seleziona prima Supermercato --</option>
                         </select>
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Stock Quantity</label>
+                        <label class="form-label">Giacenza</label>
                         <input type="number" id="verify_stock" class="form-control" required min="0">
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Cluster (Optional)</label>
+                        <label class="form-label">Cluster (Opzionale)</label>
                         <input type="text" id="verify_cluster" class="form-control" placeholder="Leave empty to skip">
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
                 <button type="button" class="btn btn-primary" onclick="submitVerifySingle()">
                     <i class="bi bi-check-circle"></i> Verify
                 </button>
@@ -188,14 +188,14 @@ function loadStoragesForVerify() {
     
     if (!supermarketId) {
         storageSelect.disabled = true;
-        storageSelect.innerHTML = '<option value="">-- Select Supermarket First --</option>';
+        storageSelect.innerHTML = '<option value="">-- Seleziona prima Supermercato --</option>';
         return;
     }
     
     fetch(`/inventory/api/storages/${supermarketId}/`)
         .then(response => response.json())
         .then(data => {
-            storageSelect.innerHTML = '<option value="">-- Select Storage --</option>';
+            storageSelect.innerHTML = '<option value="">-- Select Magazzino --</option>';
             data.storages.forEach(storage => {
                 const option = document.createElement('option');
                 option.value = storage.settore;
@@ -263,14 +263,14 @@ function loadStoragesForAdd() {
     
     if (!supermarketId) {
         storageSelect.disabled = true;
-        storageSelect.innerHTML = '<option value="">-- Select Supermarket First --</option>';
+        storageSelect.innerHTML = '<option value="">-- Seleziona prima Supermercato --</option>';
         return;
     }
     
     fetch(`/inventory/api/storages/${supermarketId}/`)
         .then(response => response.json())
         .then(data => {
-            storageSelect.innerHTML = '<option value="">-- Select Storage --</option>';
+            storageSelect.innerHTML = '<option value="">-- Select Magazzino --</option>';
             data.storages.forEach(storage => {
                 const option = document.createElement('option');
                 option.value = storage.id;

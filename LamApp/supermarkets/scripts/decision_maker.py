@@ -1,11 +1,15 @@
 # LamApp/supermarkets/scripts/decision_maker.py
+import logging
 from .DatabaseManager import DatabaseManager
 from datetime import date, timedelta
 from math import ceil
 from .helpers import Helper
-from .logger import logger
 from .analyzer import analyzer
 from .processor_N import process_N_sales
+
+# Use Django's logging system - configured in settings.py
+# This logger will write to decision_maker.log (separate from other logs due to high volume)
+logger = logging.getLogger(__name__)
 
 
 class DecisionMaker:

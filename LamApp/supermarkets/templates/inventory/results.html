@@ -1,7 +1,7 @@
 <!-- COMPLETE UPDATED: LamApp/supermarkets/templates/inventory/results.html -->
 {% extends 'base.html' %}
-{% block title %}Inventory Results{% endblock %}
-{% block page_title %}Inventory Results{% endblock %}
+{% block title %}Risultati ricerca Inventario{% endblock %}
+{% block page_title %}Risultati ricerca Inventario{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -129,8 +129,8 @@
     <!-- ✅ PRINT HEADER (hidden on screen, shown on print) -->
     <div class="print-only print-header">
         <h2>{{ search_description }}</h2>
-        <p><strong>Date:</strong> {% now "F d, Y H:i" %}</p>
-        <p><strong>Total Products:</strong> {{ results|length }}</p>
+        <p><strong>Data:</strong> {% now "F d, Y H:i" %}</p>
+        <p><strong>Prodotti totali:</strong> {{ results|length }}</p>
     </div>
 
     <!-- Breadcrumb (hidden on print) -->
@@ -139,8 +139,8 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventory</a></li>
-                    <li class="breadcrumb-item active">Results</li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item active">Risultati</li>
                 </ol>
             </nav>
         </div>
@@ -157,20 +157,20 @@
                     </h4>
                     <div class="btn-group">
                         <a href="{% url 'inventory-search' %}" class="btn btn-outline-secondary">
-                            <i class="bi bi-arrow-left"></i> New Search
+                            <i class="bi bi-arrow-left"></i> Nuova ricerca
                         </a>
                         <a href="{% url 'edit-losses' %}" class="btn btn-outline-warning">
-                            <i class="bi bi-pencil-square"></i> Edit Recorded Losses
+                            <i class="bi bi-pencil-square"></i> Modifica Perdite reggistrate
                         </a>
                         <!-- ✅ PRINT BUTTON -->
                         <button onclick="window.print()" class="btn btn-success">
-                            <i class="bi bi-printer"></i> Print for Verification
+                            <i class="bi bi-printer"></i> Stampa per la verifica
                         </button>
                     </div>
                 </div>
 
                 <div class="alert alert-info no-print">
-                    <strong>{{ results|length }}</strong> verified product{{ results|length|pluralize }} found
+                    <strong>{{ results|length }}</strong> trovato prodotto verificato{{ results|length|pluralize }} <!--#TODO mi sa che ho tradotto male-->
                 </div>
 
                 {% if results %}
@@ -180,22 +180,22 @@
                             <tr>
                                 <!-- ✅ PRINT: Checkbox column for manual verification -->
                                 <th class="print-only" style="width: 40px;">✓</th>
-                                <th>Code</th>
-                                <th>Description</th>
+                                <th>Codice</th>
+                                <th>Descrizione</th>
                                 <th class="sortable-header no-print" onclick="sortTable('stock')" data-column="stock">
-                                    Stock
+                                    Giacenza
                                     <span class="sort-icon neutral" id="sort-stock"></span>
                                 </th>
                                 <!-- ✅ PRINT: Show stock without sorting -->
-                                <th class="print-only">Stock</th>
-                                <th>Pkg Size</th>
+                                <th class="print-only">Giacenza</th>
+                                <th>Imballo</th>
                                 <th>Cluster</th>
-                                <th class="no-print">Last Update</th>
+                                <th class="no-print">Ultimo aggiornamento</th>
                                 <th class="sortable-header no-print" onclick="sortTable('status')" data-column="status">
-                                    Status
+                                    Stato
                                     <span class="sort-icon neutral" id="sort-status"></span>
                                 </th>
-                                <th class="no-print">Actions</th>
+                                <th class="no-print">Azioni</th>
                             </tr>
                         </thead>
                         <tbody id="tableBody">
@@ -232,17 +232,17 @@
                                     {% if product.last_update %}
                                         {{ product.last_update|date:"M d, Y" }}
                                     {% else %}
-                                        <span class="text-muted">Never</span>
+                                        <span class="text-muted">Mai</span>
                                     {% endif %}
                                 </td>
                                 <td class="no-print">
                                     {% if product.disponibilita == 'Si' %}
                                         <span class="badge bg-success">
-                                            <i class="bi bi-circle-fill"></i> Available
+                                            <i class="bi bi-circle-fill"></i> Disponibile
                                         </span>
                                     {% else %}
                                         <span class="badge bg-danger">
-                                            <i class="bi bi-circle-fill"></i> Unavailable
+                                            <i class="bi bi-circle-fill"></i> Non Disponibile
                                         </span>
                                     {% endif %}
                                 </td>
@@ -257,12 +257,12 @@
                                                 {{ product.minimum_stock|default:4 }},
                                                 '{{ product.cluster|default:'' }}'
                                             )">
-                                            <i class="bi bi-pencil"></i> Adjust
+                                            <i class="bi bi-pencil"></i> Rettifica
                                         </button>
                                         {% if product.disponibilita == 'No' %}
                                         <button class="btn btn-outline-danger"
                                                 onclick="flagForPurge({{ product.cod }}, {{ product.v }}, '{{ product.supermarket_name }}')">
-                                            <i class="bi bi-trash"></i> Flag
+                                            <i class="bi bi-trash"></i> Segnala
                                         </button>
                                         {% endif %}
                                     </div>
@@ -277,12 +277,12 @@
                 <div class="print-only mt-4" style="border-top: 2px solid #000; padding-top: 15px;">
                     <div class="row">
                         <div class="col-6">
-                            <p><strong>Verified by:</strong> _______________________</p>
-                            <p><strong>Date:</strong> _______________________</p>
+                            <p><strong>Verificato da:</strong> _______________________</p>
+                            <p><strong>Data:</strong> _______________________</p>
                         </div>
                         <div class="col-6">
-                            <p><strong>Total Products:</strong> {{ results|length }}</p>
-                            <p><strong>Notes:</strong></p>
+                            <p><strong>Prodotti totali:</strong> {{ results|length }}</p>
+                            <p><strong>Note:</strong></p>
                             <div style="border: 1px solid #000; height: 80px; padding: 5px;"></div>
                         </div>
                     </div>
@@ -290,7 +290,7 @@
                 {% else %}
                 <div class="alert alert-warning">
                     <i class="bi bi-exclamation-triangle"></i>
-                    No verified products found matching your search criteria.
+                    Nessun prodotto verificato trovato corrispondente ai tuoi criteri di ricerca.
                 </div>
                 {% endif %}
             </div>
@@ -303,7 +303,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Adjust Stock & Settings</h5>
+                <h5 class="modal-title">Rettifica giacenza & settaggi vari</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -314,31 +314,31 @@
                     <input type="hidden" id="adjust_supermarket" name="supermarket">
                     
                     <div class="mb-3">
-                        <label class="form-label">Product</label>
+                        <label class="form-label">Prodotto</label>
                         <div class="form-control-plaintext" id="adjust_product_display"></div>
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Current Stock</label>
+                        <label class="form-label">Giacenza attuale</label>
                         <div class="form-control-plaintext" id="adjust_current_stock"></div>
                     </div>
                     
                     <div class="mb-3">
-                        <label for="adjustment" class="form-label">Stock Adjustment</label>
+                        <label for="adjustment" class="form-label">Rettifica</label>
                         <input type="number" class="form-control" id="adjustment" name="adjustment" 
                                placeholder="e.g., -5 or +10" required>
-                        <div class="form-text">Use negative for removing stock, positive for adding</div>
+                        <div class="form-text">Utilizzare il negativo per rimuovere dalla giacenza, il positivo per aggiungere</div>
                     </div>
                     
                     <!-- Minimum Stock Field -->
                     <div class="mb-3">
                         <label for="minimum_stock" class="form-label">
-                            <i class="bi bi-shield-check"></i> Minimum Stock Level
+                            <i class="bi bi-shield-check"></i> Minima giacenza garantita
                         </label>
                         <input type="number" class="form-control" id="minimum_stock" name="minimum_stock" 
                                min="1" max="100" required>
                         <div class="form-text">
-                            Base minimum stock for restock calculations (default: 4)
+                            Giacenza minima di base per i calcoli di riassortimento (default: 4)
                         </div>
                     </div>
                     
@@ -350,33 +350,33 @@
                         <input type="text" class="form-control" id="cluster" name="cluster" 
                                placeholder="e.g., FREEZER, DAIRY" style="text-transform: uppercase;">
                         <div class="form-text">
-                            Assign or change cluster (leave empty to keep current, type 'NONE' to remove)
+                            Assegna o modifica il cluster (lascia vuoto per mantenerlo invariato, digita 'NONE' per rimuoverlo)
                         </div>
                     </div>
                     
                     <div class="mb-3">
-                        <label for="reason" class="form-label">Reason for Stock Adjustment</label>
+                        <label for="reason" class="form-label">Motivazione per Rettifica</label>
                         <select class="form-select" id="reason" name="reason" required>
                             <optgroup label="Loss Categories (recorded in analytics)">
-                                <option value="broken">Broken/Damaged (recorded as loss)</option>
-                                <option value="expired">Expired (recorded as loss)</option>
-                                <option value="internal_use">Internal Use (recorded as loss)</option>
+                                <option value="broken">Rotto/Danneggiato (registrato come perdita)</option>
+                                <option value="expired">Scaduto (registrato come perdita)</option>
+                                <option value="internal_use">Uso interno (registrato come perdita)</option>
+                                <option value="stolen">Rubato (registrato come perdita)</option>  <!-- #TODO verifica che vengano effettivamente caricate come perdite -->
                             </optgroup>
                             <optgroup label="Other Reasons">
-                                <option value="undelivered">Undelivered Package</option>
-                                <option value="extra_delivery">Extra Package Delivered</option>
-                                <option value="miscount">Inventory Miscount</option>
-                                <option value="stolen">Stolen</option>
-                                <option value="other">Other</option>
+                                <option value="undelivered">Pacco non consegnato</option>
+                                <option value="extra_delivery">Pacco extra consegnato</option>
+                                <option value="miscount">Errore di calcolo</option>
+                                <option value="other">Altro</option>
                             </optgroup>
                         </select>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
                 <button type="button" class="btn btn-primary" onclick="submitAdjustment()">
-                    <i class="bi bi-check-circle"></i> Apply Changes
+                    <i class="bi bi-check-circle"></i> Applica modifiche
                 </button>
             </div>
         </div>

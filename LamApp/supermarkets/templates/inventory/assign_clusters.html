@@ -1,7 +1,7 @@
 <!-- Replace LamApp/supermarkets/templates/inventory/assign_clusters.html -->
 {% extends 'base.html' %}
-{% block title %}Assign Clusters{% endblock %}
-{% block page_title %}Assign Product Clusters{% endblock %}
+{% block title %}Assegna Clusters{% endblock %}
+{% block page_title %}Assegna Clusters prodotti{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,8 +10,8 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventory</a></li>
-                    <li class="breadcrumb-item active">Assign Clusters</li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item active">Assegna Clusters</li>
                 </ol>
             </nav>
         </div>
@@ -22,23 +22,22 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-folder text-info"></i>
-                    Assign Clusters to Products - PDF Format
+                    Assegna Clusters a prodotti - Formato PDF
                 </h4>
 
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> How It Works</h6>
+                    <h6><i class="bi bi-info-circle"></i> Come funziona</h6>
                     <ol class="mb-0">
-                        <li>Upload a <strong>PDF file</strong> exported from inventory terminal</li>
-                        <li>Enter a cluster name (e.g., FREEZER, DAIRY, PRODUCE)</li>
-                        <li>All products in the PDF are assigned to that cluster</li>
-                        <li>Stock quantities are ignored (only product codes matter)</li>
+                        <li>Carica un <strong>file PDF</strong> esportato da Dropzone</li>
+                        <li>Dai un nome al Cluster (e.g., SURGELATI, CHIMICO, CARTA)</li>
+                        <li>Tutti i prodotti nel PDF saranno assegnati a quel cluster</li>
                     </ol>
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> PDF Format</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Formato PDF</h6>
                     <p class="mb-0">
-                        Upload the same PDF format used for stock verification. The system will extract product codes and assign them to your chosen cluster.
+                        Il sistema estrarà i codici articoli e li assegnerà al cluster selezionato.
                     </p>
                 </div>
 
@@ -47,18 +46,18 @@
                     
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label for="supermarket_id" class="form-label">Supermarket</label>
+                            <label for="supermarket_id" class="form-label">Supermercato</label>
                             <select name="supermarket_id" id="supermarket_id" class="form-select" required onchange="loadStorages()">
-                                <option value="">-- Select Supermarket --</option>
+                                <option value="">-- Seleziona Supermercato --</option>
                                 {% for sm in supermarkets %}
                                 <option value="{{ sm.id }}">{{ sm.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label for="storage_id" class="form-label">Storage (Settore)</label>
+                            <label for="storage_id" class="form-label">Magazzino</label>
                             <select name="storage_id" id="storage_id" class="form-select" required disabled onchange="loadExistingClusters()">
-                                <option value="">-- Select Supermarket First --</option>
+                                <option value="">-- Seleziona prima il Supermercato --</option>
                             </select>
                         </div>
                     </div>
@@ -66,42 +65,42 @@
                     <!-- Cluster Name Input -->
                     <div class="mb-3">
                         <label for="cluster" class="form-label">
-                            <i class="bi bi-tag"></i> Cluster Name (Required)
+                            <i class="bi bi-tag"></i> Nome Cluster (Obbligatorio)
                         </label>
                         <input 
                             type="text" 
                             class="form-control text-uppercase" 
                             id="cluster" 
                             name="cluster" 
-                            placeholder="e.g., FREEZER, DAIRY, PRODUCE"
+                            placeholder="e.g., SURGELATI, CHIMICO, CARTA"
                             required
                             style="text-transform: uppercase;"
                         >
                         <div class="form-text">
-                            Enter a descriptive name for this cluster. Use ALL CAPS for consistency.
+                            Scegli un nome descrittivo per questo cluster. Usa TUTTO MAIUSCOLO per coerenza.
                         </div>
                         
                         <!-- Show existing clusters for reference -->
                         <div id="existingClusters" class="mt-2" style="display: none;">
-                            <small class="text-muted">Existing clusters in this storage:</small>
+                            <small class="text-muted">Cluster esistenti in questo magazzino:</small>
                             <div id="clusterBadges" class="mt-1"></div>
                         </div>
                     </div>
                     
                     <div class="mb-4">
                         <label for="pdf_file" class="form-label">
-                            <i class="bi bi-file-pdf text-danger"></i> Inventory PDF File
+                            <i class="bi bi-file-pdf text-danger"></i> Inventario File PDF
                         </label>
                         <input type="file" class="form-control" id="pdf_file" name="pdf_file" accept=".pdf" required>
-                        <div class="form-text">PDF exported from inventory terminal</div>
+                        <div class="form-text">PDF esportato da Dropzone</div>
                     </div>
 
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-upload"></i> Upload and Assign
+                            <i class="bi bi-upload"></i> Carica e assegna
                         </button>
                     </div>
                 </form>
@@ -109,18 +108,18 @@
 
             <!-- PDF Format Example -->
             <div class="stat-card mt-3">
-                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Expected PDF Format</h6>
+                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Formato PDF previsto</h6>
                 <div class="bg-light p-3 rounded">
-                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Terminalino
-Punto Vendita: [Store Name]
+                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Dropzone
+Punto Vendita: [Nome Supermercato]
 
-Codice a Barre | Articolo | Descrizione | Quantità | Messaggi
+Codice a Barre | Articolo | Descrizione  | Quantità | 
 8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  | 
 8025916119969  | 22582 1  | PRODUCT DESC | PZ 4,00  |
 ...</pre>
                 </div>
                 <p class="text-muted small mb-0 mt-2">
-                    <strong>Note:</strong> Only product codes and variants are extracted. Quantities are ignored for cluster assignment.
+                    <strong>Nota bene:</strong> Vengono estratti solo i codici prodotto e le varianti. Le quantità vengono ignorate per l'assegnazione al cluster.
                 </p>
             </div>
         </div>
@@ -138,14 +137,14 @@ function loadStorages() {
     
     if (!supermarketId) {
         storageSelect.disabled = true;
-        storageSelect.innerHTML = '<option value="">-- Select Supermarket First --</option>';
+        storageSelect.innerHTML = '<option value="">-- Seleziona prima Supermercato --</option>';
         return;
     }
     
     fetch(`/inventory/api/storages/${supermarketId}/`)
         .then(response => response.json())
         .then(data => {
-            storageSelect.innerHTML = '<option value="">-- Select Storage --</option>';
+            storageSelect.innerHTML = '<option value="">-- Select Magazzino --</option>';
             data.storages.forEach(storage => {
                 const option = document.createElement('option');
                 option.value = storage.id;

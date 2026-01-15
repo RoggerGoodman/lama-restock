@@ -16,7 +16,7 @@
 
                 {% if storage %}
                 <div class="alert alert-info">
-                    <strong>Storage:</strong> {{ storage.supermarket.name }} - {{ storage.name }}
+                    <strong>Magazzino:</strong> {{ storage.supermarket.name }} - {{ storage.name }}
                 </div>
                 {% endif %}
 
@@ -74,7 +74,7 @@
                 <div class="mt-4">
                     {% if storage %}
                     <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-arrow-left"></i> Back to Storage
+                        <i class="bi bi-arrow-left"></i> Back to Magazzino
                     </a>
                     {% else %}
                     <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">

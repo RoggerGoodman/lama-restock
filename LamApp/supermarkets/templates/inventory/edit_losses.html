@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/inventory/edit_losses.html -->
 {% extends 'base.html' %}
-{% block title %}Edit Recorded Losses{% endblock %}
-{% block page_title %}Edit Recorded Losses{% endblock %}
+{% block title %}Modifica registro Perdite{% endblock %}
+{% block page_title %}Modifica registro Perdite{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,23 +10,23 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventory</a></li>
-                    <li class="breadcrumb-item active">Edit Losses</li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item active">Modifica Perdite</li>
                 </ol>
             </nav>
         </div>
     </div>
 
-    <!-- Filters -->
+    <!-- Filtri -->
     <div class="row mb-4">
         <div class="col-12">
             <div class="stat-card">
-                <h5 class="mb-3"><i class="bi bi-funnel"></i> Filters</h5>
+                <h5 class="mb-3"><i class="bi bi-funnel"></i> Filtri</h5>
                 <form method="get" class="row g-3">
                     <div class="col-md-6">
-                        <label for="supermarket_id" class="form-label">Supermarket</label>
+                        <label for="supermarket_id" class="form-label">Supermercato</label>
                         <select name="supermarket_id" id="supermarket_id" class="form-select" onchange="this.form.submit()">
-                            <option value="">All Supermarkets</option>
+                            <option value="">Tutti i Supermercati</option>
                             {% for sm in supermarkets %}
                             <option value="{{ sm.id }}" {% if sm.id|stringformat:"s" == selected_supermarket %}selected{% endif %}>
                                 {{ sm.name }}
@@ -36,9 +36,9 @@
                     </div>
                     
                     <div class="col-md-6">
-                        <label for="storage_id" class="form-label">Storage</label>
+                        <label for="storage_id" class="form-label">Magazzino</label>
                         <select name="storage_id" id="storage_id" class="form-select" onchange="this.form.submit()">
-                            <option value="">All Storages</option>
+                            <option value="">Tutti i Supermercati</option>
                             {% for storage in storages %}
                             <option value="{{ storage.id }}" 
                                     {% if storage.id|stringformat:"s" == selected_storage %}selected{% endif %}>
@@ -50,7 +50,7 @@
                     
                     <div class="col-12">
                         <a href="{% url 'edit-losses' %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Clear Filters
+                            <i class="bi bi-x-circle"></i> Togli Filtri
                         </a>
                     </div>
                 </form>
@@ -62,23 +62,23 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="alert alert-warning">
-                <h6><i class="bi bi-exclamation-triangle"></i> Important</h6>
+                <h6><i class="bi bi-exclamation-triangle"></i> IMPORTANTE</h6>
                 <p class="mb-0">
-                    <strong>Editing losses here does NOT affect stock levels.</strong> 
-                    Use this to correct recording mistakes. Stock adjustments should be done through 
-                    <a href="{% url 'inventory-search' %}" class="alert-link">Inventory Search</a>.
+                    <strong>La modifica delle perdite qui NON influisce sui livelli delle giacenze.</strong> 
+                    Utilizzare questo per correggere errori di registrazione. 
+                    <a href="{% url 'inventory-search' %}" class="alert-link">Ricerca Inventario</a>.
                 </p>
             </div>
         </div>
     </div>
 
-    <!-- Products with Losses -->
+    <!-- Products with Perdite -->
     <div class="row">
         <div class="col-12">
             <div class="stat-card">
                 <h5 class="mb-4">
-                    <i class="bi bi-pencil-square"></i> Products with Recorded Losses
-                    <span class="badge bg-secondary">{{ products|length }} products</span>
+                    <i class="bi bi-pencil-square"></i> Prodotti con Perdite reggistrate
+                    <span class="badge bg-secondary">{{ products|length }} prodotti</span>
                 </h5>
 
                 {% if products %}
@@ -86,12 +86,12 @@
                     <table class="table table-hover">
                         <thead>
                             <tr>
-                                <th>Code</th>
-                                <th>Description</th>
-                                <th>Supermarket</th>
-                                <th class="text-center">Broken</th>
-                                <th class="text-center">Expired</th>
-                                <th class="text-center">Internal</th>
+                                <th>Codice</th>
+                                <th>Descrizione</th>
+                                <th>Supermercato</th>
+                                <th class="text-center">Rotture</th>
+                                <th class="text-center">Scaduto</th>
+                                <th class="text-center">Uso interno</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -103,21 +103,21 @@
                                 <td><small class="text-muted">{{ product.supermarket_name }}</small></td>
                                 <td class="text-center">
                                     {% if product.broken %}
-                                        <span class="badge bg-danger">{{ product.broken|length }} months</span>
+                                        <span class="badge bg-danger">{{ product.broken|length }} mesi</span>
                                     {% else %}
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
                                 <td class="text-center">
                                     {% if product.expired %}
-                                        <span class="badge bg-warning">{{ product.expired|length }} months</span>
+                                        <span class="badge bg-warning">{{ product.expired|length }} mesi</span>
                                     {% else %}
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
                                 <td class="text-center">
                                     {% if product.internal %}
-                                        <span class="badge bg-info">{{ product.internal|length }} months</span>
+                                        <span class="badge bg-info">{{ product.internal|length }} mesi</span>
                                     {% else %}
                                         <span class="text-muted">—</span>
                                     {% endif %}
@@ -135,7 +135,7 @@
                 {% else %}
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i>
-                    No products with recorded losses found for the selected filters.
+                    Nessun prodotto con perdite registrate trovato per i filtri selezionati.
                 </div>
                 {% endif %}
             </div>
@@ -148,13 +148,13 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Edit Recorded Losses</h5>
+                <h5 class="modal-title">Modifica reggistro Perdite</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-warning">
-                    <strong>Note:</strong> Changes here will NOT affect stock levels. 
-                    This is for correcting recording mistakes only.
+                    <strong>Nota bene:</strong> Le modifiche apportate NON incideranno sui livelli delle giacenze.
+                    Serve solo a correggere gli errori di registrazione.
                 </div>
 
                 <h6 id="productTitle" class="mb-3"></h6>
@@ -163,32 +163,32 @@
                 <input type="hidden" id="edit_cod">
                 <input type="hidden" id="edit_var">
 
-                <!-- Broken Losses -->
+                <!-- Broken Perdite -->
                 <div class="mb-4">
                     <h6 class="text-danger">
-                        <i class="bi bi-x-octagon"></i> Broken/Damaged
+                        <i class="bi bi-x-octagon"></i> Rotture
                     </h6>
                     <div id="brokenArrayContainer" class="row g-2"></div>
                 </div>
 
-                <!-- Expired Losses -->
+                <!-- Expired Perdite -->
                 <div class="mb-4">
                     <h6 class="text-warning">
-                        <i class="bi bi-calendar-x"></i> Expired
+                        <i class="bi bi-calendar-x"></i> Scaduto
                     </h6>
                     <div id="expiredArrayContainer" class="row g-2"></div>
                 </div>
 
-                <!-- Internal Losses -->
+                <!-- Internal Perdite -->
                 <div class="mb-4">
                     <h6 class="text-info">
-                        <i class="bi bi-people"></i> Internal Use
+                        <i class="bi bi-people"></i> Utilizzo interno
                     </h6>
                     <div id="internalArrayContainer" class="row g-2"></div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
             </div>
         </div>
     </div>

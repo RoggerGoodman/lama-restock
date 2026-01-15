@@ -1,7 +1,7 @@
 <!-- Replace LamApp/supermarkets/templates/inventory/verify_stock_unified.html -->
 {% extends 'base.html' %}
-{% block title %}Verify Stock (Bulk){% endblock %}
-{% block page_title %}Verify Stock Inventory{% endblock %}
+{% block title %}Verifica Giacenza (all'ingrosso){% endblock %}
+{% block page_title %}Verifica giacenza{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,8 +10,8 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventory</a></li>
-                    <li class="breadcrumb-item active">Verify Stock</li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item active">Verifica giacenza</li>
                 </ol>
             </nav>
         </div>
@@ -22,26 +22,24 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-clipboard-check text-success"></i>
-                    Verify Stock (Bulk) - PDF Format
+                    Verifica giacenza (all'ingrosso) - Formato PDF
                 </h4>
 
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> What This Does</h6>
+                    <h6><i class="bi bi-info-circle"></i> Cosa fa questo</h6>
                     <ol class="mb-0">
-                        <li><strong>Records losses</strong> - Downloads and records broken/expired/internal usage</li>
-                        <li><strong>Verifies inventory</strong> - Compares your PDF against calculated stock levels</li>
-                        <li><strong>Auto-adds missing products</strong> - Fetches data from PAC2000A for products not in DB</li>
-                        <li><strong>Assigns cluster</strong> - Optionally group products by location/category</li>
+                        <li><strong>Registra perdite</strong> - Scarica e registra Rotture/Scaduto/Utilizzo Interno</li>
+                        <li><strong>Verifica l'inventario</strong> - Confronta il tuo PDF con i livelli di Giacenza calcolati</li>
+                        <li><strong>Aggiunge i prodotti mancanti</strong> - Recupera i dati da PAC2000A per i prodotti non presenti nel DB</li>
+                        <li><strong>Assegna i cluster</strong> - Facoltativamente, assegna i prodotti ad il cluster selezionato</li>
                     </ol>
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> New PDF Format</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Formato PDF</h6>
                     <ul class="mb-0">
-                        <li>Upload <strong>PDF file</strong> exported from inventory terminal (not CSV)</li>
-                        <li>Stats update is NOT needed (already runs at 5:00 AM daily)</li>
-                        <li>This process may take 10-20 minutes with auto-add enabled</li>
-                        <li>Browser window will open automatically if needed</li>
+                        <li>Carica il <strong>file PDF</strong> esportato da Dropzone</li>
+                        <li>Questo processo potrebbe richiedere alcuni minuti</li>
                     </ul>
                 </div>
 
@@ -51,10 +49,10 @@
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="supermarket_id" class="form-label">
-                                <i class="bi bi-shop"></i> Supermarket
+                                <i class="bi bi-shop"></i> Supermercato
                             </label>
                             <select name="supermarket_id" id="supermarket_id" class="form-select" required onchange="loadStorages()">
-                                <option value="">-- Select Supermarket --</option>
+                                <option value="">-- Seleziona Supermercato --</option>
                                 {% for sm in supermarkets %}
                                 <option value="{{ sm.id }}">{{ sm.name }}</option>
                                 {% endfor %}
@@ -62,10 +60,10 @@
                         </div>
                         <div class="col-md-6">
                             <label for="storage_id" class="form-label">
-                                <i class="bi bi-box"></i> Storage (Settore)
+                                <i class="bi bi-box"></i> Magazzino (Settore)
                             </label>
                             <select name="storage_id" id="storage_id" class="form-select" required disabled onchange="loadClusters()">
-                                <option value="">-- Select Supermarket First --</option>
+                                <option value="">-- Seleziona prima Supermercato --</option>
                             </select>
                         </div>
                     </div>
@@ -73,28 +71,28 @@
                     <!-- Cluster Selection -->
                     <div class="mb-3">
                         <label for="cluster" class="form-label">
-                            <i class="bi bi-folder"></i> Cluster (Optional)
+                            <i class="bi bi-folder"></i> Cluster (Opzionale)
                         </label>
                         <div class="input-group">
                             <select id="cluster_select" class="form-select" onchange="updateClusterInput()">
-                                <option value="">-- No Cluster / Select Existing --</option>
+                                <option value="">-- No Cluster / Seleziona Esistente --</option>
                             </select>
                             <input type="text" 
                                    class="form-control" 
                                    id="cluster" 
                                    name="cluster" 
-                                   placeholder="Or type new cluster name (ALL CAPS)"
+                                   placeholder="Oppure digita il nome del nuovo cluster (TUTTO MAIUSCOLO)"
                                    style="display: none;">
                         </div>
                         <div class="form-text">
-                            Select existing cluster OR type new name (e.g., FREEZER, DAIRY, PRODUCE).
-                            Leave empty if you don't want to assign clusters.
+                            Seleziona un cluster esistente OPPURE digita un nuovo nome (e.g., SURGELATI, CHIMICO, CARTA).
+                            Lasciare vuoto se non si desidera assegnare cluster.
                         </div>
                     </div>
                     
                     <div class="mb-4">
                         <label for="pdf_file" class="form-label">
-                            <i class="bi bi-file-pdf text-danger"></i> Inventory PDF File
+                            <i class="bi bi-file-pdf text-danger"></i>File PDF Inventario 
                         </label>
                         <input type="file" 
                                class="form-control" 
@@ -103,16 +101,16 @@
                                accept=".pdf"
                                required>
                         <div class="form-text">
-                            Upload PDF exported from inventory terminal
+                            Carica il PDF esportato da Dropzone
                         </div>
                     </div>
 
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'inventory-search' %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-primary" id="submitBtn">
-                            <i class="bi bi-upload"></i> Upload and Verify
+                            <i class="bi bi-upload"></i> Carica e verifica
                         </button>
                     </div>
                 </form>
@@ -120,18 +118,18 @@
 
             <!-- PDF Format Example -->
             <div class="stat-card mt-3">
-                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Expected PDF Format</h6>
+                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Formato PDF previsto</h6>
                 <div class="bg-light p-3 rounded">
                     <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Terminalino
-Punto Vendita: [Store Name]
+Punto Vendita: [Nome Supermercato]
 
-Codice a Barre | Articolo | Descrizione | Quantità | Messaggi
-8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  | 
+Codice a Barre | Articolo | Descrizione  | Quantità |
+8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  |
 8025916119969  | 22582 1  | PRODUCT DESC | PZ 4,00  |
 ...</pre>
                 </div>
                 <p class="text-muted small mb-0 mt-2">
-                    <strong>Format:</strong> System extracts product code, variant, and quantity from PDF
+                    <strong>Formato:</strong> Il sistema estrae il codice prodotto, la variante e la quantità dal PDF
                 </p>
             </div>
         </div>
@@ -150,15 +148,15 @@ function loadStorages() {
     
     if (!supermarketId) {
         storageSelect.disabled = true;
-        storageSelect.innerHTML = '<option value="">-- Select Supermarket First --</option>';
-        document.getElementById('cluster_select').innerHTML = '<option value="">-- No Cluster / Select Existing --</option>';
+        storageSelect.innerHTML = '<option value="">-- Seleziona prima Supermercato --</option>';
+        document.getElementById('cluster_select').innerHTML = '<option value="">-- No Cluster / Seleziona Esistente --</option>';
         return;
     }
     
     fetch(`/inventory/api/storages/${supermarketId}/`)
         .then(response => response.json())
         .then(data => {
-            storageSelect.innerHTML = '<option value="">-- Select Storage --</option>';
+            storageSelect.innerHTML = '<option value="">-- Seleziona Magazzino --</option>';
             data.storages.forEach(storage => {
                 const option = document.createElement('option');
                 option.value = storage.id;
@@ -178,14 +176,14 @@ function loadClusters() {
     const clusterSelect = document.getElementById('cluster_select');
     
     if (!storageId) {
-        clusterSelect.innerHTML = '<option value="">-- No Cluster / Select Existing --</option>';
+        clusterSelect.innerHTML = '<option value="">-- No Cluster / Seleziona Esistente --</option>';
         return;
     }
     
     const clusters = clustersByStorage[storageId] || [];
     
-    clusterSelect.innerHTML = '<option value="">-- No Cluster / Select Existing --</option>';
-    clusterSelect.innerHTML += '<option value="__new__">+ Create New Cluster</option>';
+    clusterSelect.innerHTML = '<option value="">-- No Cluster / Seleziona Esistente --</option>';
+    clusterSelect.innerHTML += '<option value="__new__">+ Crea nuovo cluster</option>';
     
     clusters.forEach(cluster => {
         const option = document.createElement('option');

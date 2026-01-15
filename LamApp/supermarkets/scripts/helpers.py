@@ -1,9 +1,12 @@
 from datetime import datetime
 from calendar import monthrange
-from .logger import logger
+import logging
 import math
 import pdfplumber
 import re
+
+# Use Django's logging system
+logger = logging.getLogger(__name__)
 
 class Helper:
 
@@ -137,7 +140,7 @@ class Helper:
         if not daily_sales:
             return None
 
-        min_days = 20
+        min_days = 14
         half_life = 14
 
         observed_days = len(daily_sales)
