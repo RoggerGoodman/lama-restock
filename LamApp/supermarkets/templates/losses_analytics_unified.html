@@ -98,7 +98,7 @@
         <div class="col-12">
             <div class="alert alert-primary">
                 <strong>Analizzando:</strong> {{ scope_description }} | 
-                <strong>{{ total_products }}</strong> prodotti con perdite
+                <strong>{{ total_products }}</strong> articoli con perdite
                 {% if show_type != 'all' %}| <strong>Mostra solo le perdite relative a {{ show_type }}</strong>{% endif %}
             </div>
         </div>
@@ -115,7 +115,7 @@
                 <h3 class="mb-1">{{ stats.broken.total_units }}</h3>
                 <p class="text-muted mb-1">Rotture</p>
                 <small class="text-success">€{{ stats.broken.total_value|floatformat:2 }}</small><br>
-                <small class="text-muted">{{ stats.broken.products }} prodotto{{ stats.broken.products|pluralize }}</small>
+                <small class="text-muted">{{ stats.broken.products }} articolo{{ stats.broken.products|pluralize }}</small>
             </div>
         </div>
         {% endif %}
@@ -129,7 +129,7 @@
                 <h3 class="mb-1">{{ stats.expired.total_units }}</h3>
                 <p class="text-muted mb-1">Scaduto</p>
                 <small class="text-success">€{{ stats.expired.total_value|floatformat:2 }}</small><br>
-                <small class="text-muted">{{ stats.expired.products }} prodotto{{ stats.expired.products|pluralize }}</small>
+                <small class="text-muted">{{ stats.expired.products }} articolo{{ stats.expired.products|pluralize }}</small>
             </div>
         </div>
         {% endif %}
@@ -143,7 +143,7 @@
                 <h3 class="mb-1">{{ stats.internal.total_units }}</h3>
                 <p class="text-muted mb-1">Utilizzo interno</p>
                 <small class="text-success">€{{ stats.internal.total_value|floatformat:2 }}</small><br>
-                <small class="text-muted">{{ stats.internal.products }} prodotto{{ stats.internal.products|pluralize }}</small>
+                <small class="text-muted">{{ stats.internal.products }} articolo{{ stats.internal.products|pluralize }}</small>
             </div>
         </div>
         {% endif %}
@@ -157,7 +157,7 @@
                 <h3 class="mb-1">{{ stats.stolen.total_units }}</h3>
                 <p class="text-muted mb-1">Rubato</p>
                 <small class="text-success">€{{ stats.stolen.total_value|floatformat:2 }}</small><br>
-                <small class="text-muted">{{ stats.stolen.products }} prodotto{{ stats.stolen.products|pluralize }}</small>
+                <small class="text-muted">{{ stats.stolen.products }} articolo{{ stats.stolen.products|pluralize }}</small>
             </div>
         </div>
         {% endif %}
@@ -201,8 +201,8 @@
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h5 class="mb-0">
-                        <i class="bi bi-list-ol"></i> Elenco completo dei prodotti
-                        <span class="badge bg-secondary">{{ total_products }} prodotti</span>
+                        <i class="bi bi-list-ol"></i> Elenco completo dei articoli
+                        <span class="badge bg-secondary">{{ total_products }} articoli</span>
                     </h5>
                     <button onclick="exportToCSV()" class="btn btn-success btn-sm">
                         <i class="bi bi-download"></i> Esporta in CSV

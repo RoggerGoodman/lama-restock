@@ -25,7 +25,7 @@
                     <i class="bi bi-box-seam"></i>
                 </div>
                 <h3 class="mb-1">{{ report.total_products }}</h3>
-                <p class="text-muted mb-0">Prodotti totali</p>
+                <p class="text-muted mb-0">Articoli totali</p>
             </div>
         </div>
         <div class="col-md-3">
@@ -34,7 +34,7 @@
                     <i class="bi bi-arrow-left-right"></i>
                 </div>
                 <h3 class="mb-1">{{ report.products_verified }}</h3>
-                <p class="text-muted mb-0">Prodotti con giacenza aggiornata</p>
+                <p class="text-muted mb-0">Articoli con giacenza aggiornata</p>
             </div>
         </div>
         <div class="col-md-3">
@@ -43,7 +43,7 @@
                     <i class="bi bi-plus-circle"></i>
                 </div>
                 <h3 class="mb-1">{{ report.products_added|default:0 }}</h3>
-                <p class="text-muted mb-0">Prodotti aggiunti e verificati</p>
+                <p class="text-muted mb-0">Articoli aggiunti e verificati</p>
             </div>
         </div>
         <div class="col-md-3">
@@ -65,8 +65,8 @@
         <div class="col-12">
             <div class="stat-card">
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> Prodotti che non possono essere aggiunti automaticamente</h6>
-                    <p class="mb-2">I seguenti prodotti non sono stati trovati in PAC2000A o non è stato possibile aggiungerli:</p>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Articoli che non possono essere aggiunti automaticamente</h6>
+                    <p class="mb-2">I seguenti articoli non sono stati trovati in PAC2000A o non è stato possibile aggiungerli:</p>
                     <ul class="mb-0">
                         {% for failed in report.failed_additions %}
                         <li><code>{{ failed.cod }}.{{ failed.var }}</code> - {{ failed.reason }}</li>
@@ -91,7 +91,7 @@
                     <table class="table table-hover">
                         <thead>
                             <tr>
-                                <th>Codice prodotto</th>
+                                <th>Codice articolo</th>
                                 <th>Variante</th>
                                 <th>Tipo</th>
                                 <th class="text-end">Prima</th>

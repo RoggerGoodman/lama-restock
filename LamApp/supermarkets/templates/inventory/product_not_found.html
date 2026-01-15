@@ -1,7 +1,7 @@
 <!-- Enhanced product_not_found.html with auto-add -->
 {% extends 'base.html' %}
-{% block title %}Prodotto non trovato{% endblock %}
-{% block page_title %}Prodotto non trovato{% endblock %}
+{% block title %}Articolo non trovato{% endblock %}
+{% block page_title %}Articolo non trovato{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,14 +10,14 @@
             <div class="stat-card">
                 <h4 class="mb-4 text-warning">
                     <i class="bi bi-exclamation-triangle"></i>
-                    Prodotto {{ cod }}.{{ var }} non trovato/verificato
+                    Articolo {{ cod }}.{{ var }} non trovato/verificato
                 </h4>
 
                 {% if product_exists and not is_verified %}
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-info-circle"></i> Prodotto non verificato</h6>
+                    <h6><i class="bi bi-info-circle"></i> Articolo non verificato</h6>
                     <p class="mb-2">
-                        Questo prodotto esiste nel database ({{ supermarket_name }}) ma non è stato ancora verificato.
+                        Questo articolo esiste nel database ({{ supermarket_name }}) ma non è stato ancora verificato.
                     </p>
                     <p class="mb-0">
                         Vuoi verificare la giacenza adesso?
@@ -35,19 +35,19 @@
 
                 {% elif not product_exists %}
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> Prodotto non registrato</h6>
+                    <h6><i class="bi bi-info-circle"></i> Articolo non registrato</h6>
                     <p class="mb-2">
-                        Questo prodotto non esiste in nessuno dei database dei tuoi supermercati.
+                        Questo articolo non esiste in nessuno dei database dei tuoi supermercati.
                     </p>
                     <p class="mb-0">
-                        <strong>Fare clic su "Aggiungi prodotto" qui sotto</strong> per recuperare automaticamente i dettagli del prodotto da PAC2000A e aggiungerli al tuo database.
+                        <strong>Fare clic su "Aggiungi articolo" qui sotto</strong> per recuperare automaticamente i dettagli del articolo da PAC2000A e aggiungerli al tuo database.
                     </p>
                 </div>
 
                 <div class="alert alert-warning">
                     <h6><i class="bi bi-clock"></i> Tempo di elaborazione</h6>
                     <p class="mb-0">
-                        <strong>Si prega di essere pazienti:</strong> il processo si collegherà a PAC2000A per recuperare i dettagli del prodotto. L'operazione potrebbe richiedere dai 15 ai 30 secondi.
+                        <strong>Si prega di essere pazienti:</strong> il processo si collegherà a PAC2000A per recuperare i dettagli del articolo. L'operazione potrebbe richiedere dai 15 ai 30 secondi.
                     </p>
                 </div>
 
@@ -67,7 +67,7 @@
                         <select id="add_storage" class="form-select" required disabled>
                             <option value="">-- Seleziona prima Supermercato --</option>
                         </select>
-                        <div class="form-text">Il prodotto verrà aggiunto a questo settore</div>
+                        <div class="form-text">Il articolo verrà aggiunto a questo settore</div>
                     </div>
                 </form>
 
@@ -81,9 +81,9 @@
                 </div>
 
                 <div id="successMessage" style="display: none;" class="alert alert-success">
-                    <h6><i class="bi bi-check-circle"></i> Prodotto aggiunto con successo!</h6>
+                    <h6><i class="bi bi-check-circle"></i> Articolo aggiunto con successo!</h6>
                     <p id="successDetails" class="mb-2"></p>
-                    <p class="mb-0">Reindirizzamento ai dettagli del prodotto...</p>
+                    <p class="mb-0">Reindirizzamento ai dettagli del articolo...</p>
                 </div>
 
                 <div id="errorMessage" style="display: none;" class="alert alert-danger">
@@ -96,13 +96,13 @@
                         <i class="bi bi-arrow-left"></i> Torna alla ricerca
                     </a>
                     <button type="button" class="btn btn-success" id="autoAddBtn" onclick="submitAutoAdd()">
-                        <i class="bi bi-magic"></i> Aggiungi prodotto
+                        <i class="bi bi-magic"></i> Aggiungi articolo
                     </button>
                 </div>
 
                 {% else %}
                 <div class="alert alert-secondary">
-                    <p class="mb-0">Prodotto non trovato nell'inventario verificato.</p>
+                    <p class="mb-0">Articolo non trovato nell'inventario verificato.</p>
                 </div>
 
                 <div class="d-flex gap-2 justify-content-end">
@@ -121,12 +121,12 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Verifica prodotto {{ cod }}.{{ var }}</h5>
+                <h5 class="modal-title">Verifica articolo {{ cod }}.{{ var }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-info">
-                    <strong>Codice prodotto:</strong> {{ cod }}.{{ var }}
+                    <strong>Codice articolo:</strong> {{ cod }}.{{ var }}
                 </div>
                 
                 <form id="verifySingleForm">

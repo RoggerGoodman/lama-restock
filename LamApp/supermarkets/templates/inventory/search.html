@@ -15,9 +15,9 @@
                 <div class="alert alert-info">
                     <h6><i class="bi bi-info-circle"></i> Opzioni Ricerca</h6>
                     <ul class="mb-0">
-                        <li><strong>Prodotto specifico:</strong> Trova il prodotto esatto per codice e variante</li>
-                        <li><strong>Tutte le varianti:</strong> Trova tutte le varianti di un codice prodotto</li>
-                        <li><strong>Settore + Cluster:</strong> Sfoglia i prodotti per appartenenza</li>
+                        <li><strong>Articolo specifico:</strong> Trova il articolo esatto per codice e variante</li>
+                        <li><strong>Tutte le varianti:</strong> Trova tutte le varianti di un codice articolo</li>
+                        <li><strong>Settore + Cluster:</strong> Sfoglia i articoli per appartenenza</li>
                     </ul>
                 </div>
 
@@ -42,7 +42,7 @@
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label for="{{ form.product_code.id_for_label }}" class="form-label">
-                                    Codice Prodotto
+                                    Codice Articolo
                                 </label>
                                 {{ form.product_code }}
                             </div>
@@ -116,7 +116,7 @@
                     <!-- Row 1: Primary Operations -->
                     <div class="col-md-3 mb-3">
                         <button onclick="showVerifySingleProduct()" class="btn btn-primary w-100">
-                            <i class="bi bi-check-circle"></i> Verifica singolo prodotto
+                            <i class="bi bi-check-circle"></i> Verifica singolo articolo
                         </button>
                     </div>
                     <div class="col-md-3 mb-3">
@@ -162,12 +162,12 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Verifica singolo prodotto</h5>
+                <h5 class="modal-title">Verifica singolo articolo</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-info">
-                    <strong>Nota bene:</strong> Seleziona supermercato e magazzino, quindi inserisci i dettagli del prodotto.
+                    <strong>Nota bene:</strong> Seleziona supermercato e magazzino, quindi inserisci i dettagli del articolo.
                 </div>
                 
                 <form id="verifySingleForm">
@@ -192,7 +192,7 @@
                     
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Codice prodotto</label>
+                            <label class="form-label">Codice articolo</label>
                             <input type="number" id="verify_code" class="form-control" required>
                         </div>
                         <div class="col-md-6 mb-3">

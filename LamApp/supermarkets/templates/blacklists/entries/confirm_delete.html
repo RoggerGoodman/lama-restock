@@ -10,10 +10,10 @@
             <div class="stat-card">
                 <h4 class="mb-4 text-danger">
                     <i class="bi bi-exclamation-triangle"></i>
-                    Rimuovi prodotto dalla Blacklist
+                    Rimuovi articolo dalla Blacklist
                 </h4>
 
-                <p>Rimuovi prodotto <strong>{{ object.product_code }}.{{ object.product_var }}</strong> dalla blacklist?</p>
+                <p>Rimuovi articolo <strong>{{ object.product_code }}.{{ object.product_var }}</strong> dalla blacklist?</p>
 
                 <form method="post">
                     {% csrf_token %}

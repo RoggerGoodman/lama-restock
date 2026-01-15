@@ -8,9 +8,11 @@ from celery.utils.log import get_task_logger
 import datetime
 from django.utils import timezone
 from django.conf import settings
-from .scripts.logger import logger
+import logging
 import os
 from .automation_services import AutomatedRestockService
+
+logger = logging.getLogger(__name__)
 
 @shared_task(
     bind=True,

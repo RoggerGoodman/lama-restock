@@ -77,7 +77,7 @@
                     <div class="col-md-4 mb-3">
                         <div class="alert alert-info mb-0">
                             <h6><i class="bi bi-clipboard-check"></i> Necessita di verifica</h6>
-                            <p class="mb-2">{{ pending_verifications }} prodotti in attesa</p>
+                            <p class="mb-2">{{ pending_verifications }} articoli in attesa</p>
                             
                             <!-- Sample products -->
                             {% if top_pending_products %}
@@ -237,11 +237,11 @@
                                     <td>
                                         <small>
                                             {% if log.operation_type == 'full_restock' %}
-                                                {{ log.products_ordered }} prodotti / {{ log.total_packages }} colli
+                                                {{ log.products_ordered }} Articoli / {{ log.total_packages }} colli
                                             {% elif log.operation_type == 'stats_update' %}
                                                 Statistiche aggiornate
                                             {% elif log.operation_type == 'list_update' %}
-                                                Listino prodotti aggiornato
+                                                Listino articoli aggiornato
                                             {% elif log.operation_type == 'verification' %}
                                                 {{ log.products_ordered|default:0 }} verificati
                                             {% elif log.operation_type == 'cluster_assignment' %}

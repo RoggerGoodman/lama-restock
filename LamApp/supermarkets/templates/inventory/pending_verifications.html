@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/inventory/pending_verifications.html -->
 {% extends 'base.html' %}
 {% block title %}Verifiche in sospeso{% endblock %}
-{% block page_title %}Prodotti che necessitano di verifica{% endblock %}
+{% block page_title %}Articoli che necessitano di verifica{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -26,7 +26,7 @@
                             <i class="bi bi-clipboard-check"></i> 
                             Verifiche in sospeso
                         </h3>
-                        <p class="mb-0 opacity-75">Prodotti ordinati ma non ancora verificati</p>
+                        <p class="mb-0 opacity-75">Articoli ordinati ma non ancora verificati</p>
                     </div>
                     <div>
                         <h1 class="display-4 mb-0">{{ total_pending }}</h1>
@@ -41,11 +41,11 @@
         <div class="col-12">
             <div class="alert alert-info">
                 <h6><i class="bi bi-info-circle"></i> Cosa sono questi?</h6>
-                <p class="mb-2">Questi prodotti sono stati ordinati (acquistati) ma non sono ancora stati venduti. È necessaria una verifica per confermare la giacenza.</p>
+                <p class="mb-2">Questi articoli sono stati ordinati (acquistati) ma non sono ancora stati venduti. È necessaria una verifica per confermare la giacenza.</p>
                 <ul class="mb-0">
                     <li>Fare clic su "Verifica" per confermare la giacenza</li>
-                    <li>Ciò consente al prodotto di apparire nei futuri ordini di riassortimento</li>
-                    <li>I prodotti appena aggiunti necessitano sempre di verifica</li>
+                    <li>Ciò consente al articolo di apparire nei futuri ordini di riassortimento</li>
+                    <li>I articoli appena aggiunti necessitano sempre di verifica</li>
                 </ul>
             </div>
         </div>
@@ -56,7 +56,7 @@
         <div class="col-12">
             <div class="stat-card">
                 <h5 class="mb-3">
-                    <i class="bi bi-list-check"></i> Prodotti da verificare
+                    <i class="bi bi-list-check"></i> Articoli da verificare
                 </h5>
 
                 {% if pending_products %}
@@ -67,7 +67,7 @@
                                     <th>Supermercato</th>
                                     <th>Settore</th>
                                     <th>Codice</th>
-                                    <th>Nome prodotto</th>
+                                    <th>Nome articolo</th>
                                     <th>Dimensione imballo</th>
                                     <th>Giacenza</th>
                                     <th>Ultimo aggiornamento</th>
@@ -128,7 +128,7 @@
                 {% else %}
                     <div class="alert alert-success">
                         <i class="bi bi-check-circle"></i>
-                        <strong>Tutto in regola!</strong> Al momento non è necessario verificare alcun prodotto.
+                        <strong>Tutto in regola!</strong> Al momento non è necessario verificare alcun articolo.
                     </div>
                 {% endif %}
             </div>

@@ -2,7 +2,7 @@
 {% extends 'base.html' %}
 {% block title %}Aggiungi alla Blacklist{% endblock %}
 {% block content %}
-  <h1>Aggiungi prodotto a {{ blacklist.name }}</h1>
+  <h1>Aggiungi articolo a {{ blacklist.name }}</h1>
   <form method="post">
     {% csrf_token %}
     {{ form.as_p }}

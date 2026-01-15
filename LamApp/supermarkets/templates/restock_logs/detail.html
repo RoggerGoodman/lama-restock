@@ -271,11 +271,11 @@
                         </strong>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="text-muted">Prodotti totali</span>
+                        <span class="text-muted">Articoli totali</span>
                         <strong>{{ log.total_products }}</strong>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="text-muted">Prodotti ordinati</span>
+                        <span class="text-muted">Articoli ordinati</span>
                         <strong class="text-primary">{{ log.products_ordered }}</strong>
                     </div>
                     <div class="d-flex justify-content-between align-items-center">
@@ -309,7 +309,7 @@
                 <div class="stat-card">
                     <div class="alert alert-success">
                         <h6><i class="bi bi-check-circle"></i> Aggiornamento delle statistiche completato</h6>
-                        <p class="mb-0">Le statistiche del prodotto sono state aggiornate correttamente da PAC2000A.</p>
+                        <p class="mb-0">Le statistiche del articolo sono state aggiornate correttamente da PAC2000A.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
@@ -327,8 +327,8 @@
             <div class="col-12">
                 <div class="stat-card">
                     <div class="alert alert-success">
-                        <h6><i class="bi bi-check-circle"></i> Elenco prodotti aggiornato</h6>
-                        <p class="mb-0">L'elenco dei prodotti è stato scaricato e importato correttamente da PAC2000A.</p>
+                        <h6><i class="bi bi-check-circle"></i> Elenco articoli aggiornato</h6>
+                        <p class="mb-0">L'elenco dei articoli è stato scaricato e importato correttamente da PAC2000A.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
@@ -347,7 +347,7 @@
                 <div class="stat-card">
                     <div class="alert alert-success">
                         <h6><i class="bi bi-check-circle"></i> Assegnazione del cluster completata</h6>
-                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> prodotti assegnati al cluster.</p>
+                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> articoli assegnati al cluster.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
@@ -368,8 +368,8 @@
             <div class="col-12">
                 <div class="stat-card">
                     <div class="alert alert-success">
-                        <h6><i class="bi bi-check-circle"></i> Prodotti aggiunti con successo</h6>
-                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> prodotti aggiunti al database.</p>
+                        <h6><i class="bi bi-check-circle"></i> Articoli aggiunti con successo</h6>
+                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> articoli aggiunti al database.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
@@ -391,7 +391,7 @@
                 <div class="stat-card">
                     <div class="alert alert-success">
                         <h6><i class="bi bi-check-circle"></i> Verifica delle giacenza completata</h6>
-                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> prodotti verificati.</p>
+                        <p class="mb-2"><strong>{{ log.products_ordered|default:0 }}</strong> articoli verificati.</p>
                     </div>
                     
                     <div class="d-flex gap-2">
@@ -433,7 +433,7 @@
                                 <thead>
                                     <tr>
                                         <th class="sortable-header" onclick="sortTable(0)">
-                                            Codice prodotto
+                                            Codice articolo
                                             <i class="bi bi-arrow-down-up sort-icon"></i>
                                         </th>
                                         <th>Variante</th>
@@ -499,8 +499,8 @@
                         <div class="collapsible-header warning" onclick="toggleCollapse('skippedSection')">
                             <div>
                                 <h5 class="mb-0">
-                                    <i class="bi bi-exclamation-triangle"></i> Prodotti saltati
-                                    <span class="badge bg-light text-dark ms-2">{{ enriched_skipped|length }} prodotti</span>
+                                    <i class="bi bi-exclamation-triangle"></i> Articoli saltati
+                                    <span class="badge bg-light text-dark ms-2">{{ enriched_skipped|length }} articoli</span>
                                 </h5>
                             </div>
                             <i class="bi bi-chevron-right chevron-icon" id="skippedChevron"></i>
@@ -510,7 +510,7 @@
                             <div class="p-4">
                                 <div class="alert alert-info">
                                     <i class="bi bi-info-circle"></i>
-                                    Questi prodotti sono stati saltati durante il processo di riassortimento. Puoi segnalarli per l'eliminazione.
+                                    Questi articoli sono stati saltati durante il processo di riassortimento. Puoi segnalarli per l'eliminazione.
                                 </div>
 
                                 <div class="mb-3">
@@ -579,8 +579,8 @@
                         <div class="collapsible-header success" onclick="toggleCollapse('newSection')">
                             <div>
                                 <h5 class="mb-0">
-                                    <i class="bi bi-star"></i> Nuovi prodotti
-                                    <span class="badge bg-light text-dark ms-2">{{ enriched_new|length }} prodotti</span>
+                                    <i class="bi bi-star"></i> Nuovi articoli
+                                    <span class="badge bg-light text-dark ms-2">{{ enriched_new|length }} articoli</span>
                                 </h5>
                             </div>
                             <i class="bi bi-chevron-right chevron-icon" id="newChevron"></i>
@@ -590,7 +590,7 @@
                             <div class="p-4">
                                 <div class="alert alert-success">
                                     <i class="bi bi-info-circle"></i>
-                                    Si tratta di prodotti nuovi di zecca che non sono mai stati nel sistema. Seleziona quali ordinare.
+                                    Si tratta di articoli nuovi di zecca che non sono mai stati nel sistema. Seleziona quali ordinare.
                                 </div>
 
                                 <div class="mb-3">
@@ -684,8 +684,8 @@
                         <div class="collapsible-header secondary" onclick="toggleCollapse('zombieSection')">
                             <div>
                                 <h5 class="mb-0">
-                                    <i class="bi bi-archive"></i> Prodotti non disponibili
-                                    <span class="badge bg-light text-dark ms-2">{{ enriched_zombie|length }} prodotti</span>
+                                    <i class="bi bi-archive"></i> Articoli non disponibili
+                                    <span class="badge bg-light text-dark ms-2">{{ enriched_zombie|length }} articoli</span>
                                 </h5>
                             </div>
                             <i class="bi bi-chevron-right chevron-icon" id="zombieChevron"></i>
@@ -695,7 +695,7 @@
                             <div class="p-4">
                                 <div class="alert alert-secondary">
                                     <i class="bi bi-info-circle"></i>
-                                    Questi prodotti sono terminati e non sono più disponibili (disponibilità=No, stock=0). Valuta la possibilità di eliminarli.
+                                    Questi articoli sono terminati e non sono più disponibili (disponibilità=No, stock=0). Valuta la possibilità di eliminarli.
                                 </div>
 
                                 <div class="mb-3">

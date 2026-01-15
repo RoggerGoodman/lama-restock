@@ -1,7 +1,7 @@
 <!-- Replace LamApp/supermarkets/templates/inventory/record_losses_unified.html -->
 {% extends 'base.html' %}
 {% block title %}Reggistra Perdite{% endblock %}
-{% block page_title %}Reggistra Perdite prodotti{% endblock %}
+{% block page_title %}Reggistra Perdite articoli{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -22,14 +22,14 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-clipboard-data text-warning"></i>
-                    Reggistra Perdite prodotti
+                    Reggistra Perdite articoli
                 </h4>
 
                 <div class="alert alert-info">
                     <h6><i class="bi bi-info-circle"></i> Tipologia di Perdite</h6>
                     <ul class="mb-0">
-                        <li><strong>ROTTURE:</strong> Prodotti rotti o danneggiati</li>
-                        <li><strong>SCADUTO:</strong> Prodotti scaduti</li>
+                        <li><strong>ROTTURE:</strong> Articoli rotti o danneggiati</li>
+                        <li><strong>SCADUTO:</strong> Articoli scaduti</li>
                         <li><strong>UTILIZZO INTERNO:</strong> Utilizzo interno</li>
                     </ul>
                 </div>
@@ -100,7 +100,7 @@ Codice a Barre | Articolo | Descrizione  | Quantità |
                 </div>
                 <p class="text-muted small mb-0 mt-2">
                     <strong>Colonne chiave:</strong><br>
-                    • <strong>Articolo:</strong> Codice prodotto e variante (e.g., "36508 1")<br>
+                    • <strong>Articolo:</strong> Codice articolo e variante (e.g., "36508 1")<br>
                     • <strong>Quantità:</strong> Quantità persa (e.g., "PZ 5,00")<br>
                     <br>
                     Il sistema estrarrà: cod=36508, v=1, qty=5

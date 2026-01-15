@@ -130,7 +130,7 @@
     <div class="print-only print-header">
         <h2>{{ search_description }}</h2>
         <p><strong>Data:</strong> {% now "F d, Y H:i" %}</p>
-        <p><strong>Prodotti totali:</strong> {{ results|length }}</p>
+        <p><strong>Articoli totali:</strong> {{ results|length }}</p>
     </div>
 
     <!-- Breadcrumb (hidden on print) -->
@@ -170,7 +170,7 @@
                 </div>
 
                 <div class="alert alert-info no-print">
-                    <strong>{{ results|length }}</strong> trovato prodotto verificato{{ results|length|pluralize }} <!--#TODO mi sa che ho tradotto male-->
+                    <strong>{{ results|length }}</strong> trovato articolo verificato{{ results|length|pluralize }} <!--#TODO mi sa che ho tradotto male-->
                 </div>
 
                 {% if results %}
@@ -281,7 +281,7 @@
                             <p><strong>Data:</strong> _______________________</p>
                         </div>
                         <div class="col-6">
-                            <p><strong>Prodotti totali:</strong> {{ results|length }}</p>
+                            <p><strong>Articoli totali:</strong> {{ results|length }}</p>
                             <p><strong>Note:</strong></p>
                             <div style="border: 1px solid #000; height: 80px; padding: 5px;"></div>
                         </div>
@@ -290,7 +290,7 @@
                 {% else %}
                 <div class="alert alert-warning">
                     <i class="bi bi-exclamation-triangle"></i>
-                    Nessun prodotto verificato trovato corrispondente ai tuoi criteri di ricerca.
+                    Nessun articolo verificato trovato corrispondente ai tuoi criteri di ricerca.
                 </div>
                 {% endif %}
             </div>
@@ -314,7 +314,7 @@
                     <input type="hidden" id="adjust_supermarket" name="supermarket">
                     
                     <div class="mb-3">
-                        <label class="form-label">Prodotto</label>
+                        <label class="form-label">Articolo</label>
                         <div class="form-control-plaintext" id="adjust_product_display"></div>
                     </div>
                     

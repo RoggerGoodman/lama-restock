@@ -1,7 +1,7 @@
 <!-- Replace LamApp/supermarkets/templates/inventory/assign_clusters.html -->
 {% extends 'base.html' %}
 {% block title %}Assegna Clusters{% endblock %}
-{% block page_title %}Assegna Clusters prodotti{% endblock %}
+{% block page_title %}Assegna Clusters articoli{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -22,7 +22,7 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-folder text-info"></i>
-                    Assegna Clusters a prodotti - Formato PDF
+                    Assegna Clusters a articoli - Formato PDF
                 </h4>
 
                 <div class="alert alert-info">
@@ -30,7 +30,7 @@
                     <ol class="mb-0">
                         <li>Carica un <strong>file PDF</strong> esportato da Dropzone</li>
                         <li>Dai un nome al Cluster (e.g., SURGELATI, CHIMICO, CARTA)</li>
-                        <li>Tutti i prodotti nel PDF saranno assegnati a quel cluster</li>
+                        <li>Tutti i articoli nel PDF saranno assegnati a quel cluster</li>
                     </ol>
                 </div>
 
@@ -119,7 +119,7 @@ Codice a Barre | Articolo | Descrizione  | Quantità |
 ...</pre>
                 </div>
                 <p class="text-muted small mb-0 mt-2">
-                    <strong>Nota bene:</strong> Vengono estratti solo i codici prodotto e le varianti. Le quantità vengono ignorate per l'assegnazione al cluster.
+                    <strong>Nota bene:</strong> Vengono estratti solo i codici articolo e le varianti. Le quantità vengono ignorate per l'assegnazione al cluster.
                 </p>
             </div>
         </div>
