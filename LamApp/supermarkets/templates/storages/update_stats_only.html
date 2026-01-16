@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/storages/update_stats_only.html -->
 {% extends 'base.html' %}
-{% block title %}Update Stats - {{ storage.name }}{% endblock %}
-{% block page_title %}Update Product Statistics{% endblock %}
+{% block title %}Aggiorna statistiche - {{ storage.name }}{% endblock %}
+{% block page_title %}Aggiorna le statistiche articoli{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -12,7 +12,7 @@
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
-                    <li class="breadcrumb-item active">Update Stats</li>
+                    <li class="breadcrumb-item active">Aggiorna statistiche</li>
                 </ol>
             </nav>
         </div>
@@ -23,23 +23,22 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-arrow-repeat text-info"></i>
-                    Update Product Statistics
+                    Aggiorna le statistiche articoli
                 </h4>
 
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> What This Does</h6>
-                    <p class="mb-2">This will update sales and purchase statistics for all products in <strong>{{ storage.name }}</strong>:</p>
+                    <h6><i class="bi bi-info-circle"></i> Cosa fa</h6>
+                    <p class="mb-2">Aaggiornerà le statistiche di vendita e acquisto per tutti gli articoli in <strong>{{ storage.name }}</strong>:</p>
                     <ul class="mb-0">
-                        <li>Downloads latest data from PAC2000A</li>
-                        <li>Updates sold/bought arrays</li>
-                        <li>Recalculates stock levels</li>
-                        <li><strong>Does NOT place any orders</strong></li>
+                        <li>Scarica i dati più recenti da PAC2000A</li>
+                        <li>Ricalcola giacenza</li>
+                        <li><strong>NON effettua alcun ordine</strong></li>
                     </ul>
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-clock"></i> Estimated Time</h6>
-                    <p class="mb-0">5-10 minutes depending on number of products</p>
+                    <h6><i class="bi bi-clock"></i> Tempo stimato</h6>
+                    <p class="mb-0">5-10 minuti a seconda del numero di articoli</p>
                 </div>
 
                 <form method="post">
@@ -47,10 +46,10 @@
                     
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-info">
-                            <i class="bi bi-arrow-repeat"></i> Update Statistics
+                            <i class="bi bi-arrow-repeat"></i> Aggiorna statistiche
                         </button>
                     </div>
                 </form>

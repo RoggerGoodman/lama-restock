@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/supermarkets/upload_promos.html -->
 {% extends 'base.html' %}
-{% block title %}Upload Promos - {{ supermarket.name }}{% endblock %}
-{% block page_title %}Upload Promo File{% endblock %}
+{% block title %}Carica promozioni - {{ supermarket.name }}{% endblock %}
+{% block page_title %}Carica file promozionale{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -12,7 +12,7 @@
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Supermercati</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=supermarket.id %}">{{ supermarket.name }}</a></li>
-                    <li class="breadcrumb-item active">Upload Promos</li>
+                    <li class="breadcrumb-item active">Carica promozioni</li>
                 </ol>
             </nav>
         </div>
@@ -23,26 +23,26 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-file-pdf text-danger"></i>
-                    Upload Promo PDF for {{ supermarket.name }}
+                    Carica il PDF promozionale per {{ supermarket.name }}
                 </h4>
 
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> How It Works</h6>
+                    <h6><i class="bi bi-info-circle"></i> Come funziona</h6>
                     <ol class="mb-0">
-                        <li>Upload the promo PDF file from your supplier</li>
-                        <li>The system extracts product codes, prices, and dates</li>
-                        <li>Prices are updated in the <strong>supermarket's database</strong></li>
-                        <li>Changes apply to <strong>all storages</strong> in this supermarket</li>
+                        <li>Carica il file PDF promozionale dal tuo fornitore</li>
+                        <li>Il sistema estrae codici articolo, prezzi e date</li>
+                        <li>I prezzi vengono aggiornati nel <strong>database del supermercato</strong></li>
+                        <li>Le modifiche si applicano a <strong>tutti i magazzini</strong> in this supermarket</li>
                     </ol>
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> Important Notes</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Note importanti</h6>
                     <ul class="mb-0">
-                        <li>File must be a valid PDF with parseable text</li>
-                        <li>Format expected: Product codes, sale prices, cost prices, and date ranges</li>
-                        <li>Products not in your database will be skipped</li>
-                        <li>This affects the economics table for all storages</li>
+                        <li>Il file deve essere un PDF valido con testo analizzabile</li>
+                        <li>Formato previsto: codici articolo, prezzi di vendita, prezzi di costo e intervalli di date</li>
+                        <li>Gli articoli non presenti nel tuo database verranno saltati</li>
+                        <li>Ciò influisce sulla tabella economica per tutti i magazzini</li>
                     </ul>
                 </div>
 
@@ -62,10 +62,10 @@
 
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'supermarket-detail' pk=supermarket.id %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-upload"></i> Upload and Process
+                            <i class="bi bi-upload"></i> Carica ed elabora
                         </button>
                     </div>
                 </form>
@@ -73,37 +73,37 @@
 
             <!-- Example/Help Section -->
             <div class="stat-card mt-3">
-                <h6 class="mb-3"><i class="bi bi-question-circle"></i> What Gets Updated?</h6>
+                <h6 class="mb-3"><i class="bi bi-question-circle"></i> Cosa viene aggiornato?</h6>
                 <div class="table-responsive">
                     <table class="table table-sm">
                         <thead>
                             <tr>
-                                <th>Field</th>
-                                <th>Description</th>
+                                <th>Campo</th>
+                                <th>Descrizione</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
                                 <td><code>price_s</code></td>
-                                <td>Sale price (customer pays this during promo)</td>
+                                <td>Prezzo di vendita (il cliente paga questo durante la promozione)</td>
                             </tr>
                             <tr>
                                 <td><code>cost_s</code></td>
-                                <td>Sale cost (what you pay supplier during promo)</td>
+                                <td>Costo di vendita (quanto paghi al fornitore durante la promozione)</td>
                             </tr>
                             <tr>
                                 <td><code>sale_start</code></td>
-                                <td>When promo begins</td>
+                                <td>Quando inizia la promozione</td>
                             </tr>
                             <tr>
                                 <td><code>sale_end</code></td>
-                                <td>When promo ends</td>
+                                <td>Quando finisce la promozione</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
                 <p class="text-muted small mb-0">
-                    <strong>Note:</strong> The system automatically calculates discount percentages based on the difference between standard and promo prices.
+                    <strong>Note:</strong> Il sistema calcola automaticamente le percentuali di sconto in base alla differenza tra i prezzi standard e quelli promozionali.
                 </p>
             </div>
         </div>

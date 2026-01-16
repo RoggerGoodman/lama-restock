@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/supermarkets/confirm_delete.html -->
 {% extends 'base.html' %}
-{% block title %}Delete Supermercato{% endblock %}
-{% block page_title %}Confirm Deletion{% endblock %}
+{% block title %}Elimina Supermercato{% endblock %}
+{% block page_title %}Conferma eliminazione{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -10,30 +10,30 @@
             <div class="stat-card">
                 <h4 class="mb-4 text-danger">
                     <i class="bi bi-exclamation-triangle"></i>
-                    Delete Supermercato
+                    Elimina Supermercato
                 </h4>
 
                 <div class="alert alert-danger">
-                    <p class="mb-2"><strong>Warning:</strong> This action cannot be undone!</p>
-                    <p class="mb-0">Deleting this supermarket will also delete:</p>
+                    <p class="mb-2"><strong>Attenzione:</strong> Questa azione è irreversibile!</p>
+                    <p class="mb-0">L'eliminazione di questo supermercato eliminerà anche:</p>
                     <ul class="mt-2 mb-0">
-                        <li>All storages</li>
-                        <li>All schedules</li>
-                        <li>All blacklists</li>
-                        <li>All restock logs</li>
+                        <li>Tutto i magazzini</li>
+                        <li>Tutte le agende ordini</li>
+                        <li>Tutte le blacklists</li>
+                        <li>Tutti i resoconti ordini</li>
                     </ul>
                 </div>
 
-                <p>Are you sure you want to delete <strong>{{ object.name }}</strong>?</p>
+                <p>Sei sicuro di voler eliminare <strong>{{ object.name }}</strong>?</p>
 
                 <form method="post">
                     {% csrf_token %}
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'supermarket-detail' pk=object.pk %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-danger">
-                            <i class="bi bi-trash"></i> Yes, Delete
+                            <i class="bi bi-trash"></i> Si, elimina
                         </button>
                     </div>
                 </form>

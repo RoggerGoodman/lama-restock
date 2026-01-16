@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/storages/manual_list_update.html -->
 {% extends 'base.html' %}
-{% block title %}Update Product List - {{ storage.name }}{% endblock %}
-{% block page_title %}Update Product List{% endblock %}
+{% block title %}Aggiorna listino articoli - {{ storage.name }}{% endblock %}
+{% block page_title %}Aggiorna listino articoli{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -12,7 +12,7 @@
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
-                    <li class="breadcrumb-item active">Update Product List</li>
+                    <li class="breadcrumb-item active">Aggiorna listino articoli</li>
                 </ol>
             </nav>
         </div>
@@ -23,27 +23,27 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-download text-info"></i>
-                    Manual Product List Update
+                    Aggiorna listino articoli
                 </h4>
 
                 <!-- Automatic Update Info -->
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> Automatic Updates</h6>
+                    <h6><i class="bi bi-info-circle"></i> Aggiornamenti automatici</h6>
                     {% if has_schedule %}
                         <p class="mb-2">
                             <i class="bi bi-check-circle text-success"></i>
-                            <strong>Automatic updates are enabled</strong> for this storage.
+                            <strong>Gli aggiornamenti automatici sono abilitati</strong> per questo magazzino.
                         </p>
                         <p class="mb-0">
-                            Product lists are automatically downloaded every night at <strong>3:00 AM</strong> for all storages with active order schedules.
+                            Il listino articoli viene scaricato automaticamente ogni notte alle <strong>3:00 di notte</strong> per tutti i magazzini con agende ordini attive.
                         </p>
                     {% else %}
                         <p class="mb-2">
                             <i class="bi bi-exclamation-triangle text-warning"></i>
-                            <strong>No order schedule configured.</strong>
+                            <strong>Nessuna agenda ordini configurata.</strong>
                         </p>
                         <p class="mb-0">
-                            To enable automatic updates, <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">create an order schedule</a> for this storage.
+                            Per abilitare gli aggiornamenti automatici, <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">crea un agenda ordini</a> per questo magazzino.
                         </p>
                     {% endif %}
                 </div>
@@ -51,27 +51,27 @@
                 <!-- Last Update Info -->
                 {% if last_update %}
                 <div class="alert alert-secondary">
-                    <strong>Last Update:</strong> {{ last_update|timesince }} ago
+                    <strong>Ultimo aggiornamento:</strong> {{ last_update|timesince }} fa
                     <br><small class="text-muted">{{ last_update|date:"F d, Y \a\t H:i" }}</small>
                 </div>
                 {% else %}
                 <div class="alert alert-warning">
                     <i class="bi bi-exclamation-triangle"></i>
-                    No product list has been downloaded yet for this storage.
+                    Nessun listino articoli è stato ancora scaricato per questo magazzino.
                 </div>
                 {% endif %}
 
                 <!-- What This Does -->
                 <div class="alert alert-secondary">
-                    <h6><i class="bi bi-info-circle"></i> What This Does</h6>
+                    <h6><i class="bi bi-info-circle"></i> Cosa fa</h6>
                     <ol class="mb-0">
-                        <li>Downloads latest product list from PAC2000A</li>
-                        <li>Updates product prices and availability</li>
-                        <li>Adds any new products to database</li>
-                        <li>Updates existing product information</li>
+                        <li>Scarica il listino articoli più aggiornato da PAC2000A</li>
+                        <li>Aggiorna i prezzi e la disponibilità degli articoli</li>
+                        <li>Aggiunge i nuovi articoli al database</li>
+                        <li>Aggiorna le informazioni esistenti sugli articoli</li>
                     </ol>
                     <p class="mt-2 mb-0">
-                        <strong>Estimated time:</strong> 2-5 minutes
+                        <strong>Tempo stimato:</strong> 2-5 minuti
                     </p>
                 </div>
 
@@ -81,10 +81,10 @@
                     
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-info">
-                            <i class="bi bi-download"></i> Download Product List Now
+                            <i class="bi bi-download"></i> Scarica
                         </button>
                     </div>
                 </form>

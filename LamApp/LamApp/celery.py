@@ -34,7 +34,7 @@ app.conf.beat_schedule = {
     # Stats update at 5:00 AM every day
     'update-stats-morning': {
         'task': 'supermarkets.tasks.update_stats_all_scheduled_storages',
-        'schedule': crontab(hour=5, minute=0),
+        'schedule': crontab(hour=4, minute=30),
     },
 
     # List updates check at 3:00 AM every day

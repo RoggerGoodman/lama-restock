@@ -1,8 +1,8 @@
 <!-- LamApp/supermarkets/templates/storages/run_restock.html - ENHANCED -->
 {% extends 'base.html' %}
 
-{% block title %}Run Restock - {{ storage.name }}{% endblock %}
-{% block page_title %}Run Manual Restock{% endblock %}
+{% block title %}Esegui Riassortimento - {{ storage.name }}{% endblock %}
+{% block page_title %}Esegui Riassortimento{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -14,7 +14,7 @@
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
-                    <li class="breadcrumb-item active">Run Restock</li>
+                    <li class="breadcrumb-item active">Esegui Riassortimento</li>
                 </ol>
             </nav>
         </div>
@@ -25,12 +25,12 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-play-circle text-primary"></i>
-                    Run Manual Restock Check
+                    Controllo Riassortimento
                 </h4>
 
                 <!-- Magazzino Info -->
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> Magazzino Information</h6>
+                    <h6><i class="bi bi-info-circle"></i> informazioni Magazzino</h6>
                     <p class="mb-1"><strong>Magazzino:</strong> {{ storage.name }}</p>
                     <p class="mb-1"><strong>Supermercato:</strong> {{ storage.supermarket.name }}</p>
                     <p class="mb-0"><strong>Settore:</strong> {{ storage.settore }}</p>
@@ -38,13 +38,13 @@
 
                 <!-- Warning -->
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> What This Will Do</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Cosa farà</h6>
                     <ol class="mb-0">
-                        <li>Update product statistics from PAC2000A (5-10 minutes)</li>
-                        <li>Calculate which products need to be ordered</li>
-                        <li><strong>Place the actual order in the system</strong></li>
+                        <li>Aggiorna le statistiche degli articoli da PAC2000A (5-10 minuti)</li>
+                        <li>Calcola quali articoli devono essere ordinati</li>
+                        <li><strong>Carica l'ordine effettivo su Dropzone</strong></li>
                     </ol>
-                    <p class="mt-2 mb-0"><strong>Total estimated time: 10-15 minutes</strong></p>
+                    <p class="mt-2 mb-0"><strong>Tempo totale stimato: 15-25 minuti</strong></p>
                 </div>
 
                 <!-- Form (hidden after submission) -->
@@ -53,7 +53,7 @@
                     
                     <div class="mb-4">
                         <label for="coverage" class="form-label">
-                            <i class="bi bi-calendar-range"></i> Coverage (days)
+                            <i class="bi bi-calendar-range"></i> Copertura (giorni)
                         </label>
                         <input 
                             type="number" 
@@ -67,9 +67,9 @@
                         >
                         <div class="form-text">
                             {% if storage.schedule %}
-                                Schedule will calculate coverage automatically based on next order day
+                                L'agenda ordini calcolerà automaticamente la copertura in base al giorno dell'ordine successivo
                             {% else %}
-                                <span class="text-warning">No schedule configured - you must specify coverage</span>
+                                <span class="text-warning">Nessuna agenda ordini configurata: è necessario specificare la copertura</span>
                             {% endif %}
                         </div>
                     </div>
@@ -77,10 +77,10 @@
                     <!-- Buttons -->
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-primary" id="submitBtn">
-                            <i class="bi bi-play-circle"></i> Run Restock Check
+                            <i class="bi bi-play-circle"></i> Esegui riordino merci
                         </button>
                     </div>
                 </form>
@@ -88,18 +88,18 @@
                 <!-- Progress indicator (hidden by default) -->
                 <div id="progressContainer" class="mt-4" style="display: none;">
                     <h5 class="mb-3">
-                        <i class="bi bi-hourglass-split"></i> Restock in Progress
+                        <i class="bi bi-hourglass-split"></i> Riassortimento in corso
                     </h5>
                     
                     <!-- Stage Details Text -->
                     <div class="alert alert-info mb-3" id="stageDetailsAlert">
-                        <strong id="stageDetailsText">Initializing...</strong>
+                        <strong id="stageDetailsText">Inizializzazione...</strong>
                     </div>
                     
                     <!-- Overall Progress Bar -->
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span id="stageLabel">Initializing...</span>
+                            <span id="stageLabel">Inizializzazione...</span>
                             <span class="text-muted" id="progressPercent">0%</span>
                         </div>
                         <div class="progress" style="height: 30px;">
@@ -119,8 +119,8 @@
                             <div class="card border-0 bg-light" id="stage1Card">
                                 <div class="card-body text-center">
                                     <i class="bi bi-download" style="font-size: 2rem;" id="stage1Icon"></i>
-                                    <h6 class="mt-2 mb-1">Update Stats</h6>
-                                    <small class="text-muted" id="stage1Status">Waiting...</small>
+                                    <h6 class="mt-2 mb-1">Aggiorna statistiche</h6>
+                                    <small class="text-muted" id="stage1Status">Aggiornamento in corso...</small>
                                     <div id="stage1Time" class="text-muted small mt-1" style="display:none;"></div>
                                 </div>
                             </div>
@@ -129,8 +129,8 @@
                             <div class="card border-0 bg-light" id="stage2Card">
                                 <div class="card-body text-center">
                                     <i class="bi bi-calculator" style="font-size: 2rem;" id="stage2Icon"></i>
-                                    <h6 class="mt-2 mb-1">Calculate Order</h6>
-                                    <small class="text-muted" id="stage2Status">Waiting...</small>
+                                    <h6 class="mt-2 mb-1">Calcolo ordine</h6>
+                                    <small class="text-muted" id="stage2Status">Calcolo in corso...</small>
                                     <div id="stage2Details" style="display: none;" class="mt-2">
                                         <span class="badge bg-success" id="productsCount"></span>
                                         <span class="badge bg-info" id="packagesCount"></span>
@@ -143,8 +143,8 @@
                             <div class="card border-0 bg-light" id="stage3Card">
                                 <div class="card-body text-center">
                                     <i class="bi bi-send" style="font-size: 2rem;" id="stage3Icon"></i>
-                                    <h6 class="mt-2 mb-1">Execute Order</h6>
-                                    <small class="text-muted" id="stage3Status">Waiting...</small>
+                                    <h6 class="mt-2 mb-1">Caricamento ordine</h6>
+                                    <small class="text-muted" id="stage3Status">Caricamento in corso...</small>
                                     <div id="stage3Time" class="text-muted small mt-1" style="display:none;"></div>
                                 </div>
                             </div>
@@ -157,20 +157,20 @@
                         <p class="mb-2" id="errorMessage"></p>
                         <div id="retrySection" style="display: none;">
                             <p class="mb-2">
-                                <strong>Retry:</strong> <span id="retryInfo"></span>
+                                <strong>Riprova:</strong> <span id="retryInfo"></span>
                             </p>
                             <button onclick="retryFromCheckpoint()" class="btn btn-warning btn-sm">
-                                <i class="bi bi-arrow-repeat"></i> Retry from Checkpoint
+                                <i class="bi bi-arrow-repeat"></i> Riprova dal Checkpoint
                             </button>
                         </div>
                     </div>
 
                     <!-- Success Display -->
                     <div id="successContainer" class="alert alert-success mt-3" style="display: none;">
-                        <h6><i class="bi bi-check-circle"></i> Completed Successfully!</h6>
+                        <h6><i class="bi bi-check-circle"></i> Completato con successo!</h6>
                         <p class="mb-2" id="successMessage"></p>
                         <a href="#" id="viewLogLink" class="btn btn-sm btn-success">
-                            <i class="bi bi-eye"></i> View Detailed Log
+                            <i class="bi bi-eye"></i> Visualizza resoconto ordine
                         </a>
                     </div>
                 </div>

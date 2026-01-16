@@ -29,55 +29,55 @@
                 
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <p class="mb-1"><strong>Username:</strong></p>
+                        <p class="mb-1"><strong>Nome utente:</strong></p>
                         <p class="text-muted">{{ supermarket.username }}</p>
                     </div>
                     <div class="col-md-6">
-                        <p class="mb-1"><strong>Owner:</strong></p>
+                        <p class="mb-1"><strong>Proprietario:</strong></p>
                         <p class="text-muted">{{ supermarket.owner.username }}</p>
                     </div>
                 </div>
 
                 <!-- Actions -->
-                <h6 class="mb-2 mt-4"><i class="bi bi-lightning-charge"></i> Management Actions</h6>
+                <h6 class="mb-2 mt-4"><i class="bi bi-lightning-charge"></i> Azioni di gestione</h6>
                 <div class="d-flex gap-2 flex-wrap mb-3">
                     <a href="{% url 'supermarket-edit' pk=supermarket.pk %}" class="btn btn-primary">
-                        <i class="bi bi-pencil"></i> Edit Details
+                        <i class="bi bi-pencil"></i> Modifica dettagli
                     </a>
                     <form method="post" action="{% url 'sync-storages' pk=supermarket.pk %}" style="display: inline;">
                         {% csrf_token %}
                         <button type="submit" class="btn btn-outline-primary">
-                            <i class="bi bi-arrow-repeat"></i> Sync Storages
+                            <i class="bi bi-arrow-repeat"></i> Sincronizzazione dei magazzini
                         </button>
                     </form>
                 </div>
 
                 <!-- NEW: Promo Upload -->
-                <h6 class="mb-2 mt-4"><i class="bi bi-file-pdf"></i> Promotions</h6>
+                <h6 class="mb-2 mt-4"><i class="bi bi-file-pdf"></i> Promozioni</h6>
                 <div class="d-flex gap-2 flex-wrap mb-3">
                     <a href="{% url 'upload-promos' supermarket_id=supermarket.pk %}" class="btn btn-outline-info">
-                        <i class="bi bi-upload"></i> Upload Promo PDF
+                        <i class="bi bi-upload"></i> Carica file PDF promozionale
                     </a>
                 </div>
                 <div class="alert alert-info mb-3">
                     <i class="bi bi-info-circle"></i>
-                    <strong>Note:</strong> Promo files are processed at the supermarket level since they contain products from multiple storages.
+                    <strong>Nota bene:</strong> I file promozionali vengono elaborati a livello di supermercato poiché contengono prodotti provenienti da più magazzini.
                 </div>
             </div>
         </div>
 
         <div class="col-lg-4">
             <div class="stat-card">
-                <h6 class="mb-3">Quick Stats</h6>
+                <h6 class="mb-3">Riepilogo rapido</h6>
                 <div class="mb-2">
                     <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted">Total Storages</span>
+                        <span class="text-muted">Magazzini</span>
                         <strong>{{ storages|length }}</strong>
                     </div>
                 </div>
                 <div class="mb-2">
                     <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted">With Schedules</span>
+                        <span class="text-muted">Con agenda ordini</span>
                         <strong>
                                                         {% for storage in storages %}
                                 {% if storage.schedule %}1{% endif %}
@@ -95,7 +95,7 @@
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0">
-                        <i class="bi bi-boxes"></i> Storages
+                        <i class="bi bi-boxes"></i> Magazzini
                     </h5>
                 </div>
 
@@ -104,11 +104,11 @@
                         <table class="table table-hover">
                             <thead>
                                 <tr>
-                                    <th>Magazzino Name</th>
-                                    <th>Restock Schedule</th>
-                                    <th>List Updates</th>
+                                    <th>Nome Magazzino</th>
+                                    <th>Agenda ordini</th>
+                                    <th>Aggiornamenti Listino</th>
                                     <th>Blacklists</th>
-                                    <th>Actions</th>
+                                    <th>Azioni</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -124,11 +124,11 @@
                                     <td>
                                         {% if storage.schedule %}
                                             <span class="badge bg-success">
-                                                <i class="bi bi-check-circle"></i> Active
+                                                <i class="bi bi-check-circle"></i> Attivo
                                             </span>
                                         {% else %}
                                             <span class="badge bg-warning">
-                                                <i class="bi bi-exclamation-triangle"></i> None
+                                                <i class="bi bi-exclamation-triangle"></i> Assente
                                             </span>
                                         {% endif %}
                                     </td>
@@ -139,7 +139,7 @@
                                             </span>
                                         {% else %}
                                             <span class="badge bg-secondary">
-                                                <i class="bi bi-x-circle"></i> Disabled
+                                                <i class="bi bi-x-circle"></i> Disabilitato
                                             </span>
                                         {% endif %}
                                     </td>
@@ -149,10 +149,10 @@
                                     <td>
                                         <div class="btn-group btn-group-sm">
                                             <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-outline-primary">
-                                                <i class="bi bi-eye"></i> View
+                                                <i class="bi bi-eye"></i> Visiona
                                             </a>
                                             <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="btn btn-outline-secondary">
-                                                <i class="bi bi-calendar"></i> Schedule
+                                                <i class="bi bi-calendar"></i> Agenda ordini
                                             </a>
                                         </div>
                                     </td>
@@ -164,11 +164,11 @@
                 {% else %}
                     <div class="alert alert-warning">
                         <i class="bi bi-exclamation-triangle"></i>
-                        No storages found. 
+                        Nessun magazzino trovato. 
                         <form method="post" action="{% url 'sync-storages' pk=supermarket.pk %}" style="display: inline;">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-sm btn-outline-primary">
-                                Sync Storages Now
+                                Sincronizza i magazzini ora
                             </button>
                         </form>
                     </div>

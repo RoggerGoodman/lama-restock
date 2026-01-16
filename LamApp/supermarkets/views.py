@@ -989,7 +989,7 @@ def flag_product_for_purge_view(request, log_id, product_cod, product_var):
         if result['action'] == 'flagged':
             messages.success(
                 request,
-                f"Product {product_cod}.{product_var} flagged for purging (current stock: {result['stock']})"
+                f"Product {product_cod}.{product_var} segnalato per l'eliminazione (current stock: {result['stock']})"
             )
         elif result['action'] == 'purged':
             messages.success(

@@ -1,7 +1,7 @@
 <!-- LamApp/supermarkets/templates/storages/upload_promos.html -->
 {% extends 'base.html' %}
-{% block title %}Upload Promos - {{ storage.name }}{% endblock %}
-{% block page_title %}Upload Promo File{% endblock %}
+{% block title %}Carica promozioni - {{ storage.name }}{% endblock %}
+{% block page_title %}Carica file promozionale{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -12,7 +12,7 @@
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
-                    <li class="breadcrumb-item active">Upload Promos</li>
+                    <li class="breadcrumb-item active">Carica promozioni</li>
                 </ol>
             </nav>
         </div>
@@ -23,16 +23,16 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-file-pdf text-danger"></i>
-                    Upload Promo PDF
+                    Carica PDF promozionale
                 </h4>
 
                 <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> Instructions</h6>
+                    <h6><i class="bi bi-info-circle"></i> Istruzioni</h6>
                     <ul class="mb-0">
-                        <li>Upload the promo PDF file from your supplier</li>
-                        <li>File must contain promo products with codes and prices</li>
-                        <li>Prices will be updated in the economics table</li>
-                        <li>Sale start and end dates will be extracted</li>
+                        <li>Carica il file PDF promozionale dal tuo fornitore</li>
+                        <li>Il file deve contenere articoli promozionali con codici e prezzi</li>
+                        <li>I prezzi saranno aggiornati nella tabella economica</li>
+                        <li>Verranno estratte le date di inizio e fine della vendita promozionale</li>
                     </ul>
                 </div>
 
@@ -52,10 +52,10 @@
 
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-upload"></i> Upload and Process
+                            <i class="bi bi-upload"></i> Carica ed elabora
                         </button>
                     </div>
                 </form>

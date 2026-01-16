@@ -22,6 +22,8 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
     
     if avg_daily_sales >= 1:
         minimum_stock += round(avg_daily_sales)
+        if discount != None:
+            minimum_stock += round(avg_daily_sales)
         minimum_stock += math.floor(req_stock * 0.1)
     elif avg_daily_sales < 0.6:
         minimum_stock -= 1
