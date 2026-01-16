@@ -23,9 +23,9 @@
                 <h5 class="mb-3"><i class="bi bi-funnel"></i> Filtri</h5>
                 <form method="get" class="row g-3">
                     <div class="col-md-3">
-                        <label for="supermarket_id" class="form-label">Supermercato</label>
+                        <label for="supermarket_id" class="form-label">Punto vendita</label>
                         <select name="supermarket_id" id="supermarket_id" class="form-select" onchange="this.form.submit()">
-                            <option value="">Tutti i Supermercati</option>
+                            <option value="">Tutti i Punti vendita</option>
                             {% for sm in supermarkets %}
                             <option value="{{ sm.id }}" {% if sm.id|stringformat:"s" == selected_supermarket %}selected{% endif %}>
                                 {{ sm.name }}

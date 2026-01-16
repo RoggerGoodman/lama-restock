@@ -60,7 +60,7 @@
                         <div class="row">
                             <div class="col-md-4 mb-3">
                                 <label for="id_supermarket" class="form-label">
-                                    Supermercato
+                                    Punto vendita
                                 </label>
                                 {{ form.supermarket }}
                             </div>
@@ -121,7 +121,7 @@
                     </div>
                     <div class="col-md-3 mb-3">
                         <a href="{% url 'verify-stock-unified-enhanced' %}" class="btn btn-success w-100">
-                            <i class="bi bi-clipboard-check"></i> Verifica giacenza (all'ingrosso)
+                            <i class="bi bi-clipboard-check"></i> Carica inventario
                         </a>
                     </div>
                     <div class="col-md-3 mb-3">
@@ -131,7 +131,7 @@
                     </div>
                     <div class="col-md-3 mb-3">
                         <a href="{% url 'record-losses-unified' %}" class="btn btn-warning w-100">
-                            <i class="bi bi-clipboard-data"></i> Reggistra Perdite
+                            <i class="bi bi-clipboard-data"></i> Registra Perdite
                         </a>
                     </div>
                     
@@ -148,7 +148,7 @@
                     </div>
                     <div class="col-md-4 mb-3">
                         <a href="{% url 'edit-losses' %}" class="btn btn-outline-danger w-100">
-                            <i class="bi bi-pencil-square"></i> Modifica reggistro Perdite
+                            <i class="bi bi-pencil-square"></i> Modifica registro Perdite
                         </a>
                     </div>
                 </div>
@@ -167,14 +167,14 @@
             </div>
             <div class="modal-body">
                 <div class="alert alert-info">
-                    <strong>Nota bene:</strong> Seleziona supermercato e magazzino, quindi inserisci i dettagli del articolo.
+                    <strong>Nota bene:</strong> Seleziona Punto vendita e magazzino, quindi inserisci i dettagli del articolo.
                 </div>
                 
                 <form id="verifySingleForm">
                     <div class="mb-3">
-                        <label class="form-label">Supermercato</label>
+                        <label class="form-label">Punto vendita</label>
                         <select id="verify_supermarket" class="form-select" required onchange="loadStoragesForVerify()">
-                            <option value="">-- Seleziona Supermercato --</option>
+                            <option value="">-- Seleziona Punto vendita --</option>
                             {% for sm in form.supermarket.field.widget.choices %}
                                 {% if sm.0 %}
                                 <option value="{{ sm.0 }}">{{ sm.1 }}</option>
@@ -186,7 +186,7 @@
                     <div class="mb-3">
                         <label class="form-label">Magazzino (Settore)</label>
                         <select id="verify_storage" class="form-select" required disabled>
-                            <option value="">-- Seleziona prima Supermercato --</option>
+                            <option value="">-- Seleziona prima Punto vendita --</option>
                         </select>
                     </div>
                     
@@ -234,7 +234,7 @@ function loadStoragesForVerify() {
     
     if (!supermarketId) {
         storageSelect.disabled = true;
-        storageSelect.innerHTML = '<option value="">-- Seleziona prima Supermercato --</option>';
+        storageSelect.innerHTML = '<option value="">-- Seleziona prima Punto vendita --</option>';
         return;
     }
     

@@ -448,198 +448,43 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 @require_POST
 def verify_newly_added_ajax_view(request):
     """
-    AJAX endpoint to verify a newly added product.
-    Updates package size and marks as verified.
+    AJAX endpoint to verify a product.
+    Sets verified = TRUE and updates the stock value.
     """
     try:
         data = json.loads(request.body)
-        
+
         cod = int(data['cod'])
         var = int(data['var'])
-        package_size = int(data['package_size'])
+        stock = int(data['stock'])
         storage_id = int(data['storage_id'])
-        
+
         storage = get_object_or_404(
             Storage,
             id=storage_id,
             supermarket__owner=request.user
         )
-        
+
         with RestockService(storage) as service:
-            # Update package size in products table
             cursor = service.db.cursor()
-            cursor.execute("""
-                UPDATE products
-                SET pz_x_collo = %s
-                WHERE cod = %s AND v = %s
-            """, (package_size, cod, var))
-            
-            # Mark as verified
+
+            # Mark as verified and set stock
             cursor.execute("""
                 UPDATE product_stats
-                SET verified = TRUE
+                SET verified = TRUE, stock = %s
                 WHERE cod = %s AND v = %s
-            """, (cod, var))
-            
-            service.db.conn.commit()
-            
-            logger.info(
-                f"Verified newly added product: {storage.name} - "
-                f"{cod}.{var} with package_size={package_size}"
-            )
-            
-            return JsonResponse({
-                'success': True,
-                'message': f'Product {cod}.{var} verified with package size {package_size}'
-            })
-            
-    except Exception as e:
-        logger.exception("Error verifying newly added product")
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=500)
-
-
-@login_required
-@require_POST
-def adjust_stock_ajax_view(request):
-    """
-    AJAX endpoint to adjust stock for products with negative stock.
-    """
-    try:
-        data = json.loads(request.body)
-
-        cod = int(data['cod'])
-        var = int(data['var'])
-        new_stock = int(data['new_stock'])
-        storage_id = int(data['storage_id'])
-
-        storage = get_object_or_404(
-            Storage,
-            id=storage_id,
-            supermarket__owner=request.user
-        )
-
-        with RestockService(storage) as service:
-            cursor = service.db.cursor()
-            cursor.execute("""
-                UPDATE product_stats
-                SET stock = %s
-                WHERE cod = %s AND v = %s
-            """, (new_stock, cod, var))
-
-            service.db.conn.commit()
-
-            logger.info(
-                f"Adjusted stock for {storage.name} - "
-                f"{cod}.{var} to {new_stock}"
-            )
-
-            return JsonResponse({
-                'success': True,
-                'message': f'Stock adjusted for {cod}.{var} to {new_stock}'
-            })
-
-    except Exception as e:
-        logger.exception("Error adjusting stock")
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=500)
-
-
-@login_required
-@require_POST
-def purge_product_ajax_view(request):
-    """
-    AJAX endpoint to purge (delete) a product from the system.
-    """
-    try:
-        data = json.loads(request.body)
-
-        cod = int(data['cod'])
-        var = int(data['var'])
-        storage_id = int(data['storage_id'])
-
-        storage = get_object_or_404(
-            Storage,
-            id=storage_id,
-            supermarket__owner=request.user
-        )
-
-        with RestockService(storage) as service:
-            cursor = service.db.cursor()
-
-            # Delete from product_stats first (foreign key constraint)
-            cursor.execute("""
-                DELETE FROM product_stats
-                WHERE cod = %s AND v = %s
-            """, (cod, var))
-
-            # Delete from products
-            cursor.execute("""
-                DELETE FROM products
-                WHERE cod = %s AND v = %s
-            """, (cod, var))
-
-            service.db.conn.commit()
-
-            logger.info(
-                f"Purged product from {storage.name} - "
-                f"{cod}.{var}"
-            )
-
-            return JsonResponse({
-                'success': True,
-                'message': f'Product {cod}.{var} deleted'
-            })
-
-    except Exception as e:
-        logger.exception("Error purging product")
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=500)
-
-
-@login_required
-@require_POST
-def verify_product_ajax_view(request):
-    """
-    AJAX endpoint to verify an unverified product.
-    """
-    try:
-        data = json.loads(request.body)
-
-        cod = int(data['cod'])
-        var = int(data['var'])
-        storage_id = int(data['storage_id'])
-
-        storage = get_object_or_404(
-            Storage,
-            id=storage_id,
-            supermarket__owner=request.user
-        )
-
-        with RestockService(storage) as service:
-            cursor = service.db.cursor()
-            cursor.execute("""
-                UPDATE product_stats
-                SET verified = TRUE
-                WHERE cod = %s AND v = %s
-            """, (cod, var))
+            """, (stock, cod, var))
 
             service.db.conn.commit()
 
             logger.info(
                 f"Verified product: {storage.name} - "
-                f"{cod}.{var}"
+                f"{cod}.{var} with stock={stock}"
             )
 
             return JsonResponse({
                 'success': True,
-                'message': f'Product {cod}.{var} verified'
+                'message': f'Product {cod}.{var} verified with stock {stock}'
             })
 
     except Exception as e:
@@ -2335,26 +2180,88 @@ def get_clusters_for_settore_view(request, supermarket_id, settore):
         return JsonResponse({'error': str(e)}, status=500)
 
 @login_required
-@require_POST  
+@require_POST
 def inventory_flag_for_purge_ajax_view(request):
-    """AJAX endpoint to flag product for purge from inventory view"""
+    """
+    AJAX endpoint to flag product for purge from inventory view.
+    If product has stock > 0, adds to "In fase di eliminazione" blacklist.
+    If stock = 0, deletes immediately.
+    """
     try:
         data = json.loads(request.body)
-        cod = data['cod']
-        var = data['var']
+        cod = int(data['cod'])
+        var = int(data['var'])
         supermarket_name = data['supermarket']
-        
+
         supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
         storage = supermarket.storages.first()
-        
+
         if not storage:
             return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)
-        
-        with RestockService(storage) as service:
-            result = service.db.flag_for_purge(cod, var)
-            return JsonResponse({'success': True, 'message': result['message']})
 
-            
+        with RestockService(storage) as service:
+            # Check product stock
+            cursor = service.db.cursor()
+            cursor.execute("""
+                SELECT ps.stock
+                FROM product_stats ps
+                WHERE ps.cod = %s AND ps.v = %s
+            """, (cod, var))
+
+            row = cursor.fetchone()
+
+            if not row:
+                return JsonResponse({'success': False, 'message': f'Product {cod}.{var} not found'}, status=404)
+
+            stock = row['stock'] if row['stock'] is not None else 0
+
+            if stock > 0:
+                # Has stock - add to "In fase di eliminazione" blacklist
+                PURGE_BLACKLIST_NAME = "In fase di eliminazione"
+
+                # Get or create the blacklist
+                blacklist, created = Blacklist.objects.get_or_create(
+                    storage=storage,
+                    name=PURGE_BLACKLIST_NAME,
+                    defaults={'description': 'Articoli in attesa di eliminazione automatica quando la giacenza raggiunge 0'}
+                )
+
+                if created:
+                    logger.info(f"Created blacklist '{PURGE_BLACKLIST_NAME}' for storage {storage.name}")
+
+                # Add product to blacklist (ignore if already exists)
+                BlacklistEntry.objects.get_or_create(
+                    blacklist=blacklist,
+                    product_code=cod,
+                    product_var=var
+                )
+
+                # Set purge_flag in products table
+                try:
+                    cursor.execute("ALTER TABLE products ADD COLUMN purge_flag BOOLEAN DEFAULT FALSE")
+                    service.db.conn.commit()
+                except:
+                    pass  # Column already exists
+
+                cursor.execute("""
+                    UPDATE products
+                    SET purge_flag = TRUE
+                    WHERE cod = %s AND v = %s
+                """, (cod, var))
+                service.db.conn.commit()
+
+                logger.info(f"Product {cod}.{var} added to blacklist '{PURGE_BLACKLIST_NAME}' (stock: {stock})")
+
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Prodotto {cod}.{var} aggiunto alla lista di eliminazione (giacenza attuale: {stock})'
+                })
+            else:
+                # No stock - delete immediately
+                result = service.db.purge_product(cod, var)
+                return JsonResponse({'success': True, 'message': result['message']})
+
+
     except Exception as e:
         logger.exception("Error flagging product for purge")
         return JsonResponse({'success': False, 'message': str(e)}, status=500)

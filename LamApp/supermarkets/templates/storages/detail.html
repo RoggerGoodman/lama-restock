@@ -67,7 +67,7 @@
                                             <i class="bi bi-pencil"></i> Correggi
                                         </button>
                                         <button class="btn btn-sm btn-danger"
-                                                onclick="purgeNegativeStock({{ product.cod }}, {{ product.var }})">
+                                                onclick="purgeProduct({{ product.cod }}, {{ product.var }}, 'negative-row')">
                                             <i class="bi bi-trash"></i> Elimina
                                         </button>
                                     </div>
@@ -126,11 +126,11 @@
                                 <td>
                                     <div class="btn-group btn-group-sm">
                                         <button class="btn btn-sm btn-success"
-                                                onclick="verifyUnverifiedProduct({{ product.cod }}, {{ product.var }})">
+                                                onclick="verifyProduct({{ product.cod }}, {{ product.var }}, {{ product.package_size }}, 'unverified-row')">
                                             <i class="bi bi-check-circle"></i> Verifica
                                         </button>
                                         <button class="btn btn-sm btn-danger"
-                                                onclick="purgeUnverifiedProduct({{ product.cod }}, {{ product.var }})">
+                                                onclick="purgeProduct({{ product.cod }}, {{ product.var }}, 'unverified-row')">
                                             <i class="bi bi-trash"></i> Elimina
                                         </button>
                                     </div>
@@ -167,31 +167,24 @@
                         <thead>
                             <tr>
                                 <th>Codice</th>
+                                <th>Variante</th>
                                 <th>Descrizione</th>
-                                <th>Current Package Size</th> <!-- #TODO this is coceptualy wrong needs refactoring -->
-                                <th>Edit Package Size</th>
-                                <th>Action</th>
+                                <th>Pz x Collo</th>
+                                <th>Azioni</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for product in newly_added_products %}
                             <tr id="row-{{ product.cod }}-{{ product.var }}">
-                                <td><code>{{ product.cod }}.{{ product.var }}</code></td>
+                                <td><code>{{ product.cod }}</code></td>
+                                <td><code>{{ product.var }}</code></td>
                                 <td>{{ product.name|truncatewords:6 }}</td>
                                 <td>
-                                    <span class="badge bg-secondary">{{ product.package_size }} unità</span>
-                                </td>
-                                <td>
-                                    <input type="number"
-                                           class="form-control form-control-sm"
-                                           id="pkg-{{ product.cod }}-{{ product.var }}"
-                                           value="{{ product.package_size }}"
-                                           min="1"
-                                           style="width: 100px;">
+                                    <span class="badge bg-secondary">{{ product.package_size }}</span>
                                 </td>
                                 <td>
                                     <button class="btn btn-sm btn-success"
-                                            onclick="verifyNewlyAdded({{ product.cod }}, {{ product.var }})">
+                                            onclick="verifyProduct({{ product.cod }}, {{ product.var }}, {{ product.package_size }}, 'row')">
                                         <i class="bi bi-check-circle"></i> Verifica
                                     </button>
                                 </td>
@@ -493,17 +486,19 @@
 
 {% block scripts %}
 <script>
-// ✅ NEW: Verify newly added product
-function verifyNewlyAdded(cod, var_) {
-    const pkgInput = document.getElementById(`pkg-${cod}-${var_}`);
-    const newPackageSize = parseInt(pkgInput.value);
+// Verify product - asks user for stock value (defaults to package_size)
+function verifyProduct(cod, var_, defaultStock, rowIdPrefix) {
+    const stockInput = prompt(`Inserisci la giacenza attuale per ${cod}.${var_}:`, defaultStock);
 
-    if (newPackageSize < 1) {
-        alert('Package size must be at least 1');
+    if (stockInput === null) return; // User cancelled
+
+    const stockValue = parseInt(stockInput);
+    if (isNaN(stockValue) || stockValue < 0) {
+        alert('Valore non valido. La giacenza deve essere un numero >= 0');
         return;
     }
 
-    if (!confirm(`Verify product ${cod}.${var_} with package size ${newPackageSize}?`)) {
+    if (!confirm(`Verificare ${cod}.${var_} con giacenza ${stockValue}?`)) {
         return;
     }
 
@@ -516,7 +511,7 @@ function verifyNewlyAdded(cod, var_) {
         body: JSON.stringify({
             cod: cod,
             var: var_,
-            package_size: newPackageSize,
+            stock: stockValue,
             storage_id: {{ storage.id }}
         })
     })
@@ -524,30 +519,24 @@ function verifyNewlyAdded(cod, var_) {
     .then(data => {
         if (data.success) {
             // Remove row with fade animation
-            const row = document.getElementById(`row-${cod}-${var_}`);
-            row.style.transition = 'opacity 0.3s';
-            row.style.opacity = '0';
-            setTimeout(() => row.remove(), 300);
+            const row = document.getElementById(`${rowIdPrefix}-${cod}-${var_}`);
+            if (row) {
+                row.style.transition = 'opacity 0.3s';
+                row.style.opacity = '0';
+                setTimeout(() => row.remove(), 300);
+            }
 
-            alert(`✅ Product ${cod}.${var_} verified!`);
-
-            // Reload if no more products
-            setTimeout(() => {
-                const tbody = document.querySelector('tbody');
-                if (tbody.children.length === 0) {
-                    location.reload();
-                }
-            }, 500);
+            alert(`✅ Prodotto ${cod}.${var_} verificato!`);
         } else {
-            alert('Error: ' + data.message);
+            alert('Errore: ' + data.message);
         }
     })
     .catch(error => {
-        alert('Error: ' + error);
+        alert('Errore: ' + error);
     });
 }
 
-// NEW: Adjust negative stock
+// NEW: Adjust negative stock - uses inventory_adjust_stock_ajax_view with form POST
 function adjustNegativeStock(cod, var_, currentStock) {
     const newStock = prompt(`Correggi la giacenza per ${cod}.${var_} (attuale: ${currentStock}):`, '0');
 
@@ -559,22 +548,27 @@ function adjustNegativeStock(cod, var_, currentStock) {
         return;
     }
 
+    // Calculate adjustment from current stock to new stock
+    const adjustment = stockValue - currentStock;
+
     if (!confirm(`Impostare la giacenza di ${cod}.${var_} a ${stockValue}?`)) {
         return;
     }
 
+    // Use form POST like inventory panel does
+    const formData = new FormData();
+    formData.append('cod', cod);
+    formData.append('var', var_);
+    formData.append('adjustment', adjustment);
+    formData.append('reason', 'stolen');  // Use stolen as reason for discrepancy correction
+    formData.append('supermarket', '{{ storage.supermarket.name }}');
+
     fetch('/inventory/adjust-stock/', {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json',
             'X-CSRFToken': '{{ csrf_token }}'
         },
-        body: JSON.stringify({
-            cod: cod,
-            var: var_,
-            new_stock: stockValue,
-            storage_id: {{ storage.id }}
-        })
+        body: formData
     })
     .then(response => response.json())
     .then(data => {
@@ -594,13 +588,13 @@ function adjustNegativeStock(cod, var_, currentStock) {
     });
 }
 
-// NEW: Purge negative stock product
-function purgeNegativeStock(cod, var_) {
+// Generic purge product function
+function purgeProduct(cod, var_, rowIdPrefix) {
     if (!confirm(`Sei sicuro di voler eliminare il prodotto ${cod}.${var_}?`)) {
         return;
     }
 
-    fetch('/inventory/purge-product/', {
+    fetch('/inventory/flag-for-purge/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -609,88 +603,18 @@ function purgeNegativeStock(cod, var_) {
         body: JSON.stringify({
             cod: cod,
             var: var_,
-            storage_id: {{ storage.id }}
+            supermarket: '{{ storage.supermarket.name }}'
         })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            const row = document.getElementById(`negative-row-${cod}-${var_}`);
-            row.style.transition = 'opacity 0.3s';
-            row.style.opacity = '0';
-            setTimeout(() => row.remove(), 300);
-
-            alert(`✅ Prodotto ${cod}.${var_} eliminato!`);
-        } else {
-            alert('Errore: ' + data.message);
-        }
-    })
-    .catch(error => {
-        alert('Errore: ' + error);
-    });
-}
-
-// NEW: Verify unverified product with sales
-function verifyUnverifiedProduct(cod, var_) {
-    if (!confirm(`Verificare il prodotto ${cod}.${var_}?`)) {
-        return;
-    }
-
-    fetch('/inventory/verify-product/', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}'
-        },
-        body: JSON.stringify({
-            cod: cod,
-            var: var_,
-            storage_id: {{ storage.id }}
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            const row = document.getElementById(`unverified-row-${cod}-${var_}`);
-            row.style.transition = 'opacity 0.3s';
-            row.style.opacity = '0';
-            setTimeout(() => row.remove(), 300);
-
-            alert(`✅ Prodotto ${cod}.${var_} verificato!`);
-        } else {
-            alert('Errore: ' + data.message);
-        }
-    })
-    .catch(error => {
-        alert('Errore: ' + error);
-    });
-}
-
-// NEW: Purge unverified product
-function purgeUnverifiedProduct(cod, var_) {
-    if (!confirm(`Sei sicuro di voler eliminare il prodotto ${cod}.${var_}?`)) {
-        return;
-    }
-
-    fetch('/inventory/purge-product/', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}'
-        },
-        body: JSON.stringify({
-            cod: cod,
-            var: var_,
-            storage_id: {{ storage.id }}
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            const row = document.getElementById(`unverified-row-${cod}-${var_}`);
-            row.style.transition = 'opacity 0.3s';
-            row.style.opacity = '0';
-            setTimeout(() => row.remove(), 300);
+            const row = document.getElementById(`${rowIdPrefix}-${cod}-${var_}`);
+            if (row) {
+                row.style.transition = 'opacity 0.3s';
+                row.style.opacity = '0';
+                setTimeout(() => row.remove(), 300);
+            }
 
             alert(`✅ Prodotto ${cod}.${var_} eliminato!`);
         } else {

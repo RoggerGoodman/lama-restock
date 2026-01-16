@@ -11,14 +11,14 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Supermercati</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Punti vendita</a></li>
                     <li class="breadcrumb-item active">{{ supermarket.name }}</li>
                 </ol>
             </nav>
         </div>
     </div>
 
-    <!-- Supermercato Info -->
+    <!-- Punto vendita Info -->
     <div class="row mb-4">
         <div class="col-lg-8">
             <div class="stat-card">
@@ -61,7 +61,7 @@
                 </div>
                 <div class="alert alert-info mb-3">
                     <i class="bi bi-info-circle"></i>
-                    <strong>Nota bene:</strong> I file promozionali vengono elaborati a livello di supermercato poiché contengono prodotti provenienti da più magazzini.
+                    <strong>Nota bene:</strong> I file promozionali vengono elaborati a livello di Punto vendita poiché contengono prodotti provenienti da più magazzini.
                 </div>
             </div>
         </div>

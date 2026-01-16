@@ -10,7 +10,7 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Supermercati</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Punti vendita</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=supermarket.id %}">{{ supermarket.name }}</a></li>
                     <li class="breadcrumb-item active">Carica promozioni</li>
                 </ol>
@@ -31,7 +31,7 @@
                     <ol class="mb-0">
                         <li>Carica il file PDF promozionale dal tuo fornitore</li>
                         <li>Il sistema estrae codici articolo, prezzi e date</li>
-                        <li>I prezzi vengono aggiornati nel <strong>database del supermercato</strong></li>
+                        <li>I prezzi vengono aggiornati nel <strong>database del Punto vendita</strong></li>
                         <li>Le modifiche si applicano a <strong>tutti i magazzini</strong> in this supermarket</li>
                     </ol>
                 </div>

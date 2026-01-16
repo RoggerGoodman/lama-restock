@@ -1,7 +1,7 @@
 <!-- Replace LamApp/supermarkets/templates/inventory/record_losses_unified.html -->
 {% extends 'base.html' %}
-{% block title %}Reggistra Perdite{% endblock %}
-{% block page_title %}Reggistra Perdite articoli{% endblock %}
+{% block title %}Registra Perdite{% endblock %}
+{% block page_title %}Registra Perdite articoli{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -11,7 +11,7 @@
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
-                    <li class="breadcrumb-item active">Reggistra Perdite</li>
+                    <li class="breadcrumb-item active">Registra Perdite</li>
                 </ol>
             </nav>
         </div>
@@ -22,7 +22,7 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-clipboard-data text-warning"></i>
-                    Reggistra Perdite articoli
+                    Registra Perdite articoli
                 </h4>
 
                 <div class="alert alert-info">
@@ -48,9 +48,9 @@
                     {% csrf_token %}
                     
                     <div class="mb-3">
-                        <label for="supermarket_id" class="form-label">Supermercato</label>
+                        <label for="supermarket_id" class="form-label">Punto vendita</label>
                         <select name="supermarket_id" id="supermarket_id" class="form-select" required>
-                            <option value="">-- Seleziona Supermercato --</option>
+                            <option value="">-- Seleziona Punto vendita --</option>
                             {% for sm in supermarkets %}
                             <option value="{{ sm.id }}">{{ sm.name }}</option>
                             {% endfor %}
@@ -90,7 +90,7 @@
                 <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Formato PDF previsto</h6>
                 <div class="bg-light p-3 rounded">
                     <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Dropzone
-Punto Vendita: [Nome Supermercato]
+Punto Vendita: [Nome Punto vendita]
 Inventario: [Numero Inventario]
 
 Codice a Barre | Articolo | Descrizione  | Quantità | 

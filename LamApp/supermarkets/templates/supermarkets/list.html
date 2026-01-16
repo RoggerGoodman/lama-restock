@@ -1,16 +1,16 @@
 <!-- templates/supermarkets/list.html -->
 {% extends 'base.html' %}
-{% block title %}I miei Supermercati{% endblock %}
+{% block title %}I miei Punti vendita{% endblock %}
 {% block content %}
-  <h1>I miei Supermercati</h1>
-  <a href="{% url 'supermarket-add' %}" class="btn btn-primary mb-3">Aggiungi Supermercato</a>
+  <h1>I miei Punti vendita</h1>
+  <a href="{% url 'supermarket-add' %}" class="btn btn-primary mb-3">Aggiungi Punto vendita</a>
   <ul class="list-group">
     {% for supermarket in supermarkets %}
       <li class="list-group-item">
         <a href="{% url 'supermarket-detail' pk=supermarket.pk %}">{{ supermarket.name }}</a>
       </li>
     {% empty %}
-      <li class="list-group-item">Nessun supermercato trovato.</li>
+      <li class="list-group-item">Nessun Punto vendita trovato.</li>
     {% endfor %}
   </ul>
 {% endblock %}

@@ -770,25 +770,28 @@ class DatabaseManager:
     def flag_for_purge(self, cod: int, v: int):
         """
         Mark a product for purging.
-        - If stock > 0: Add to blacklist and set purge_flag
+        - If stock > 0: Set purge_flag (blacklist is handled by Django view)
         - If stock = 0: Delete immediately
+
+        Note: The Django view (inventory_flag_for_purge_ajax_view) handles
+        adding to the "In fase di eliminazione" blacklist.
         """
         cur = self.cursor()
-        
+
         # Check if product exists and get stock
         cur.execute("""
-            SELECT ps.stock 
+            SELECT ps.stock
             FROM product_stats ps
             WHERE ps.cod = %s AND ps.v = %s
         """, (cod, v))
-        
+
         row = cur.fetchone()
-        
+
         if not row:
             raise ValueError(f"Product {cod}.{v} not found in database")
-        
+
         stock = row['stock'] if row['stock'] is not None else 0
-        
+
         if stock > 0:
             # Has stock - flag for purging
             # First, check if purge_flag column exists, add if not
@@ -797,23 +800,16 @@ class DatabaseManager:
                 self.conn.commit()
             except:
                 pass  # Column already exists
-            
+
             # Set purge flag
             cur.execute("""
-                UPDATE products 
-                SET purge_flag = TRUE 
+                UPDATE products
+                SET purge_flag = TRUE
                 WHERE cod = %s AND v = %s
             """, (cod, v))
-            
-            # Set verified to false so it doesn't get ordered
-            cur.execute("""
-                UPDATE product_stats
-                SET verified = FALSE
-                WHERE cod = %s AND v = %s
-            """, (cod, v))
-            
+
             self.conn.commit()
-            
+
             return {
                 'action': 'flagged',
                 'cod': cod,

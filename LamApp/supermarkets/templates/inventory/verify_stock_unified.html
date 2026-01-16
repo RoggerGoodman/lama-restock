@@ -1,6 +1,6 @@
 <!-- Replace LamApp/supermarkets/templates/inventory/verify_stock_unified.html -->
 {% extends 'base.html' %}
-{% block title %}Verifica Giacenza (all'ingrosso){% endblock %}
+{% block title %}Carica invariato{% endblock %}
 {% block page_title %}Verifica giacenza{% endblock %}
 
 {% block content %}
@@ -22,7 +22,7 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-clipboard-check text-success"></i>
-                    Verifica giacenza (all'ingrosso) - Formato PDF
+                    Carica invariato - Formato PDF
                 </h4>
 
                 <div class="alert alert-info">
@@ -49,10 +49,10 @@
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="supermarket_id" class="form-label">
-                                <i class="bi bi-shop"></i> Supermercato
+                                <i class="bi bi-shop"></i> Punto vendita
                             </label>
                             <select name="supermarket_id" id="supermarket_id" class="form-select" required onchange="loadStorages()">
-                                <option value="">-- Seleziona Supermercato --</option>
+                                <option value="">-- Seleziona Punto vendita --</option>
                                 {% for sm in supermarkets %}
                                 <option value="{{ sm.id }}">{{ sm.name }}</option>
                                 {% endfor %}
@@ -63,7 +63,7 @@
                                 <i class="bi bi-box"></i> Magazzino (Settore)
                             </label>
                             <select name="storage_id" id="storage_id" class="form-select" required disabled onchange="loadClusters()">
-                                <option value="">-- Seleziona prima Supermercato --</option>
+                                <option value="">-- Seleziona prima Punto vendita --</option>
                             </select>
                         </div>
                     </div>
@@ -121,7 +121,7 @@
                 <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Formato PDF previsto</h6>
                 <div class="bg-light p-3 rounded">
                     <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Terminalino
-Punto Vendita: [Nome Supermercato]
+Punto Vendita: [Nome Punto vendita]
 
 Codice a Barre | Articolo | Descrizione  | Quantità |
 8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  |
@@ -148,7 +148,7 @@ function loadStorages() {
     
     if (!supermarketId) {
         storageSelect.disabled = true;
-        storageSelect.innerHTML = '<option value="">-- Seleziona prima Supermercato --</option>';
+        storageSelect.innerHTML = '<option value="">-- Seleziona prima Punto vendita --</option>';
         document.getElementById('cluster_select').innerHTML = '<option value="">-- No Cluster / Seleziona Esistente --</option>';
         return;
     }

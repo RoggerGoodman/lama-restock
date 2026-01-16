@@ -46,9 +46,9 @@
                     
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label for="supermarket_id" class="form-label">Supermercato</label>
+                            <label for="supermarket_id" class="form-label">Punto vendita</label>
                             <select name="supermarket_id" id="supermarket_id" class="form-select" required onchange="loadStorages()">
-                                <option value="">-- Seleziona Supermercato --</option>
+                                <option value="">-- Seleziona Punto vendita --</option>
                                 {% for sm in supermarkets %}
                                 <option value="{{ sm.id }}">{{ sm.name }}</option>
                                 {% endfor %}
@@ -57,7 +57,7 @@
                         <div class="col-md-6">
                             <label for="storage_id" class="form-label">Magazzino</label>
                             <select name="storage_id" id="storage_id" class="form-select" required disabled onchange="loadExistingClusters()">
-                                <option value="">-- Seleziona prima il Supermercato --</option>
+                                <option value="">-- Seleziona prima il Punto vendita --</option>
                             </select>
                         </div>
                     </div>
@@ -111,7 +111,7 @@
                 <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Formato PDF previsto</h6>
                 <div class="bg-light p-3 rounded">
                     <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Dropzone
-Punto Vendita: [Nome Supermercato]
+Punto Vendita: [Nome Punto vendita]
 
 Codice a Barre | Articolo | Descrizione  | Quantità | 
 8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  | 
@@ -137,7 +137,7 @@ function loadStorages() {
     
     if (!supermarketId) {
         storageSelect.disabled = true;
-        storageSelect.innerHTML = '<option value="">-- Seleziona prima Supermercato --</option>';
+        storageSelect.innerHTML = '<option value="">-- Seleziona prima Punto vendita --</option>';
         return;
     }
     
