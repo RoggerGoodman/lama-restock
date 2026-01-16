@@ -246,7 +246,7 @@ class DecisionMaker:
                 logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not verified and not available")
                 continue
 
-            if stock == 0 and verified == True and disponibilita == "No":
+            if stock == 0 and verified == True and (disponibilita == "No" or settore == "DEPERIBILI"):
                 logger.info(f"{product_cod}.{product_var} - {descrizione} marked as zombie because is not available and has verified stock of 0")
                 zombie_products.append({
                     'cod': product_cod,

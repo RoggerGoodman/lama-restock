@@ -4,12 +4,10 @@ Celery tasks for automated operations.
 Replaces scheduler.py with proper distributed task queue.
 """
 from celery import shared_task
-from celery.utils.log import get_task_logger
 import datetime
 from django.utils import timezone
 from django.conf import settings
 import logging
-import os
 from .automation_services import AutomatedRestockService
 
 logger = logging.getLogger(__name__)
@@ -89,37 +87,50 @@ def record_losses_all_supermarkets(self):
 )
 def update_stats_all_scheduled_storages(self):
     """
-    Update product stats for all storages with active schedules at 5:00 AM.
-    After successful update, trigger order tasks for storages with orders today.
-    
-    CRITICAL: Each storage is processed in its own subtask to isolate database connections.
+    Update product stats for all storages with active schedules at 6:00 AM.
+
+    CRITICAL: Each storage is processed in its own subtask. When stats update succeeds
+    for a storage, that subtask will trigger orders for that specific storage (if scheduled).
+    This ensures orders NEVER run for a storage whose stats update failed.
     """
-    from .models import Storage, RestockSchedule
-    from django.db.models import Q
-    
+    from .models import Storage
+
     try:
         logger.info("[CELERY] Starting morning stats update for all scheduled storages")
-        
+
         # Get all storages with active schedules
         storages = Storage.objects.filter(
             schedule__isnull=False
         ).select_related('schedule', 'supermarket')
-        
+
         if not storages.exists():
             logger.info("[CELERY] No storages with schedules found")
             return "No storages to process"
-        
+
         logger.info(f"[CELERY] Found {storages.count()} storage(s) with schedules")
-        
-        # Update stats for each storage sequentially
-        # This ensures database connections are properly managed
+
+        # Determine which day it is for order scheduling
+        now = datetime.datetime.now()
+        current_weekday = now.weekday()  # 0=Monday, 6=Sunday
+        weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        today_field = weekday_fields[current_weekday]
+
+        # Update stats for each storage
+        # Each subtask will trigger orders ONLY if stats succeed
         for storage in storages:
             try:
-                logger.info(f"[CELERY] Updating stats for {storage.name}")
-                
+                # Check if this storage has orders scheduled for today
+                is_order_day = getattr(storage.schedule, today_field, False)
+
+                logger.info(
+                    f"[CELERY] Queueing stats update for {storage.name} "
+                    f"(order day: {is_order_day})"
+                )
+
                 # Call subtask to update stats
+                # Pass is_order_day so the subtask knows whether to trigger orders on success
                 update_stats_for_storage.apply_async(
-                    args=[storage.id],
+                    args=[storage.id, is_order_day],
                     retry=True,
                     retry_policy={
                         'max_retries': 3,
@@ -128,19 +139,15 @@ def update_stats_all_scheduled_storages(self):
                         'interval_max': 900,
                     }
                 )
-                
+
             except Exception as e:
                 logger.exception(f"[CELERY] Error queuing stats update for {storage.name}")
                 continue
-        
+
         logger.info("[CELERY] All stats update tasks queued successfully")
-        
-        # After stats are updated, trigger order checks
-        # This runs AFTER the stats updates complete
-        check_and_run_orders_today.apply_async(countdown=600)  # Wait 10 minutes for stats to finish
-        
+
         return f"Stats update queued for {storages.count()} storages"
-        
+
     except Exception as exc:
         logger.exception("[CELERY] Fatal error in stats update task")
         raise self.retry(exc=exc)
@@ -152,98 +159,70 @@ def update_stats_all_scheduled_storages(self):
     default_retry_delay=900,
     queue='selenium'
 )
-def update_stats_for_storage(self, storage_id):
-    """Update product stats for a single storage."""
+def update_stats_for_storage(self, storage_id, trigger_order_on_success=False):
+    """
+    Update product stats for a single storage.
+
+    CRITICAL: If trigger_order_on_success=True and stats update succeeds,
+    this task will trigger run_restock_for_storage for this specific storage.
+    This ensures orders ONLY run after successful stats update.
+
+    Args:
+        storage_id: The storage ID to update stats for
+        trigger_order_on_success: If True, queue restock order after successful stats update
+    """
     from .models import Storage
-    
+
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
-        
-        logger.info(f"[CELERY-SUBTASK] Updating stats for {storage.name}")
-        
+
+        logger.info(
+            f"[CELERY-SUBTASK] Updating stats for {storage.name} "
+            f"(will trigger order: {trigger_order_on_success})"
+        )
+
         with AutomatedRestockService(storage) as service:
             from .models import RestockLog
             log = RestockLog.objects.create(
                 storage=storage,
                 status='processing',
                 current_stage='updating_stats',
-                operation_type='stats_update'  # ← ADDED THIS
+                operation_type='stats_update'
             )
-            
+
             service.update_product_stats_checkpoint(log)
-            
+
             log.status = 'completed'
             log.completed_at = timezone.now()
             log.save()
-            
+
             logger.info(f"✓ [CELERY-SUBTASK] Stats updated for {storage.name}")
-            return f"Stats updated for {storage.name}"            
-    except Exception as exc:
-        logger.exception(f"[CELERY-SUBTASK] Error updating stats for storage {storage_id}")
-        raise self.retry(exc=exc)
 
+        # CRITICAL: Only trigger order if stats succeeded AND it's an order day
+        if trigger_order_on_success:
+            logger.info(
+                f"[CELERY-SUBTASK] Stats succeeded for {storage.name}, "
+                f"now triggering restock order"
+            )
+            run_restock_for_storage.apply_async(
+                args=[storage_id],
+                retry=True,
+                retry_policy={
+                    'max_retries': 3,
+                    'interval_start': 900,
+                    'interval_step': 0,
+                    'interval_max': 900,
+                }
+            )
 
-@shared_task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=900
-)
-def check_and_run_orders_today(self):
-    """
-    Check which storages have orders scheduled for today and run them.
-    This is called AFTER stats are updated (at ~5:10 AM).
-    
-    CRITICAL: Each order is run in its own subtask to isolate database connections.
-    """
-    from .models import RestockSchedule
-    
-    try:
-        now = datetime.datetime.now()
-        current_weekday = now.weekday()  # 0=Monday, 6=Sunday
-        
-        weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-        today_field = weekday_fields[current_weekday]
-        
-        logger.info(f"[CELERY] Checking for orders on {today_field} at {now.strftime('%H:%M')}")
-        
-        all_schedules = RestockSchedule.objects.select_related('storage', 'storage__supermarket').all()
-        
-        orders_queued = 0
-        
-        for schedule in all_schedules:
-            try:
-                is_order_day = getattr(schedule, today_field)
-                
-                if not is_order_day:
-                    continue
-                
-                logger.info(f"[CELERY] Queueing restock for {schedule.storage.name} (order day: {today_field})")
-                
-                # Queue the order task
-                run_restock_for_storage.apply_async(
-                    args=[schedule.storage.id],
-                    retry=True,
-                    retry_policy={
-                        'max_retries': 3,
-                        'interval_start': 900,
-                        'interval_step': 0,
-                        'interval_max': 900,
-                    }
-                )
-                
-                orders_queued += 1
-                    
-            except Exception as e:
-                logger.exception(f"[CELERY] Error checking schedule for {schedule}")
-                continue
-        
-        result_msg = f"Queued {orders_queued} restock orders for today"
-        logger.info(f"[CELERY] {result_msg}")
-        
-        return result_msg
-        
+        return f"Stats updated for {storage.name}"
+
     except Exception as exc:
-        logger.exception("[CELERY] Fatal error in order check task")
+        # Stats failed - DO NOT trigger order
+        logger.exception(
+            f"[CELERY-SUBTASK] Error updating stats for storage {storage_id}. "
+            f"Order will NOT be triggered."
+        )
         raise self.retry(exc=exc)
 
 
@@ -253,43 +232,82 @@ def check_and_run_orders_today(self):
     default_retry_delay=900,
     queue='selenium'
 )
-def run_restock_for_storage(self, storage_id):
-    """Automated restock (scheduled) - NOW WITH PROGRESS"""
-    from .models import Storage
-    
+def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=True):
+    """
+    Run restock for a single storage. Used for both scheduled and manual restocks.
+
+    Args:
+        storage_id: The storage ID to run restock for
+        coverage: Optional coverage parameter for order calculation
+        skip_stats_update: If True, skip stats update (default True since stats
+                          are updated separately in the morning workflow)
+    """
+    from .models import Storage, RestockLog
+
     try:
-        storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)  
-        logger.info(f"[CELERY-ORDER] Running restock for {storage.name}")
-        
-        # ✅ Report progress for scheduled tasks too
+        storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)
+        logger.info(
+            f"[CELERY-ORDER] Running restock for {storage.name} "
+            f"(coverage={coverage}, skip_stats={skip_stats_update})"
+        )
+
+        # Report progress
         def report_progress(progress, message):
             self.update_state(
                 state='PROGRESS',
                 meta={'progress': progress, 'status': message}
             )
-            logger.info(f"[AUTO-RESTOCK] {progress}% - {message}")
-        
+            logger.info(f"[RESTOCK] {progress}% - {message}")
+
+        self.update_state(
+            state='PROGRESS',
+            meta={'progress': 5, 'status': 'Starting restock...'}
+        )
+
+        # Create log upfront for tracking
+        log = RestockLog.objects.create(
+            storage=storage,
+            status='processing',
+            current_stage='pending',
+            operation_type='full_restock',
+            started_at=timezone.now()
+        )
+
         with AutomatedRestockService(storage) as service:
-            # run_full_restock_workflow will create log with operation_type='full_restock'
-            log = service.run_full_restock_workflow(
-                coverage=None,
+            service.run_full_restock_workflow(
+                coverage=coverage,
+                log=log,
+                skip_stats_update=skip_stats_update,
                 progress_callback=report_progress
             )
-            
+
             logger.info(
                 f"✓ [CELERY-ORDER] Successfully completed restock for {storage.name} "
                 f"(Log #{log.id}: {log.products_ordered} products, {log.total_packages} packages)"
             )
-            
-            return {
+
+            result = {
                 'success': True,
                 'log_id': log.id,
                 'storage_name': storage.name,
                 'products_ordered': log.products_ordered,
-                'total_packages': log.total_packages
-            }           
+                'total_packages': log.total_packages,
+                'redirect_url': f'/logs/{log.id}/'
+            }
+
+            self.update_state(
+                state='SUCCESS',
+                meta=result
+            )
+
+            return result
+
     except Exception as exc:
         logger.exception(f"[CELERY-ORDER] Error running restock for storage {storage_id}")
+        self.update_state(
+            state='FAILURE',
+            meta={'error': str(exc)}
+        )
         raise self.retry(exc=exc)
 
 
@@ -351,81 +369,6 @@ def run_scheduled_list_updates(self):
         
     except Exception as exc:
         logger.exception("[CELERY] Fatal error in list update task")
-        raise self.retry(exc=exc)
-    
-@shared_task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=900,
-    queue='selenium'
-)
-def manual_restock_task(self, storage_id, coverage=None):
-    """
-    User-initiated restock WITH PROGRESS UPDATES.
-    SKIPS stats update since it's done daily at 5 AM.
-    """
-    from .models import Storage, RestockLog
-    from django.utils import timezone
-    
-    try:
-        storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)
-        logger.info(f"[MANUAL RESTOCK] Starting for {storage.name} (SKIP STATS UPDATE)")
-        
-        # ✅ Report initial progress
-        self.update_state(
-            state='PROGRESS',
-            meta={'progress': 5, 'status': 'Starting order calculation (stats already updated)...'}
-        )
-        
-        log = RestockLog.objects.create(
-            storage=storage,
-            status='processing',
-            current_stage='pending',
-            operation_type='full_restock',
-            started_at=timezone.now()
-        ) 
-        
-        with AutomatedRestockService(storage) as service:
-            # ✅ SKIP STATS UPDATE (it's done daily at 5 AM)
-            service.run_full_restock_workflow(
-                coverage=coverage, 
-                log=log,
-                skip_stats_update=True,  # ← NEW: Skip stats!
-                progress_callback=lambda p, msg: self.update_state(
-                    state='PROGRESS',
-                    meta={'progress': p, 'status': msg}
-                )
-            )
-            
-            logger.info(
-                f"✅ [MANUAL RESTOCK] Completed for {storage.name} "
-                f"(Log #{log.id}: {log.products_ordered} products)"
-            )
-
-            # ✅ CRITICAL FIX: Explicitly set state to SUCCESS
-            # Without this, the task stays in PROGRESS state and frontend keeps polling
-            result = {
-                'success': True,
-                'log_id': log.id,
-                'products_ordered': log.products_ordered,
-                'total_packages': log.total_packages,
-                'redirect_url': f'/logs/{log.id}/'
-            }
-
-            self.update_state(
-                state='SUCCESS',
-                meta=result
-            )
-
-            return result            
-    except Exception as exc:
-        logger.exception(f"[MANUAL RESTOCK] Error for storage {storage_id}")
-        
-        # ✅ Report error state
-        self.update_state(
-            state='FAILURE',
-            meta={'error': str(exc)}
-        )
         raise self.retry(exc=exc)
     
 @shared_task(
@@ -1154,7 +1097,7 @@ def order_new_products_task(self, log_id, products_list):
 def process_ddt_task(self, storage_id, pdf_file_path):
     """
     Process DDT delivery document and add stock.
-    
+
     Args:
         storage_id: Storage ID
         pdf_file_path: Full path to DDT PDF file

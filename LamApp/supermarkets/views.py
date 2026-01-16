@@ -349,6 +349,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                     WHERE p.settore = %s
                         AND ps.verified = FALSE
+                        AND ps.sold_last_24 IS NULL
                         AND ps.bought_last_24 IS NOT NULL
                         AND jsonb_typeof(ps.bought_last_24) = 'array'
                         AND EXISTS (
@@ -374,11 +375,73 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 
                 context['newly_added_products'] = newly_added
                 logger.info(f"Found {len(newly_added)} newly added products needing verification")
-                
+
+                # NEW: Load products with negative stock (anomalies)
+                cursor.execute("""
+                    SELECT
+                        p.cod, p.v, p.descrizione, p.pz_x_collo, ps.stock
+                    FROM products p
+                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    WHERE p.settore = %s
+                        AND ps.verified = TRUE
+                        AND ps.stock < 0
+                    ORDER BY ps.stock ASC
+                    LIMIT 50;
+                """, (self.object.settore,))
+
+                negative_stock_products = []
+                for row in cursor.fetchall():
+                    negative_stock_products.append({
+                        'cod': row['cod'],
+                        'var': row['v'],
+                        'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                        'stock': row['stock'],
+                        'package_size': row['pz_x_collo'] or 12
+                    })
+
+                context['negative_stock_products'] = negative_stock_products
+                logger.info(f"Found {len(negative_stock_products)} products with negative stock")
+
+                # NEW: Load unverified products with recent sales
+                cursor.execute("""
+                    SELECT
+                        p.cod, p.v, p.descrizione, p.pz_x_collo, ps.stock, ps.sales_sets
+                    FROM products p
+                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    WHERE p.settore = %s
+                        AND ps.verified = FALSE
+                        AND ps.sales_sets IS NOT NULL
+                        AND jsonb_typeof(ps.sales_sets) = 'array'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements(
+                                jsonb_path_query_array(ps.sales_sets, '$[0 to 6]')
+                            ) AS elem
+                            WHERE (elem::text)::int > 0
+                        )
+                    ORDER BY p.descrizione
+                    LIMIT 50;
+                """, (self.object.settore,))
+
+                unverified_sales_products = []
+                for row in cursor.fetchall():
+                    unverified_sales_products.append({
+                        'cod': row['cod'],
+                        'var': row['v'],
+                        'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                        'stock': row['stock'],
+                        'package_size': row['pz_x_collo'] or 12
+                    })
+
+                context['unverified_sales_products'] = unverified_sales_products
+                logger.info(f"Found {len(unverified_sales_products)} unverified products with recent sales")
+
         except Exception as e:
-            logger.exception("Error loading newly added products")
+            logger.exception("Error loading product anomalies")
             context['newly_added_products'] = []
-            
+            context['negative_stock_products'] = []
+            context['unverified_sales_products'] = []
+
         return context
 
 @login_required
@@ -436,6 +499,156 @@ def verify_newly_added_ajax_view(request):
             'success': False,
             'message': str(e)
         }, status=500)
+
+
+@login_required
+@require_POST
+def adjust_stock_ajax_view(request):
+    """
+    AJAX endpoint to adjust stock for products with negative stock.
+    """
+    try:
+        data = json.loads(request.body)
+
+        cod = int(data['cod'])
+        var = int(data['var'])
+        new_stock = int(data['new_stock'])
+        storage_id = int(data['storage_id'])
+
+        storage = get_object_or_404(
+            Storage,
+            id=storage_id,
+            supermarket__owner=request.user
+        )
+
+        with RestockService(storage) as service:
+            cursor = service.db.cursor()
+            cursor.execute("""
+                UPDATE product_stats
+                SET stock = %s
+                WHERE cod = %s AND v = %s
+            """, (new_stock, cod, var))
+
+            service.db.conn.commit()
+
+            logger.info(
+                f"Adjusted stock for {storage.name} - "
+                f"{cod}.{var} to {new_stock}"
+            )
+
+            return JsonResponse({
+                'success': True,
+                'message': f'Stock adjusted for {cod}.{var} to {new_stock}'
+            })
+
+    except Exception as e:
+        logger.exception("Error adjusting stock")
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@login_required
+@require_POST
+def purge_product_ajax_view(request):
+    """
+    AJAX endpoint to purge (delete) a product from the system.
+    """
+    try:
+        data = json.loads(request.body)
+
+        cod = int(data['cod'])
+        var = int(data['var'])
+        storage_id = int(data['storage_id'])
+
+        storage = get_object_or_404(
+            Storage,
+            id=storage_id,
+            supermarket__owner=request.user
+        )
+
+        with RestockService(storage) as service:
+            cursor = service.db.cursor()
+
+            # Delete from product_stats first (foreign key constraint)
+            cursor.execute("""
+                DELETE FROM product_stats
+                WHERE cod = %s AND v = %s
+            """, (cod, var))
+
+            # Delete from products
+            cursor.execute("""
+                DELETE FROM products
+                WHERE cod = %s AND v = %s
+            """, (cod, var))
+
+            service.db.conn.commit()
+
+            logger.info(
+                f"Purged product from {storage.name} - "
+                f"{cod}.{var}"
+            )
+
+            return JsonResponse({
+                'success': True,
+                'message': f'Product {cod}.{var} deleted'
+            })
+
+    except Exception as e:
+        logger.exception("Error purging product")
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@login_required
+@require_POST
+def verify_product_ajax_view(request):
+    """
+    AJAX endpoint to verify an unverified product.
+    """
+    try:
+        data = json.loads(request.body)
+
+        cod = int(data['cod'])
+        var = int(data['var'])
+        storage_id = int(data['storage_id'])
+
+        storage = get_object_or_404(
+            Storage,
+            id=storage_id,
+            supermarket__owner=request.user
+        )
+
+        with RestockService(storage) as service:
+            cursor = service.db.cursor()
+            cursor.execute("""
+                UPDATE product_stats
+                SET verified = TRUE
+                WHERE cod = %s AND v = %s
+            """, (cod, var))
+
+            service.db.conn.commit()
+
+            logger.info(
+                f"Verified product: {storage.name} - "
+                f"{cod}.{var}"
+            )
+
+            return JsonResponse({
+                'success': True,
+                'message': f'Product {cod}.{var} verified'
+            })
+
+    except Exception as e:
+        logger.exception("Error verifying product")
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
 
 @login_required
 @require_POST
@@ -590,9 +803,9 @@ def run_restock_view(request, storage_id):
             coverage = float(coverage)
         
         # ✅ DISPATCH TO CELERY (non-blocking)
-        from .tasks import manual_restock_task
-        
-        result = manual_restock_task.apply_async(
+        from .tasks import run_restock_for_storage
+
+        result = run_restock_for_storage.apply_async(
             args=[storage_id, coverage],
             retry=True,
             retry_policy={
