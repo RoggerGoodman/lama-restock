@@ -486,7 +486,7 @@
 
 {% block scripts %}
 <script>
-// Verify product - asks user for stock value (defaults to package_size)
+// Verify product - asks user for stock value and cluster
 function verifyProduct(cod, var_, defaultStock, rowIdPrefix) {
     const stockInput = prompt(`Inserisci la giacenza attuale per ${cod}.${var_}:`, defaultStock);
 
@@ -498,8 +498,36 @@ function verifyProduct(cod, var_, defaultStock, rowIdPrefix) {
         return;
     }
 
-    if (!confirm(`Verificare ${cod}.${var_} con giacenza ${stockValue}?`)) {
+    // Ask for cluster (optional)
+    const clusterInput = prompt(
+        `Inserisci il cluster per ${cod}.${var_} (lascia vuoto per non assegnare):`,
+        ''
+    );
+
+    // User cancelled on cluster prompt
+    if (clusterInput === null) return;
+
+    const cluster = clusterInput.trim();
+
+    let confirmMsg = `Verificare ${cod}.${var_} con giacenza ${stockValue}`;
+    if (cluster) {
+        confirmMsg += ` e cluster "${cluster.toUpperCase()}"`;
+    }
+    confirmMsg += '?';
+
+    if (!confirm(confirmMsg)) {
         return;
+    }
+
+    const payload = {
+        cod: cod,
+        var: var_,
+        stock: stockValue,
+        storage_id: {{ storage.id }}
+    };
+
+    if (cluster) {
+        payload.cluster = cluster;
     }
 
     fetch('/inventory/verify-newly-added/', {
@@ -508,12 +536,7 @@ function verifyProduct(cod, var_, defaultStock, rowIdPrefix) {
             'Content-Type': 'application/json',
             'X-CSRFToken': '{{ csrf_token }}'
         },
-        body: JSON.stringify({
-            cod: cod,
-            var: var_,
-            stock: stockValue,
-            storage_id: {{ storage.id }}
-        })
+        body: JSON.stringify(payload)
     })
     .then(response => response.json())
     .then(data => {

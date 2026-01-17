@@ -348,6 +348,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     FROM products p
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                     WHERE p.settore = %s
+                        AND p.purge_flag = FALSE
                         AND ps.verified = FALSE
                         AND ps.sold_last_24 IS NULL
                         AND ps.bought_last_24 IS NOT NULL
@@ -409,6 +410,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     FROM products p
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                     WHERE p.settore = %s
+                        AND p.purge_flag = FALSE
                         AND ps.verified = FALSE
                         AND ps.sales_sets IS NOT NULL
                         AND jsonb_typeof(ps.sales_sets) = 'array'
@@ -449,7 +451,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 def verify_newly_added_ajax_view(request):
     """
     AJAX endpoint to verify a product.
-    Sets verified = TRUE and updates the stock value.
+    Sets verified = TRUE, updates the stock value, and optionally sets cluster.
     """
     try:
         data = json.loads(request.body)
@@ -458,6 +460,7 @@ def verify_newly_added_ajax_view(request):
         var = int(data['var'])
         stock = int(data['stock'])
         storage_id = int(data['storage_id'])
+        cluster = data.get('cluster', '').strip().upper() if data.get('cluster') else None
 
         storage = get_object_or_404(
             Storage,
@@ -475,16 +478,34 @@ def verify_newly_added_ajax_view(request):
                 WHERE cod = %s AND v = %s
             """, (stock, cod, var))
 
+            # Update cluster if provided
+            cluster_updated = False
+            if cluster:
+                if cluster == 'NONE':
+                    cursor.execute("""
+                        UPDATE products
+                        SET cluster = NULL
+                        WHERE cod = %s AND v = %s
+                    """, (cod, var))
+                else:
+                    cursor.execute("""
+                        UPDATE products
+                        SET cluster = %s
+                        WHERE cod = %s AND v = %s
+                    """, (cluster, cod, var))
+                cluster_updated = True
+
             service.db.conn.commit()
 
-            logger.info(
-                f"Verified product: {storage.name} - "
-                f"{cod}.{var} with stock={stock}"
-            )
+            log_msg = f"Verified product: {storage.name} - {cod}.{var} with stock={stock}"
+            if cluster_updated:
+                log_msg += f", cluster={cluster}"
+            logger.info(log_msg)
 
             return JsonResponse({
                 'success': True,
-                'message': f'Product {cod}.{var} verified with stock {stock}'
+                'message': f'Product {cod}.{var} verified with stock {stock}',
+                'cluster_updated': cluster_updated
             })
 
     except Exception as e:
@@ -3475,6 +3496,7 @@ def pending_verifications_view(request):
                     FROM product_stats ps
                     JOIN products p ON ps.cod = p.cod AND ps.v = p.v
                     WHERE ps.verified = FALSE
+                    AND p.purge_flag = FALSE
                     AND ps.bought_last_24 IS NOT NULL
                     AND jsonb_typeof(ps.bought_last_24) = 'array'
                     AND EXISTS (

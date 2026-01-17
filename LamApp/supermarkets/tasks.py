@@ -157,7 +157,9 @@ def update_stats_all_scheduled_storages(self):
     bind=True,
     max_retries=3,
     default_retry_delay=900,
-    queue='selenium'
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
 )
 def update_stats_for_storage(self, storage_id, trigger_order_on_success=False):
     """
@@ -230,7 +232,9 @@ def update_stats_for_storage(self, storage_id, trigger_order_on_success=False):
     bind=True,
     max_retries=3,
     default_retry_delay=900,
-    queue='selenium'
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
 )
 def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=True):
     """
@@ -315,7 +319,9 @@ def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=T
     bind=True,
     max_retries=3,
     default_retry_delay=900,
-    queue='selenium'
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
 )
 def run_scheduled_list_updates(self):
     """
@@ -375,7 +381,9 @@ def run_scheduled_list_updates(self):
     bind=True,
     max_retries=3,
     default_retry_delay=900,
-    queue='selenium'
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
 )
 def manual_stats_update_task(self, storage_id):
     """Update stats without ordering - WITH PROGRESS"""
@@ -439,7 +447,9 @@ def manual_stats_update_task(self, storage_id):
     bind=True,
     max_retries=3,
     default_retry_delay=900,
-    queue='selenium'
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
 )
 def add_products_unified_task(self, storage_id, products_list, settore):
     """Add products with auto-fetch and Scrapper-based stats initialization"""
@@ -572,7 +582,9 @@ def add_products_unified_task(self, storage_id, products_list, settore):
     bind=True,
     max_retries=3,
     default_retry_delay=900,
-    queue='selenium'
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
 )
 def manual_list_update_task(self, storage_id):
     """Manual list update"""
@@ -725,7 +737,9 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
     bind=True,
     max_retries=2,
     default_retry_delay=600,
-    queue='selenium'
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
 )
 def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=None):
     """
@@ -1031,7 +1045,9 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
     bind=True,
     max_retries=3,
     default_retry_delay=600,
-    queue='selenium'
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
 )
 def order_new_products_task(self, log_id, products_list):
     """
