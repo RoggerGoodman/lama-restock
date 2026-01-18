@@ -9,9 +9,6 @@ class Analyzer:
     def __init__(self) -> None:
         self.reset_statistics()
 
-    def get_original_list(self, original_list):
-        self.df = original_list
-
     # ----------------------------
     # Recorders
     # ----------------------------

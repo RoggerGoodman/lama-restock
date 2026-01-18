@@ -423,22 +423,14 @@ def manual_stats_update_task(self, storage_id):
 
             logger.info(f"✅ [MANUAL STATS] Completed for {storage.name}")
 
-            # ✅ CRITICAL FIX: Explicitly set state to SUCCESS
-            # Without this, the task stays in PROGRESS state and frontend keeps polling
-            result = {
+            # Return result - Celery automatically sets state to SUCCESS when task returns
+            return {
                 'success': True,
                 'log_id': log.id,
                 'storage_name': storage.name,
                 'storage_id': storage_id,
                 'redirect_url': f'/storages/{storage_id}/'
-            }
-
-            self.update_state(
-                state='SUCCESS',
-                meta=result
-            )
-
-            return result      
+            }      
     except Exception as exc:
         logger.exception(f"[MANUAL STATS] Error for storage {storage_id}")
         raise self.retry(exc=exc)

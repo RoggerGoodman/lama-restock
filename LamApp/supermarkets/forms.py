@@ -1,6 +1,6 @@
 # LamApp/supermarkets/forms.py
 from django import forms
-from .models import RestockSchedule, Blacklist, BlacklistEntry, Storage
+from .models import RestockSchedule, Blacklist, BlacklistEntry
 
 class RestockScheduleForm(forms.ModelForm):
     """
@@ -95,18 +95,6 @@ class RestockScheduleForm(forms.ModelForm):
             'sunday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
         }
 
-class StorageForm(forms.ModelForm):
-    """Form for creating/editing storages"""
-    
-    class Meta:
-        model = Storage
-        fields = ['name', 'settore']
-        widgets = {
-            'name': forms.TextInput(attrs={'placeholder': 'e.g., RIANO GENERI VARI', 'class': 'form-control'}),
-            'settore': forms.TextInput(attrs={'placeholder': 'e.g., RIANO GENERI VARI', 'class': 'form-control'}),
-        }
-
-
 class BlacklistForm(forms.ModelForm):
     """Form for creating blacklists"""
     
@@ -156,19 +144,6 @@ class BlacklistEntryForm(forms.ModelForm):
         return cleaned_data
 
 
-class ManualRestockForm(forms.Form):
-    """Form for manually triggering restock with custom coverage"""
-    
-    coverage = forms.DecimalField(
-        label="Coverage (days)",
-        min_value=0,
-        max_value=30,
-        decimal_places=1,
-        required=False,
-        help_text="Leave empty to use schedule's calculated coverage",
-        widget=forms.NumberInput(attrs={'step': '0.5', 'placeholder': 'Auto', 'class': 'form-control'})
-    )
-
 class PromoUploadForm(forms.Form):
     """Form for uploading promo PDF files"""
     
@@ -181,71 +156,6 @@ class PromoUploadForm(forms.Form):
         })
     )
 
-
-class StockAdjustmentForm(forms.Form):
-    """Form for adjusting stock manually"""
-    
-    product_code = forms.IntegerField(
-        label="Product Code",
-        min_value=1,
-        widget=forms.NumberInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'e.g., 12345'
-        }),
-        help_text="Enter the product code"
-    )
-    
-    product_var = forms.IntegerField(
-        label="Product Variant",
-        min_value=1,
-        initial=1,
-        widget=forms.NumberInput(attrs={
-            'class': 'form-control',
-            'value': '1'
-        }),
-        help_text="Enter the variant (usually 1)"
-    )
-    
-    adjustment = forms.IntegerField(
-        label="Adjustment Amount",
-        widget=forms.NumberInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'e.g., -12 or +24'
-        }),
-        help_text="Positive to add stock, negative to remove stock"
-    )
-    
-    reason = forms.ChoiceField(
-        label="Reason for Adjustment",
-        choices=[
-            ('undelivered', 'Undelivered Package'),
-            ('extra_delivery', 'Extra Package Delivered'),
-            ('miscount', 'Inventory Miscount'),
-            ('stolen', 'Stolen'),
-            ('return', 'Customer Return'),
-            ('other', 'Other')
-        ],
-        widget=forms.Select(attrs={'class': 'form-select'})
-    )
-    
-    notes = forms.CharField(
-        label="Notes (Optional)",
-        required=False,
-        widget=forms.Textarea(attrs={
-            'class': 'form-control',
-            'rows': 3,
-            'placeholder': 'Optional: Add any additional details about this adjustment'
-        })
-    )
-    
-    def clean(self):
-        cleaned_data = super().clean()
-        adjustment = cleaned_data.get('adjustment')
-        
-        if adjustment == 0:
-            raise forms.ValidationError("Adjustment cannot be zero")
-        
-        return cleaned_data
 
 class RecordLossesForm(forms.Form):
     """Form for manually uploading and recording losses - NOW SUPPORTS PDF"""
@@ -268,35 +178,6 @@ class RecordLossesForm(forms.Form):
             'class': 'form-control',
             'accept': '.pdf'
         })
-    )
-
-class SingleProductVerificationForm(forms.Form):
-    """Form for verifying a single product"""
-    
-    product_code = forms.IntegerField(
-        label="Product Code",
-        min_value=1,
-        widget=forms.NumberInput(attrs={'class': 'form-control'})
-    )
-    
-    product_var = forms.IntegerField(
-        label="Variant",
-        initial=1,
-        min_value=1,
-        widget=forms.NumberInput(attrs={'class': 'form-control'})
-    )
-    
-    stock = forms.IntegerField(
-        label="Verified Stock",
-        min_value=0,
-        widget=forms.NumberInput(attrs={'class': 'form-control'})
-    )
-    
-    cluster = forms.CharField(
-        label="Cluster (Optional)",
-        required=False,
-        max_length=100,
-        widget=forms.TextInput(attrs={'class': 'form-control'})
     )
 
 class AddProductsForm(forms.Form):

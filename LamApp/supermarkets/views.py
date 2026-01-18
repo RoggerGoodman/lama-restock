@@ -26,7 +26,7 @@ from .models import (
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
     BlacklistEntryForm, AddProductsForm, PromoUploadForm,
-    StockAdjustmentForm, RecordLossesForm, DDTUploadForm,
+    RecordLossesForm, DDTUploadForm,
 )
 
 from .services import RestockService, StorageService
@@ -1052,35 +1052,6 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         
         return enriched
 
-@login_required
-@require_POST
-def flag_product_for_purge_view(request, log_id, product_cod, product_var):
-    """Flag a skipped product for purging"""
-    log = get_object_or_404(
-        RestockLog,
-        id=log_id,
-        storage__supermarket__owner=request.user
-    )
-    
-    try:
-        with RestockService(log.storage) as service:
-            result = service.db.flag_for_purge(product_cod, product_var)
-        if result['action'] == 'flagged':
-            messages.success(
-                request,
-                f"Product {product_cod}.{product_var} segnalato per l'eliminazione (current stock: {result['stock']})"
-            )
-        elif result['action'] == 'purged':
-            messages.success(
-                request,
-                f"Product {product_cod}.{product_var} purged immediately (no stock)"
-            )
-    except Exception as e:
-        logger.exception("Error flagging product for purge")
-        messages.error(request, f"Error: {str(e)}")
-    
-    return redirect('restock-log-detail', pk=log_id)
-
 # ============ Blacklist Views ============
 
 class BlacklistListView(LoginRequiredMixin, ListView):
@@ -1275,69 +1246,6 @@ def upload_promos_view(request, supermarket_id):
     })
 
 
-# ============ Stock Adjustment Views ============
-
-@login_required
-def adjust_stock_view(request, storage_id):
-    """Manually adjust stock for a single product"""
-    storage = get_object_or_404(
-        Storage,
-        id=storage_id,
-        supermarket__owner=request.user
-    )
-    
-    if request.method == 'POST':
-        form = StockAdjustmentForm(request.POST)
-        
-        if form.is_valid():
-            product_code = form.cleaned_data['product_code']
-            product_var = form.cleaned_data['product_var']
-            adjustment = form.cleaned_data['adjustment']
-            reason = form.cleaned_data['reason']
-            notes = form.cleaned_data.get('notes', '')
-            
-            try:
-                with RestockService(storage) as service:                
-                # Check if product exists
-                    try:
-                        current_stock = service.db.get_stock(product_code, product_var)
-                    except ValueError:
-                        messages.error(
-                            request,
-                            f"Product {product_code}.{product_var} not found in database"
-                        )
-                        return redirect('adjust-stock', storage_id=storage_id)                   
-                    # Apply adjustment
-                    service.db.adjust_stock(product_code, product_var, adjustment)
-                    new_stock = service.db.get_stock(product_code, product_var)
-                    # Log the adjustment
-                    logger.info(
-                        f"Stock adjusted for {storage.name}: "
-                        f"Product {product_code}.{product_var} "
-                        f"{current_stock} -> {new_stock} ({adjustment:+d}) "
-                        f"Reason: {reason}"
-                    )                    
-                    messages.success(
-                        request,
-                        f"Stock adjusted successfully! "
-                        f"Product {product_code}.{product_var}: "
-                        f"{current_stock} → {new_stock} ({adjustment:+d})"
-                    )                    
-                    # Redirect back to form for another adjustment or to storage detail
-                    if 'adjust_another' in request.POST:
-                        return redirect('adjust-stock', storage_id=storage_id)
-                    else:
-                        return redirect('storage-detail', pk=storage_id)                
-            except Exception as e:
-                logger.exception("Error adjusting stock")
-                messages.error(request, f"Error adjusting stock: {str(e)}")
-    else:
-        form = StockAdjustmentForm()
-    
-    return render(request, 'storages/adjust_stock.html', {
-        'storage': storage,
-        'form': form
-    })
 # ============ Stock Value Analysis Views ============
 @login_required
 def stock_value_unified_view(request):
@@ -3341,7 +3249,14 @@ def inventory_adjust_stock_ajax_view(request):
                         {'success': False, 'message': 'Adjustment must be a number'},
                         status=400
                     )
-                
+
+                # Reason is mandatory when adjusting stock
+                if not reason:
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Please select a reason for the stock adjustment'
+                    }, status=400)
+
             if adjustment is not None and reason in loss_type_mapping and adjustment < 0:
                 # This is a loss - record in extra_losses
                 loss_type = loss_type_mapping[reason]
