@@ -46,72 +46,107 @@
         .top-navbar,
         .breadcrumb,
         .btn,
-        .no-print {
+        .no-print,
+        .alert-info {
             display: none !important;
         }
-        
-        /* Remove margins from main content */
+
+        /* Remove margins and padding from containers */
         .main-content {
             margin-left: 0 !important;
             padding: 0 !important;
         }
-        
-        /* Optimize page layout */
+
+        .container-fluid {
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+
+        /* Compact stat-card for print */
         .stat-card {
             box-shadow: none !important;
-            border: 1px solid #dee2e6 !important;
-            page-break-inside: avoid;
-            margin-bottom: 20px;
+            border: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
         }
-        
-        /* Print header */
+
+        /* Compact print header - inline layout */
         .print-header {
-            display: block !important;
-            border-bottom: 2px solid #000;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
+            display: flex !important;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #000;
+            padding-bottom: 5px;
+            margin-bottom: 10px;
         }
-        
-        /* Table optimizations */
+
+        .print-header h2 {
+            font-size: 14pt;
+            margin: 0;
+        }
+
+        .print-header p {
+            margin: 0;
+            font-size: 10pt;
+        }
+
+        /* Table optimizations - more compact */
         table {
-            page-break-inside: avoid;
-            font-size: 11pt;
+            font-size: 9pt;
+            margin-top: 0 !important;
         }
-        
+
+        table th, table td {
+            padding: 3px 5px !important;
+        }
+
         thead {
             display: table-header-group;
             background-color: #f8f9fa !important;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }
-        
+
         tr {
             page-break-inside: avoid;
         }
-        
-        /* Checkboxes for manual verification */
+
+        /* Smaller checkboxes */
         .print-checkbox {
             display: inline-block !important;
-            width: 15px;
-            height: 15px;
-            border: 2px solid #000;
-            margin-right: 10px;
+            width: 12px;
+            height: 12px;
+            border: 1px solid #000;
         }
-        
-        /* Status badges */
+
+        /* Compact badges */
         .badge {
             border: 1px solid #000;
-            padding: 3px 8px;
+            padding: 1px 4px;
+            font-size: 8pt;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }
-        
-        /* Footer on each page */
+
+        /* Compact footer */
+        .print-only.mt-4 {
+            margin-top: 10px !important;
+            padding-top: 5px !important;
+            border-top: 1px solid #000 !important;
+        }
+
+        .print-only.mt-4 p {
+            margin: 2px 0 !important;
+            font-size: 9pt;
+        }
+
+        .print-only.mt-4 div[style*="height: 80px"] {
+            height: 40px !important;
+        }
+
+        /* Tighter page margins */
         @page {
-            margin: 1.5cm;
-            @bottom-right {
-                content: "Page " counter(page) " of " counter(pages);
-            }
+            margin: 1cm;
         }
     }
     
@@ -126,11 +161,13 @@
 
 {% block content %}
 <div class="container-fluid">
-    <!-- ✅ PRINT HEADER (hidden on screen, shown on print) -->
+    <!-- ✅ PRINT HEADER (hidden on screen, shown on print) - Compact inline -->
     <div class="print-only print-header">
         <h2>{{ search_description }}</h2>
-        <p><strong>Data:</strong> {% now "F d, Y H:i" %}</p>
-        <p><strong>Articoli totali:</strong> {{ results|length }}</p>
+        <div>
+            <span><strong>{% now "d/m/Y H:i" %}</strong></span>
+            <span style="margin-left: 15px;"><strong>Articoli:</strong> {{ results|length }}</span>
+        </div>
     </div>
 
     <!-- Breadcrumb (hidden on print) -->
@@ -180,7 +217,11 @@
                             <tr>
                                 <!-- ✅ PRINT: Checkbox column for manual verification -->
                                 <th class="print-only" style="width: 40px;">✓</th>
-                                <th>Codice</th>
+                                <th class="sortable-header no-print" onclick="sortTable('codice')" data-column="codice">
+                                    Codice
+                                    <span class="sort-icon neutral" id="sort-codice"></span>
+                                </th>
+                                <th class="print-only">Codice</th>
                                 <th>Descrizione</th>
                                 <th class="sortable-header no-print" onclick="sortTable('stock')" data-column="stock">
                                     Giacenza
@@ -188,7 +229,11 @@
                                 </th>
                                 <!-- ✅ PRINT: Show stock without sorting -->
                                 <th class="print-only">Giacenza</th>
-                                <th>Imballo</th>
+                                <th class="sortable-header no-print" onclick="sortTable('imballo')" data-column="imballo">
+                                    Imballo
+                                    <span class="sort-icon neutral" id="sort-imballo"></span>
+                                </th>
+                                <th class="print-only">Imballo</th>
                                 <th>Cluster</th>
                                 <th class="no-print">Ultimo aggiornamento</th>
                                 <th class="sortable-header no-print" onclick="sortTable('status')" data-column="status">
@@ -200,9 +245,11 @@
                         </thead>
                         <tbody id="tableBody">
                             {% for product in results %}
-                            <tr data-stock="{{ product.stock }}" 
+                            <tr data-stock="{{ product.stock }}"
                                 data-status="{{ product.disponibilita }}"
-                                data-minimum-stock="{{ product.minimum_stock|default:4 }}">
+                                data-minimum-stock="{{ product.minimum_stock|default:4 }}"
+                                data-codice="{{ product.cod }}"
+                                data-imballo="{{ product.pz_x_collo }}">
                                 <!-- ✅ PRINT: Empty checkbox for manual checking -->
                                 <td class="print-only">
                                     <div class="print-checkbox"></div>
@@ -273,18 +320,12 @@
                     </table>
                 </div>
 
-                <!-- ✅ PRINT: Summary footer -->
-                <div class="print-only mt-4" style="border-top: 2px solid #000; padding-top: 15px;">
-                    <div class="row">
-                        <div class="col-6">
-                            <p><strong>Verificato da:</strong> _______________________</p>
-                            <p><strong>Data:</strong> _______________________</p>
-                        </div>
-                        <div class="col-6">
-                            <p><strong>Articoli totali:</strong> {{ results|length }}</p>
-                            <p><strong>Note:</strong></p>
-                            <div style="border: 1px solid #000; height: 80px; padding: 5px;"></div>
-                        </div>
+                <!-- ✅ PRINT: Compact summary footer -->
+                <div class="print-only mt-4">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px;">
+                        <span><strong>Verificato da:</strong> ________________</span>
+                        <span><strong>Data:</strong> ________________</span>
+                        <span><strong>Note:</strong> ________________________________________________</span>
                     </div>
                 </div>
                 {% else %}
@@ -407,15 +448,21 @@ function sortTable(column) {
     
     rows.sort((a, b) => {
         let aValue, bValue;
-        
+
         if (column === 'stock') {
             aValue = parseInt(a.dataset.stock);
             bValue = parseInt(b.dataset.stock);
         } else if (column === 'status') {
             aValue = a.dataset.status === 'Si' ? 1 : 0;
             bValue = b.dataset.status === 'Si' ? 1 : 0;
+        } else if (column === 'codice') {
+            aValue = parseInt(a.dataset.codice);
+            bValue = parseInt(b.dataset.codice);
+        } else if (column === 'imballo') {
+            aValue = parseInt(a.dataset.imballo) || 0;
+            bValue = parseInt(b.dataset.imballo) || 0;
         }
-        
+
         if (currentSortDirection === 'asc') {
             return aValue - bValue;
         } else {

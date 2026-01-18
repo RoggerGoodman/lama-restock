@@ -295,9 +295,9 @@ class InventorySearchForm(forms.Form):
     """Form for searching inventory - FIXED to not validate dynamic choices"""
     
     SEARCH_TYPE_CHOICES = [
-        ('cod_var', 'Specific Product (Code + Variant)'),
-        ('cod_all', 'All Variants of Code'),
-        ('settore_cluster', 'Settore + Cluster'),
+        ('cod_var', 'Articolo specifico'),
+        ('cod_all', 'Tutte le varianti articolo'),
+        ('settore_cluster', 'Magazzino + Cluster'),
     ]
     
     search_type = forms.ChoiceField(

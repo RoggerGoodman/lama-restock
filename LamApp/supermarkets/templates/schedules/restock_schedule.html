@@ -82,108 +82,233 @@
 
                 <form method="post" id="scheduleForm">
                     {% csrf_token %}
-                    
+
                     <div class="mb-4">
-                        <h5 class="mb-3">Configura i giorni di ordine e consegna</h5>
-                        <p class="text-muted small">Per ogni giorno, abilita l'ordinazione e imposta quando arriva la consegna:</p>
-                        
-                        <div class="table-responsive">
-                            <table class="table table-bordered">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 15%">Giorno</th>
-                                        <th style="width: 15%">Ordine</th>
-                                        <th style="width: 35%">Tempi di consegna</th>
-                                        <th style="width: 35%">Giorno di consegna</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr id="row_monday">
-                                        <td><strong>Lunedi</strong></td>
-                                        <td><div class="form-check">{{ form.monday }}</div></td>
-                                        <td>
-                                            <div class="input-group input-group-sm">
-                                                {{ form.monday_delivery_offset }}
-                                                <span class="input-group-text">giorni</span>
+                        <h5 class="mb-3">
+                            <i class="bi bi-calendar-plus text-primary"></i>
+                            Seleziona i giorni di ordine
+                        </h5>
+                        <p class="text-muted small mb-3">Clicca su un giorno per abilitare/disabilitare l'ordine, poi scegli quando arriva la consegna:</p>
+
+                        <!-- Day Cards Grid -->
+                        <div class="row g-3">
+                            <!-- Monday -->
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card day-card h-100" data-day="monday" id="card_monday">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <h6 class="card-title mb-0">
+                                                <i class="bi bi-calendar-day"></i> Lunedì
+                                            </h6>
+                                            <div class="form-check form-switch">
+                                                {{ form.monday }}
                                             </div>
-                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
-                                        </td>
-                                        <td><span class="badge bg-secondary" id="delivery_monday">-</span></td>
-                                    </tr>
-                                    <tr id="row_tuesday">
-                                        <td><strong>Martedì</strong></td>
-                                        <td><div class="form-check">{{ form.tuesday }}</div></td>
-                                        <td>
-                                            <div class="input-group input-group-sm">
-                                                {{ form.tuesday_delivery_offset }}
-                                                <span class="input-group-text">giorni</span>
+                                        </div>
+                                        <div class="delivery-config mt-3" style="display: none;">
+                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="monday_offset_radio" id="monday_offset_0" value="0">
+                                                <label class="btn btn-outline-secondary btn-sm" for="monday_offset_0">Stesso giorno</label>
+                                                <input type="radio" class="btn-check" name="monday_offset_radio" id="monday_offset_1" value="1" checked>
+                                                <label class="btn btn-outline-secondary btn-sm" for="monday_offset_1">+1 giorno</label>
+                                                <input type="radio" class="btn-check" name="monday_offset_radio" id="monday_offset_2" value="2">
+                                                <label class="btn btn-outline-secondary btn-sm" for="monday_offset_2">+2 giorni</label>
                                             </div>
-                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
-                                        </td>
-                                        <td><span class="badge bg-secondary" id="delivery_tuesday">-</span></td>
-                                    </tr>
-                                    <tr id="row_wednesday">
-                                        <td><strong>Mercoledì</strong></td>
-                                        <td><div class="form-check">{{ form.wednesday }}</div></td>
-                                        <td>
-                                            <div class="input-group input-group-sm">
-                                                {{ form.wednesday_delivery_offset }}
-                                                <span class="input-group-text">giorni</span>
+                                            <div class="mt-2 text-center">
+                                                <small class="text-muted">Consegna: </small>
+                                                <span class="badge bg-success" id="delivery_monday">Martedì</span>
                                             </div>
-                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
-                                        </td>
-                                        <td><span class="badge bg-secondary" id="delivery_wednesday">-</span></td>
-                                    </tr>
-                                    <tr id="row_thursday">
-                                        <td><strong>Giovedì</strong></td>
-                                        <td><div class="form-check">{{ form.thursday }}</div></td>
-                                        <td>
-                                            <div class="input-group input-group-sm">
-                                                {{ form.thursday_delivery_offset }}
-                                                <span class="input-group-text">giorni</span>
+                                            {{ form.monday_delivery_offset }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Tuesday -->
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card day-card h-100" data-day="tuesday" id="card_tuesday">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <h6 class="card-title mb-0">
+                                                <i class="bi bi-calendar-day"></i> Martedì
+                                            </h6>
+                                            <div class="form-check form-switch">
+                                                {{ form.tuesday }}
                                             </div>
-                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
-                                        </td>
-                                        <td><span class="badge bg-secondary" id="delivery_thursday">-</span></td>
-                                    </tr>
-                                    <tr id="row_friday">
-                                        <td><strong>Venerdì</strong></td>
-                                        <td><div class="form-check">{{ form.friday }}</div></td>
-                                        <td>
-                                            <div class="input-group input-group-sm">
-                                                {{ form.friday_delivery_offset }}
-                                                <span class="input-group-text">giorni</span>
+                                        </div>
+                                        <div class="delivery-config mt-3" style="display: none;">
+                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="tuesday_offset_radio" id="tuesday_offset_0" value="0">
+                                                <label class="btn btn-outline-secondary btn-sm" for="tuesday_offset_0">Stesso giorno</label>
+                                                <input type="radio" class="btn-check" name="tuesday_offset_radio" id="tuesday_offset_1" value="1" checked>
+                                                <label class="btn btn-outline-secondary btn-sm" for="tuesday_offset_1">+1 giorno</label>
+                                                <input type="radio" class="btn-check" name="tuesday_offset_radio" id="tuesday_offset_2" value="2">
+                                                <label class="btn btn-outline-secondary btn-sm" for="tuesday_offset_2">+2 giorni</label>
                                             </div>
-                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
-                                        </td>
-                                        <td><span class="badge bg-secondary" id="delivery_friday">-</span></td>
-                                    </tr>
-                                    <tr id="row_saturday">
-                                        <td><strong>Sabato</strong></td>
-                                        <td><div class="form-check">{{ form.saturday }}</div></td>
-                                        <td>
-                                            <div class="input-group input-group-sm">
-                                                {{ form.saturday_delivery_offset }}
-                                                <span class="input-group-text">giorni</span>
+                                            <div class="mt-2 text-center">
+                                                <small class="text-muted">Consegna: </small>
+                                                <span class="badge bg-success" id="delivery_tuesday">Mercoledì</span>
                                             </div>
-                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
-                                        </td>
-                                        <td><span class="badge bg-secondary" id="delivery_saturday">-</span></td>
-                                    </tr>
-                                    <tr id="row_sunday">
-                                        <td><strong>Domenica</strong></td>
-                                        <td><div class="form-check">{{ form.sunday }}</div></td>
-                                        <td>
-                                            <div class="input-group input-group-sm">
-                                                {{ form.sunday_delivery_offset }}
-                                                <span class="input-group-text">giorni</span>
+                                            {{ form.tuesday_delivery_offset }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Wednesday -->
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card day-card h-100" data-day="wednesday" id="card_wednesday">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <h6 class="card-title mb-0">
+                                                <i class="bi bi-calendar-day"></i> Mercoledì
+                                            </h6>
+                                            <div class="form-check form-switch">
+                                                {{ form.wednesday }}
                                             </div>
-                                            <small class="form-text text-muted">0=stesso giorno, 1=giorno successivo, ecc.</small>
-                                        </td>
-                                        <td><span class="badge bg-secondary" id="delivery_sunday">-</span></td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                                        </div>
+                                        <div class="delivery-config mt-3" style="display: none;">
+                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="wednesday_offset_radio" id="wednesday_offset_0" value="0">
+                                                <label class="btn btn-outline-secondary btn-sm" for="wednesday_offset_0">Stesso giorno</label>
+                                                <input type="radio" class="btn-check" name="wednesday_offset_radio" id="wednesday_offset_1" value="1" checked>
+                                                <label class="btn btn-outline-secondary btn-sm" for="wednesday_offset_1">+1 giorno</label>
+                                                <input type="radio" class="btn-check" name="wednesday_offset_radio" id="wednesday_offset_2" value="2">
+                                                <label class="btn btn-outline-secondary btn-sm" for="wednesday_offset_2">+2 giorni</label>
+                                            </div>
+                                            <div class="mt-2 text-center">
+                                                <small class="text-muted">Consegna: </small>
+                                                <span class="badge bg-success" id="delivery_wednesday">Giovedì</span>
+                                            </div>
+                                            {{ form.wednesday_delivery_offset }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Thursday -->
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card day-card h-100" data-day="thursday" id="card_thursday">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <h6 class="card-title mb-0">
+                                                <i class="bi bi-calendar-day"></i> Giovedì
+                                            </h6>
+                                            <div class="form-check form-switch">
+                                                {{ form.thursday }}
+                                            </div>
+                                        </div>
+                                        <div class="delivery-config mt-3" style="display: none;">
+                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="thursday_offset_radio" id="thursday_offset_0" value="0">
+                                                <label class="btn btn-outline-secondary btn-sm" for="thursday_offset_0">Stesso giorno</label>
+                                                <input type="radio" class="btn-check" name="thursday_offset_radio" id="thursday_offset_1" value="1" checked>
+                                                <label class="btn btn-outline-secondary btn-sm" for="thursday_offset_1">+1 giorno</label>
+                                                <input type="radio" class="btn-check" name="thursday_offset_radio" id="thursday_offset_2" value="2">
+                                                <label class="btn btn-outline-secondary btn-sm" for="thursday_offset_2">+2 giorni</label>
+                                            </div>
+                                            <div class="mt-2 text-center">
+                                                <small class="text-muted">Consegna: </small>
+                                                <span class="badge bg-success" id="delivery_thursday">Venerdì</span>
+                                            </div>
+                                            {{ form.thursday_delivery_offset }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Friday -->
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card day-card h-100" data-day="friday" id="card_friday">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <h6 class="card-title mb-0">
+                                                <i class="bi bi-calendar-day"></i> Venerdì
+                                            </h6>
+                                            <div class="form-check form-switch">
+                                                {{ form.friday }}
+                                            </div>
+                                        </div>
+                                        <div class="delivery-config mt-3" style="display: none;">
+                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="friday_offset_radio" id="friday_offset_0" value="0">
+                                                <label class="btn btn-outline-secondary btn-sm" for="friday_offset_0">Stesso giorno</label>
+                                                <input type="radio" class="btn-check" name="friday_offset_radio" id="friday_offset_1" value="1" checked>
+                                                <label class="btn btn-outline-secondary btn-sm" for="friday_offset_1">+1 giorno</label>
+                                                <input type="radio" class="btn-check" name="friday_offset_radio" id="friday_offset_2" value="2">
+                                                <label class="btn btn-outline-secondary btn-sm" for="friday_offset_2">+2 giorni</label>
+                                            </div>
+                                            <div class="mt-2 text-center">
+                                                <small class="text-muted">Consegna: </small>
+                                                <span class="badge bg-success" id="delivery_friday">Sabato</span>
+                                            </div>
+                                            {{ form.friday_delivery_offset }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Saturday -->
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card day-card h-100" data-day="saturday" id="card_saturday">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <h6 class="card-title mb-0">
+                                                <i class="bi bi-calendar-day"></i> Sabato
+                                            </h6>
+                                            <div class="form-check form-switch">
+                                                {{ form.saturday }}
+                                            </div>
+                                        </div>
+                                        <div class="delivery-config mt-3" style="display: none;">
+                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="saturday_offset_radio" id="saturday_offset_0" value="0">
+                                                <label class="btn btn-outline-secondary btn-sm" for="saturday_offset_0">Stesso giorno</label>
+                                                <input type="radio" class="btn-check" name="saturday_offset_radio" id="saturday_offset_1" value="1" checked>
+                                                <label class="btn btn-outline-secondary btn-sm" for="saturday_offset_1">+1 giorno</label>
+                                                <input type="radio" class="btn-check" name="saturday_offset_radio" id="saturday_offset_2" value="2">
+                                                <label class="btn btn-outline-secondary btn-sm" for="saturday_offset_2">+2 giorni</label>
+                                            </div>
+                                            <div class="mt-2 text-center">
+                                                <small class="text-muted">Consegna: </small>
+                                                <span class="badge bg-success" id="delivery_saturday">Domenica</span>
+                                            </div>
+                                            {{ form.saturday_delivery_offset }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Sunday -->
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card day-card h-100" data-day="sunday" id="card_sunday">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <h6 class="card-title mb-0">
+                                                <i class="bi bi-calendar-day"></i> Domenica
+                                            </h6>
+                                            <div class="form-check form-switch">
+                                                {{ form.sunday }}
+                                            </div>
+                                        </div>
+                                        <div class="delivery-config mt-3" style="display: none;">
+                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="sunday_offset_radio" id="sunday_offset_0" value="0">
+                                                <label class="btn btn-outline-secondary btn-sm" for="sunday_offset_0">Stesso giorno</label>
+                                                <input type="radio" class="btn-check" name="sunday_offset_radio" id="sunday_offset_1" value="1" checked>
+                                                <label class="btn btn-outline-secondary btn-sm" for="sunday_offset_1">+1 giorno</label>
+                                                <input type="radio" class="btn-check" name="sunday_offset_radio" id="sunday_offset_2" value="2">
+                                                <label class="btn btn-outline-secondary btn-sm" for="sunday_offset_2">+2 giorni</label>
+                                            </div>
+                                            <div class="mt-2 text-center">
+                                                <small class="text-muted">Consegna: </small>
+                                                <span class="badge bg-success" id="delivery_sunday">Lunedì</span>
+                                            </div>
+                                            {{ form.sunday_delivery_offset }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -341,7 +466,7 @@ function updateCoveragePreview() {
                 if (checkbox && checkbox.checked) {
                     const deliveryDay = getDeliveryDay(index, offset);
                     if (offset === 0) {
-                        badge.textContent = `Same day`;
+                        badge.textContent = `Stesso giorno`;
                         badge.className = 'badge bg-success';
                     } else {
                         badge.textContent = deliveryDay;
@@ -365,7 +490,7 @@ function updateCoveragePreview() {
     }
     
     // Build coverage table
-    let html = '<table class="table table-sm mb-0"><thead><tr><th>Order Day</th><th>Delivery Day</th><th>Coverage</th><th>Explanation</th></tr></thead><tbody>';
+    let html = '<table class="table table-sm mb-0"><thead><tr><th>Giorno ordine</th><th>Giorno consegna</th><th>Copertura</th><th>Dettagli</th></tr></thead><tbody>';
     
     orderDays.forEach(orderDayIdx => {
         const offset = deliveryOffsets[orderDayIdx];
@@ -387,12 +512,12 @@ function updateCoveragePreview() {
         const nextDeliveryOffset = deliveryOffsets[nextOrderIdx];
         const nextDeliveryDay = getDeliveryDay(nextOrderIdx, nextDeliveryOffset);
         
-        const explanation = `Until ${dayNamesShort[nextOrderIdx]}'s delivery (${nextDeliveryDay})`;
+        const explanation = `Fino alla consegna di ${dayNamesShort[nextOrderIdx]} (${nextDeliveryDay})`;
         
         html += `<tr>
             <td><strong>${dayNames[orderDayIdx]}</strong></td>
-            <td>${offset === 0 ? '<span class="badge bg-success">Same day</span>' : deliveryDay}</td>
-            <td><span class="badge bg-primary">${coverage} days</span></td>
+            <td>${offset === 0 ? '<span class="badge bg-success">Stesso giorno</span>' : deliveryDay}</td>
+            <td><span class="badge bg-primary">${coverage} giorni</span></td>
             <td><small class="text-muted">${explanation}</small></td>
         </tr>`;
     });
@@ -402,30 +527,94 @@ function updateCoveragePreview() {
     preview.style.display = 'block';
 }
 
+// Update card styling based on enabled state
+function updateCardStyles() {
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+    days.forEach(day => {
+        const checkbox = document.querySelector(`input[name="${day}"]`);
+        const card = document.getElementById(`card_${day}`);
+        const deliveryConfig = card?.querySelector('.delivery-config');
+
+        if (card && checkbox) {
+            if (checkbox.checked) {
+                card.classList.add('border-primary');
+                card.style.borderWidth = '2px';
+                if (deliveryConfig) deliveryConfig.style.display = 'block';
+            } else {
+                card.classList.remove('border-primary');
+                card.style.borderWidth = '1px';
+                if (deliveryConfig) deliveryConfig.style.display = 'none';
+            }
+        }
+    });
+}
+
+// Sync radio buttons with hidden offset inputs
+function syncOffsetFromRadio(day) {
+    const selectedRadio = document.querySelector(`input[name="${day}_offset_radio"]:checked`);
+    const hiddenInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
+
+    if (selectedRadio && hiddenInput) {
+        hiddenInput.value = selectedRadio.value;
+    }
+}
+
+// Sync radio buttons from hidden offset inputs (on page load)
+function syncRadioFromOffset(day) {
+    const hiddenInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
+    if (hiddenInput) {
+        const value = parseInt(hiddenInput.value) || 1;
+        // Clamp to 0, 1, or 2
+        const clampedValue = Math.min(Math.max(value, 0), 2);
+        const radio = document.getElementById(`${day}_offset_${clampedValue}`);
+        if (radio) radio.checked = true;
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
-    // Add event listeners to all checkboxes and offset inputs
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    
+
     days.forEach(day => {
         const checkbox = document.querySelector(`input[name="${day}"]`);
         const offsetInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
-        
+
+        // Sync radio buttons from saved values
+        syncRadioFromOffset(day);
+
+        // Checkbox change event
         if (checkbox) {
             checkbox.addEventListener('change', function() {
+                updateCardStyles();
                 updateCoveragePreview();
                 updateWeeklyCalendar();
             });
         }
+
+        // Hidden offset input change (for backwards compatibility)
         if (offsetInput) {
             offsetInput.addEventListener('input', function() {
                 updateCoveragePreview();
                 updateWeeklyCalendar();
             });
         }
+
+        // Radio button change events for offset selection
+        [0, 1, 2].forEach(offset => {
+            const radio = document.getElementById(`${day}_offset_${offset}`);
+            if (radio) {
+                radio.addEventListener('change', function() {
+                    syncOffsetFromRadio(day);
+                    updateCoveragePreview();
+                    updateWeeklyCalendar();
+                });
+            }
+        });
     });
 
     // Initial update
+    updateCardStyles();
     updateCoveragePreview();
     updateWeeklyCalendar();
 });

@@ -4,52 +4,40 @@
 
 {% block content %}
 <div class="container-fluid">
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="stat-card">
-                <h4 class="mb-4">
-                    <i class="bi bi-search text-primary"></i>
-                    Ricerca Inventario
-                </h4>
-
-                <div class="alert alert-info">
-                    <h6><i class="bi bi-info-circle"></i> Opzioni Ricerca</h6>
-                    <ul class="mb-0">
-                        <li><strong>Articolo specifico:</strong> Trova il articolo esatto per codice e variante</li>
-                        <li><strong>Tutte le varianti:</strong> Trova tutte le varianti di un codice articolo</li>
-                        <li><strong>Settore + Cluster:</strong> Sfoglia i articoli per appartenenza</li>
-                    </ul>
-                </div>
+    <div class="row mb-3">
+        <!-- Search Form - Compact -->
+        <div class="col-lg-6">
+            <div class="stat-card h-100">
+                <h5 class="mb-3">
+                    <i class="bi bi-search text-primary"></i> Ricerca Inventario
+                </h5>
 
                 <form method="post" id="searchForm">
                     {% csrf_token %}
-                    
-                    <!-- Search Type Selection -->
-                    <div class="mb-4">
-                        <label class="form-label"><strong>Tipo di Ricerca</strong></label>
-                        {% for radio in form.search_type %}
-                        <div class="form-check">
-                            {{ radio.tag }}
-                            <label class="form-check-label" for="{{ radio.id_for_label }}">
-                                {{ radio.choice_label }}
-                            </label>
+
+                    <!-- Search Type Selection - Inline -->
+                    <div class="mb-3">
+                        <div class="d-flex flex-wrap gap-3">
+                            {% for radio in form.search_type %}
+                            <div class="form-check">
+                                {{ radio.tag }}
+                                <label class="form-check-label small" for="{{ radio.id_for_label }}">
+                                    {{ radio.choice_label }}
+                                </label>
+                            </div>
+                            {% endfor %}
                         </div>
-                        {% endfor %}
                     </div>
 
                     <!-- Code + Variant Fields -->
                     <div id="codVarFields" class="search-fields">
                         <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="{{ form.product_code.id_for_label }}" class="form-label">
-                                    Codice Articolo
-                                </label>
+                            <div class="col-6 mb-2">
+                                <label for="{{ form.product_code.id_for_label }}" class="form-label small mb-1">Codice</label>
                                 {{ form.product_code }}
                             </div>
-                            <div class="col-md-6 mb-3" id="varField">
-                                <label for="{{ form.product_var.id_for_label }}" class="form-label">
-                                    Variante
-                                </label>
+                            <div class="col-6 mb-2" id="varField">
+                                <label for="{{ form.product_var.id_for_label }}" class="form-label small mb-1">Variante</label>
                                 {{ form.product_var }}
                             </div>
                         </div>
@@ -58,27 +46,21 @@
                     <!-- Settore/Cluster Fields -->
                     <div id="settoreFields" class="search-fields" style="display: none;">
                         <div class="row">
-                            <div class="col-md-4 mb-3">
-                                <label for="id_supermarket" class="form-label">
-                                    Punto vendita
-                                </label>
+                            <div class="col-md-4 mb-2">
+                                <label for="id_supermarket" class="form-label small mb-1">Punto vendita</label>
                                 {{ form.supermarket }}
                             </div>
-                            <div class="col-md-4 mb-3">
-                                <label for="settore_display" class="form-label">
-                                    Settore
-                                </label>
-                                <select id="settore_display" class="form-select">
-                                    <option value="">-- Seleziona Settore --</option>
+                            <div class="col-md-4 mb-2">
+                                <label for="settore_display" class="form-label small mb-1">Settore</label>
+                                <select id="settore_display" class="form-select form-select-sm">
+                                    <option value="">-- Seleziona --</option>
                                 </select>
                                 <input type="hidden" name="settore" id="id_settore">
                             </div>
-                            <div class="col-md-4 mb-3">
-                                <label for="cluster_display" class="form-label">
-                                    Cluster (Opzionale)
-                                </label>
-                                <select id="cluster_display" class="form-select">
-                                    <option value="">-- Tutti i Clusters --</option>
+                            <div class="col-md-4 mb-2">
+                                <label for="cluster_display" class="form-label small mb-1">Cluster</label>
+                                <select id="cluster_display" class="form-select form-select-sm">
+                                    <option value="">-- Tutti --</option>
                                 </select>
                                 <input type="hidden" name="cluster" id="id_cluster">
                             </div>
@@ -86,66 +68,50 @@
                     </div>
 
                     {% if form.errors %}
-                    <div class="alert alert-danger">
-                        {{ form.errors }}
-                    </div>
+                    <div class="alert alert-danger py-2 small">{{ form.errors }}</div>
                     {% endif %}
 
-                    <div class="d-flex gap-2 justify-content-end">
-                        <a href="{% url 'dashboard' %}" class="btn btn-secondary">
+                    <div class="d-flex gap-2 justify-content-end mt-2">
+                        <a href="{% url 'dashboard' %}" class="btn btn-sm btn-secondary">
                             <i class="bi bi-x-circle"></i> Annulla
                         </a>
-                        <button type="submit" class="btn btn-primary">
+                        <button type="submit" class="btn btn-sm btn-primary">
                             <i class="bi bi-search"></i> Cerca
                         </button>
                     </div>
                 </form>
             </div>
         </div>
-    </div>
 
-    <!-- Global Operations Section -->
-    <div class="row">
-        <div class="col-12">
-            <div class="stat-card">
-                <h5 class="mb-3">
-                    <i class="bi bi-tools"></i> Operazioni Inventario
-                </h5>
-                
-                <div class="row">
-                    <!-- Row 1: Primary Operations -->
-                    <div class="col-md-4 mb-3">
-                        <a href="{% url 'verify-stock-unified-enhanced' %}" class="btn btn-success w-100">
-                            <i class="bi bi-clipboard-check"></i> Carica inventario
-                        </a>
-                    </div>
-                    <div class="col-md-4 mb-3">
-                        <a href="{% url 'assign-clusters' %}" class="btn btn-info w-100">
-                            <i class="bi bi-folder"></i> Assegna Clusters
-                        </a>
-                    </div>
-                    <div class="col-md-4 mb-3">
-                        <a href="{% url 'record-losses-unified' %}" class="btn btn-warning w-100">
-                            <i class="bi bi-clipboard-data"></i> Registra Perdite
-                        </a>
-                    </div>
-                    
-                    <!-- Row 2: Analytics & Editing -->
-                    <div class="col-md-4 mb-3">
-                        <a href="{% url 'stock-value-unified' %}" class="btn btn-outline-success w-100">
-                            <i class="bi bi-cash-stack"></i> Valorizzazione inventario
-                        </a>
-                    </div>
-                    <div class="col-md-4 mb-3">
-                        <a href="{% url 'losses-analytics-unified' %}" class="btn btn-outline-warning w-100">
-                            <i class="bi bi-graph-up"></i> Analisi delle perdite
-                        </a>
-                    </div>
-                    <div class="col-md-4 mb-3">
-                        <a href="{% url 'edit-losses' %}" class="btn btn-outline-danger w-100">
-                            <i class="bi bi-pencil-square"></i> Modifica registro Perdite
-                        </a>
-                    </div>
+        <!-- Operations Section - Compact -->
+        <div class="col-lg-6">
+            <div class="stat-card h-100">
+                <!-- Operazioni Inventario -->
+                <h6 class="mb-2"><i class="bi bi-tools text-primary"></i> Operazioni Inventario</h6>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <a href="{% url 'verify-stock-unified-enhanced' %}" class="btn btn-sm btn-primary">
+                        <i class="bi bi-clipboard-check"></i> Carica inventario
+                    </a>
+                    <a href="{% url 'assign-clusters' %}" class="btn btn-sm btn-primary">
+                        <i class="bi bi-folder"></i> Assegna Clusters
+                    </a>
+                    <a href="{% url 'record-losses-unified' %}" class="btn btn-sm btn-primary">
+                        <i class="bi bi-clipboard-data"></i> Registra Perdite
+                    </a>
+                    <a href="{% url 'edit-losses' %}" class="btn btn-sm btn-primary">
+                        <i class="bi bi-pencil-square"></i> Modifica Perdite
+                    </a>
+                </div>
+
+                <!-- Monitoraggio -->
+                <h6 class="mb-2"><i class="bi bi-bar-chart text-success"></i> Monitoraggio</h6>
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="{% url 'stock-value-unified' %}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-cash-stack"></i> Valorizzazione inventario
+                    </a>
+                    <a href="{% url 'losses-analytics-unified' %}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-graph-up"></i> Analisi delle perdite
+                    </a>
                 </div>
             </div>
         </div>
@@ -168,7 +134,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateFieldsVisibility() {
         const selectedType = document.querySelector('input[name="search_type"]:checked').value;
-        
+
         if (selectedType === 'cod_var') {
             codVarFields.style.display = 'block';
             varField.style.display = 'block';
@@ -180,6 +146,12 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (selectedType === 'settore_cluster') {
             codVarFields.style.display = 'none';
             settoreFields.style.display = 'block';
+
+            // Auto-select first supermarket if none selected and options are available
+            if (!supermarketSelect.value && supermarketSelect.options.length > 1) {
+                supermarketSelect.selectedIndex = 1; // Select first actual option (index 0 is placeholder)
+                supermarketSelect.dispatchEvent(new Event('change')); // Trigger change to load settores
+            }
         }
     }
 

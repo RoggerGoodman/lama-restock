@@ -131,32 +131,52 @@ class RestockSchedule(models.Model):
         
         return coverage
 
+    def get_week_visual(self):
+        """Returns visual data for each day of the week for template rendering"""
+        day_names_short = ['Lun', 'Mar', 'Mer', 'Giv', 'Ven', 'Sab', 'Dom']
+        order_days = self.get_order_days()
+
+        # Calculate which days have deliveries
+        delivery_days = set()
+        for order_day in order_days:
+            delivery_day = self.get_delivery_day(order_day)
+            delivery_days.add(delivery_day)
+
+        result = []
+        for i in range(7):
+            result.append({
+                'short': day_names_short[i],
+                'is_order': i in order_days,
+                'is_delivery': i in delivery_days,
+            })
+        return result
+
     def get_schedule_summary(self):
         """Returns human-readable schedule summary"""
         order_days = self.get_order_days()
         if not order_days:
             return "No orders scheduled"
-        
+
         day_names = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
-        
+
         # Build summary with delivery info
         schedule_parts = []
         for day_idx in order_days:
             offset = self.get_delivery_offset(day_idx)
             delivery_day_idx = (day_idx + offset) % 7
-            
+
             if offset == 0:
                 delivery_text = "same day"
             elif offset == 1:
                 delivery_text = f"→{day_names[delivery_day_idx]}"
             else:
                 delivery_text = f"→{day_names[delivery_day_idx]}"
-            
+
             schedule_parts.append(f"{day_names[day_idx]}{delivery_text}")
-        
+
         # Calculate coverages
         coverages = [self.calculate_coverage_for_day(day) for day in order_days]
-        
+
         return f"Orders: {', '.join(schedule_parts)} | Coverage: {coverages} days"
 
     def __str__(self):

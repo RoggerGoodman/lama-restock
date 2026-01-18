@@ -59,7 +59,19 @@
                                     </td>
                                     <td>
                                         {% if storage.schedule %}
-                                            <small>{{ storage.schedule.get_schedule_summary }}</small>
+                                            <div class="d-flex gap-1 align-items-center">
+                                                {% with schedule=storage.schedule %}
+                                                {% for day_info in schedule.get_week_visual %}
+                                                <div class="text-center" style="min-width: 32px;">
+                                                    <div class="small text-muted" style="font-size: 0.65rem;">{{ day_info.short }}</div>
+                                                    <div style="height: 28px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 4px; {% if day_info.is_order and day_info.is_delivery %}background: rgba(25, 135, 84, 0.2);{% elif day_info.is_order %}background: rgba(13, 110, 253, 0.15);{% elif day_info.is_delivery %}background: rgba(25, 135, 84, 0.15);{% else %}background: #f8f9fa;{% endif %}">
+                                                        {% if day_info.is_order %}<i class="bi bi-cart-fill text-primary" style="font-size: 0.7rem;"></i>{% endif %}
+                                                        {% if day_info.is_delivery %}<i class="bi bi-truck text-success" style="font-size: 0.7rem;"></i>{% endif %}
+                                                    </div>
+                                                </div>
+                                                {% endfor %}
+                                                {% endwith %}
+                                            </div>
                                         {% else %}
                                             <span class="text-muted">—</span>
                                         {% endif %}
