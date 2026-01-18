@@ -446,75 +446,6 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
         return context
 
-@login_required
-@require_POST
-def verify_newly_added_ajax_view(request):
-    """
-    AJAX endpoint to verify a product.
-    Sets verified = TRUE, updates the stock value, and optionally sets cluster.
-    """
-    try:
-        data = json.loads(request.body)
-
-        cod = int(data['cod'])
-        var = int(data['var'])
-        stock = int(data['stock'])
-        storage_id = int(data['storage_id'])
-        cluster = data.get('cluster', '').strip().upper() if data.get('cluster') else None
-
-        storage = get_object_or_404(
-            Storage,
-            id=storage_id,
-            supermarket__owner=request.user
-        )
-
-        with RestockService(storage) as service:
-            cursor = service.db.cursor()
-
-            # Mark as verified and set stock
-            cursor.execute("""
-                UPDATE product_stats
-                SET verified = TRUE, stock = %s
-                WHERE cod = %s AND v = %s
-            """, (stock, cod, var))
-
-            # Update cluster if provided
-            cluster_updated = False
-            if cluster:
-                if cluster == 'NONE':
-                    cursor.execute("""
-                        UPDATE products
-                        SET cluster = NULL
-                        WHERE cod = %s AND v = %s
-                    """, (cod, var))
-                else:
-                    cursor.execute("""
-                        UPDATE products
-                        SET cluster = %s
-                        WHERE cod = %s AND v = %s
-                    """, (cluster, cod, var))
-                cluster_updated = True
-
-            service.db.conn.commit()
-
-            log_msg = f"Verified product: {storage.name} - {cod}.{var} with stock={stock}"
-            if cluster_updated:
-                log_msg += f", cluster={cluster}"
-            logger.info(log_msg)
-
-            return JsonResponse({
-                'success': True,
-                'message': f'Product {cod}.{var} verified with stock {stock}',
-                'cluster_updated': cluster_updated
-            })
-
-    except Exception as e:
-        logger.exception("Error verifying product")
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=500)
-
 
 @login_required
 @require_POST
@@ -1076,6 +1007,42 @@ class BlacklistDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
     def test_func(self):
         return self.get_object().storage.supermarket.owner == self.request.user
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        blacklist = self.object
+
+        # Fetch product descriptions from storage database
+        entries = list(blacklist.entries.all())
+        if entries:
+            try:
+                from .services import RestockService
+                with RestockService(blacklist.storage) as service:
+                    cursor = service.db.cursor()
+                    # Build query for all product codes
+                    codes = [(e.product_code, e.product_var) for e in entries]
+                    placeholders = ','.join(['(%s, %s)'] * len(codes))
+                    params = [item for pair in codes for item in pair]
+
+                    cursor.execute(f"""
+                        SELECT cod, v, descrizione
+                        FROM products
+                        WHERE (cod, v) IN ({placeholders})
+                    """, params)
+
+                    # Create lookup dict
+                    descriptions = {(row['cod'], row['v']): row['descrizione'] for row in cursor.fetchall()}
+
+                    # Attach descriptions to entries
+                    for entry in entries:
+                        entry.description = descriptions.get((entry.product_code, entry.product_var), '-')
+            except Exception:
+                # If DB query fails, set empty descriptions
+                for entry in entries:
+                    entry.description = '-'
+
+        context['entries_with_desc'] = entries
+        return context
 
 
 class BlacklistCreateView(LoginRequiredMixin, CreateView):
@@ -2632,30 +2599,52 @@ def verification_report_unified_view(request):
 
 @login_required
 @require_POST
-def verify_single_product_ajax_view(request):
+def verify_product_ajax_view(request):
     """
-    ENHANCED: AJAX endpoint for verifying single product from inventory modal
-    Now also handles package_size updates for newly added products
+    Unified AJAX endpoint for verifying a single product.
+
+    Accepts either:
+      - storage_id (direct storage reference)
+      - supermarket_id + settore (lookup storage by these)
+
+    Optional parameters:
+      - stock: New stock value (required in most cases)
+      - cluster: Cluster assignment (optional, 'NONE' to clear)
+      - package_size: Package size update (optional)
     """
     try:
         data = json.loads(request.body)
-        
+
+        cod = int(data['cod'])
+        var = int(data['var'])
+        stock = data.get('stock')  # Can be None for just marking verified
+        cluster = data.get('cluster', '').strip().upper() if data.get('cluster') else None
+        package_size = data.get('package_size')
+
+        # Resolve storage: either by storage_id or by supermarket_id + settore
+        storage_id = data.get('storage_id')
         supermarket_id = data.get('supermarket_id')
         settore = data.get('settore')
-        cod = int(data.get('cod'))
-        var = int(data.get('var'))
-        stock = data.get('stock')  # Can be None
-        cluster = data.get('cluster', None) or None
-        package_size = data.get('package_size', None)  # NEW: Optional package size
-        
-        # Find storage by supermarket + settore
-        storage = get_object_or_404(
-            Storage,
-            supermarket_id=supermarket_id,
-            settore=settore,
-            supermarket__owner=request.user
-        )
-        
+
+        if storage_id:
+            storage = get_object_or_404(
+                Storage,
+                id=storage_id,
+                supermarket__owner=request.user
+            )
+        elif supermarket_id and settore:
+            storage = get_object_or_404(
+                Storage,
+                supermarket_id=supermarket_id,
+                settore=settore,
+                supermarket__owner=request.user
+            )
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': 'Must provide either storage_id or supermarket_id + settore'
+            }, status=400)
+
         with RestockService(storage) as service:
             # Update package size if provided
             if package_size is not None:
@@ -2667,30 +2656,50 @@ def verify_single_product_ajax_view(request):
                 """, (int(package_size), cod, var))
                 service.db.conn.commit()
                 logger.info(f"Updated package size for {cod}.{var} to {package_size}")
-            
+
+            # Handle cluster update (including clearing with 'NONE')
+            cluster_to_set = None
+            if cluster:
+                if cluster == 'NONE':
+                    # Clear cluster
+                    cursor = service.db.cursor()
+                    cursor.execute("""
+                        UPDATE products
+                        SET cluster = NULL
+                        WHERE cod = %s AND v = %s
+                    """, (cod, var))
+                    service.db.conn.commit()
+                else:
+                    cluster_to_set = cluster
+
             # Verify stock (this also marks as verified)
             if stock is not None:
-                service.db.verify_stock(cod, var, int(stock), cluster)
+                service.db.verify_stock(cod, var, int(stock), cluster_to_set)
             else:
-                # Just mark as verified without changing stock
-                service.db.verify_stock(cod, var, new_stock=None, cluster=cluster)
-            
+                service.db.verify_stock(cod, var, new_stock=None, cluster=cluster_to_set)
+
             message = f'Product {cod}.{var} verified successfully!'
             if package_size:
                 message += f' Package size updated to {package_size}.'
-            
+
             logger.info(
-                f"Single product verified: {storage.supermarket.name} - {settore} - "
+                f"Product verified: {storage.supermarket.name} - {storage.settore} - "
                 f"{cod}.{var}" + (f" (package: {package_size})" if package_size else "") +
                 (f" (cluster: {cluster})" if cluster else "")
             )
-            
+
             return JsonResponse({
                 'success': True,
-                'message': message
-            })           
+                'message': message,
+                'cluster_updated': bool(cluster)
+            })
+    except KeyError as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Missing required field: {e}'
+        }, status=400)
     except Exception as e:
-        logger.exception("Error verifying single product")
+        logger.exception("Error verifying product")
         return JsonResponse({
             'success': False,
             'message': str(e)

@@ -137,7 +137,7 @@ class RestockSchedule(models.Model):
         if not order_days:
             return "No orders scheduled"
         
-        day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        day_names = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
         
         # Build summary with delivery info
         schedule_parts = []

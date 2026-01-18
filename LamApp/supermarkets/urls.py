@@ -63,7 +63,7 @@ urlpatterns = [
     path('inventory/auto-add/', views.auto_add_product_view, name='inventory-auto-add'),
     path('inventory/edit-losses/', views.edit_losses_view, name='edit-losses'),
     path('inventory/edit-loss/', views.edit_loss_ajax_view, name='edit-loss-ajax'),
-    path('inventory/verify-newly-added/', views.verify_newly_added_ajax_view, name='verify-newly-added'),
+    path('inventory/verify-product/', views.verify_product_ajax_view, name='verify-product'),
     path('inventory/pending-verifications/', views.pending_verifications_view, name='pending-verifications'),
 
     # NEW: Unified inventory operations
@@ -80,7 +80,6 @@ urlpatterns = [
     path('inventory/api/storages/<int:supermarket_id>/', views.get_storages_for_supermarket_ajax_view, name='api-storages'),
     path('inventory/adjust-stock/', views.inventory_adjust_stock_ajax_view, name='inventory-adjust-stock'),
     path('inventory/flag-for-purge/', views.inventory_flag_for_purge_ajax_view, name='inventory-flag-purge'),
-    path('inventory/verify-single/', views.verify_single_product_ajax_view, name='inventory-verify-single'),
 
     # ============ Task Progress Endpoints (NEW) ============
     path('tasks/<str:task_id>/progress/', views.task_progress_view, name='task-progress'),

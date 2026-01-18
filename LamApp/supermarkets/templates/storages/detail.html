@@ -240,7 +240,7 @@
                 <h6 class="mb-2 mt-4"><i class="bi bi-database"></i> Gestione dei dati</h6>
                 <div class="d-flex gap-2 mb-3 flex-wrap">
                     <a href="{% url 'update-stats-only' storage_id=storage.id %}" class="btn btn-info">
-                        <i class="bi bi-arrow-repeat"></i> Aggiorna solo le statistiche
+                        <i class="bi bi-arrow-repeat"></i> Aggiorna dati
                     </a>
                     <a href="{% url 'manual-list-update' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-download"></i> Aggiorna listino articoli
@@ -530,7 +530,7 @@ function verifyProduct(cod, var_, defaultStock, rowIdPrefix) {
         payload.cluster = cluster;
     }
 
-    fetch('/inventory/verify-newly-added/', {
+    fetch('/inventory/verify-product/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

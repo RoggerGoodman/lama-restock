@@ -27,6 +27,49 @@
                     Configura Agenda ordini
                 </h4>
 
+                <!-- Visual Weekly Calendar Preview -->
+                <div class="card mb-4 border-0 bg-light">
+                    <div class="card-body">
+                        <h6 class="card-title mb-3">
+                            <i class="bi bi-eye"></i> Anteprima Settimanale
+                        </h6>
+                        <div class="d-flex justify-content-between gap-1" id="weeklyCalendar">
+                            <div class="text-center flex-fill p-2 rounded" data-day="monday" style="min-width: 13%;">
+                                <div class="fw-bold small">Lun</div>
+                                <div class="calendar-icons mt-1" style="min-height: 50px;"></div>
+                            </div>
+                            <div class="text-center flex-fill p-2 rounded" data-day="tuesday" style="min-width: 13%;">
+                                <div class="fw-bold small">Mar</div>
+                                <div class="calendar-icons mt-1" style="min-height: 50px;"></div>
+                            </div>
+                            <div class="text-center flex-fill p-2 rounded" data-day="wednesday" style="min-width: 13%;">
+                                <div class="fw-bold small">Mer</div>
+                                <div class="calendar-icons mt-1" style="min-height: 50px;"></div>
+                            </div>
+                            <div class="text-center flex-fill p-2 rounded" data-day="thursday" style="min-width: 13%;">
+                                <div class="fw-bold small">Gio</div>
+                                <div class="calendar-icons mt-1" style="min-height: 50px;"></div>
+                            </div>
+                            <div class="text-center flex-fill p-2 rounded" data-day="friday" style="min-width: 13%;">
+                                <div class="fw-bold small">Ven</div>
+                                <div class="calendar-icons mt-1" style="min-height: 50px;"></div>
+                            </div>
+                            <div class="text-center flex-fill p-2 rounded" data-day="saturday" style="min-width: 13%;">
+                                <div class="fw-bold small">Sab</div>
+                                <div class="calendar-icons mt-1" style="min-height: 50px;"></div>
+                            </div>
+                            <div class="text-center flex-fill p-2 rounded" data-day="sunday" style="min-width: 13%;">
+                                <div class="fw-bold small">Dom</div>
+                                <div class="calendar-icons mt-1" style="min-height: 50px;"></div>
+                            </div>
+                        </div>
+                        <div class="mt-3 d-flex gap-3 justify-content-center small">
+                            <span><i class="bi bi-cart-fill text-primary"></i> Giorno ordine</span>
+                            <span><i class="bi bi-truck text-success"></i> Giorno consegna</span>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="alert alert-info">
                     <h6><i class="bi bi-info-circle"></i> Come funziona</h6>
                     <ul class="mb-0">
@@ -155,7 +198,7 @@
                             <i class="bi bi-x-circle"></i> Annulla
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-save"></i> Salava agenda ordini
+                            <i class="bi bi-save"></i> Salva agenda ordini
                         </button>
                     </div>
                 </form>
@@ -168,8 +211,8 @@
 {% block scripts %}
 <script>
 // Day names for display
-const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const dayNamesShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const dayNames = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
+const dayNamesShort = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
 
 // Get delivery day name based on order day and offset
 function getDeliveryDay(orderDayIndex, offset) {
@@ -203,6 +246,73 @@ function calculateCoverage(orderDayIndex, orderDays, deliveryOffsets) {
     const coverage = (nextOrderDay + nextDeliveryOffset) - orderDayIndex + 1;
     
     return coverage;
+}
+
+// Update the visual weekly calendar
+function updateWeeklyCalendar() {
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+    // Reset all calendar days
+    days.forEach(day => {
+        const dayEl = document.querySelector(`#weeklyCalendar [data-day="${day}"]`);
+        if (dayEl) {
+            dayEl.style.backgroundColor = '';
+            const iconsEl = dayEl.querySelector('.calendar-icons');
+            if (iconsEl) iconsEl.innerHTML = '';
+        }
+    });
+
+    // Track deliveries per day
+    const deliveriesPerDay = {};
+    days.forEach(day => deliveriesPerDay[day] = []);
+
+    // Find order days and their deliveries
+    days.forEach((day, index) => {
+        const checkbox = document.querySelector(`input[name="${day}"]`);
+        const offsetInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
+
+        if (checkbox && checkbox.checked) {
+            // Mark order day
+            const dayEl = document.querySelector(`#weeklyCalendar [data-day="${day}"]`);
+            if (dayEl) {
+                dayEl.style.backgroundColor = 'rgba(13, 110, 253, 0.15)';
+                const iconsEl = dayEl.querySelector('.calendar-icons');
+                if (iconsEl) {
+                    iconsEl.innerHTML = '<i class="bi bi-cart-fill text-primary" style="font-size: 1.2rem;" title="Ordine"></i>';
+                }
+            }
+
+            // Calculate delivery day
+            if (offsetInput) {
+                const offset = parseInt(offsetInput.value) || 1;
+                const deliveryDayIndex = (index + offset) % 7;
+                const deliveryDay = days[deliveryDayIndex];
+                deliveriesPerDay[deliveryDay].push(dayNames[index]);
+            }
+        }
+    });
+
+    // Mark delivery days
+    days.forEach(day => {
+        if (deliveriesPerDay[day].length > 0) {
+            const dayEl = document.querySelector(`#weeklyCalendar [data-day="${day}"]`);
+            if (dayEl) {
+                const iconsEl = dayEl.querySelector('.calendar-icons');
+                const existingIcon = iconsEl.innerHTML;
+                const tooltip = 'Consegna ordine: ' + deliveriesPerDay[day].join(', ');
+
+                if (existingIcon.includes('bi-cart-fill')) {
+                    // Both order and delivery on same day
+                    dayEl.style.backgroundColor = 'rgba(25, 135, 84, 0.2)';
+                    iconsEl.innerHTML = `<div><i class="bi bi-cart-fill text-primary" style="font-size: 1.1rem;" title="Ordine"></i></div>
+                                         <div><i class="bi bi-truck text-success" style="font-size: 1.1rem;" title="${tooltip}"></i></div>`;
+                } else {
+                    dayEl.style.backgroundColor = 'rgba(25, 135, 84, 0.15)';
+                    iconsEl.innerHTML = `<i class="bi bi-truck text-success" style="font-size: 1.2rem;" title="${tooltip}"></i>`;
+                }
+            }
+        }
+    });
 }
 
 // Update delivery day badges and coverage preview
@@ -302,15 +412,22 @@ document.addEventListener('DOMContentLoaded', function() {
         const offsetInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
         
         if (checkbox) {
-            checkbox.addEventListener('change', updateCoveragePreview);
+            checkbox.addEventListener('change', function() {
+                updateCoveragePreview();
+                updateWeeklyCalendar();
+            });
         }
         if (offsetInput) {
-            offsetInput.addEventListener('input', updateCoveragePreview);
+            offsetInput.addEventListener('input', function() {
+                updateCoveragePreview();
+                updateWeeklyCalendar();
+            });
         }
     });
-    
+
     // Initial update
     updateCoveragePreview();
+    updateWeeklyCalendar();
 });
 </script>
 {% endblock %}

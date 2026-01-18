@@ -224,7 +224,7 @@ function submitVerifySingle() {
     
     const csrfToken = '{{ csrf_token }}';
     
-    fetch('/inventory/verify-single/', {
+    fetch('/inventory/verify-product/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

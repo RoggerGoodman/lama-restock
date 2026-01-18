@@ -63,7 +63,7 @@
                 </div>
                 <div class="d-flex justify-content-between align-items-center">
                     <span class="text-muted">Data creazione</span>
-                    <strong>{{ blacklist.created_at|date:"M d, Y" }}</strong>
+                    <strong>{{ blacklist.created_at|date:"d/m/Y" }}</strong>
                 </div>
             </div>
         </div>
@@ -74,29 +74,27 @@
         <div class="col-12">
             <div class="stat-card">
                 <h5 class="mb-3">
-                    <i class="bi bi-list-check"></i> Blacklisted Products
+                    <i class="bi bi-list-check"></i> Articoli in Blacklist
                 </h5>
 
-                {% if blacklist.entries.all %}
+                {% if entries_with_desc %}
                     <div class="table-responsive">
                         <table class="table table-hover">
                             <thead>
                                 <tr>
-                                    <th>Product Code</th>
-                                    <th>Variant</th>
-                                    <th>Full Code</th>
-                                    <th>Action</th>
+                                    <th>Codice Articolo</th>
+                                    <th>Descrizione</th>
+                                    <th>Azioni</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for entry in blacklist.entries.all %}
+                                {% for entry in entries_with_desc %}
                                 <tr>
-                                    <td><code>{{ entry.product_code }}</code></td>
-                                    <td><code>{{ entry.product_var }}</code></td>
                                     <td><strong>{{ entry.product_code }}.{{ entry.product_var }}</strong></td>
+                                    <td>{{ entry.description|default:"-" }}</td>
                                     <td>
                                         <a href="{% url 'blacklistentry-delete' pk=entry.pk %}" class="btn btn-sm btn-outline-danger">
-                                            <i class="bi bi-trash"></i> Remove
+                                            <i class="bi bi-trash"></i> Rimuovi
                                         </a>
                                     </td>
                                 </tr>
@@ -107,13 +105,13 @@
 
                     <div class="alert alert-secondary mt-3">
                         <i class="bi bi-info-circle"></i>
-                        <strong>{{ blacklist.entries.count }}</strong> product{{ blacklist.entries.count|pluralize }} will be excluded from restock orders.
+                        <strong>{{ blacklist.entries.count }}</strong> articol{{ blacklist.entries.count|pluralize:"o,i" }} verr{{ blacklist.entries.count|pluralize:"à,anno" }} esclus{{ blacklist.entries.count|pluralize:"o,i" }} dagli ordini di restock.
                     </div>
                 {% else %}
                     <div class="alert alert-warning">
                         <i class="bi bi-exclamation-triangle"></i>
-                        No products in this blacklist yet.
-                        <a href="{% url 'blacklistentry-add' blacklist_pk=blacklist.pk %}" class="alert-link">Add your first product</a>
+                        Nessun articolo in questa blacklist.
+                        <a href="{% url 'blacklistentry-add' blacklist_pk=blacklist.pk %}" class="alert-link">Aggiungi il primo articolo</a>
                     </div>
                 {% endif %}
             </div>

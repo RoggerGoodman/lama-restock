@@ -114,22 +114,17 @@
                 
                 <div class="row">
                     <!-- Row 1: Primary Operations -->
-                    <div class="col-md-3 mb-3">
-                        <button onclick="showVerifySingleProduct()" class="btn btn-primary w-100">
-                            <i class="bi bi-check-circle"></i> Verifica singolo articolo
-                        </button>
-                    </div>
-                    <div class="col-md-3 mb-3">
+                    <div class="col-md-4 mb-3">
                         <a href="{% url 'verify-stock-unified-enhanced' %}" class="btn btn-success w-100">
                             <i class="bi bi-clipboard-check"></i> Carica inventario
                         </a>
                     </div>
-                    <div class="col-md-3 mb-3">
+                    <div class="col-md-4 mb-3">
                         <a href="{% url 'assign-clusters' %}" class="btn btn-info w-100">
                             <i class="bi bi-folder"></i> Assegna Clusters
                         </a>
                     </div>
-                    <div class="col-md-3 mb-3">
+                    <div class="col-md-4 mb-3">
                         <a href="{% url 'record-losses-unified' %}" class="btn btn-warning w-100">
                             <i class="bi bi-clipboard-data"></i> Registra Perdite
                         </a>
@@ -157,154 +152,9 @@
     </div>
 </div>
 
-<!-- Verify Single Product Modal - FIXED -->
-<div class="modal fade" id="verifySingleModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Verifica singolo articolo</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-info">
-                    <strong>Nota bene:</strong> Seleziona Punto vendita e magazzino, quindi inserisci i dettagli del articolo.
-                </div>
-                
-                <form id="verifySingleForm">
-                    <div class="mb-3">
-                        <label class="form-label">Punto vendita</label>
-                        <select id="verify_supermarket" class="form-select" required onchange="loadStoragesForVerify()">
-                            <option value="">-- Seleziona Punto vendita --</option>
-                            {% for sm in form.supermarket.field.widget.choices %}
-                                {% if sm.0 %}
-                                <option value="{{ sm.0 }}">{{ sm.1 }}</option>
-                                {% endif %}
-                            {% endfor %}
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Magazzino (Settore)</label>
-                        <select id="verify_storage" class="form-select" required disabled>
-                            <option value="">-- Seleziona prima Punto vendita --</option>
-                        </select>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Codice articolo</label>
-                            <input type="number" id="verify_code" class="form-control" required>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Variante</label>
-                            <input type="number" id="verify_var" class="form-control" value="1" required>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Giacenza</label>
-                        <input type="number" id="verify_stock" class="form-control" required>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Cluster (Opzionale)</label>
-                        <input type="text" id="verify_cluster" class="form-control" placeholder="Leave empty to skip">
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
-                <button type="button" class="btn btn-primary" onclick="submitVerifySingle()">Verifica</button>
-            </div>
-        </div>
-    </div>
-</div>
 {% endblock %}
 {% block scripts %}
 <script>
-const verifySingleModal = new bootstrap.Modal(document.getElementById('verifySingleModal'));
-
-function showVerifySingleProduct() {
-    verifySingleModal.show();
-}
-
-function loadStoragesForVerify() {
-    const supermarketId = document.getElementById('verify_supermarket').value;
-    const storageSelect = document.getElementById('verify_storage');
-    
-    if (!supermarketId) {
-        storageSelect.disabled = true;
-        storageSelect.innerHTML = '<option value="">-- Seleziona prima Punto vendita --</option>';
-        return;
-    }
-    
-    fetch(`/inventory/api/storages/${supermarketId}/`)
-        .then(response => response.json())
-        .then(data => {
-            storageSelect.innerHTML = '<option value="">-- Seleziona Magazzino --</option>';
-            data.storages.forEach(storage => {
-                const option = document.createElement('option');
-                option.value = storage.settore;
-                option.textContent = `${storage.settore}`;
-                option.dataset.storageId = storage.id;
-                storageSelect.appendChild(option);
-            });
-            storageSelect.disabled = false;
-        })
-        .catch(error => {
-            console.error('Error loading storages:', error);
-            alert('Error loading storages');
-        });
-}
-
-function submitVerifySingle() {
-    const supermarketId = document.getElementById('verify_supermarket').value;
-    const settore = document.getElementById('verify_storage').value;
-    const code = document.getElementById('verify_code').value;
-    const var_ = document.getElementById('verify_var').value;
-    const stock = document.getElementById('verify_stock').value;
-    const cluster = document.getElementById('verify_cluster').value || null;
-    
-    if (!supermarketId || !settore || !code || !var_ || stock === '') {
-        alert('Please fill in all required fields');
-        return;
-    }
-    
-    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    
-    fetch('/inventory/verify-single/', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({
-            supermarket_id: supermarketId,
-            settore: settore,
-            cod: parseInt(code),
-            var: parseInt(var_),
-            stock: parseInt(stock),
-            cluster: cluster
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert(data.message);
-            verifySingleModal.hide();
-            // Reset form
-            document.getElementById('verifySingleForm').reset();
-            document.getElementById('verify_storage').disabled = true;
-        } else {
-            alert('Error: ' + data.message);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Error verifying product: ' + error);
-    });
-}
-
 document.addEventListener('DOMContentLoaded', function() {
     const searchTypeRadios = document.querySelectorAll('input[name="search_type"]');
     const codVarFields = document.getElementById('codVarFields');

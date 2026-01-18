@@ -72,9 +72,9 @@
                     
                     <!-- Category Filter -->
                     <div class="col-md-2">
-                        <label for="show_category" class="form-label">Filtro Categoria</label>
+                        <label for="show_category" class="form-label">Filtro Reparto cassa</label>
                         <select name="show_category" id="show_category" class="form-select" onchange="this.form.submit()">
-                            <option value="all" {% if show_category == 'all' %}selected{% endif %}>Tutte le Categorie</option>
+                            <option value="all" {% if show_category == 'all' %}selected{% endif %}>Tutti i reparti cassa</option>
                             {% for cat in all_categories %}
                             <option value="{{ cat }}" {% if show_category == cat %}selected{% endif %}>
                                 {{ cat }}
@@ -155,7 +155,7 @@
                     <i class="bi bi-exclamation-triangle-fill"></i>
                 </div>
                 <h3 class="mb-1">{{ stats.stolen.total_units }}</h3>
-                <p class="text-muted mb-1">Rubato</p>
+                <p class="text-muted mb-1">Furti</p>
                 <small class="text-success">€{{ stats.stolen.total_value|floatformat:2 }}</small><br>
                 <small class="text-muted">{{ stats.stolen.products }} articolo{{ stats.stolen.products|pluralize }}</small>
             </div>
@@ -216,7 +216,7 @@
                             <tr>
                                 <th>Codice</th>
                                 <th>Descrizione</th>
-                                <th>Categoria</th>
+                                <th>Reparto cassa</th>
                                 
                                 <!-- ✅ FIXED: Only show selected type columns -->
                                 {% if show_type == 'all' or show_type == 'broken' %}
@@ -330,7 +330,22 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-const monthLabels = {{ month_labels|safe }};
+// Map English month abbreviations to Italian
+const monthMap = {
+    'Jan': 'Gen', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Apr',
+    'May': 'Mag', 'Jun': 'Giu', 'Jul': 'Lug', 'Aug': 'Ago',
+    'Sep': 'Set', 'Oct': 'Ott', 'Nov': 'Nov', 'Dec': 'Dic'
+};
+const rawLabels = {{ month_labels|safe }};
+const monthLabels = rawLabels.map(label => {
+    // Handle formats like "Jan 2024" or just "Jan"
+    for (const [eng, ita] of Object.entries(monthMap)) {
+        if (label.includes(eng)) {
+            return label.replace(eng, ita);
+        }
+    }
+    return label;
+});
 const showType = '{{ show_type }}';
 
 // ✅ FIXED: Build datasets based on filter
@@ -339,14 +354,14 @@ const valueDatasets = [];
 
 if (showType === 'all' || showType === 'broken') {
     unitsDatasets.push({
-        label: 'Broken',
+        label: 'Rotture',
         data: {{ stats.broken.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
         borderColor: 'rgb(220, 53, 69)',
         backgroundColor: 'rgba(220, 53, 69, 0.1)',
         tension: 0.4
     });
     valueDatasets.push({
-        label: 'Broken',
+        label: 'Rotture',
         data: {{ stats.broken.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
         backgroundColor: 'rgba(220, 53, 69, 0.7)',
     });
@@ -354,14 +369,14 @@ if (showType === 'all' || showType === 'broken') {
 
 if (showType === 'all' || showType === 'expired') {
     unitsDatasets.push({
-        label: 'Expired',
+        label: 'Scaduto',
         data: {{ stats.expired.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
         borderColor: 'rgb(255, 193, 7)',
         backgroundColor: 'rgba(255, 193, 7, 0.1)',
         tension: 0.4
     });
     valueDatasets.push({
-        label: 'Expired',
+        label: 'Scaduto',
         data: {{ stats.expired.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
         backgroundColor: 'rgba(255, 193, 7, 0.7)',
     });
@@ -369,14 +384,14 @@ if (showType === 'all' || showType === 'expired') {
 
 if (showType === 'all' || showType === 'internal') {
     unitsDatasets.push({
-        label: 'Internal Use',
+        label: 'Uso interno',
         data: {{ stats.internal.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
         borderColor: 'rgb(13, 110, 253)',
         backgroundColor: 'rgba(13, 110, 253, 0.1)',
         tension: 0.4
     });
     valueDatasets.push({
-        label: 'Internal Use',
+        label: 'Uso interno',
         data: {{ stats.internal.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
         backgroundColor: 'rgba(13, 110, 253, 0.7)',
     });
@@ -384,14 +399,14 @@ if (showType === 'all' || showType === 'internal') {
 
 if (showType === 'all' || showType === 'stolen') {
     unitsDatasets.push({
-        label: 'Stolen',
+        label: 'Furti',
         data: {{ stats.stolen.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
         borderColor: 'rgb(133, 100, 4)',
         backgroundColor: 'rgba(133, 100, 4, 0.1)',
         tension: 0.4
     });
     valueDatasets.push({
-        label: 'Stolen',
+        label: 'Furti',
         data: {{ stats.stolen.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
         backgroundColor: 'rgba(133, 100, 4, 0.7)',
     });
@@ -418,7 +433,7 @@ new Chart(unitsCtx, {
                 beginAtZero: true,
                 title: {
                     display: true,
-                    text: 'Units'
+                    text: 'Unità'
                 }
             }
         }
@@ -447,7 +462,7 @@ new Chart(valueCtx, {
                 stacked: false,
                 title: {
                     display: true,
-                    text: 'Value (€)'
+                    text: 'Valore (€)'
                 }
             },
             x: {
