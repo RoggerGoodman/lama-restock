@@ -195,9 +195,9 @@
                         {% for storage_info, logs in recent_logs_by_storage.items %}
                         <div class="accordion-item">
                             <h2 class="accordion-header" id="heading-{{ storage_info.0 }}">
-                                <button class="accordion-button {% if not forloop.first %}collapsed{% endif %}" type="button"
+                                <button class="accordion-button collapsed" type="button"
                                         data-bs-toggle="collapse" data-bs-target="#collapse-{{ storage_info.0 }}"
-                                        aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}"
+                                        aria-expanded="false"
                                         aria-controls="collapse-{{ storage_info.0 }}">
                                     <div class="d-flex justify-content-between align-items-center w-100 me-3">
                                         <span>
@@ -209,7 +209,7 @@
                                     </div>
                                 </button>
                             </h2>
-                            <div id="collapse-{{ storage_info.0 }}" class="accordion-collapse collapse {% if forloop.first %}show{% endif %}"
+                            <div id="collapse-{{ storage_info.0 }}" class="accordion-collapse collapse"
                                  aria-labelledby="heading-{{ storage_info.0 }}" data-bs-parent="#recentLogsAccordion">
                                 <div class="accordion-body p-0">
                                     <div class="table-responsive">

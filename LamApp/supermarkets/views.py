@@ -102,16 +102,18 @@ def dashboard_view(request):
     recent_logs = RestockLog.objects.filter(
         storage__supermarket__owner=request.user,
         operation_type__in=['full_restock', 'order_execution']  # ← FILTER KEY OPERATIONS ONLY
-    ).select_related('storage', 'storage__supermarket').order_by('storage__name', '-started_at')[:30]
+    ).select_related('storage', 'storage__supermarket').order_by('storage__name', '-started_at')
 
-    # Group recent logs by storage for better organization
+    # Group recent logs by storage, limit 5 per storage
     from collections import OrderedDict
     recent_logs_by_storage = OrderedDict()
     for log in recent_logs:
         storage_key = (log.storage.id, log.storage.name, log.storage.supermarket.name)
         if storage_key not in recent_logs_by_storage:
             recent_logs_by_storage[storage_key] = []
-        recent_logs_by_storage[storage_key].append(log)
+        # Limit to 5 most recent operations per storage
+        if len(recent_logs_by_storage[storage_key]) < 5:
+            recent_logs_by_storage[storage_key].append(log)
     
     # Get failed logs that need attention (all types)
     failed_logs = RestockLog.objects.filter(
