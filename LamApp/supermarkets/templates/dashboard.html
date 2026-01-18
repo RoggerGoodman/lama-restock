@@ -37,7 +37,7 @@
         <div class="col-12">
             <div class="stat-card border-warning" style="border-left: 4px solid #ffc107;">
                 <h5 class="mb-3">
-                    <i class="bi bi-exclamation-triangle text-warning"></i> Attenzione richiesta
+                    <i class="bi bi-exclamation-triangle text-warning"></i> Attenzione
                 </h5>
                 
                 <div class="row">
@@ -180,7 +180,7 @@
         </div>
     </div>
 
-    <!-- Recent Activity (Compact) -->
+    <!-- Recent Activity (Grouped by Storage) -->
     <div class="row">
         <div class="col-12">
             <div class="stat-card">
@@ -189,96 +189,122 @@
                         <i class="bi bi-clock-history"></i> Attività recenti
                     </h5>
                 </div>
-                
-                {% if recent_logs %}
-                    <div class="table-responsive">
-                        <table class="table table-hover table-sm mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Data</th>
-                                    <th>Magazzino</th>
-                                    <th>Operazione</th>
-                                    <th>Stato</th>
-                                    <th>Dettagli</th>
-                                    <th>Azione</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for log in recent_logs|slice:":10" %}
-                                <tr>
-                                    <td><small>{{ log.started_at|date:"M d, H:i" }}</small></td>
-                                    <td>
-                                        <small>
-                                            <strong>{{ log.storage.supermarket.name }}</strong><br>
-                                            {{ log.storage.name }}
-                                        </small>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-{{ log.get_operation_color }}">
-                                            <i class="bi {{ log.get_operation_icon }}"></i>
-                                            {{ log.get_operation_type_display }}
+
+                {% if recent_logs_by_storage %}
+                    <div class="accordion" id="recentLogsAccordion">
+                        {% for storage_info, logs in recent_logs_by_storage.items %}
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="heading-{{ storage_info.0 }}">
+                                <button class="accordion-button {% if not forloop.first %}collapsed{% endif %}" type="button"
+                                        data-bs-toggle="collapse" data-bs-target="#collapse-{{ storage_info.0 }}"
+                                        aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}"
+                                        aria-controls="collapse-{{ storage_info.0 }}">
+                                    <div class="d-flex justify-content-between align-items-center w-100 me-3">
+                                        <span>
+                                            <i class="bi bi-box"></i>
+                                            <strong>{{ storage_info.1 }}</strong>
+                                            <small class="text-muted ms-2">{{ storage_info.2 }}</small>
                                         </span>
-                                    </td>
-                                    <td>
-                                        {% if log.status == 'completed' %}
-                                            <span class="badge bg-success">
-                                                <i class="bi bi-check-circle"></i> Fatto
-                                            </span>
-                                        {% elif log.status == 'failed' %}
-                                            <span class="badge bg-danger">
-                                                <i class="bi bi-x-circle"></i> Fallito
-                                            </span>
-                                        {% elif log.status == 'processing' %}
-                                            <span class="badge bg-warning">
-                                                <i class="bi bi-hourglass-split"></i> In corso
-                                            </span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        <small>
-                                            {% if log.operation_type == 'full_restock' %}
-                                                {{ log.products_ordered }} Articoli / {{ log.total_packages }} colli
-                                            {% elif log.operation_type == 'stats_update' %}
-                                                Statistiche aggiornate
-                                            {% elif log.operation_type == 'list_update' %}
-                                                Listino articoli aggiornato
-                                            {% elif log.operation_type == 'verification' %}
-                                                {{ log.products_ordered|default:0 }} verificati
-                                            {% elif log.operation_type == 'cluster_assignment' %}
-                                                {{ log.products_ordered|default:0 }} assegnati
-                                            {% elif log.operation_type == 'product_addition' %}
-                                                {{ log.products_ordered|default:0 }} aggiunti
-                                            {% else %}
-                                                —
-                                            {% endif %}
-                                        </small>
-                                    </td>
-                                    <td>
-                                        {% if log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
-                                            <a href="{% url 'restock-log-detail' pk=log.id %}" 
-                                            class="btn btn-sm btn-outline-primary">
-                                                <i class="bi bi-eye"></i>
-                                            </a>
-                                        {% elif log.status == 'completed' %}
-                                            <a href="{% url 'storage-detail' pk=log.storage.id %}" 
-                                            class="btn btn-sm btn-outline-secondary"
-                                            title="View Magazzino">
-                                                <i class="bi bi-box"></i>
-                                            </a>
-                                        {% elif log.status == 'failed' %}
-                                            <a href="{% url 'restock-log-detail' pk=log.id %}" 
-                                            class="btn btn-sm btn-outline-danger"
-                                            title="View Error">
-                                                <i class="bi bi-exclamation-triangle"></i>
-                                            </a>
-                                        {% else %}
-                                            <span class="badge bg-secondary">Elaborazione</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                                        <span class="badge bg-secondary">{{ logs|length }} operazioni</span>
+                                    </div>
+                                </button>
+                            </h2>
+                            <div id="collapse-{{ storage_info.0 }}" class="accordion-collapse collapse {% if forloop.first %}show{% endif %}"
+                                 aria-labelledby="heading-{{ storage_info.0 }}" data-bs-parent="#recentLogsAccordion">
+                                <div class="accordion-body p-0">
+                                    <div class="table-responsive">
+                                        <table class="table table-hover table-sm mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Data</th>
+                                                    <th>Operazione</th>
+                                                    <th>Stato</th>
+                                                    <th>Dettagli</th>
+                                                    <th>Azione</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for log in logs %}
+                                                <tr>
+                                                    <td><small>{{ log.started_at|date:"M d, H:i" }}</small></td>
+                                                    <td>
+                                                        <span class="badge bg-{{ log.get_operation_color }}">
+                                                            <i class="bi {{ log.get_operation_icon }}"></i>
+                                                            {{ log.get_operation_type_display }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        {% if log.status == 'completed' %}
+                                                            <span class="badge bg-success">
+                                                                <i class="bi bi-check-circle"></i> Fatto
+                                                            </span>
+                                                        {% elif log.status == 'failed' %}
+                                                            <span class="badge bg-danger">
+                                                                <i class="bi bi-x-circle"></i> Fallito
+                                                            </span>
+                                                        {% elif log.status == 'processing' %}
+                                                            <span class="badge bg-warning">
+                                                                <i class="bi bi-hourglass-split"></i> In corso
+                                                            </span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td>
+                                                        <small>
+                                                            {% if log.operation_type == 'full_restock' %}
+                                                                {{ log.products_ordered }} Articoli / {{ log.total_packages }} colli
+                                                            {% elif log.operation_type == 'stats_update' %}
+                                                                Statistiche aggiornate
+                                                            {% elif log.operation_type == 'list_update' %}
+                                                                Listino articoli aggiornato
+                                                            {% elif log.operation_type == 'verification' %}
+                                                                {{ log.products_ordered|default:0 }} verificati
+                                                            {% elif log.operation_type == 'cluster_assignment' %}
+                                                                {{ log.products_ordered|default:0 }} assegnati
+                                                            {% elif log.operation_type == 'product_addition' %}
+                                                                {{ log.products_ordered|default:0 }} aggiunti
+                                                            {% else %}
+                                                                —
+                                                            {% endif %}
+                                                        </small>
+                                                    </td>
+                                                    <td>
+                                                        <div class="btn-group btn-group-sm">
+                                                            {% if log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
+                                                                <a href="{% url 'restock-log-detail' pk=log.id %}"
+                                                                class="btn btn-sm btn-outline-primary">
+                                                                    <i class="bi bi-eye"></i>
+                                                                </a>
+                                                            {% elif log.status == 'completed' %}
+                                                                <a href="{% url 'storage-detail' pk=log.storage.id %}"
+                                                                class="btn btn-sm btn-outline-secondary"
+                                                                title="View Magazzino">
+                                                                    <i class="bi bi-box"></i>
+                                                                </a>
+                                                            {% elif log.status == 'failed' %}
+                                                                <a href="{% url 'restock-log-detail' pk=log.id %}"
+                                                                class="btn btn-sm btn-outline-danger"
+                                                                title="View Error">
+                                                                    <i class="bi bi-exclamation-triangle"></i>
+                                                                </a>
+                                                            {% else %}
+                                                                <span class="badge bg-secondary">Elaborazione</span>
+                                                            {% endif %}
+                                                            <a href="{% url 'restock-log-delete' pk=log.id %}?next={% url 'dashboard' %}"
+                                                               class="btn btn-sm btn-outline-danger"
+                                                               title="Elimina operazione">
+                                                                <i class="bi bi-trash"></i>
+                                                            </a>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
                     </div>
                 {% else %}
                     <div class="alert alert-info mb-0">

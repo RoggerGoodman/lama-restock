@@ -362,7 +362,7 @@ class InventorySearchForm(forms.Form):
         
         # Override widget to add choices
         self.fields['supermarket'].widget = forms.Select(
-            choices=[('', '-- Select Supermarket --')] + [
+            choices=[('', '-- Seleziona Punto vendita --')] + [
                 (str(sm.id), sm.name) for sm in supermarkets
             ],
             attrs={'class': 'form-select', 'id': 'id_supermarket'}

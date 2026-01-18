@@ -449,23 +449,30 @@
                                         {{ log.get_duration }}
                                     </td>
                                     <td>
-                                        {% if log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
-                                            <a href="{% url 'restock-log-detail' pk=log.id %}" 
-                                            class="btn btn-sm btn-outline-primary"
-                                            title="View Order Details">
-                                                <i class="bi bi-eye"></i> Visiona
+                                        <div class="btn-group btn-group-sm">
+                                            {% if log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
+                                                <a href="{% url 'restock-log-detail' pk=log.id %}"
+                                                class="btn btn-sm btn-outline-primary"
+                                                title="View Order Details">
+                                                    <i class="bi bi-eye"></i> Visiona
+                                                </a>
+                                            {% elif log.status == 'failed' %}
+                                                <a href="{% url 'restock-log-detail' pk=log.id %}"
+                                                class="btn btn-sm btn-outline-danger"
+                                                title="View Error Details">
+                                                    <i class="bi bi-exclamation-triangle"></i> Errore
+                                                </a>
+                                            {% else %}
+                                                <span class="badge bg-secondary">
+                                                    <i class="bi bi-check-circle"></i> Fatto
+                                                </span>
+                                            {% endif %}
+                                            <a href="{% url 'restock-log-delete' pk=log.id %}?next={% url 'storage-detail' pk=storage.id %}"
+                                               class="btn btn-sm btn-outline-danger"
+                                               title="Elimina operazione">
+                                                <i class="bi bi-trash"></i>
                                             </a>
-                                        {% elif log.status == 'failed' %}
-                                            <a href="{% url 'restock-log-detail' pk=log.id %}" 
-                                            class="btn btn-sm btn-outline-danger"
-                                            title="View Error Details">
-                                                <i class="bi bi-exclamation-triangle"></i> Errore
-                                            </a>
-                                        {% else %}
-                                            <span class="badge bg-secondary">
-                                                <i class="bi bi-check-circle"></i> Fatto
-                                            </span>
-                                        {% endif %}
+                                        </div>
                                     </td>
                                 </tr>
                                 {% endfor %}

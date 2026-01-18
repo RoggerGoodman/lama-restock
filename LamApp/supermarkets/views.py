@@ -2,7 +2,7 @@
 from django.utils import timezone
 import json
 from django.shortcuts import render, redirect, get_object_or_404
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth import login
@@ -102,7 +102,16 @@ def dashboard_view(request):
     recent_logs = RestockLog.objects.filter(
         storage__supermarket__owner=request.user,
         operation_type__in=['full_restock', 'order_execution']  # ← FILTER KEY OPERATIONS ONLY
-    ).select_related('storage', 'storage__supermarket').order_by('-started_at')[:10]
+    ).select_related('storage', 'storage__supermarket').order_by('storage__name', '-started_at')[:30]
+
+    # Group recent logs by storage for better organization
+    from collections import OrderedDict
+    recent_logs_by_storage = OrderedDict()
+    for log in recent_logs:
+        storage_key = (log.storage.id, log.storage.name, log.storage.supermarket.name)
+        if storage_key not in recent_logs_by_storage:
+            recent_logs_by_storage[storage_key] = []
+        recent_logs_by_storage[storage_key].append(log)
     
     # Get failed logs that need attention (all types)
     failed_logs = RestockLog.objects.filter(
@@ -181,6 +190,7 @@ def dashboard_view(request):
     context = {
         'supermarkets': supermarkets,
         'recent_logs': recent_logs,  # ← NOW ONLY ORDERS
+        'recent_logs_by_storage': recent_logs_by_storage,  # ← GROUPED BY STORAGE
         'failed_logs': failed_logs,
         'storages_without_schedule': storages_without_schedule,
         'pending_verifications': pending_verifications,
@@ -982,6 +992,31 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 })
         
         return enriched
+
+
+class RestockLogDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    """Delete a restock log entry with confirmation"""
+    model = RestockLog
+    template_name = 'restock_logs/confirm_delete.html'
+    context_object_name = 'log'
+
+    def test_func(self):
+        return self.get_object().storage.supermarket.owner == self.request.user
+
+    def get_success_url(self):
+        # Check if there's a 'next' parameter in the request
+        next_url = self.request.GET.get('next') or self.request.POST.get('next')
+        if next_url:
+            return next_url
+        # Default: redirect to storage detail page
+        return reverse('storage-detail', kwargs={'pk': self.object.storage.id})
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Pass 'next' parameter to template for form
+        context['next_url'] = self.request.GET.get('next', '')
+        return context
+
 
 # ============ Blacklist Views ============
 
@@ -3251,6 +3286,13 @@ def inventory_adjust_stock_ajax_view(request):
             adjustment = None
 
             if adjustment_raw != '':
+                # Reason is mandatory when adjusting stock
+                if not reason:
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Please select a reason for the stock adjustment'
+                    }, status=400)
+                
                 try:
                     adjustment = int(adjustment_raw)
                 except ValueError:
@@ -3258,13 +3300,6 @@ def inventory_adjust_stock_ajax_view(request):
                         {'success': False, 'message': 'Adjustment must be a number'},
                         status=400
                     )
-
-                # Reason is mandatory when adjusting stock
-                if not reason:
-                    return JsonResponse({
-                        'success': False,
-                        'message': 'Please select a reason for the stock adjustment'
-                    }, status=400)
 
             if adjustment is not None and reason in loss_type_mapping and adjustment < 0:
                 # This is a loss - record in extra_losses

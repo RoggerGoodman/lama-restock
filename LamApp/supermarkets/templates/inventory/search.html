@@ -163,7 +163,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const supermarketId = this.value;
         
         if (!supermarketId) {
-            settoreDisplay.innerHTML = '<option value="">-- Select Settore --</option>';
+            settoreDisplay.innerHTML = '<option value="">-- Seleziona Magazzino --</option>';
             settoreHidden.value = '';
             clusterDisplay.innerHTML = '<option value="">-- All Clusters --</option>';
             clusterHidden.value = '';
@@ -173,7 +173,7 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch(`/inventory/api/settores/${supermarketId}/`)
             .then(response => response.json())
             .then(data => {
-                settoreDisplay.innerHTML = '<option value="">-- Select Settore --</option>';
+                settoreDisplay.innerHTML = '<option value="">-- Seleziona Magazzino --</option>';
                 
                 data.settores.forEach(settore => {
                     const option = document.createElement('option');

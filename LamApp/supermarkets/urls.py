@@ -44,6 +44,7 @@ urlpatterns = [
     
     # ============ Restock Logs ============
     path('logs/<int:pk>/', views.RestockLogDetailView.as_view(), name='restock-log-detail'),
+    path('logs/<int:pk>/delete/', views.RestockLogDeleteView.as_view(), name='restock-log-delete'),
     path('logs/<int:log_id>/retry/', views.retry_restock_view, name='retry-restock'),
     path('logs/<int:log_id>/flag-products/', views.flag_products_for_purge_view, name='flag-products-for-purge'),
     path('logs/<int:log_id>/order-new-products/', views.order_new_products_from_log_view, name='order-new-products'),

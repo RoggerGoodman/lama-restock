@@ -1,0 +1,46 @@
+<!-- LamApp/supermarkets/templates/restock_logs/confirm_delete.html -->
+{% extends 'base.html' %}
+{% block title %}Elimina operazione{% endblock %}
+{% block page_title %}Conferma eliminazione{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-lg-6 offset-lg-3">
+            <div class="stat-card">
+                <h4 class="mb-4 text-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Elimina operazione
+                </h4>
+
+                <div class="alert alert-warning">
+                    <p class="mb-2">Stai per eliminare la seguente operazione:</p>
+                    <ul class="mb-0">
+                        <li><strong>Tipo:</strong> {{ log.get_operation_type_display }}</li>
+                        <li><strong>Magazzino:</strong> {{ log.storage.name }}</li>
+                        <li><strong>Data:</strong> {{ log.started_at|date:"d M Y, H:i" }}</li>
+                        <li><strong>Stato:</strong> {{ log.get_status_display }}</li>
+                    </ul>
+                </div>
+
+                <p>Sei sicuro di voler continuare? Questa azione non puo essere annullata.</p>
+
+                <form method="post">
+                    {% csrf_token %}
+                    {% if next_url %}
+                    <input type="hidden" name="next" value="{{ next_url }}">
+                    {% endif %}
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% if next_url %}{{ next_url }}{% else %}{% url 'storage-detail' pk=log.storage.id %}{% endif %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Annulla
+                        </a>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash"></i> Si, elimina
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

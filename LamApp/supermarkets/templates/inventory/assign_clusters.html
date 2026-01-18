@@ -144,7 +144,7 @@ function loadStorages() {
     fetch(`/inventory/api/storages/${supermarketId}/`)
         .then(response => response.json())
         .then(data => {
-            storageSelect.innerHTML = '<option value="">-- Select Magazzino --</option>';
+            storageSelect.innerHTML = '<option value="">-- Seleziona Magazzino --</option>';
             data.storages.forEach(storage => {
                 const option = document.createElement('option');
                 option.value = storage.id;
