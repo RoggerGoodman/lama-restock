@@ -1,0 +1,53 @@
+<!-- LamApp/supermarkets/templates/recipes/confirm_delete.html -->
+{% extends 'base.html' %}
+{% block title %}Elimina Ricetta{% endblock %}
+{% block page_title %}Conferma eliminazione{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-lg-6 offset-lg-3">
+            <div class="stat-card">
+                <h4 class="mb-4 text-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Elimina Ricetta
+                </h4>
+
+                <div class="alert alert-warning">
+                    Stai per eliminare la ricetta <strong>{{ object.name }}</strong>
+                    {% if object.product_items.count or object.external_items.count %}
+                    con tutti i suoi ingredienti ({{ object.product_items.count }} prodotti, {{ object.external_items.count }} esterni).
+                    {% endif %}
+                </div>
+
+                {% if object.is_base and object.derived_recipes.exists %}
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-octagon"></i>
+                    <strong>Attenzione!</strong> Questa è una ricetta base utilizzata da altre ricette:
+                    <ul class="mb-0 mt-2">
+                        {% for derived in object.derived_recipes.all %}
+                        <li>{{ derived.name }}</li>
+                        {% endfor %}
+                    </ul>
+                    <p class="mt-2 mb-0">Eliminando questa ricetta, le ricette derivate perderanno il riferimento alla base.</p>
+                </div>
+                {% endif %}
+
+                <p>Sei sicuro di voler continuare?</p>
+
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'recipe-detail' pk=object.pk %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Annulla
+                        </a>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash"></i> Si, elimina
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

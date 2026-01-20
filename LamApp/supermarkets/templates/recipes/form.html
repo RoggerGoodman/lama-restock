@@ -1,0 +1,632 @@
+<!-- LamApp/supermarkets/templates/recipes/form.html -->
+{% extends 'base.html' %}
+{% block title %}{% if is_edit %}Modifica{% else %}Nuova{% endif %} Ricetta{% endblock %}
+{% block page_title %}{% if is_edit %}Modifica Ricetta{% else %}Nuova Ricetta{% endif %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 0 0 6px 6px;
+        max-height: 300px;
+        overflow-y: auto;
+        z-index: 1000;
+        display: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .search-results .dropdown-item {
+        padding: 10px 15px;
+        border-bottom: 1px solid #eee;
+        cursor: pointer;
+    }
+    .search-results .dropdown-item:hover {
+        background-color: #f8f9fa;
+    }
+    .search-results .dropdown-item:last-child {
+        border-bottom: none;
+    }
+    .item-row {
+        background-color: #f8f9fa;
+        border-radius: 6px;
+        padding: 12px;
+        margin-bottom: 8px;
+    }
+    .summary-card {
+        position: sticky;
+        top: 20px;
+    }
+    .use-percentage-input {
+        width: 80px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Breadcrumb -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'recipe-list' %}">Ricette</a></li>
+                    <li class="breadcrumb-item active">{% if is_edit %}Modifica{% else %}Nuova{% endif %}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <form method="post" id="recipeForm">
+        {% csrf_token %}
+        <input type="hidden" name="product_items" id="product_items_json">
+        <input type="hidden" name="external_items" id="external_items_json">
+
+        <div class="row">
+            <!-- Main Form -->
+            <div class="col-lg-8">
+                <!-- Basic Info -->
+                <div class="stat-card mb-4">
+                    <h5 class="mb-3"><i class="bi bi-info-circle"></i> Informazioni Base</h5>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Punto Vendita *</label>
+                            <select class="form-select" name="supermarket" id="supermarket" required {% if is_edit %}disabled{% endif %}>
+                                <option value="">Seleziona...</option>
+                                {% for sm in supermarkets %}
+                                <option value="{{ sm.id }}" {% if is_edit and recipe.supermarket_id == sm.id %}selected{% endif %}>
+                                    {{ sm.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            {% if is_edit %}
+                            <input type="hidden" name="supermarket" value="{{ recipe.supermarket_id }}">
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nome Ricetta *</label>
+                            <input type="text" class="form-control" name="name" required
+                                   value="{% if is_edit %}{{ recipe.name }}{% endif %}"
+                                   placeholder="es. Pizza Margherita">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Famiglia</label>
+                            <input type="text" class="form-control" name="family" id="family"
+                                   value="{% if is_edit %}{{ recipe.family }}{% endif %}"
+                                   placeholder="es. Pizze, Panini, Dolci" list="familyList">
+                            <datalist id="familyList">
+                                {% for fam in existing_families %}
+                                <option value="{{ fam }}">
+                                {% endfor %}
+                            </datalist>
+                            <small class="text-muted">Lascia vuoto se questa è una ricetta base</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">&nbsp;</label>
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" name="is_base" id="is_base"
+                                       {% if is_edit and recipe.is_base %}checked{% endif %}
+                                       onchange="toggleBaseOptions()">
+                                <label class="form-check-label" for="is_base">
+                                    <strong>Ricetta Base</strong>
+                                    <small class="text-muted d-block">Questa ricetta servirà come fondamento per altre</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Base Recipe Selection (hidden if is_base is checked) -->
+                    <div class="row" id="baseRecipeRow">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Basata su (opzionale)</label>
+                            <select class="form-select" name="base_recipe" id="base_recipe" onchange="updateBaseRecipeCost()">
+                                <option value="">Nessuna ricetta base</option>
+                                {% for br in base_recipes %}
+                                <option value="{{ br.id }}"
+                                        data-supermarket="{{ br.supermarket_id }}"
+                                        data-cost="{{ br.get_total_cost }}"
+                                        {% if is_edit and recipe.base_recipe_id == br.id %}selected{% endif %}>
+                                    {{ br.name }} (&euro; {{ br.get_total_cost|floatformat:2 }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Eredita gli ingredienti da una ricetta base esistente</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Note</label>
+                        <textarea class="form-control" name="notes" rows="2"
+                                  placeholder="Note opzionali...">{% if is_edit %}{{ recipe.notes }}{% endif %}</textarea>
+                    </div>
+                </div>
+
+                <!-- Product Items -->
+                <div class="stat-card mb-4">
+                    <h5 class="mb-3"><i class="bi bi-box-seam"></i> Ingredienti da Prodotti</h5>
+
+                    <!-- Search -->
+                    <div class="position-relative mb-3">
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" id="productSearch"
+                                   placeholder="Cerca prodotto per nome (min. 3 caratteri)...">
+                        </div>
+                        <div class="search-results" id="searchResults"></div>
+                    </div>
+
+                    <!-- Product Items List -->
+                    <div id="productItemsList">
+                        <!-- Items will be added here dynamically -->
+                    </div>
+
+                    <div class="text-muted text-center py-3" id="noProductsMessage">
+                        <i class="bi bi-inbox"></i> Nessun ingrediente aggiunto. Cerca e aggiungi prodotti.
+                    </div>
+                </div>
+
+                <!-- External Items -->
+                <div class="stat-card mb-4">
+                    <h5 class="mb-3"><i class="bi bi-box-arrow-in-right"></i> Elementi Esterni</h5>
+                    <p class="text-muted small">Aggiungi elementi non presenti nel catalogo prodotti</p>
+
+                    <!-- Add External Item Form -->
+                    <div class="row mb-3">
+                        <div class="col-md-5">
+                            <input type="text" class="form-control" id="extName" placeholder="Nome elemento">
+                        </div>
+                        <div class="col-md-3">
+                            <div class="input-group">
+                                <span class="input-group-text">&euro;</span>
+                                <input type="number" class="form-control" id="extUnitCost"
+                                       placeholder="Costo" step="0.0001" min="0">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="extUsePct"
+                                       placeholder="%" value="100" min="1">
+                                <span class="input-group-text">%</span>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-outline-primary w-100" onclick="addExternalItem()">
+                                <i class="bi bi-plus"></i> Aggiungi
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- External Items List -->
+                    <div id="externalItemsList">
+                        <!-- Items will be added here dynamically -->
+                    </div>
+
+                    <div class="text-muted text-center py-2" id="noExternalMessage">
+                        <small>Nessun elemento esterno aggiunto.</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Sidebar -->
+            <div class="col-lg-4">
+                <div class="stat-card summary-card">
+                    <h5 class="mb-3"><i class="bi bi-calculator"></i> Riepilogo</h5>
+
+                    <div class="mb-3" id="baseCostRow" style="display: none;">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-muted">Ricetta base:</span>
+                            <span id="baseCost">&euro; 0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted">Prodotti:</span>
+                        <span id="productsCost">&euro; 0.00</span>
+                    </div>
+
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted">Esterni:</span>
+                        <span id="externalsCost">&euro; 0.00</span>
+                    </div>
+
+                    <hr>
+
+                    <div class="d-flex justify-content-between mb-3">
+                        <span class="fw-bold">Costo Totale:</span>
+                        <span class="fw-bold text-danger" id="totalCost">&euro; 0.00</span>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Prezzo di Vendita</label>
+                        <div class="input-group">
+                            <span class="input-group-text">&euro;</span>
+                            <input type="number" class="form-control" name="selling_price" id="selling_price"
+                                   step="0.01" min="0" value="{% if is_edit %}{{ recipe.selling_price }}{% else %}0{% endif %}"
+                                   onchange="updateTotals()" onkeyup="updateTotals()">
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="fw-bold">Margine:</span>
+                        <div class="text-end">
+                            <span class="badge bg-secondary fs-6" id="marginPct">0.0%</span>
+                            <br>
+                            <small class="text-muted" id="marginAbs">&euro; 0.00</small>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="bi bi-check-circle"></i>
+                            {% if is_edit %}Salva Modifiche{% else %}Crea Ricetta{% endif %}
+                        </button>
+                        <a href="{% url 'recipe-list' %}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle"></i> Annulla
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Data arrays
+let productItems = {{ existing_product_items_json|default:"[]"|safe }};
+let externalItems = {{ existing_external_items_json|default:"[]"|safe }};
+const baseRecipesData = {{ base_recipes_json|safe }};
+
+// Debounce configuration
+let searchTimeout = null;
+const DEBOUNCE_MS = 1000;
+const MIN_CHARS = 3;
+
+// Elements
+const searchInput = document.getElementById('productSearch');
+const resultsDropdown = document.getElementById('searchResults');
+const supermarketSelect = document.getElementById('supermarket');
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    renderProductItems();
+    renderExternalItems();
+    updateTotals();
+    toggleBaseOptions();
+    filterBaseRecipes();
+
+    // Filter base recipes when supermarket changes
+    supermarketSelect.addEventListener('change', filterBaseRecipes);
+});
+
+// Toggle base recipe options visibility
+function toggleBaseOptions() {
+    const isBase = document.getElementById('is_base').checked;
+    const baseRow = document.getElementById('baseRecipeRow');
+    const familyInput = document.getElementById('family');
+
+    if (isBase) {
+        baseRow.style.display = 'none';
+        document.getElementById('base_recipe').value = '';
+        familyInput.value = '';
+        familyInput.disabled = true;
+    } else {
+        baseRow.style.display = 'flex';
+        familyInput.disabled = false;
+    }
+    updateTotals();
+}
+
+// Filter base recipes by selected supermarket
+function filterBaseRecipes() {
+    const supermarketId = supermarketSelect.value;
+    const baseSelect = document.getElementById('base_recipe');
+    const options = baseSelect.querySelectorAll('option');
+
+    options.forEach(opt => {
+        if (opt.value === '') return; // Keep empty option
+        const optSupermarket = opt.dataset.supermarket;
+        opt.style.display = (optSupermarket === supermarketId) ? '' : 'none';
+    });
+
+    // Reset selection if current doesn't match
+    if (baseSelect.value && baseSelect.selectedOptions[0].style.display === 'none') {
+        baseSelect.value = '';
+    }
+    updateTotals();
+}
+
+// Product Search
+searchInput.addEventListener('input', function() {
+    const query = this.value.trim();
+
+    if (searchTimeout) clearTimeout(searchTimeout);
+
+    if (query.length < MIN_CHARS) {
+        resultsDropdown.style.display = 'none';
+        return;
+    }
+
+    const supermarketId = supermarketSelect.value;
+    if (!supermarketId) {
+        alert('Seleziona prima un Punto Vendita');
+        return;
+    }
+
+    // Show loading
+    resultsDropdown.innerHTML = '<div class="dropdown-item text-muted"><i class="bi bi-hourglass-split"></i> Ricerca...</div>';
+    resultsDropdown.style.display = 'block';
+
+    searchTimeout = setTimeout(() => {
+        fetch(`{% url 'recipe-search-products' %}?q=${encodeURIComponent(query)}&supermarket_id=${supermarketId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    resultsDropdown.innerHTML = `<div class="dropdown-item text-danger">${data.error}</div>`;
+                } else if (data.products.length === 0) {
+                    resultsDropdown.innerHTML = '<div class="dropdown-item text-muted">Nessun risultato</div>';
+                } else {
+                    resultsDropdown.innerHTML = data.products.map(p => `
+                        <div class="dropdown-item" onclick='addProductItem(${JSON.stringify(p)})'>
+                            <strong>${p.cod}.${p.var}</strong> - ${p.description}
+                            <br><small class="text-muted">Costo: &euro; ${p.cost_std.toFixed(4)}</small>
+                        </div>
+                    `).join('');
+                }
+                resultsDropdown.style.display = 'block';
+            })
+            .catch(err => {
+                console.error('Search error:', err);
+                resultsDropdown.innerHTML = '<div class="dropdown-item text-danger">Errore di ricerca</div>';
+                resultsDropdown.style.display = 'block';
+            });
+    }, DEBOUNCE_MS);
+});
+
+// Hide search results when clicking outside
+document.addEventListener('click', function(e) {
+    if (!searchInput.contains(e.target) && !resultsDropdown.contains(e.target)) {
+        resultsDropdown.style.display = 'none';
+    }
+});
+
+// Add product item
+function addProductItem(product) {
+    // Check for duplicates
+    if (productItems.find(p => p.cod === product.cod && p.var === product.var)) {
+        alert('Prodotto già aggiunto');
+        return;
+    }
+
+    productItems.push({
+        cod: product.cod,
+        var: product.var,
+        description: product.description,
+        cost_std: product.cost_std,
+        use_percentage: 100
+    });
+
+    renderProductItems();
+    updateTotals();
+
+    // Clear search
+    searchInput.value = '';
+    resultsDropdown.style.display = 'none';
+}
+
+// Remove product item
+function removeProductItem(index) {
+    productItems.splice(index, 1);
+    renderProductItems();
+    updateTotals();
+}
+
+// Update product percentage
+function updateProductPercentage(index, value) {
+    productItems[index].use_percentage = parseInt(value) || 100;
+    updateTotals();
+}
+
+// Render product items
+function renderProductItems() {
+    const container = document.getElementById('productItemsList');
+    const noMessage = document.getElementById('noProductsMessage');
+
+    if (productItems.length === 0) {
+        container.innerHTML = '';
+        noMessage.style.display = 'block';
+        return;
+    }
+
+    noMessage.style.display = 'none';
+    container.innerHTML = productItems.map((item, idx) => `
+        <div class="item-row d-flex align-items-center gap-3">
+            <div class="flex-grow-1">
+                <strong>${item.cod}.${item.var}</strong>
+                <span class="text-muted ms-2">${item.description}</span>
+                <br><small class="text-muted">Costo unitario: &euro; ${item.cost_std.toFixed(4)}</small>
+            </div>
+            <div>
+                <div class="input-group input-group-sm use-percentage-input">
+                    <input type="number" class="form-control" value="${item.use_percentage}"
+                           min="1" onchange="updateProductPercentage(${idx}, this.value)">
+                    <span class="input-group-text">%</span>
+                </div>
+            </div>
+            <div class="text-end" style="min-width: 80px;">
+                <strong>&euro; ${(item.cost_std * item.use_percentage / 100).toFixed(2)}</strong>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeProductItem(${idx})">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+// Add external item
+function addExternalItem() {
+    const name = document.getElementById('extName').value.trim();
+    const unitCost = parseFloat(document.getElementById('extUnitCost').value) || 0;
+    const usePct = parseInt(document.getElementById('extUsePct').value) || 100;
+
+    if (!name) {
+        alert('Inserisci un nome per l\'elemento');
+        return;
+    }
+    if (unitCost <= 0) {
+        alert('Inserisci un costo valido');
+        return;
+    }
+
+    externalItems.push({ name, unit_cost: unitCost, use_percentage: usePct });
+    renderExternalItems();
+    updateTotals();
+
+    // Clear inputs
+    document.getElementById('extName').value = '';
+    document.getElementById('extUnitCost').value = '';
+    document.getElementById('extUsePct').value = '100';
+}
+
+// Remove external item
+function removeExternalItem(index) {
+    externalItems.splice(index, 1);
+    renderExternalItems();
+    updateTotals();
+}
+
+// Update external percentage
+function updateExternalPercentage(index, value) {
+    externalItems[index].use_percentage = parseInt(value) || 100;
+    updateTotals();
+}
+
+// Render external items
+function renderExternalItems() {
+    const container = document.getElementById('externalItemsList');
+    const noMessage = document.getElementById('noExternalMessage');
+
+    if (externalItems.length === 0) {
+        container.innerHTML = '';
+        noMessage.style.display = 'block';
+        return;
+    }
+
+    noMessage.style.display = 'none';
+    container.innerHTML = externalItems.map((item, idx) => `
+        <div class="item-row d-flex align-items-center gap-3">
+            <div class="flex-grow-1">
+                <strong>${item.name}</strong>
+                <br><small class="text-muted">Costo unitario: &euro; ${item.unit_cost.toFixed(4)}</small>
+            </div>
+            <div>
+                <div class="input-group input-group-sm use-percentage-input">
+                    <input type="number" class="form-control" value="${item.use_percentage}"
+                           min="1" onchange="updateExternalPercentage(${idx}, this.value)">
+                    <span class="input-group-text">%</span>
+                </div>
+            </div>
+            <div class="text-end" style="min-width: 80px;">
+                <strong>&euro; ${(item.unit_cost * item.use_percentage / 100).toFixed(2)}</strong>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeExternalItem(${idx})">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+// Update base recipe cost display
+function updateBaseRecipeCost() {
+    updateTotals();
+}
+
+// Update all totals
+function updateTotals() {
+    // Product items total
+    const productTotal = productItems.reduce((sum, p) =>
+        sum + (p.cost_std * p.use_percentage / 100), 0);
+
+    // External items total
+    const externalTotal = externalItems.reduce((sum, e) =>
+        sum + (e.unit_cost * e.use_percentage / 100), 0);
+
+    // Base recipe cost
+    let baseTotal = 0;
+    const baseSelect = document.getElementById('base_recipe');
+    const baseCostRow = document.getElementById('baseCostRow');
+
+    if (baseSelect.value && baseSelect.selectedOptions[0]) {
+        baseTotal = parseFloat(baseSelect.selectedOptions[0].dataset.cost) || 0;
+        baseCostRow.style.display = 'block';
+        document.getElementById('baseCost').textContent = `€ ${baseTotal.toFixed(2)}`;
+    } else {
+        baseCostRow.style.display = 'none';
+    }
+
+    // Total cost
+    const totalCost = productTotal + externalTotal + baseTotal;
+
+    // Selling price and margin
+    const sellingPrice = parseFloat(document.getElementById('selling_price').value) || 0;
+    const marginAbs = sellingPrice - totalCost;
+    const marginPct = sellingPrice > 0 ? ((marginAbs / sellingPrice) * 100) : 0;
+
+    // Update display
+    document.getElementById('productsCost').textContent = `€ ${productTotal.toFixed(2)}`;
+    document.getElementById('externalsCost').textContent = `€ ${externalTotal.toFixed(2)}`;
+    document.getElementById('totalCost').textContent = `€ ${totalCost.toFixed(2)}`;
+    document.getElementById('marginAbs').textContent = `€ ${marginAbs.toFixed(2)}`;
+
+    const marginBadge = document.getElementById('marginPct');
+    marginBadge.textContent = `${marginPct.toFixed(1)}%`;
+    marginBadge.className = 'badge fs-6 ';
+    if (marginPct >= 30) {
+        marginBadge.className += 'bg-success';
+    } else if (marginPct >= 15) {
+        marginBadge.className += 'bg-warning';
+    } else {
+        marginBadge.className += 'bg-danger';
+    }
+
+    // Update hidden JSON fields
+    document.getElementById('product_items_json').value = JSON.stringify(productItems);
+    document.getElementById('external_items_json').value = JSON.stringify(externalItems);
+}
+
+// Form validation before submit
+document.getElementById('recipeForm').addEventListener('submit', function(e) {
+    const supermarket = document.getElementById('supermarket').value;
+    const name = document.querySelector('input[name="name"]').value.trim();
+
+    if (!supermarket) {
+        e.preventDefault();
+        alert('Seleziona un Punto Vendita');
+        return;
+    }
+
+    if (!name) {
+        e.preventDefault();
+        alert('Inserisci un nome per la ricetta');
+        return;
+    }
+
+    // Update JSON fields one last time
+    document.getElementById('product_items_json').value = JSON.stringify(productItems);
+    document.getElementById('external_items_json').value = JSON.stringify(externalItems);
+});
+</script>
+{% endblock %}

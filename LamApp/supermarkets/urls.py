@@ -56,7 +56,16 @@ urlpatterns = [
     path('blacklists/<int:pk>/delete/', views.BlacklistDeleteView.as_view(), name='blacklist-delete'),
     path('blacklists/<int:blacklist_pk>/entries/add/', views.BlacklistEntryCreateView.as_view(), name='blacklistentry-add'),
     path('blacklists/entries/<int:pk>/delete/', views.BlacklistEntryDeleteView.as_view(), name='blacklistentry-delete'),
-    
+
+    # ============ Recipes ============
+    path('recipes/', views.RecipeListView.as_view(), name='recipe-list'),
+    path('recipes/add/', views.recipe_create_view, name='recipe-add'),
+    path('recipes/<int:pk>/', views.RecipeDetailView.as_view(), name='recipe-detail'),
+    path('recipes/<int:pk>/edit/', views.recipe_update_view, name='recipe-edit'),
+    path('recipes/<int:pk>/delete/', views.RecipeDeleteView.as_view(), name='recipe-delete'),
+    path('recipes/api/search-products/', views.recipe_product_search_view, name='recipe-search-products'),
+    path('recipes/api/base/<int:pk>/items/', views.recipe_get_base_items_view, name='recipe-base-items'),
+
     # ============ Inventory Panel (Unified Operations) ============
     path('inventory/', views.inventory_search_view, name='inventory-search'),
     path('inventory/results/<str:search_type>/', views.inventory_results_view, name='inventory-results'),

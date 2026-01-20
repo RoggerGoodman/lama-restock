@@ -1,0 +1,139 @@
+<!-- LamApp/supermarkets/templates/recipes/list.html -->
+{% extends 'base.html' %}
+{% block title %}Ricette{% endblock %}
+{% block page_title %}Ricette{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">
+                    <i class="bi bi-book"></i> Le tue Ricette
+                </h4>
+                <a href="{% url 'recipe-add' %}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> Nuova Ricetta
+                </a>
+            </div>
+        </div>
+    </div>
+
+    {% if grouped_recipes %}
+        {% for sm_key, groups in grouped_recipes.items %}
+            <div class="stat-card mb-4">
+                <h5 class="mb-3">
+                    <i class="bi bi-shop"></i> {{ sm_key.1 }}
+                </h5>
+
+                <!-- Base Recipes Section -->
+                {% if groups.base %}
+                <div class="mb-4">
+                    <h6 class="text-muted mb-3">
+                        <i class="bi bi-layers"></i> Ricette Base
+                    </h6>
+                    <div class="row">
+                        {% for recipe in groups.base %}
+                        <div class="col-md-6 col-lg-4 mb-3">
+                            <div class="card h-100 border-info">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <h6 class="card-title mb-1">
+                                            <i class="bi bi-layers text-info"></i>
+                                            {{ recipe.name }}
+                                        </h6>
+                                        <span class="badge bg-info">Base</span>
+                                    </div>
+                                    <p class="card-text small text-muted mb-2">
+                                        {{ recipe.product_items.count }} ingredienti
+                                        {% if recipe.external_items.count %}
+                                        + {{ recipe.external_items.count }} esterni
+                                        {% endif %}
+                                    </p>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="text-muted small">
+                                            Costo: <strong>&euro; {{ recipe.get_total_cost|floatformat:2 }}</strong>
+                                        </span>
+                                        <a href="{% url 'recipe-detail' pk=recipe.pk %}" class="btn btn-sm btn-outline-primary">
+                                            Dettagli
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Recipes by Family -->
+                {% for family, recipes in groups.by_family.items %}
+                <div class="mb-4">
+                    <h6 class="text-muted mb-3">
+                        <i class="bi bi-folder"></i> {{ family }}
+                    </h6>
+                    <div class="row">
+                        {% for recipe in recipes %}
+                        <div class="col-md-6 col-lg-4 mb-3">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <h6 class="card-title mb-1">{{ recipe.name }}</h6>
+                                        {% if recipe.base_recipe %}
+                                        <span class="badge bg-secondary" title="Basata su: {{ recipe.base_recipe.name }}">
+                                            <i class="bi bi-layers"></i>
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                    <p class="card-text small text-muted mb-2">
+                                        {{ recipe.product_items.count }} ingredienti
+                                        {% if recipe.external_items.count %}
+                                        + {{ recipe.external_items.count }} esterni
+                                        {% endif %}
+                                    </p>
+                                    <div class="mb-2">
+                                        <span class="text-muted small">Costo:</span>
+                                        <strong>&euro; {{ recipe.get_total_cost|floatformat:2 }}</strong>
+                                        <span class="mx-2">|</span>
+                                        <span class="text-muted small">Prezzo:</span>
+                                        <strong>&euro; {{ recipe.selling_price|floatformat:2 }}</strong>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        {% with margin=recipe.get_margin_percentage %}
+                                        <span class="badge {% if margin >= 30 %}bg-success{% elif margin >= 15 %}bg-warning{% else %}bg-danger{% endif %}">
+                                            Margine: {{ margin|floatformat:1 }}%
+                                        </span>
+                                        {% endwith %}
+                                        <a href="{% url 'recipe-detail' pk=recipe.pk %}" class="btn btn-sm btn-outline-primary">
+                                            Dettagli
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% empty %}
+                {% if not groups.base %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    Nessuna ricetta per questo punto vendita.
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="stat-card">
+            <div class="text-center py-5">
+                <i class="bi bi-book" style="font-size: 4rem; color: #ccc;"></i>
+                <h5 class="mt-3 text-muted">Nessuna ricetta</h5>
+                <p class="text-muted">Crea la tua prima ricetta per calcolare costi e margini.</p>
+                <a href="{% url 'recipe-add' %}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> Crea la prima ricetta
+                </a>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,253 @@
+<!-- LamApp/supermarkets/templates/recipes/detail.html -->
+{% extends 'base.html' %}
+{% block title %}Ricetta: {{ recipe.name }}{% endblock %}
+{% block page_title %}{{ recipe.name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Breadcrumb -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'recipe-list' %}">Ricette</a></li>
+                    <li class="breadcrumb-item active">{{ recipe.name }}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Recipe Info -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h4 class="mb-1">
+                            {% if recipe.is_base %}
+                            <i class="bi bi-layers text-info"></i>
+                            {% else %}
+                            <i class="bi bi-book text-primary"></i>
+                            {% endif %}
+                            {{ recipe.name }}
+                            {% if recipe.is_base %}
+                            <span class="badge bg-info ms-2">Base</span>
+                            {% endif %}
+                        </h4>
+                        <p class="text-muted mb-0">
+                            <i class="bi bi-shop"></i> {{ recipe.supermarket.name }}
+                            {% if recipe.family %}
+                            <span class="text-muted mx-2">|</span>
+                            <i class="bi bi-folder"></i> {{ recipe.family }}
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+
+                {% if recipe.base_recipe %}
+                <div class="alert alert-info mb-3">
+                    <i class="bi bi-layers"></i>
+                    Basata su: <a href="{% url 'recipe-detail' pk=recipe.base_recipe.pk %}">
+                        <strong>{{ recipe.base_recipe.name }}</strong>
+                    </a>
+                    (costo base: &euro; {{ base_total|floatformat:2 }})
+                </div>
+                {% endif %}
+
+                {% if recipe.notes %}
+                <div class="alert alert-secondary mb-3">
+                    <i class="bi bi-sticky"></i> {{ recipe.notes }}
+                </div>
+                {% endif %}
+
+                <!-- Actions -->
+                <div class="d-flex gap-2 mb-3">
+                    <a href="{% url 'recipe-edit' pk=recipe.pk %}" class="btn btn-primary">
+                        <i class="bi bi-pencil"></i> Modifica
+                    </a>
+                    <a href="{% url 'recipe-delete' pk=recipe.pk %}" class="btn btn-outline-danger">
+                        <i class="bi bi-trash"></i> Elimina
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="stat-card">
+                <h6 class="mb-3"><i class="bi bi-calculator"></i> Riepilogo Costi</h6>
+
+                {% if recipe.base_recipe %}
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted">Ricetta base</span>
+                    <strong>&euro; {{ base_total|floatformat:2 }}</strong>
+                </div>
+                {% endif %}
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted">Ingredienti prodotti</span>
+                    <strong>&euro; {{ product_total|floatformat:2 }}</strong>
+                </div>
+
+                {% if external_total > 0 %}
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted">Elementi esterni</span>
+                    <strong>&euro; {{ external_total|floatformat:2 }}</strong>
+                </div>
+                {% endif %}
+
+                <hr>
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-bold">Costo Totale</span>
+                    <span class="fw-bold text-danger">&euro; {{ total_cost|floatformat:2 }}</span>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-bold">Prezzo Vendita</span>
+                    <span class="fw-bold text-success">&euro; {{ recipe.selling_price|floatformat:2 }}</span>
+                </div>
+
+                <hr>
+
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="fw-bold">Margine</span>
+                    <div class="text-end">
+                        <span class="badge {% if margin_pct >= 30 %}bg-success{% elif margin_pct >= 15 %}bg-warning{% else %}bg-danger{% endif %} fs-6">
+                            {{ margin_pct|floatformat:1 }}%
+                        </span>
+                        <br>
+                        <small class="text-muted">&euro; {{ margin_abs|floatformat:2 }}</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product Items -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-box-seam"></i> Ingredienti da Prodotti
+                </h5>
+
+                {% if product_items %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Codice</th>
+                                <th>Descrizione</th>
+                                <th class="text-center">Uso %</th>
+                                <th class="text-end">Costo Unitario</th>
+                                <th class="text-end">Costo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in product_items %}
+                            <tr>
+                                <td><strong>{{ item.product_code }}.{{ item.product_var }}</strong></td>
+                                <td>{{ item.live_description|default:item.cached_description|default:"-" }}</td>
+                                <td class="text-center">
+                                    <span class="badge bg-secondary">{{ item.use_percentage }}%</span>
+                                </td>
+                                <td class="text-end text-muted">
+                                    &euro; {{ item.live_cost_std|default:item.cached_cost_std|floatformat:4 }}
+                                </td>
+                                <td class="text-end">
+                                    <strong>&euro; {{ item.live_cost|floatformat:2 }}</strong>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-light">
+                                <td colspan="4" class="text-end"><strong>Subtotale Prodotti:</strong></td>
+                                <td class="text-end"><strong>&euro; {{ product_total|floatformat:2 }}</strong></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-info-circle"></i>
+                    Nessun ingrediente da prodotti.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- External Items -->
+    {% if external_items %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-box-arrow-in-right"></i> Elementi Esterni
+                </h5>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th class="text-center">Uso %</th>
+                                <th class="text-end">Costo Unitario</th>
+                                <th class="text-end">Costo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in external_items %}
+                            <tr>
+                                <td><strong>{{ item.name }}</strong></td>
+                                <td class="text-center">
+                                    <span class="badge bg-secondary">{{ item.use_percentage }}%</span>
+                                </td>
+                                <td class="text-end text-muted">&euro; {{ item.unit_cost|floatformat:4 }}</td>
+                                <td class="text-end"><strong>&euro; {{ item.get_cost|floatformat:2 }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-light">
+                                <td colspan="3" class="text-end"><strong>Subtotale Esterni:</strong></td>
+                                <td class="text-end"><strong>&euro; {{ external_total|floatformat:2 }}</strong></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Derived Recipes (if this is a base recipe) -->
+    {% if recipe.is_base and recipe.derived_recipes.exists %}
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-diagram-3"></i> Ricette Derivate
+                </h5>
+                <div class="row">
+                    {% for derived in recipe.derived_recipes.all %}
+                    <div class="col-md-4 mb-2">
+                        <a href="{% url 'recipe-detail' pk=derived.pk %}" class="text-decoration-none">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <i class="bi bi-arrow-return-right text-muted"></i>
+                                    {{ derived.name }}
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

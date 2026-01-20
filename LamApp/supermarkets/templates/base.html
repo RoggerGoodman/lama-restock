@@ -237,6 +237,11 @@
                     <i class="bi bi-calendar-check"></i> Agenda ordini
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link {% if 'recipe' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'recipe-list' %}">
+                    <i class="bi bi-book"></i> Ricette
+                </a>
+            </li>
             <li class="nav-item mt-4">
                 <form method="post" action="{% url 'logout' %}" style="margin: 0;">
                     {% csrf_token %}
