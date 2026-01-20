@@ -73,10 +73,16 @@
                 <div class="alert alert-info">
                     <h6><i class="bi bi-info-circle"></i> Come funziona</h6>
                     <ul class="mb-0">
-                        <li><strong>Giorni di ordine:</strong> Seleziona i giorni in cui effettuare gli ordini</li>
-                        <li><strong>Tempi di consegna:</strong> Configura quando arriva la consegna (0=lo stesso giorno, 1=il giorno successivo, 2=due giorni dopo)</li>
-                        <li><strong>Copertura:</strong> Calcolato automaticamente dal giorno dell'ordine al giorno di consegna successivo</li>
-                        <li><strong>Tempistiche:</strong> Gli ordini vengono eseguiti alle 6:00 nei giorni degli ordini</li>
+                        <li><strong>Giorni di ordine:</strong> Attiva i giorni in cui vuoi effettuare gli ordini</li>
+                        <li><strong>Tempi di consegna:</strong>
+                            <ul class="mt-1 mb-1">
+                                <li><i class="bi bi-lightning-fill text-warning"></i> <strong>Stesso giorno</strong> - La merce arriva il giorno stesso dell'ordine</li>
+                                <li><i class="bi bi-calendar-plus text-primary"></i> <strong>Giorno seguente</strong> - La merce arriva il giorno dopo l'ordine</li>
+                                <li><i class="bi bi-gear text-secondary"></i> <strong>Altro ritardo</strong> - Per consegne con più giorni di attesa (es. festività, weekend)</li>
+                            </ul>
+                        </li>
+                        <li><strong>Copertura:</strong> Calcolata automaticamente - indica quanti giorni copre ogni ordine</li>
+                        <li><strong>Orario:</strong> Gli ordini vengono eseguiti automaticamente alle 6:00</li>
                     </ul>
                 </div>
 
@@ -105,14 +111,30 @@
                                             </div>
                                         </div>
                                         <div class="delivery-config mt-3" style="display: none;">
-                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
-                                            <div class="btn-group w-100" role="group">
-                                                <input type="radio" class="btn-check" name="monday_offset_radio" id="monday_offset_0" value="0">
-                                                <label class="btn btn-outline-secondary btn-sm" for="monday_offset_0">Stesso giorno</label>
-                                                <input type="radio" class="btn-check" name="monday_offset_radio" id="monday_offset_1" value="1" checked>
-                                                <label class="btn btn-outline-secondary btn-sm" for="monday_offset_1">+1 giorno</label>
-                                                <input type="radio" class="btn-check" name="monday_offset_radio" id="monday_offset_2" value="2">
-                                                <label class="btn btn-outline-secondary btn-sm" for="monday_offset_2">+2 giorni</label>
+                                            <label class="form-label small text-muted mb-2">Quando arriva la merce?</label>
+                                            <div class="d-flex flex-column gap-2">
+                                                <div class="btn-group w-100" role="group">
+                                                    <input type="radio" class="btn-check" name="monday_offset_radio" id="monday_offset_0" value="0">
+                                                    <label class="btn btn-outline-primary btn-sm" for="monday_offset_0">
+                                                        <i class="bi bi-lightning-fill"></i> Stesso giorno
+                                                    </label>
+                                                    <input type="radio" class="btn-check" name="monday_offset_radio" id="monday_offset_1" value="1" checked>
+                                                    <label class="btn btn-outline-primary btn-sm" for="monday_offset_1">
+                                                        <i class="bi bi-calendar-plus"></i> Giorno seguente
+                                                    </label>
+                                                </div>
+                                                <div class="custom-delay-section mt-1">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <input type="checkbox" class="form-check-input" id="monday_custom_toggle">
+                                                        <label class="form-check-label small text-muted" for="monday_custom_toggle">
+                                                            Altro ritardo
+                                                        </label>
+                                                        <input type="number" class="form-control form-control-sm custom-delay-input"
+                                                               id="monday_custom_days" min="2" max="7" value="2"
+                                                               style="width: 60px; display: none;">
+                                                        <span class="small text-muted custom-delay-label" style="display: none;">giorni</span>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
@@ -136,14 +158,30 @@
                                             </div>
                                         </div>
                                         <div class="delivery-config mt-3" style="display: none;">
-                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
-                                            <div class="btn-group w-100" role="group">
-                                                <input type="radio" class="btn-check" name="tuesday_offset_radio" id="tuesday_offset_0" value="0">
-                                                <label class="btn btn-outline-secondary btn-sm" for="tuesday_offset_0">Stesso giorno</label>
-                                                <input type="radio" class="btn-check" name="tuesday_offset_radio" id="tuesday_offset_1" value="1" checked>
-                                                <label class="btn btn-outline-secondary btn-sm" for="tuesday_offset_1">+1 giorno</label>
-                                                <input type="radio" class="btn-check" name="tuesday_offset_radio" id="tuesday_offset_2" value="2">
-                                                <label class="btn btn-outline-secondary btn-sm" for="tuesday_offset_2">+2 giorni</label>
+                                            <label class="form-label small text-muted mb-2">Quando arriva la merce?</label>
+                                            <div class="d-flex flex-column gap-2">
+                                                <div class="btn-group w-100" role="group">
+                                                    <input type="radio" class="btn-check" name="tuesday_offset_radio" id="tuesday_offset_0" value="0">
+                                                    <label class="btn btn-outline-primary btn-sm" for="tuesday_offset_0">
+                                                        <i class="bi bi-lightning-fill"></i> Stesso giorno
+                                                    </label>
+                                                    <input type="radio" class="btn-check" name="tuesday_offset_radio" id="tuesday_offset_1" value="1" checked>
+                                                    <label class="btn btn-outline-primary btn-sm" for="tuesday_offset_1">
+                                                        <i class="bi bi-calendar-plus"></i> Giorno seguente
+                                                    </label>
+                                                </div>
+                                                <div class="custom-delay-section mt-1">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <input type="checkbox" class="form-check-input" id="tuesday_custom_toggle">
+                                                        <label class="form-check-label small text-muted" for="tuesday_custom_toggle">
+                                                            Altro ritardo
+                                                        </label>
+                                                        <input type="number" class="form-control form-control-sm custom-delay-input"
+                                                               id="tuesday_custom_days" min="2" max="7" value="2"
+                                                               style="width: 60px; display: none;">
+                                                        <span class="small text-muted custom-delay-label" style="display: none;">giorni</span>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
@@ -167,14 +205,30 @@
                                             </div>
                                         </div>
                                         <div class="delivery-config mt-3" style="display: none;">
-                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
-                                            <div class="btn-group w-100" role="group">
-                                                <input type="radio" class="btn-check" name="wednesday_offset_radio" id="wednesday_offset_0" value="0">
-                                                <label class="btn btn-outline-secondary btn-sm" for="wednesday_offset_0">Stesso giorno</label>
-                                                <input type="radio" class="btn-check" name="wednesday_offset_radio" id="wednesday_offset_1" value="1" checked>
-                                                <label class="btn btn-outline-secondary btn-sm" for="wednesday_offset_1">+1 giorno</label>
-                                                <input type="radio" class="btn-check" name="wednesday_offset_radio" id="wednesday_offset_2" value="2">
-                                                <label class="btn btn-outline-secondary btn-sm" for="wednesday_offset_2">+2 giorni</label>
+                                            <label class="form-label small text-muted mb-2">Quando arriva la merce?</label>
+                                            <div class="d-flex flex-column gap-2">
+                                                <div class="btn-group w-100" role="group">
+                                                    <input type="radio" class="btn-check" name="wednesday_offset_radio" id="wednesday_offset_0" value="0">
+                                                    <label class="btn btn-outline-primary btn-sm" for="wednesday_offset_0">
+                                                        <i class="bi bi-lightning-fill"></i> Stesso giorno
+                                                    </label>
+                                                    <input type="radio" class="btn-check" name="wednesday_offset_radio" id="wednesday_offset_1" value="1" checked>
+                                                    <label class="btn btn-outline-primary btn-sm" for="wednesday_offset_1">
+                                                        <i class="bi bi-calendar-plus"></i> Giorno seguente
+                                                    </label>
+                                                </div>
+                                                <div class="custom-delay-section mt-1">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <input type="checkbox" class="form-check-input" id="wednesday_custom_toggle">
+                                                        <label class="form-check-label small text-muted" for="wednesday_custom_toggle">
+                                                            Altro ritardo
+                                                        </label>
+                                                        <input type="number" class="form-control form-control-sm custom-delay-input"
+                                                               id="wednesday_custom_days" min="2" max="7" value="2"
+                                                               style="width: 60px; display: none;">
+                                                        <span class="small text-muted custom-delay-label" style="display: none;">giorni</span>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
@@ -198,14 +252,30 @@
                                             </div>
                                         </div>
                                         <div class="delivery-config mt-3" style="display: none;">
-                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
-                                            <div class="btn-group w-100" role="group">
-                                                <input type="radio" class="btn-check" name="thursday_offset_radio" id="thursday_offset_0" value="0">
-                                                <label class="btn btn-outline-secondary btn-sm" for="thursday_offset_0">Stesso giorno</label>
-                                                <input type="radio" class="btn-check" name="thursday_offset_radio" id="thursday_offset_1" value="1" checked>
-                                                <label class="btn btn-outline-secondary btn-sm" for="thursday_offset_1">+1 giorno</label>
-                                                <input type="radio" class="btn-check" name="thursday_offset_radio" id="thursday_offset_2" value="2">
-                                                <label class="btn btn-outline-secondary btn-sm" for="thursday_offset_2">+2 giorni</label>
+                                            <label class="form-label small text-muted mb-2">Quando arriva la merce?</label>
+                                            <div class="d-flex flex-column gap-2">
+                                                <div class="btn-group w-100" role="group">
+                                                    <input type="radio" class="btn-check" name="thursday_offset_radio" id="thursday_offset_0" value="0">
+                                                    <label class="btn btn-outline-primary btn-sm" for="thursday_offset_0">
+                                                        <i class="bi bi-lightning-fill"></i> Stesso giorno
+                                                    </label>
+                                                    <input type="radio" class="btn-check" name="thursday_offset_radio" id="thursday_offset_1" value="1" checked>
+                                                    <label class="btn btn-outline-primary btn-sm" for="thursday_offset_1">
+                                                        <i class="bi bi-calendar-plus"></i> Giorno seguente
+                                                    </label>
+                                                </div>
+                                                <div class="custom-delay-section mt-1">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <input type="checkbox" class="form-check-input" id="thursday_custom_toggle">
+                                                        <label class="form-check-label small text-muted" for="thursday_custom_toggle">
+                                                            Altro ritardo
+                                                        </label>
+                                                        <input type="number" class="form-control form-control-sm custom-delay-input"
+                                                               id="thursday_custom_days" min="2" max="7" value="2"
+                                                               style="width: 60px; display: none;">
+                                                        <span class="small text-muted custom-delay-label" style="display: none;">giorni</span>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
@@ -229,14 +299,30 @@
                                             </div>
                                         </div>
                                         <div class="delivery-config mt-3" style="display: none;">
-                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
-                                            <div class="btn-group w-100" role="group">
-                                                <input type="radio" class="btn-check" name="friday_offset_radio" id="friday_offset_0" value="0">
-                                                <label class="btn btn-outline-secondary btn-sm" for="friday_offset_0">Stesso giorno</label>
-                                                <input type="radio" class="btn-check" name="friday_offset_radio" id="friday_offset_1" value="1" checked>
-                                                <label class="btn btn-outline-secondary btn-sm" for="friday_offset_1">+1 giorno</label>
-                                                <input type="radio" class="btn-check" name="friday_offset_radio" id="friday_offset_2" value="2">
-                                                <label class="btn btn-outline-secondary btn-sm" for="friday_offset_2">+2 giorni</label>
+                                            <label class="form-label small text-muted mb-2">Quando arriva la merce?</label>
+                                            <div class="d-flex flex-column gap-2">
+                                                <div class="btn-group w-100" role="group">
+                                                    <input type="radio" class="btn-check" name="friday_offset_radio" id="friday_offset_0" value="0">
+                                                    <label class="btn btn-outline-primary btn-sm" for="friday_offset_0">
+                                                        <i class="bi bi-lightning-fill"></i> Stesso giorno
+                                                    </label>
+                                                    <input type="radio" class="btn-check" name="friday_offset_radio" id="friday_offset_1" value="1" checked>
+                                                    <label class="btn btn-outline-primary btn-sm" for="friday_offset_1">
+                                                        <i class="bi bi-calendar-plus"></i> Giorno seguente
+                                                    </label>
+                                                </div>
+                                                <div class="custom-delay-section mt-1">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <input type="checkbox" class="form-check-input" id="friday_custom_toggle">
+                                                        <label class="form-check-label small text-muted" for="friday_custom_toggle">
+                                                            Altro ritardo
+                                                        </label>
+                                                        <input type="number" class="form-control form-control-sm custom-delay-input"
+                                                               id="friday_custom_days" min="2" max="7" value="2"
+                                                               style="width: 60px; display: none;">
+                                                        <span class="small text-muted custom-delay-label" style="display: none;">giorni</span>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
@@ -260,14 +346,30 @@
                                             </div>
                                         </div>
                                         <div class="delivery-config mt-3" style="display: none;">
-                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
-                                            <div class="btn-group w-100" role="group">
-                                                <input type="radio" class="btn-check" name="saturday_offset_radio" id="saturday_offset_0" value="0">
-                                                <label class="btn btn-outline-secondary btn-sm" for="saturday_offset_0">Stesso giorno</label>
-                                                <input type="radio" class="btn-check" name="saturday_offset_radio" id="saturday_offset_1" value="1" checked>
-                                                <label class="btn btn-outline-secondary btn-sm" for="saturday_offset_1">+1 giorno</label>
-                                                <input type="radio" class="btn-check" name="saturday_offset_radio" id="saturday_offset_2" value="2">
-                                                <label class="btn btn-outline-secondary btn-sm" for="saturday_offset_2">+2 giorni</label>
+                                            <label class="form-label small text-muted mb-2">Quando arriva la merce?</label>
+                                            <div class="d-flex flex-column gap-2">
+                                                <div class="btn-group w-100" role="group">
+                                                    <input type="radio" class="btn-check" name="saturday_offset_radio" id="saturday_offset_0" value="0">
+                                                    <label class="btn btn-outline-primary btn-sm" for="saturday_offset_0">
+                                                        <i class="bi bi-lightning-fill"></i> Stesso giorno
+                                                    </label>
+                                                    <input type="radio" class="btn-check" name="saturday_offset_radio" id="saturday_offset_1" value="1" checked>
+                                                    <label class="btn btn-outline-primary btn-sm" for="saturday_offset_1">
+                                                        <i class="bi bi-calendar-plus"></i> Giorno seguente
+                                                    </label>
+                                                </div>
+                                                <div class="custom-delay-section mt-1">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <input type="checkbox" class="form-check-input" id="saturday_custom_toggle">
+                                                        <label class="form-check-label small text-muted" for="saturday_custom_toggle">
+                                                            Altro ritardo
+                                                        </label>
+                                                        <input type="number" class="form-control form-control-sm custom-delay-input"
+                                                               id="saturday_custom_days" min="2" max="7" value="2"
+                                                               style="width: 60px; display: none;">
+                                                        <span class="small text-muted custom-delay-label" style="display: none;">giorni</span>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
@@ -291,14 +393,30 @@
                                             </div>
                                         </div>
                                         <div class="delivery-config mt-3" style="display: none;">
-                                            <label class="form-label small text-muted mb-1">Consegna dopo:</label>
-                                            <div class="btn-group w-100" role="group">
-                                                <input type="radio" class="btn-check" name="sunday_offset_radio" id="sunday_offset_0" value="0">
-                                                <label class="btn btn-outline-secondary btn-sm" for="sunday_offset_0">Stesso giorno</label>
-                                                <input type="radio" class="btn-check" name="sunday_offset_radio" id="sunday_offset_1" value="1" checked>
-                                                <label class="btn btn-outline-secondary btn-sm" for="sunday_offset_1">+1 giorno</label>
-                                                <input type="radio" class="btn-check" name="sunday_offset_radio" id="sunday_offset_2" value="2">
-                                                <label class="btn btn-outline-secondary btn-sm" for="sunday_offset_2">+2 giorni</label>
+                                            <label class="form-label small text-muted mb-2">Quando arriva la merce?</label>
+                                            <div class="d-flex flex-column gap-2">
+                                                <div class="btn-group w-100" role="group">
+                                                    <input type="radio" class="btn-check" name="sunday_offset_radio" id="sunday_offset_0" value="0">
+                                                    <label class="btn btn-outline-primary btn-sm" for="sunday_offset_0">
+                                                        <i class="bi bi-lightning-fill"></i> Stesso giorno
+                                                    </label>
+                                                    <input type="radio" class="btn-check" name="sunday_offset_radio" id="sunday_offset_1" value="1" checked>
+                                                    <label class="btn btn-outline-primary btn-sm" for="sunday_offset_1">
+                                                        <i class="bi bi-calendar-plus"></i> Giorno seguente
+                                                    </label>
+                                                </div>
+                                                <div class="custom-delay-section mt-1">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <input type="checkbox" class="form-check-input" id="sunday_custom_toggle">
+                                                        <label class="form-check-label small text-muted" for="sunday_custom_toggle">
+                                                            Altro ritardo
+                                                        </label>
+                                                        <input type="number" class="form-control form-control-sm custom-delay-input"
+                                                               id="sunday_custom_days" min="2" max="7" value="2"
+                                                               style="width: 60px; display: none;">
+                                                        <span class="small text-muted custom-delay-label" style="display: none;">giorni</span>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
@@ -327,6 +445,115 @@
                         </button>
                     </div>
                 </form>
+
+                <!-- 3-Month Calendar Planning Section -->
+                <div class="mt-5 pt-4 border-top">
+                    <h5 class="mb-3">
+                        <i class="bi bi-calendar3 text-primary"></i>
+                        Pianificazione 3 Mesi
+                    </h5>
+                    <p class="text-muted small mb-3">
+                        Il calendario mostra automaticamente i giorni di ordine in base alla settimana tipo configurata sopra.
+                        <strong>Clicca su un giorno</strong> per aggiungere eccezioni (festività, chiusure, modifiche).
+                    </p>
+
+                    <div class="alert alert-light border mb-3">
+                        <div class="d-flex flex-wrap gap-3 small">
+                            <span><span class="badge bg-primary">&nbsp;</span> Ordine programmato</span>
+                            <span><span class="badge bg-success">&nbsp;</span> Consegna prevista</span>
+                            <span><span class="badge bg-danger">&nbsp;</span> Ordine saltato</span>
+                            <span><span class="badge bg-warning text-dark">&nbsp;</span> Ordine aggiunto</span>
+                            <span class="text-muted">|</span>
+                            <span><i class="bi bi-plus-circle text-success"></i> Clicca per aggiungere eccezione</span>
+                        </div>
+                    </div>
+
+                    <!-- Calendar Navigation -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="calendarPrevMonth">
+                            <i class="bi bi-chevron-left"></i> Mese precedente
+                        </button>
+                        <span class="fw-bold" id="calendarCurrentRange">Gennaio - Marzo 2026</span>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="calendarNextMonth">
+                            Mese successivo <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
+
+                    <!-- 3-Month Calendar Grid -->
+                    <div class="row g-3" id="threeMonthCalendar">
+                        <!-- Calendars will be generated by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Exception Modal -->
+                <div class="modal fade" id="exceptionModal" tabindex="-1">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">
+                                    <i class="bi bi-calendar-event"></i>
+                                    Gestisci giorno: <span id="exceptionModalDate"></span>
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <input type="hidden" id="exceptionDateInput">
+
+                                <div class="mb-3">
+                                    <label class="form-label">Tipo di eccezione</label>
+                                    <div class="d-flex flex-column gap-2">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeSkip" value="skip" checked>
+                                            <label class="form-check-label" for="exceptionTypeSkip">
+                                                <i class="bi bi-x-circle text-danger"></i>
+                                                <strong>Salta ordine</strong>
+                                                <small class="text-muted d-block">Non effettuare l'ordine in questo giorno</small>
+                                            </label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeAdd" value="add">
+                                            <label class="form-check-label" for="exceptionTypeAdd">
+                                                <i class="bi bi-plus-circle text-success"></i>
+                                                <strong>Aggiungi ordine</strong>
+                                                <small class="text-muted d-block">Effettua un ordine extra in questo giorno</small>
+                                            </label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeModify" value="modify">
+                                            <label class="form-check-label" for="exceptionTypeModify">
+                                                <i class="bi bi-pencil text-warning"></i>
+                                                <strong>Modifica consegna</strong>
+                                                <small class="text-muted d-block">Cambia il giorno di consegna per questo ordine</small>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3" id="deliveryOffsetSection" style="display: none;">
+                                    <label class="form-label">Consegna dopo quanti giorni?</label>
+                                    <div class="input-group" style="max-width: 200px;">
+                                        <input type="number" class="form-control" id="exceptionDeliveryOffset" min="0" max="7" value="1">
+                                        <span class="input-group-text">giorni</span>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label">Nota (opzionale)</label>
+                                    <input type="text" class="form-control" id="exceptionNote" placeholder="Es: Natale, Ferragosto, Chiusura straordinaria...">
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-danger" id="removeExceptionBtn" style="display: none;">
+                                    <i class="bi bi-trash"></i> Rimuovi eccezione
+                                </button>
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                                <button type="button" class="btn btn-primary" id="saveExceptionBtn">
+                                    <i class="bi bi-check"></i> Salva
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -550,25 +777,78 @@ function updateCardStyles() {
     });
 }
 
-// Sync radio buttons with hidden offset inputs
-function syncOffsetFromRadio(day) {
-    const selectedRadio = document.querySelector(`input[name="${day}_offset_radio"]:checked`);
+// Sync offset from UI elements (radio or custom input)
+function syncOffsetFromUI(day) {
     const hiddenInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
+    const customToggle = document.getElementById(`${day}_custom_toggle`);
+    const customDaysInput = document.getElementById(`${day}_custom_days`);
 
-    if (selectedRadio && hiddenInput) {
-        hiddenInput.value = selectedRadio.value;
+    if (!hiddenInput) return;
+
+    if (customToggle && customToggle.checked && customDaysInput) {
+        // Use custom value
+        hiddenInput.value = parseInt(customDaysInput.value) || 2;
+    } else {
+        // Use radio button value
+        const selectedRadio = document.querySelector(`input[name="${day}_offset_radio"]:checked`);
+        if (selectedRadio) {
+            hiddenInput.value = selectedRadio.value;
+        }
     }
 }
 
-// Sync radio buttons from hidden offset inputs (on page load)
-function syncRadioFromOffset(day) {
+// Update custom delay UI visibility
+function updateCustomDelayUI(day) {
+    const customToggle = document.getElementById(`${day}_custom_toggle`);
+    const customDaysInput = document.getElementById(`${day}_custom_days`);
+    const customLabel = customDaysInput?.nextElementSibling;
+    const radioButtons = document.querySelectorAll(`input[name="${day}_offset_radio"]`);
+
+    if (customToggle && customDaysInput) {
+        if (customToggle.checked) {
+            customDaysInput.style.display = 'inline-block';
+            if (customLabel) customLabel.style.display = 'inline';
+            // Disable radio buttons visually
+            radioButtons.forEach(radio => {
+                radio.disabled = true;
+                radio.closest('.btn-group')?.classList.add('opacity-50');
+            });
+        } else {
+            customDaysInput.style.display = 'none';
+            if (customLabel) customLabel.style.display = 'none';
+            // Enable radio buttons
+            radioButtons.forEach(radio => {
+                radio.disabled = false;
+                radio.closest('.btn-group')?.classList.remove('opacity-50');
+            });
+        }
+    }
+}
+
+// Sync UI from hidden offset inputs (on page load)
+function syncUIFromOffset(day) {
     const hiddenInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
+    const customToggle = document.getElementById(`${day}_custom_toggle`);
+    const customDaysInput = document.getElementById(`${day}_custom_days`);
+
     if (hiddenInput) {
         const value = parseInt(hiddenInput.value) || 1;
-        // Clamp to 0, 1, or 2
-        const clampedValue = Math.min(Math.max(value, 0), 2);
-        const radio = document.getElementById(`${day}_offset_${clampedValue}`);
-        if (radio) radio.checked = true;
+
+        if (value === 0 || value === 1) {
+            // Standard value - use radio button
+            const radio = document.getElementById(`${day}_offset_${value}`);
+            if (radio) radio.checked = true;
+            if (customToggle) customToggle.checked = false;
+        } else {
+            // Custom value (>= 2)
+            if (customToggle) customToggle.checked = true;
+            if (customDaysInput) customDaysInput.value = value;
+            // Default radio to "giorno seguente"
+            const defaultRadio = document.getElementById(`${day}_offset_1`);
+            if (defaultRadio) defaultRadio.checked = true;
+        }
+
+        updateCustomDelayUI(day);
     }
 }
 
@@ -579,9 +859,11 @@ document.addEventListener('DOMContentLoaded', function() {
     days.forEach(day => {
         const checkbox = document.querySelector(`input[name="${day}"]`);
         const offsetInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
+        const customToggle = document.getElementById(`${day}_custom_toggle`);
+        const customDaysInput = document.getElementById(`${day}_custom_days`);
 
-        // Sync radio buttons from saved values
-        syncRadioFromOffset(day);
+        // Sync UI from saved values
+        syncUIFromOffset(day);
 
         // Checkbox change event
         if (checkbox) {
@@ -601,22 +883,460 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Radio button change events for offset selection
-        [0, 1, 2].forEach(offset => {
+        [0, 1].forEach(offset => {
             const radio = document.getElementById(`${day}_offset_${offset}`);
             if (radio) {
                 radio.addEventListener('change', function() {
-                    syncOffsetFromRadio(day);
+                    syncOffsetFromUI(day);
                     updateCoveragePreview();
                     updateWeeklyCalendar();
                 });
             }
         });
+
+        // Custom toggle change event
+        if (customToggle) {
+            customToggle.addEventListener('change', function() {
+                updateCustomDelayUI(day);
+                syncOffsetFromUI(day);
+                updateCoveragePreview();
+                updateWeeklyCalendar();
+            });
+        }
+
+        // Custom days input change event
+        if (customDaysInput) {
+            customDaysInput.addEventListener('input', function() {
+                syncOffsetFromUI(day);
+                updateCoveragePreview();
+                updateWeeklyCalendar();
+            });
+        }
     });
 
     // Initial update
     updateCardStyles();
     updateCoveragePreview();
     updateWeeklyCalendar();
+
+    // Initialize 3-month calendar
+    initThreeMonthCalendar();
+});
+
+// ========================================
+// 3-MONTH CALENDAR FUNCTIONALITY
+// ========================================
+
+const monthNames = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
+                    'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
+const weekdayNamesShort = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+
+// Store exceptions locally (will be synced with server)
+let scheduleExceptions = {};  // { 'YYYY-MM-DD': { type: 'skip'|'add'|'modify', offset: number, note: string } }
+let calendarStartMonth = new Date();  // First month to display
+
+// Load existing exceptions from server
+async function loadExceptions() {
+    try {
+        const response = await fetch('{% url "schedule-exceptions-api" pk=storage.id %}');
+        if (response.ok) {
+            const data = await response.json();
+            scheduleExceptions = {};
+            data.exceptions.forEach(exc => {
+                scheduleExceptions[exc.date] = {
+                    type: exc.exception_type,
+                    offset: exc.delivery_offset,
+                    note: exc.note
+                };
+            });
+            renderThreeMonthCalendar();
+        }
+    } catch (e) {
+        console.error('Error loading exceptions:', e);
+    }
+}
+
+// Save exception to server
+async function saveException(date, exceptionType, deliveryOffset, note) {
+    try {
+        const response = await fetch('{% url "schedule-exceptions-api" pk=storage.id %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify({
+                date: date,
+                exception_type: exceptionType,
+                delivery_offset: deliveryOffset,
+                note: note
+            })
+        });
+        return response.ok;
+    } catch (e) {
+        console.error('Error saving exception:', e);
+        return false;
+    }
+}
+
+// Delete exception from server
+async function deleteException(date) {
+    try {
+        const response = await fetch('{% url "schedule-exceptions-api" pk=storage.id %}', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify({ date: date })
+        });
+        return response.ok;
+    } catch (e) {
+        console.error('Error deleting exception:', e);
+        return false;
+    }
+}
+
+// Get the weekly schedule from the form
+function getWeeklySchedule() {
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const schedule = {};
+
+    days.forEach((day, index) => {
+        const checkbox = document.querySelector(`input[name="${day}"]`);
+        const offsetInput = document.querySelector(`input[name="${day}_delivery_offset"]`);
+
+        schedule[index] = {
+            isOrderDay: checkbox ? checkbox.checked : false,
+            deliveryOffset: offsetInput ? parseInt(offsetInput.value) || 1 : 1
+        };
+    });
+
+    return schedule;
+}
+
+// Check if a date is an order day (based on weekly schedule + exceptions)
+function isOrderDay(date) {
+    const dateStr = formatDate(date);
+    const exception = scheduleExceptions[dateStr];
+    const weekday = (date.getDay() + 6) % 7;  // Convert to Monday=0
+    const weeklySchedule = getWeeklySchedule();
+
+    if (exception) {
+        if (exception.type === 'skip') return false;
+        if (exception.type === 'add') return true;
+        // 'modify' keeps it as order day
+    }
+
+    return weeklySchedule[weekday]?.isOrderDay || false;
+}
+
+// Get delivery offset for a date
+function getDeliveryOffsetForDate(date) {
+    const dateStr = formatDate(date);
+    const exception = scheduleExceptions[dateStr];
+    const weekday = (date.getDay() + 6) % 7;
+    const weeklySchedule = getWeeklySchedule();
+
+    if (exception && (exception.type === 'add' || exception.type === 'modify') && exception.offset !== null) {
+        return exception.offset;
+    }
+
+    return weeklySchedule[weekday]?.deliveryOffset || 1;
+}
+
+// Format date as YYYY-MM-DD
+function formatDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+// Format date for display (DD/MM/YYYY)
+function formatDateDisplay(date) {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+}
+
+// Parse date from YYYY-MM-DD
+function parseDate(dateStr) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+}
+
+// Generate calendar HTML for a single month
+function generateMonthCalendar(year, month) {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startWeekday = (firstDay.getDay() + 6) % 7;  // Monday = 0
+
+    let html = `
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header bg-light py-2">
+                    <h6 class="mb-0 text-center">${monthNames[month]} ${year}</h6>
+                </div>
+                <div class="card-body p-2">
+                    <div class="calendar-grid">
+                        <div class="d-flex text-center small text-muted border-bottom pb-1 mb-1">
+    `;
+
+    // Weekday headers
+    weekdayNamesShort.forEach(day => {
+        html += `<div class="flex-fill" style="width: 14.28%;">${day}</div>`;
+    });
+
+    html += `</div><div class="d-flex flex-wrap">`;
+
+    // Empty cells for days before the first
+    for (let i = 0; i < startWeekday; i++) {
+        html += `<div class="calendar-day empty" style="width: 14.28%; aspect-ratio: 1;"></div>`;
+    }
+
+    // Days of the month
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let day = 1; day <= lastDay.getDate(); day++) {
+        const date = new Date(year, month, day);
+        const dateStr = formatDate(date);
+        const exception = scheduleExceptions[dateStr];
+        const weekday = (date.getDay() + 6) % 7;
+        const weeklySchedule = getWeeklySchedule();
+
+        const isPast = date < today;
+        const isOrderDayFromSchedule = weeklySchedule[weekday]?.isOrderDay || false;
+        const actuallyIsOrderDay = isOrderDay(date);
+
+        // Determine CSS classes
+        let classes = ['calendar-day', 'text-center', 'small', 'rounded', 'position-relative'];
+        let style = 'width: 14.28%; aspect-ratio: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;';
+        let bgColor = '';
+        let textColor = '';
+        let icon = '';
+        let title = '';
+
+        if (isPast) {
+            classes.push('text-muted');
+            style += ' opacity: 0.4; cursor: not-allowed;';
+        }
+
+        if (exception) {
+            if (exception.type === 'skip') {
+                bgColor = 'rgba(220, 53, 69, 0.2)';  // Red - skipped
+                icon = '<i class="bi bi-x-circle-fill text-danger position-absolute" style="font-size: 0.6rem; top: 2px; right: 2px;"></i>';
+                title = `Ordine saltato${exception.note ? ': ' + exception.note : ''}`;
+            } else if (exception.type === 'add') {
+                bgColor = 'rgba(255, 193, 7, 0.3)';  // Yellow - added
+                icon = '<i class="bi bi-plus-circle-fill text-warning position-absolute" style="font-size: 0.6rem; top: 2px; right: 2px;"></i>';
+                title = `Ordine aggiunto${exception.note ? ': ' + exception.note : ''}`;
+            } else if (exception.type === 'modify') {
+                bgColor = 'rgba(255, 193, 7, 0.15)';  // Light yellow - modified
+                icon = '<i class="bi bi-pencil-fill text-warning position-absolute" style="font-size: 0.5rem; top: 2px; right: 2px;"></i>';
+                title = `Consegna modificata (+${exception.offset} giorni)${exception.note ? ': ' + exception.note : ''}`;
+            }
+        } else if (actuallyIsOrderDay) {
+            bgColor = 'rgba(13, 110, 253, 0.2)';  // Blue - order day
+            title = 'Giorno di ordine';
+        }
+
+        // Check if this is a delivery day
+        const deliveryDates = getDeliveryDatesForMonth(year, month);
+        if (deliveryDates.has(dateStr) && !actuallyIsOrderDay) {
+            bgColor = 'rgba(25, 135, 84, 0.15)';  // Green - delivery
+            title = 'Giorno di consegna';
+        } else if (deliveryDates.has(dateStr) && actuallyIsOrderDay) {
+            bgColor = 'rgba(25, 135, 84, 0.25)';  // Darker green - both
+            title = 'Ordine + Consegna';
+        }
+
+        if (bgColor) {
+            style += ` background-color: ${bgColor};`;
+        }
+
+        const dataAttrs = isPast ? '' : `data-date="${dateStr}" onclick="openExceptionModal('${dateStr}')"`;
+
+        html += `<div class="${classes.join(' ')}" style="${style}" ${dataAttrs} title="${title}">
+            ${day}${icon}
+        </div>`;
+    }
+
+    html += `</div></div></div></div>`;
+    return html;
+}
+
+// Get all delivery dates for a month (for highlighting)
+function getDeliveryDatesForMonth(year, month) {
+    const deliveryDates = new Set();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+
+    // Check a range that includes the previous month (for deliveries that might land in this month)
+    const checkStart = new Date(year, month - 1, 1);
+    const checkEnd = lastDay;
+
+    for (let d = new Date(checkStart); d <= checkEnd; d.setDate(d.getDate() + 1)) {
+        if (isOrderDay(d)) {
+            const offset = getDeliveryOffsetForDate(d);
+            const deliveryDate = new Date(d);
+            deliveryDate.setDate(deliveryDate.getDate() + offset);
+
+            if (deliveryDate.getMonth() === month && deliveryDate.getFullYear() === year) {
+                deliveryDates.add(formatDate(deliveryDate));
+            }
+        }
+    }
+
+    return deliveryDates;
+}
+
+// Render the 3-month calendar
+function renderThreeMonthCalendar() {
+    const container = document.getElementById('threeMonthCalendar');
+    if (!container) return;
+
+    let html = '';
+    const startDate = new Date(calendarStartMonth.getFullYear(), calendarStartMonth.getMonth(), 1);
+
+    for (let i = 0; i < 3; i++) {
+        const monthDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
+        html += generateMonthCalendar(monthDate.getFullYear(), monthDate.getMonth());
+    }
+
+    container.innerHTML = html;
+
+    // Update navigation label
+    const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 2, 1);
+    document.getElementById('calendarCurrentRange').textContent =
+        `${monthNames[startDate.getMonth()]} - ${monthNames[endDate.getMonth()]} ${endDate.getFullYear()}`;
+}
+
+// Initialize the 3-month calendar
+function initThreeMonthCalendar() {
+    // Set start month to current month
+    calendarStartMonth = new Date();
+    calendarStartMonth.setDate(1);
+
+    // Navigation buttons
+    document.getElementById('calendarPrevMonth')?.addEventListener('click', () => {
+        calendarStartMonth.setMonth(calendarStartMonth.getMonth() - 1);
+        renderThreeMonthCalendar();
+    });
+
+    document.getElementById('calendarNextMonth')?.addEventListener('click', () => {
+        calendarStartMonth.setMonth(calendarStartMonth.getMonth() + 1);
+        renderThreeMonthCalendar();
+    });
+
+    // Exception type radio buttons - show/hide delivery offset
+    document.querySelectorAll('input[name="exceptionType"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            const offsetSection = document.getElementById('deliveryOffsetSection');
+            if (this.value === 'add' || this.value === 'modify') {
+                offsetSection.style.display = 'block';
+            } else {
+                offsetSection.style.display = 'none';
+            }
+        });
+    });
+
+    // Save exception button
+    document.getElementById('saveExceptionBtn')?.addEventListener('click', async () => {
+        const dateStr = document.getElementById('exceptionDateInput').value;
+        const exceptionType = document.querySelector('input[name="exceptionType"]:checked').value;
+        const deliveryOffset = parseInt(document.getElementById('exceptionDeliveryOffset').value) || 1;
+        const note = document.getElementById('exceptionNote').value.trim();
+
+        const success = await saveException(dateStr, exceptionType, deliveryOffset, note);
+        if (success) {
+            scheduleExceptions[dateStr] = {
+                type: exceptionType,
+                offset: (exceptionType === 'add' || exceptionType === 'modify') ? deliveryOffset : null,
+                note: note
+            };
+            renderThreeMonthCalendar();
+            bootstrap.Modal.getInstance(document.getElementById('exceptionModal')).hide();
+        } else {
+            alert('Errore nel salvare l\'eccezione. Riprova.');
+        }
+    });
+
+    // Remove exception button
+    document.getElementById('removeExceptionBtn')?.addEventListener('click', async () => {
+        const dateStr = document.getElementById('exceptionDateInput').value;
+        const success = await deleteException(dateStr);
+        if (success) {
+            delete scheduleExceptions[dateStr];
+            renderThreeMonthCalendar();
+            bootstrap.Modal.getInstance(document.getElementById('exceptionModal')).hide();
+        } else {
+            alert('Errore nel rimuovere l\'eccezione. Riprova.');
+        }
+    });
+
+    // Load exceptions and render
+    loadExceptions();
+}
+
+// Open exception modal for a specific date
+function openExceptionModal(dateStr) {
+    const date = parseDate(dateStr);
+    const exception = scheduleExceptions[dateStr];
+    const weekday = (date.getDay() + 6) % 7;
+    const weeklySchedule = getWeeklySchedule();
+    const isScheduledOrderDay = weeklySchedule[weekday]?.isOrderDay || false;
+
+    // Set date in modal
+    document.getElementById('exceptionModalDate').textContent = formatDateDisplay(date) + ' (' + dayNames[weekday] + ')';
+    document.getElementById('exceptionDateInput').value = dateStr;
+
+    // Reset form
+    document.getElementById('exceptionNote').value = '';
+    document.getElementById('exceptionDeliveryOffset').value = weeklySchedule[weekday]?.deliveryOffset || 1;
+
+    if (exception) {
+        // Editing existing exception
+        document.getElementById('removeExceptionBtn').style.display = 'inline-block';
+        document.querySelector(`input[name="exceptionType"][value="${exception.type}"]`).checked = true;
+        if (exception.note) {
+            document.getElementById('exceptionNote').value = exception.note;
+        }
+        if (exception.offset !== null) {
+            document.getElementById('exceptionDeliveryOffset').value = exception.offset;
+        }
+    } else {
+        // New exception
+        document.getElementById('removeExceptionBtn').style.display = 'none';
+        // Default to 'skip' if it's an order day, 'add' if not
+        if (isScheduledOrderDay) {
+            document.getElementById('exceptionTypeSkip').checked = true;
+        } else {
+            document.getElementById('exceptionTypeAdd').checked = true;
+        }
+    }
+
+    // Update visibility of delivery offset section
+    const selectedType = document.querySelector('input[name="exceptionType"]:checked').value;
+    document.getElementById('deliveryOffsetSection').style.display =
+        (selectedType === 'add' || selectedType === 'modify') ? 'block' : 'none';
+
+    // Show modal
+    new bootstrap.Modal(document.getElementById('exceptionModal')).show();
+}
+
+// Update 3-month calendar when weekly schedule changes
+function updateThreeMonthCalendar() {
+    renderThreeMonthCalendar();
+}
+
+// Add listener to update calendar when weekly schedule changes
+document.querySelectorAll('input[name$="_delivery_offset"], input[type="checkbox"][name]').forEach(input => {
+    if (input.name && !input.name.includes('exception')) {
+        input.addEventListener('change', updateThreeMonthCalendar);
+    }
 });
 </script>
 {% endblock %}

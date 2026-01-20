@@ -183,6 +183,38 @@ class RestockSchedule(models.Model):
         return f"Schedule for {self.storage.name}"
 
 
+class ScheduleException(models.Model):
+    """
+    Exception to the standard weekly schedule for specific dates.
+    Used for holidays, special events, or custom adjustments.
+    """
+    EXCEPTION_TYPE_CHOICES = [
+        ('skip', 'Skip Order'),  # Don't order on this day
+        ('add', 'Add Order'),    # Order on this day even if not in weekly schedule
+        ('modify', 'Modify Delivery'),  # Change delivery offset for this day
+    ]
+
+    schedule = models.ForeignKey(RestockSchedule, on_delete=models.CASCADE, related_name='exceptions')
+    date = models.DateField(help_text="The specific date this exception applies to")
+    exception_type = models.CharField(max_length=10, choices=EXCEPTION_TYPE_CHOICES, default='skip')
+    delivery_offset = models.IntegerField(
+        null=True, blank=True,
+        help_text="Custom delivery offset for 'add' or 'modify' types"
+    )
+    note = models.CharField(max_length=255, blank=True, help_text="Optional note (e.g., 'Natale', 'Ferragosto')")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('schedule', 'date')
+        ordering = ['date']
+        indexes = [
+            models.Index(fields=['schedule', 'date']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_exception_type_display()} on {self.date} ({self.schedule.storage.name})"
+
+
 class Blacklist(models.Model):
     """Named blacklist for a storage"""
     storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='blacklists')

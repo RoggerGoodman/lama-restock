@@ -20,7 +20,7 @@ from LamApp.celery import app as celery_app
 from celery.result import AsyncResult
 
 from .models import (
-    Supermarket, Storage, RestockSchedule,
+    Supermarket, Storage, RestockSchedule, ScheduleException,
     Blacklist, BlacklistEntry, RestockLog,
     Recipe, RecipeProductItem, RecipeExternalItem
 )
@@ -591,6 +591,75 @@ class RestockScheduleDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteV
     def delete(self, request, *args, **kwargs):
         messages.success(request, "Schedule deleted successfully!")
         return super().delete(request, *args, **kwargs)
+
+
+# ============ Schedule Exceptions API ============
+
+@login_required
+def schedule_exceptions_api(request, storage_id):
+    """API endpoint for managing schedule exceptions (holidays, custom dates)"""
+    storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+    schedule = get_object_or_404(RestockSchedule, storage=storage)
+
+    if request.method == 'GET':
+        # Return all exceptions for this schedule
+        exceptions = ScheduleException.objects.filter(schedule=schedule)
+        data = {
+            'exceptions': [
+                {
+                    'date': exc.date.isoformat(),
+                    'exception_type': exc.exception_type,
+                    'delivery_offset': exc.delivery_offset,
+                    'note': exc.note
+                }
+                for exc in exceptions
+            ]
+        }
+        return JsonResponse(data)
+
+    elif request.method == 'POST':
+        # Create or update an exception
+        try:
+            body = json.loads(request.body)
+            date_str = body.get('date')
+            exception_type = body.get('exception_type', 'skip')
+            delivery_offset = body.get('delivery_offset')
+            note = body.get('note', '')
+
+            from datetime import datetime
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+
+            exc, created = ScheduleException.objects.update_or_create(
+                schedule=schedule,
+                date=date,
+                defaults={
+                    'exception_type': exception_type,
+                    'delivery_offset': delivery_offset if exception_type in ('add', 'modify') else None,
+                    'note': note
+                }
+            )
+            return JsonResponse({'success': True, 'created': created})
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+
+    elif request.method == 'DELETE':
+        # Delete an exception
+        try:
+            body = json.loads(request.body)
+            date_str = body.get('date')
+
+            from datetime import datetime
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+
+            deleted, _ = ScheduleException.objects.filter(
+                schedule=schedule,
+                date=date
+            ).delete()
+            return JsonResponse({'success': True, 'deleted': deleted > 0})
+        except (json.JSONDecodeError, ValueError) as e:
+            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
 
 
 # ============ Restock Operation Views ============
@@ -2141,10 +2210,9 @@ def inventory_flag_for_purge_ajax_view(request):
         data = json.loads(request.body)
         cod = int(data['cod'])
         var = int(data['var'])
-        supermarket_name = data['supermarket']
+        storage_id = int(data['storage_id'])
 
-        supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
-        storage = supermarket.storages.first()
+        storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
 
         if not storage:
             return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)

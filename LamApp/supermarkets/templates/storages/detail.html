@@ -633,7 +633,7 @@ function purgeProduct(cod, var_, rowIdPrefix) {
         body: JSON.stringify({
             cod: cod,
             var: var_,
-            supermarket: '{{ storage.supermarket.name }}'
+            storage_id: {{ storage.id }}
         })
     })
     .then(response => response.json())

@@ -41,6 +41,7 @@ urlpatterns = [
     path('schedules/', views.RestockScheduleListView.as_view(), name='restock_schedule_list'),
     path('schedules/<int:storage_id>/edit/', views.RestockScheduleView.as_view(), name='restock_schedule'),
     path('schedules/<int:pk>/delete/', views.RestockScheduleDeleteView.as_view(), name='schedule-delete'),
+    path('schedules/<int:storage_id>/exceptions/', views.schedule_exceptions_api, name='schedule-exceptions-api'),
     
     # ============ Restock Logs ============
     path('logs/<int:pk>/', views.RestockLogDetailView.as_view(), name='restock-log-detail'),
