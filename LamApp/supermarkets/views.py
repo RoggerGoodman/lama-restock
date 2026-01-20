@@ -955,20 +955,17 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         price_std = row['price_std'] or 0
                         
                         # Calculate per-unit cost and price
-                        unit_cost = cost_std / rapp if rapp > 0 else cost_std
-                        unit_price = price_std / rapp if rapp > 0 else price_std
-                        
+                        package_cost = cost_std * package_size
                         # Calculate margin
                         margin_pct = 0
-                        if unit_price > 0 and unit_cost > 0:
-                            margin_pct = ((unit_price - unit_cost) / unit_price) * 100
+                        if price_std > 0 and cost_std > 0:
+                            margin_pct = ((price_std - cost_std) / price_std) * 100
                         
                         product_data.update({
                             'package_size': package_size,
-                            'unit_cost': unit_cost,
-                            'unit_price': unit_price,
-                            'package_cost': cost_std,
-                            'package_price': price_std,
+                            'unit_cost': cost_std,
+                            'unit_price': price_std,
+                            'package_cost': package_cost,
                             'margin_pct': margin_pct
                         })
                     
@@ -1396,6 +1393,19 @@ def losses_analytics_unified_view(request):
     period = request.GET.get('period', '3')
     show_type = request.GET.get('show_type', 'all')
     show_category = request.GET.get('show_category', 'all')
+    product_code_filter = request.GET.get('product_code', '').strip()
+
+    # Parse product code filter (format: cod.v)
+    filter_cod = None
+    filter_v = None
+    if product_code_filter and '.' in product_code_filter:
+        try:
+            parts = product_code_filter.split('.', 1)
+            filter_cod = int(parts[0])
+            filter_v = int(parts[1])
+        except (ValueError, IndexError):
+            filter_cod = None
+            filter_v = None
     
     try:
         period_months = int(period)
@@ -1510,11 +1520,16 @@ def losses_analytics_unified_view(request):
                     description = row['descrizione'] or f"Product {cod}.{v}"
                     fallback_cost = row['cost_std'] or 0.0
                     category = row['category'] or 'Unknown'
-                    
+
                     # Collect categories
                     if category != 'Unknown':
                         all_categories.add(category)
-                    
+
+                    # Skip if product code filter doesn't match
+                    if filter_cod is not None and filter_v is not None:
+                        if cod != filter_cod or v != filter_v:
+                            continue
+
                     # Skip if category filter doesn't match
                     if show_category != 'all' and category != show_category:
                         continue
@@ -1627,6 +1642,7 @@ def losses_analytics_unified_view(request):
         'total_products': len(all_products_list),
         'show_type': show_type,
         'show_category': show_category,
+        'product_code_filter': product_code_filter,
         'all_categories': sorted(list(all_categories)),
         'period': period_months,
         'month_labels': json.dumps(month_labels),

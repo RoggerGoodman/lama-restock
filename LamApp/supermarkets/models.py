@@ -378,3 +378,97 @@ class RestockLog(models.Model):
 
     def __str__(self):
         return f"{self.get_operation_type_display()} - {self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"
+
+
+class Recipe(models.Model):
+    """Recipe with ingredients from products and external items for cost calculation"""
+    supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='recipes')
+    name = models.CharField(max_length=255)
+    family = models.CharField(max_length=100, blank=True, db_index=True,
+        help_text="Optional grouping category (e.g., 'Pizze', 'Panini', 'Dolci')")
+    is_base = models.BooleanField(default=False,
+        help_text="Flag this as a base recipe that others can build upon")
+    base_recipe = models.ForeignKey('self', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='derived_recipes',
+        help_text="Optional base recipe to inherit ingredients from")
+    selling_price = models.DecimalField(max_digits=10, decimal_places=2, default=0,
+        help_text="Selling price for this recipe")
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('supermarket', 'name')
+        ordering = ['family', 'name']
+        indexes = [
+            models.Index(fields=['supermarket', 'family']),
+            models.Index(fields=['supermarket', 'is_base']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.supermarket.name})"
+
+    def get_total_cost(self):
+        """Calculate total cost from all items including base recipe"""
+        product_cost = sum(item.get_cost() for item in self.product_items.all())
+        external_cost = sum(item.get_cost() for item in self.external_items.all())
+        base_cost = self.base_recipe.get_total_cost() if self.base_recipe else 0
+        return product_cost + external_cost + base_cost
+
+    def get_margin_percentage(self):
+        """Calculate margin percentage"""
+        total_cost = self.get_total_cost()
+        if self.selling_price > 0 and total_cost > 0:
+            return ((float(self.selling_price) - total_cost) / float(self.selling_price)) * 100
+        return 0
+
+    def get_margin_absolute(self):
+        """Calculate absolute margin"""
+        return float(self.selling_price) - self.get_total_cost()
+
+
+class RecipeProductItem(models.Model):
+    """Ingredient from the products table"""
+    recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name='product_items')
+    product_code = models.IntegerField()
+    product_var = models.SmallIntegerField(default=1)
+    use_percentage = models.IntegerField(default=100,
+        help_text="100 = 1 unit, 50 = 0.5 units, 150 = 1.5 units")
+    cached_description = models.CharField(max_length=255, blank=True)
+    cached_cost_std = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
+
+    class Meta:
+        unique_together = ('recipe', 'product_code', 'product_var')
+        ordering = ['product_code', 'product_var']
+
+    def __str__(self):
+        return f"{self.product_code}.{self.product_var} @ {self.use_percentage}%"
+
+    def get_cost(self):
+        """Cost = cost_std * (use_percentage / 100)"""
+        if self.cached_cost_std:
+            return float(self.cached_cost_std) * (self.use_percentage / 100)
+        return 0
+
+    def get_display_name(self):
+        return self.cached_description or f"Product {self.product_code}.{self.product_var}"
+
+
+class RecipeExternalItem(models.Model):
+    """Ingredient NOT in the products table (user-defined)"""
+    recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name='external_items')
+    name = models.CharField(max_length=255)
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=4,
+        help_text="Cost per unit of this item")
+    use_percentage = models.IntegerField(default=100,
+        help_text="100 = 1 unit, 50 = 0.5 units, 150 = 1.5 units")
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} @ {self.use_percentage}%"
+
+    def get_cost(self):
+        """Cost = unit_cost * (use_percentage / 100)"""
+        return float(self.unit_cost) * (self.use_percentage / 100)

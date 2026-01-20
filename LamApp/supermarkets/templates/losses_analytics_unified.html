@@ -82,7 +82,21 @@
                             {% endfor %}
                         </select>
                     </div>
-                    
+
+                    <!-- Product Code Filter -->
+                    <div class="col-md-3">
+                        <label for="product_code" class="form-label">Filtro Articolo (cod.v)</label>
+                        <div class="input-group">
+                            <input type="text" name="product_code" id="product_code" class="form-control"
+                                   placeholder="es. 12345.0" value="{{ product_code_filter|default:'' }}"
+                                   pattern="[0-9]+\.[0-9]+" title="Formato: codice.variante (es. 12345.0)">
+                            <button type="submit" class="btn btn-outline-primary">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                        <small class="text-muted">Inserisci codice.variante per filtrare un singolo articolo</small>
+                    </div>
+
                     <div class="col-12">
                         <a href="{% url 'losses-analytics-unified' %}" class="btn btn-secondary">
                             <i class="bi bi-x-circle"></i> Togli i Filtri
