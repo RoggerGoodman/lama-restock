@@ -457,14 +457,52 @@
                         <strong>Clicca su un giorno</strong> per aggiungere eccezioni (festività, chiusure, modifiche).
                     </p>
 
+                    <style>
+                        .calendar-table td {
+                            padding: 4px 2px;
+                            vertical-align: top;
+                            height: 36px;
+                        }
+                        .calendar-table th {
+                            padding: 4px 2px;
+                            font-weight: 500;
+                        }
+                        .cal-day-num {
+                            font-size: 0.85rem;
+                            line-height: 1;
+                        }
+                        .cal-dots {
+                            display: flex;
+                            justify-content: center;
+                            gap: 2px;
+                            margin-top: 2px;
+                        }
+                        .cal-dot {
+                            display: inline-block;
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 50%;
+                        }
+                        .calendar-cell:hover:not(.text-muted) {
+                            background-color: rgba(0,0,0,0.05);
+                            border-radius: 4px;
+                        }
+                        .legend-dot {
+                            display: inline-block;
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 50%;
+                            vertical-align: middle;
+                            margin-right: 4px;
+                        }
+                    </style>
                     <div class="alert alert-light border mb-3">
-                        <div class="d-flex flex-wrap gap-3 small">
-                            <span><span class="badge bg-primary">&nbsp;</span> Ordine programmato</span>
-                            <span><span class="badge bg-success">&nbsp;</span> Consegna prevista</span>
-                            <span><span class="badge bg-danger">&nbsp;</span> Ordine saltato</span>
-                            <span><span class="badge bg-warning text-dark">&nbsp;</span> Ordine aggiunto</span>
-                            <span class="text-muted">|</span>
-                            <span><i class="bi bi-plus-circle text-success"></i> Clicca per aggiungere eccezione</span>
+                        <div class="d-flex flex-wrap gap-4 small align-items-center">
+                            <span><span class="legend-dot bg-primary"></span> Ordine</span>
+                            <span><span class="legend-dot bg-success"></span> Consegna</span>
+                            <span><span class="legend-dot bg-danger"></span> Saltato</span>
+                            <span><span class="legend-dot bg-warning"></span> Aggiunto</span>
+                            <span class="text-muted ms-2"><i class="bi bi-hand-index"></i> Clicca su un giorno per modificare</span>
                         </div>
                     </div>
 
@@ -1072,99 +1110,103 @@ function generateMonthCalendar(year, month) {
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const startWeekday = (firstDay.getDay() + 6) % 7;  // Monday = 0
+    const deliveryDates = getDeliveryDatesForMonth(year, month);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     let html = `
-        <div class="col-md-4">
+        <div class="col-md-4 mb-3">
             <div class="card h-100">
                 <div class="card-header bg-light py-2">
                     <h6 class="mb-0 text-center">${monthNames[month]} ${year}</h6>
                 </div>
                 <div class="card-body p-2">
-                    <div class="calendar-grid">
-                        <div class="d-flex text-center small text-muted border-bottom pb-1 mb-1">
+                    <table class="table table-sm table-borderless mb-0 calendar-table">
+                        <thead>
+                            <tr class="text-center small text-muted">
+                                <th>L</th><th>M</th><th>M</th><th>G</th><th>V</th><th>S</th><th>D</th>
+                            </tr>
+                        </thead>
+                        <tbody>
     `;
 
-    // Weekday headers
-    weekdayNamesShort.forEach(day => {
-        html += `<div class="flex-fill" style="width: 14.28%;">${day}</div>`;
-    });
+    let dayCounter = 1;
+    const totalDays = lastDay.getDate();
 
-    html += `</div><div class="d-flex flex-wrap">`;
+    // Generate weeks
+    for (let week = 0; week < 6; week++) {
+        if (dayCounter > totalDays) break;
 
-    // Empty cells for days before the first
-    for (let i = 0; i < startWeekday; i++) {
-        html += `<div class="calendar-day empty" style="width: 14.28%; aspect-ratio: 1;"></div>`;
-    }
+        html += '<tr>';
 
-    // Days of the month
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+        for (let weekday = 0; weekday < 7; weekday++) {
+            if ((week === 0 && weekday < startWeekday) || dayCounter > totalDays) {
+                html += '<td></td>';
+            } else {
+                const date = new Date(year, month, dayCounter);
+                const dateStr = formatDate(date);
+                const exception = scheduleExceptions[dateStr];
+                const actuallyIsOrderDay = isOrderDay(date);
+                const isDeliveryDay = deliveryDates.has(dateStr);
+                const isPast = date < today;
 
-    for (let day = 1; day <= lastDay.getDate(); day++) {
-        const date = new Date(year, month, day);
-        const dateStr = formatDate(date);
-        const exception = scheduleExceptions[dateStr];
-        const weekday = (date.getDay() + 6) % 7;
-        const weeklySchedule = getWeeklySchedule();
+                // Build dots HTML
+                let dots = [];
+                let titleParts = [];
+                let cellClass = 'calendar-cell text-center';
+                let clickAttr = '';
 
-        const isPast = date < today;
-        const isOrderDayFromSchedule = weeklySchedule[weekday]?.isOrderDay || false;
-        const actuallyIsOrderDay = isOrderDay(date);
+                if (isPast) {
+                    cellClass += ' text-muted';
+                } else {
+                    clickAttr = `onclick="openExceptionModal('${dateStr}')" style="cursor: pointer;"`;
+                }
 
-        // Determine CSS classes
-        let classes = ['calendar-day', 'text-center', 'small', 'rounded', 'position-relative'];
-        let style = 'width: 14.28%; aspect-ratio: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;';
-        let bgColor = '';
-        let textColor = '';
-        let icon = '';
-        let title = '';
+                // Check for exceptions first
+                if (exception) {
+                    if (exception.type === 'skip') {
+                        dots.push('<span class="cal-dot bg-danger" title="Ordine saltato"></span>');
+                        titleParts.push('Ordine saltato' + (exception.note ? ': ' + exception.note : ''));
+                    } else if (exception.type === 'add') {
+                        dots.push('<span class="cal-dot bg-warning" title="Ordine aggiunto"></span>');
+                        titleParts.push('Ordine aggiunto' + (exception.note ? ': ' + exception.note : ''));
+                    } else if (exception.type === 'modify') {
+                        dots.push('<span class="cal-dot bg-primary" title="Ordine"></span>');
+                        titleParts.push('Consegna modificata (+' + exception.offset + ' giorni)' + (exception.note ? ': ' + exception.note : ''));
+                    }
+                } else if (actuallyIsOrderDay) {
+                    dots.push('<span class="cal-dot bg-primary" title="Ordine programmato"></span>');
+                    titleParts.push('Ordine programmato');
+                }
 
-        if (isPast) {
-            classes.push('text-muted');
-            style += ' opacity: 0.4; cursor: not-allowed;';
-        }
+                // Add delivery dot (can coexist with order dot)
+                if (isDeliveryDay) {
+                    dots.push('<span class="cal-dot bg-success" title="Consegna prevista"></span>');
+                    titleParts.push('Consegna prevista');
+                }
 
-        if (exception) {
-            if (exception.type === 'skip') {
-                bgColor = 'rgba(220, 53, 69, 0.2)';  // Red - skipped
-                icon = '<i class="bi bi-x-circle-fill text-danger position-absolute" style="font-size: 0.6rem; top: 2px; right: 2px;"></i>';
-                title = `Ordine saltato${exception.note ? ': ' + exception.note : ''}`;
-            } else if (exception.type === 'add') {
-                bgColor = 'rgba(255, 193, 7, 0.3)';  // Yellow - added
-                icon = '<i class="bi bi-plus-circle-fill text-warning position-absolute" style="font-size: 0.6rem; top: 2px; right: 2px;"></i>';
-                title = `Ordine aggiunto${exception.note ? ': ' + exception.note : ''}`;
-            } else if (exception.type === 'modify') {
-                bgColor = 'rgba(255, 193, 7, 0.15)';  // Light yellow - modified
-                icon = '<i class="bi bi-pencil-fill text-warning position-absolute" style="font-size: 0.5rem; top: 2px; right: 2px;"></i>';
-                title = `Consegna modificata (+${exception.offset} giorni)${exception.note ? ': ' + exception.note : ''}`;
+                const dotsHtml = dots.length > 0 ? `<div class="cal-dots">${dots.join('')}</div>` : '';
+                const titleAttr = titleParts.length > 0 ? `title="${titleParts.join(' | ')}"` : '';
+
+                html += `<td class="${cellClass}" ${clickAttr} ${titleAttr}>
+                    <div class="cal-day-num">${dayCounter}</div>
+                    ${dotsHtml}
+                </td>`;
+
+                dayCounter++;
             }
-        } else if (actuallyIsOrderDay) {
-            bgColor = 'rgba(13, 110, 253, 0.2)';  // Blue - order day
-            title = 'Giorno di ordine';
         }
 
-        // Check if this is a delivery day
-        const deliveryDates = getDeliveryDatesForMonth(year, month);
-        if (deliveryDates.has(dateStr) && !actuallyIsOrderDay) {
-            bgColor = 'rgba(25, 135, 84, 0.15)';  // Green - delivery
-            title = 'Giorno di consegna';
-        } else if (deliveryDates.has(dateStr) && actuallyIsOrderDay) {
-            bgColor = 'rgba(25, 135, 84, 0.25)';  // Darker green - both
-            title = 'Ordine + Consegna';
-        }
-
-        if (bgColor) {
-            style += ` background-color: ${bgColor};`;
-        }
-
-        const dataAttrs = isPast ? '' : `data-date="${dateStr}" onclick="openExceptionModal('${dateStr}')"`;
-
-        html += `<div class="${classes.join(' ')}" style="${style}" ${dataAttrs} title="${title}">
-            ${day}${icon}
-        </div>`;
+        html += '</tr>';
     }
 
-    html += `</div></div></div></div>`;
+    html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
     return html;
 }
 
