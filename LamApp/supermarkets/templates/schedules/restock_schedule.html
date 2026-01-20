@@ -938,7 +938,7 @@ let calendarStartMonth = new Date();  // First month to display
 // Load existing exceptions from server
 async function loadExceptions() {
     try {
-        const response = await fetch('{% url "schedule-exceptions-api" pk=storage.id %}');
+        const response = await fetch('{% url "schedule-exceptions-api" storage_id=storage.id %}');
         if (response.ok) {
             const data = await response.json();
             scheduleExceptions = {};
@@ -959,7 +959,7 @@ async function loadExceptions() {
 // Save exception to server
 async function saveException(date, exceptionType, deliveryOffset, note) {
     try {
-        const response = await fetch('{% url "schedule-exceptions-api" pk=storage.id %}', {
+        const response = await fetch('{% url "schedule-exceptions-api" storage_id=storage.id %}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -982,7 +982,7 @@ async function saveException(date, exceptionType, deliveryOffset, note) {
 // Delete exception from server
 async function deleteException(date) {
     try {
-        const response = await fetch('{% url "schedule-exceptions-api" pk=storage.id %}', {
+        const response = await fetch('{% url "schedule-exceptions-api" storage_id=storage.id %}', {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
