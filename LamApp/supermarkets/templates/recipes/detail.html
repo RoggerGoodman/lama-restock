@@ -51,7 +51,8 @@
                     Basata su: <a href="{% url 'recipe-detail' pk=recipe.base_recipe.pk %}">
                         <strong>{{ recipe.base_recipe.name }}</strong>
                     </a>
-                    (costo base: &euro; {{ base_total|floatformat:2 }})
+                    <span class="badge bg-secondary ms-2">{{ recipe.base_multiplier }} unità</span>
+                    (costo: &euro; {{ base_total|floatformat:2 }})
                 </div>
                 {% endif %}
 
@@ -79,7 +80,7 @@
 
                 {% if recipe.base_recipe %}
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="text-muted">Ricetta base</span>
+                    <span class="text-muted">Ricetta base ({{ recipe.base_multiplier }}x)</span>
                     <strong>&euro; {{ base_total|floatformat:2 }}</strong>
                 </div>
                 {% endif %}
@@ -139,7 +140,7 @@
                             <tr>
                                 <th>Codice</th>
                                 <th>Descrizione</th>
-                                <th class="text-center">Uso %</th>
+                                <th class="text-center">Unità</th>
                                 <th class="text-end">Costo Unitario</th>
                                 <th class="text-end">Costo</th>
                             </tr>
@@ -150,7 +151,7 @@
                                 <td><strong>{{ item.product_code }}.{{ item.product_var }}</strong></td>
                                 <td>{{ item.live_description|default:item.cached_description|default:"-" }}</td>
                                 <td class="text-center">
-                                    <span class="badge bg-secondary">{{ item.use_percentage }}%</span>
+                                    <span class="badge bg-secondary">{{ item.units|floatformat:2 }}</span>
                                 </td>
                                 <td class="text-end text-muted">
                                     &euro; {{ item.live_cost_std|default:item.cached_cost_std|floatformat:4 }}
@@ -193,7 +194,7 @@
                         <thead>
                             <tr>
                                 <th>Nome</th>
-                                <th class="text-center">Uso %</th>
+                                <th class="text-center">Unità</th>
                                 <th class="text-end">Costo Unitario</th>
                                 <th class="text-end">Costo</th>
                             </tr>
@@ -203,7 +204,7 @@
                             <tr>
                                 <td><strong>{{ item.name }}</strong></td>
                                 <td class="text-center">
-                                    <span class="badge bg-secondary">{{ item.use_percentage }}%</span>
+                                    <span class="badge bg-secondary">{{ item.units|floatformat:2 }}</span>
                                 </td>
                                 <td class="text-end text-muted">&euro; {{ item.unit_cost|floatformat:4 }}</td>
                                 <td class="text-end"><strong>&euro; {{ item.get_cost|floatformat:2 }}</strong></td>

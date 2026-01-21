@@ -103,6 +103,102 @@
     </div>
     {% endif %}
 
+    <!-- Recipe Cost Alerts Section -->
+    {% if recipe_cost_alerts %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card border-info" style="border-left: 4px solid #0dcaf0;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="bi bi-bell text-info"></i> Variazioni Costi Ricette
+                        <span class="badge bg-info">{{ unread_alerts_count }}</span>
+                    </h5>
+                    {% if unread_alerts_count > 1 %}
+                    <form method="post" action="{% url 'dismiss-all-recipe-alerts' %}" class="d-inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-check-all"></i> Archivia tutte
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Ricetta</th>
+                                <th>Ingrediente</th>
+                                <th class="text-end">Costo Ingrediente</th>
+                                <th class="text-end">Margine</th>
+                                <th>Data</th>
+                                <th>Azione</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for alert in recipe_cost_alerts %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'recipe-detail' pk=alert.recipe.pk %}" class="text-decoration-none">
+                                        <strong>{{ alert.recipe.name }}</strong>
+                                    </a>
+                                    <br><small class="text-muted">{{ alert.recipe.supermarket.name }}</small>
+                                </td>
+                                <td>
+                                    <code>{{ alert.product_code }}.{{ alert.product_var }}</code>
+                                    <br><small class="text-muted">{{ alert.product_description|truncatewords:5 }}</small>
+                                </td>
+                                <td class="text-end">
+                                    <span class="text-muted text-decoration-line-through">&euro; {{ alert.old_cost|floatformat:4 }}</span>
+                                    <br>
+                                    <span class="{% if alert.is_cost_increase %}text-danger{% else %}text-success{% endif %} fw-bold">
+                                        &euro; {{ alert.new_cost|floatformat:4 }}
+                                        {% if alert.is_cost_increase %}
+                                        <i class="bi bi-arrow-up-short"></i>
+                                        {% else %}
+                                        <i class="bi bi-arrow-down-short"></i>
+                                        {% endif %}
+                                    </span>
+                                </td>
+                                <td class="text-end">
+                                    <span class="text-muted">{{ alert.old_margin_pct|floatformat:1 }}%</span>
+                                    <i class="bi bi-arrow-right text-muted mx-1"></i>
+                                    <span class="badge {% if alert.new_margin_pct >= 30 %}bg-success{% elif alert.new_margin_pct >= 15 %}bg-warning{% else %}bg-danger{% endif %}">
+                                        {{ alert.new_margin_pct|floatformat:1 }}%
+                                    </span>
+                                </td>
+                                <td><small>{{ alert.created_at|date:"d/m H:i" }}</small></td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{% url 'recipe-detail' pk=alert.recipe.pk %}" class="btn btn-outline-primary" title="Vedi Ricetta">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
+                                        <form method="post" action="{% url 'dismiss-recipe-alert' pk=alert.pk %}" class="d-inline">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-outline-secondary" title="Archivia">
+                                                <i class="bi bi-check"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                {% if unread_alerts_count > 10 %}
+                <div class="text-center mt-2">
+                    <small class="text-muted">
+                        Mostrate {{ recipe_cost_alerts|length }} di {{ unread_alerts_count }} notifiche
+                    </small>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Storages Overview (Compact) -->
     <div class="row mb-4">
         <div class="col-12">

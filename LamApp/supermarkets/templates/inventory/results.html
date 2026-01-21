@@ -308,7 +308,7 @@
                                         </button>
                                         {% if product.disponibilita == 'No' %}
                                         <button class="btn btn-outline-danger"
-                                                onclick="flagForPurge({{ product.cod }}, {{ product.v }}, '{{ product.supermarket_name }}')">
+                                                onclick="flagForPurge({{ product.cod }}, {{ product.v }}, {{ product.storage_id }})">
                                             <i class="bi bi-trash"></i> Segnala
                                         </button>
                                         {% endif %}
@@ -560,13 +560,13 @@ document.getElementById('cluster').addEventListener('input', function() {
     this.value = this.value.toUpperCase();
 });
 
-function flagForPurge(cod, var_, supermarket) {
+function flagForPurge(cod, var_, storage_id) {
     if (!confirm(`Flag product ${cod}.${var_} for purging?\n\nThis product will be automatically deleted when stock reaches zero.`)) {
         return;
     }
-    
+
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    
+
     fetch('/inventory/flag-for-purge/', {
         method: 'POST',
         headers: {
@@ -576,7 +576,7 @@ function flagForPurge(cod, var_, supermarket) {
         body: JSON.stringify({
             cod: cod,
             var: var_,
-            supermarket: supermarket
+            storage_id: storage_id
         })
     })
     .then(response => response.json())

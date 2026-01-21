@@ -423,6 +423,8 @@ class Recipe(models.Model):
     base_recipe = models.ForeignKey('self', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='derived_recipes',
         help_text="Optional base recipe to inherit ingredients from")
+    base_multiplier = models.DecimalField(max_digits=5, decimal_places=2, default=1,
+        help_text="How many units of the base recipe to use (e.g., 0.5 = half, 2 = double)")
     selling_price = models.DecimalField(max_digits=10, decimal_places=2, default=0,
         help_text="Selling price for this recipe")
     notes = models.TextField(blank=True)
@@ -444,7 +446,7 @@ class Recipe(models.Model):
         """Calculate total cost from all items including base recipe"""
         product_cost = sum(item.get_cost() for item in self.product_items.all())
         external_cost = sum(item.get_cost() for item in self.external_items.all())
-        base_cost = self.base_recipe.get_total_cost() if self.base_recipe else 0
+        base_cost = (self.base_recipe.get_total_cost() * float(self.base_multiplier)) if self.base_recipe else 0
         return product_cost + external_cost + base_cost
 
     def get_margin_percentage(self):
@@ -504,3 +506,53 @@ class RecipeExternalItem(models.Model):
     def get_cost(self):
         """Cost = unit_cost * (use_percentage / 100)"""
         return float(self.unit_cost) * (self.use_percentage / 100)
+
+
+class RecipeCostAlert(models.Model):
+    """
+    Alert generated when product cost changes affect recipe margins.
+    Created during scheduled list updates to notify users of cost changes.
+    """
+    recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name='cost_alerts')
+    product_code = models.IntegerField()
+    product_var = models.SmallIntegerField(default=1)
+    product_description = models.CharField(max_length=255, blank=True)
+    old_cost = models.DecimalField(max_digits=10, decimal_places=4)
+    new_cost = models.DecimalField(max_digits=10, decimal_places=4)
+    old_recipe_cost = models.DecimalField(max_digits=10, decimal_places=2,
+        help_text="Recipe total cost before the change")
+    new_recipe_cost = models.DecimalField(max_digits=10, decimal_places=2,
+        help_text="Recipe total cost after the change")
+    old_margin_pct = models.DecimalField(max_digits=5, decimal_places=2,
+        help_text="Margin percentage before the change")
+    new_margin_pct = models.DecimalField(max_digits=5, decimal_places=2,
+        help_text="Margin percentage after the change")
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['recipe', 'is_read']),
+            models.Index(fields=['is_read', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"Cost alert for {self.recipe.name}: {self.product_code}.{self.product_var}"
+
+    @property
+    def cost_change_pct(self):
+        """Percentage change in ingredient cost"""
+        if self.old_cost > 0:
+            return ((float(self.new_cost) - float(self.old_cost)) / float(self.old_cost)) * 100
+        return 0
+
+    @property
+    def margin_change(self):
+        """Absolute change in margin percentage"""
+        return float(self.new_margin_pct) - float(self.old_margin_pct)
+
+    @property
+    def is_cost_increase(self):
+        """True if the ingredient cost increased"""
+        return self.new_cost > self.old_cost

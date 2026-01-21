@@ -22,7 +22,7 @@ from celery.result import AsyncResult
 from .models import (
     Supermarket, Storage, RestockSchedule, ScheduleException,
     Blacklist, BlacklistEntry, RestockLog,
-    Recipe, RecipeProductItem, RecipeExternalItem
+    Recipe, RecipeProductItem, RecipeExternalItem, RecipeCostAlert
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
@@ -189,7 +189,18 @@ def dashboard_view(request):
             continue
 
     logger.info(f"Dashboard: {pending_verifications} total pending verifications across {len(supermarkets_with_storages)} supermarkets")
-    
+
+    # Get unread recipe cost alerts for this user's supermarkets
+    recipe_cost_alerts = RecipeCostAlert.objects.filter(
+        recipe__supermarket__owner=request.user,
+        is_read=False
+    ).select_related('recipe', 'recipe__supermarket').order_by('-created_at')[:10]
+
+    unread_alerts_count = RecipeCostAlert.objects.filter(
+        recipe__supermarket__owner=request.user,
+        is_read=False
+    ).count()
+
     context = {
         'supermarkets': supermarkets,
         'recent_logs': recent_logs,  # ← NOW ONLY ORDERS
@@ -203,8 +214,10 @@ def dashboard_view(request):
         'active_schedules': RestockSchedule.objects.filter(
             storage__supermarket__owner=request.user
         ).count(),
+        'recipe_cost_alerts': recipe_cost_alerts,
+        'unread_alerts_count': unread_alerts_count,
     }
-    
+
     return render(request, 'dashboard.html', context)
 
 
@@ -1983,6 +1996,7 @@ def inventory_results_view(request, search_type):
                             found = True
                             result = dict(row)
                             result['supermarket_name'] = sm.name
+                            result['storage_id'] = storage.id
                             result['minimum_stock'] = row['minimum_stock'] or 4  # ← ADD THIS
                             results.append(result)
                     except Exception as e:
@@ -2017,11 +2031,12 @@ def inventory_results_view(request, search_type):
                         for row in cur.fetchall():
                             result = dict(row)
                             result['supermarket_name'] = sm.name
+                            result['storage_id'] = storage.id
                             result['minimum_stock'] = row['minimum_stock'] or 4  # ← ADD THIS
                             results.append(result)
                     except Exception as e:
                         logger.exception(f"Error searching in {sm.name}")
-        
+
         elif search_type == 'settore_cluster':
             supermarket_id = request.GET.get('supermarket_id')
             settore = request.GET.get('settore')
@@ -2081,9 +2096,10 @@ def inventory_results_view(request, search_type):
                     for row in cur.fetchall():
                         result = dict(row)
                         result['supermarket_name'] = supermarket.name
+                        result['storage_id'] = storage.id
                         result['minimum_stock'] = row['minimum_stock'] or 4  # ← ADD THIS
                         results.append(result)
-                    
+
                 except Exception as e:
                     logger.exception(f"Database error in settore search")
                     messages.error(request, f"Database error: {e}")
@@ -3661,26 +3677,40 @@ class RecipeDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
                         for item in product_items:
                             row = data_map.get((item.product_code, item.product_var))
+                            # Convert use_percentage to decimal units for display
+                            item.units = item.use_percentage / 100
                             if row:
                                 item.live_description = row['descrizione'] or item.cached_description
                                 item.live_cost_std = row['cost_std'] or item.cached_cost_std or 0
-                                item.live_cost = float(item.live_cost_std) * (item.use_percentage / 100)
+                                item.live_cost = float(item.live_cost_std) * item.units
                             else:
                                 item.live_description = item.cached_description
                                 item.live_cost = item.get_cost()
             except Exception as e:
                 logger.exception("Error fetching product data for recipe")
                 for item in product_items:
+                    item.units = item.use_percentage / 100
                     item.live_description = item.cached_description
                     item.live_cost = item.get_cost()
 
+        # Add units to product items that didn't go through the try block
+        for item in product_items:
+            if not hasattr(item, 'units'):
+                item.units = item.use_percentage / 100
+
+        # Get external items and add units attribute
+        external_items = list(recipe.external_items.all())
+        for item in external_items:
+            item.units = item.use_percentage / 100
+
         context['product_items'] = product_items
-        context['external_items'] = list(recipe.external_items.all())
+        context['external_items'] = external_items
 
         # Calculate totals
         product_total = sum(getattr(item, 'live_cost', item.get_cost()) for item in product_items)
-        external_total = sum(item.get_cost() for item in context['external_items'])
-        base_total = recipe.base_recipe.get_total_cost() if recipe.base_recipe else 0
+        external_total = sum(item.get_cost() for item in external_items)
+        # Base total includes the multiplier
+        base_total = (recipe.base_recipe.get_total_cost() * float(recipe.base_multiplier)) if recipe.base_recipe else 0
 
         context['product_total'] = product_total
         context['external_total'] = external_total
@@ -3706,6 +3736,41 @@ class RecipeDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
 
 @login_required
+@require_POST
+def dismiss_recipe_cost_alert(request, pk):
+    """Mark a single recipe cost alert as read"""
+    alert = get_object_or_404(
+        RecipeCostAlert,
+        pk=pk,
+        recipe__supermarket__owner=request.user
+    )
+    alert.is_read = True
+    alert.save(update_fields=['is_read'])
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True})
+
+    messages.success(request, "Notifica archiviata")
+    return redirect('dashboard')
+
+
+@login_required
+@require_POST
+def dismiss_all_recipe_cost_alerts(request):
+    """Mark all recipe cost alerts as read for the current user"""
+    updated = RecipeCostAlert.objects.filter(
+        recipe__supermarket__owner=request.user,
+        is_read=False
+    ).update(is_read=True)
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True, 'dismissed': updated})
+
+    messages.success(request, f"{updated} notifiche archiviate")
+    return redirect('dashboard')
+
+
+@login_required
 def recipe_create_view(request):
     """Create recipe with AJAX-driven product search"""
     from decimal import Decimal
@@ -3715,42 +3780,50 @@ def recipe_create_view(request):
         supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
 
         # Create recipe
+        base_multiplier = Decimal(request.POST.get('base_multiplier') or '1')
         recipe = Recipe.objects.create(
             supermarket=supermarket,
             name=request.POST.get('name'),
             family=request.POST.get('family', ''),
             is_base=request.POST.get('is_base') == 'on',
             base_recipe_id=request.POST.get('base_recipe') or None,
+            base_multiplier=base_multiplier,
             selling_price=Decimal(request.POST.get('selling_price') or '0'),
             notes=request.POST.get('notes', '')
         )
 
-        # Process product items from JSON
+        # Process product items from JSON (UI sends decimal units, convert to percentage)
         product_items_json = request.POST.get('product_items', '[]')
         try:
             product_items = json.loads(product_items_json)
             for item in product_items:
+                # Convert decimal units to percentage (e.g., 0.5 -> 50, 1.0 -> 100)
+                units = float(item.get('units', 1))
+                use_percentage = int(units * 100)
                 RecipeProductItem.objects.create(
                     recipe=recipe,
                     product_code=item['cod'],
                     product_var=item.get('var', 1),
-                    use_percentage=item.get('use_percentage', 100),
+                    use_percentage=use_percentage,
                     cached_description=item.get('description', ''),
                     cached_cost_std=Decimal(str(item.get('cost_std', 0))) if item.get('cost_std') else None
                 )
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Error parsing product items: {e}")
 
-        # Process external items from JSON
+        # Process external items from JSON (UI sends decimal units, convert to percentage)
         external_items_json = request.POST.get('external_items', '[]')
         try:
             external_items = json.loads(external_items_json)
             for item in external_items:
+                # Convert decimal units to percentage
+                units = float(item.get('units', 1))
+                use_percentage = int(units * 100)
                 RecipeExternalItem.objects.create(
                     recipe=recipe,
                     name=item['name'],
                     unit_cost=Decimal(str(item.get('unit_cost', 0))),
-                    use_percentage=item.get('use_percentage', 100)
+                    use_percentage=use_percentage
                 )
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Error parsing external items: {e}")
@@ -3773,7 +3846,7 @@ def recipe_create_view(request):
         'existing_families': list(families),
         'base_recipes': base_recipes,
         'base_recipes_json': json.dumps([
-            {'id': r.id, 'name': r.name, 'supermarket_id': r.supermarket_id}
+            {'id': r.id, 'name': r.name, 'supermarket_id': r.supermarket_id, 'cost': r.get_total_cost()}
             for r in base_recipes
         ]),
         'is_edit': False
@@ -3793,6 +3866,7 @@ def recipe_update_view(request, pk):
         recipe.family = request.POST.get('family', '')
         recipe.is_base = request.POST.get('is_base') == 'on'
         recipe.base_recipe_id = request.POST.get('base_recipe') or None
+        recipe.base_multiplier = Decimal(request.POST.get('base_multiplier') or '1')
         recipe.selling_price = Decimal(request.POST.get('selling_price') or '0')
         recipe.notes = request.POST.get('notes', '')
         recipe.save()
@@ -3801,32 +3875,38 @@ def recipe_update_view(request, pk):
         recipe.product_items.all().delete()
         recipe.external_items.all().delete()
 
-        # Re-create product items from JSON
+        # Re-create product items from JSON (UI sends decimal units, convert to percentage)
         product_items_json = request.POST.get('product_items', '[]')
         try:
             product_items = json.loads(product_items_json)
             for item in product_items:
+                # Convert decimal units to percentage (e.g., 0.5 -> 50, 1.0 -> 100)
+                units = float(item.get('units', 1))
+                use_percentage = int(units * 100)
                 RecipeProductItem.objects.create(
                     recipe=recipe,
                     product_code=item['cod'],
                     product_var=item.get('var', 1),
-                    use_percentage=item.get('use_percentage', 100),
+                    use_percentage=use_percentage,
                     cached_description=item.get('description', ''),
                     cached_cost_std=Decimal(str(item.get('cost_std', 0))) if item.get('cost_std') else None
                 )
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Error parsing product items: {e}")
 
-        # Re-create external items from JSON
+        # Re-create external items from JSON (UI sends decimal units, convert to percentage)
         external_items_json = request.POST.get('external_items', '[]')
         try:
             external_items = json.loads(external_items_json)
             for item in external_items:
+                # Convert decimal units to percentage
+                units = float(item.get('units', 1))
+                use_percentage = int(units * 100)
                 RecipeExternalItem.objects.create(
                     recipe=recipe,
                     name=item['name'],
                     unit_cost=Decimal(str(item.get('unit_cost', 0))),
-                    use_percentage=item.get('use_percentage', 100)
+                    use_percentage=use_percentage
                 )
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Error parsing external items: {e}")
@@ -3844,14 +3924,14 @@ def recipe_update_view(request, pk):
         is_base=True
     ).exclude(pk=recipe.pk).select_related('supermarket')
 
-    # Prepare existing items as JSON
+    # Prepare existing items as JSON (convert percentage to decimal units for UI)
     existing_product_items = [
         {
             'cod': item.product_code,
             'var': item.product_var,
             'description': item.cached_description,
             'cost_std': float(item.cached_cost_std) if item.cached_cost_std else 0,
-            'use_percentage': item.use_percentage
+            'units': item.use_percentage / 100  # Convert percentage to decimal units
         }
         for item in recipe.product_items.all()
     ]
@@ -3860,7 +3940,7 @@ def recipe_update_view(request, pk):
         {
             'name': item.name,
             'unit_cost': float(item.unit_cost),
-            'use_percentage': item.use_percentage
+            'units': item.use_percentage / 100  # Convert percentage to decimal units
         }
         for item in recipe.external_items.all()
     ]
@@ -3871,7 +3951,7 @@ def recipe_update_view(request, pk):
         'existing_families': list(families),
         'base_recipes': base_recipes,
         'base_recipes_json': json.dumps([
-            {'id': r.id, 'name': r.name, 'supermarket_id': r.supermarket_id}
+            {'id': r.id, 'name': r.name, 'supermarket_id': r.supermarket_id, 'cost': r.get_total_cost()}
             for r in base_recipes
         ]),
         'existing_product_items_json': json.dumps(existing_product_items),

@@ -327,52 +327,70 @@ def run_scheduled_list_updates(self):
     """
     Update product lists for ALL storages with active order schedules.
     Runs at 3:00 AM every day.
-    
+
     This ensures product lists are always fresh for order calculations.
     """
-    from .models import Storage
+    from .models import Storage, RestockLog
     from .list_update_service import ListUpdateService
-    
+    from django.utils import timezone
+
     try:
         logger.info("[CELERY] Starting automatic list updates for scheduled storages")
-        
+
         # Get all storages that have active order schedules
         storages = Storage.objects.filter(
             schedule__isnull=False
         ).select_related('supermarket', 'schedule')
-        
+
         if not storages.exists():
             logger.info("[CELERY] No storages with schedules found")
             return "No storages to update"
-        
+
         logger.info(f"[CELERY] Found {storages.count()} storage(s) with schedules")
-        
+
         success_count = 0
         error_count = 0
-        
+
         for storage in storages:
+            # Create a log entry for this scheduled update
+            log = RestockLog.objects.create(
+                storage=storage,
+                status='processing',
+                operation_type='list_update'
+            )
+
             try:
                 logger.info(f"[CELERY] Updating product list for {storage.name}")
-                
+
                 with ListUpdateService(storage) as service:
                     result = service.update_and_import()
-                    
+
                     if result['success']:
+                        log.status = 'completed'
+                        log.completed_at = timezone.now()
                         logger.info(f"✓ [CELERY] List updated for {storage.name}")
                         success_count += 1
                     else:
+                        log.status = 'failed'
+                        log.error_message = result['message']
                         logger.warning(f"⚠ [CELERY] List update failed for {storage.name}: {result['message']}")
-                        error_count += 1                   
+                        error_count += 1
+
+                    log.save()
+
             except Exception as e:
+                log.status = 'failed'
+                log.error_message = str(e)
+                log.save()
                 logger.exception(f"✗ [CELERY] Error updating list for {storage.name}")
                 error_count += 1
                 continue
-        
+
         result_msg = f"List updates complete: {success_count} successful, {error_count} failed"
         logger.info(f"[CELERY] {result_msg}")
-        
+
         return result_msg
-        
+
     except Exception as exc:
         logger.exception("[CELERY] Fatal error in list update task")
         raise self.retry(exc=exc)

@@ -66,6 +66,8 @@ urlpatterns = [
     path('recipes/<int:pk>/delete/', views.RecipeDeleteView.as_view(), name='recipe-delete'),
     path('recipes/api/search-products/', views.recipe_product_search_view, name='recipe-search-products'),
     path('recipes/api/base/<int:pk>/items/', views.recipe_get_base_items_view, name='recipe-base-items'),
+    path('recipes/alerts/<int:pk>/dismiss/', views.dismiss_recipe_cost_alert, name='dismiss-recipe-alert'),
+    path('recipes/alerts/dismiss-all/', views.dismiss_all_recipe_cost_alerts, name='dismiss-all-recipe-alerts'),
 
     # ============ Inventory Panel (Unified Operations) ============
     path('inventory/', views.inventory_search_view, name='inventory-search'),

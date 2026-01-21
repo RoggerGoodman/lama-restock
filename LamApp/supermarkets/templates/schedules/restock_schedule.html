@@ -1365,8 +1365,10 @@ function openExceptionModal(dateStr) {
     document.getElementById('deliveryOffsetSection').style.display =
         (selectedType === 'add' || selectedType === 'modify') ? 'block' : 'none';
 
-    // Show modal
-    new bootstrap.Modal(document.getElementById('exceptionModal')).show();
+    // Show modal (use getOrCreateInstance to avoid duplicate instances)
+    const modalEl = document.getElementById('exceptionModal');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
 }
 
 // Update 3-month calendar when weekly schedule changes

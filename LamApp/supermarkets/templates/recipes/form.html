@@ -40,8 +40,8 @@
         position: sticky;
         top: 20px;
     }
-    .use-percentage-input {
-        width: 80px;
+    .units-input {
+        width: 90px;
     }
 </style>
 {% endblock %}
@@ -65,6 +65,7 @@
         {% csrf_token %}
         <input type="hidden" name="product_items" id="product_items_json">
         <input type="hidden" name="external_items" id="external_items_json">
+        <input type="hidden" name="base_multiplier" id="base_multiplier_hidden">
 
         <div class="row">
             <!-- Main Form -->
@@ -140,6 +141,16 @@
                             </select>
                             <small class="text-muted">Eredita gli ingredienti da una ricetta base esistente</small>
                         </div>
+                        <div class="col-md-6 mb-3" id="baseMultiplierCol" style="display: none;">
+                            <label class="form-label">Quantità base</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="base_multiplier"
+                                       value="{% if is_edit %}{{ recipe.base_multiplier }}{% else %}1{% endif %}"
+                                       step="0.01" min="0.01" onchange="updateTotals()" onkeyup="updateTotals()">
+                                <span class="input-group-text">unità</span>
+                            </div>
+                            <small class="text-muted">Es: 0.5 = mezza base, 2 = doppia base</small>
+                        </div>
                     </div>
 
                     <div class="mb-3">
@@ -192,9 +203,9 @@
                         </div>
                         <div class="col-md-2">
                             <div class="input-group">
-                                <input type="number" class="form-control" id="extUsePct"
-                                       placeholder="%" value="100" min="1">
-                                <span class="input-group-text">%</span>
+                                <input type="number" class="form-control" id="extUnits"
+                                       placeholder="Unità" value="1" step="0.01" min="0.01">
+                                <span class="input-group-text">u.</span>
                             </div>
                         </div>
                         <div class="col-md-2">
@@ -222,7 +233,7 @@
 
                     <div class="mb-3" id="baseCostRow" style="display: none;">
                         <div class="d-flex justify-content-between">
-                            <span class="text-muted">Ricetta base:</span>
+                            <span class="text-muted">Ricetta base (<span id="baseMultiplierDisplay">1</span>x):</span>
                             <span id="baseCost">&euro; 0.00</span>
                         </div>
                     </div>
@@ -285,7 +296,7 @@
 
 {% block extra_js %}
 <script>
-// Data arrays
+// Data arrays - units are stored as decimal (1 = 1 unit, 0.5 = half unit)
 let productItems = {{ existing_product_items_json|default:"[]"|safe }};
 let externalItems = {{ existing_external_items_json|default:"[]"|safe }};
 const baseRecipesData = {{ base_recipes_json|safe }};
@@ -307,6 +318,7 @@ document.addEventListener('DOMContentLoaded', function() {
     updateTotals();
     toggleBaseOptions();
     filterBaseRecipes();
+    updateBaseMultiplierVisibility();
 
     // Filter base recipes when supermarket changes
     supermarketSelect.addEventListener('change', filterBaseRecipes);
@@ -327,7 +339,20 @@ function toggleBaseOptions() {
         baseRow.style.display = 'flex';
         familyInput.disabled = false;
     }
+    updateBaseMultiplierVisibility();
     updateTotals();
+}
+
+// Show/hide base multiplier input based on base recipe selection
+function updateBaseMultiplierVisibility() {
+    const baseSelect = document.getElementById('base_recipe');
+    const multiplierCol = document.getElementById('baseMultiplierCol');
+
+    if (baseSelect.value) {
+        multiplierCol.style.display = 'block';
+    } else {
+        multiplierCol.style.display = 'none';
+    }
 }
 
 // Filter base recipes by selected supermarket
@@ -346,6 +371,7 @@ function filterBaseRecipes() {
     if (baseSelect.value && baseSelect.selectedOptions[0].style.display === 'none') {
         baseSelect.value = '';
     }
+    updateBaseMultiplierVisibility();
     updateTotals();
 }
 
@@ -382,7 +408,7 @@ searchInput.addEventListener('input', function() {
                     resultsDropdown.innerHTML = data.products.map(p => `
                         <div class="dropdown-item" onclick='addProductItem(${JSON.stringify(p)})'>
                             <strong>${p.cod}.${p.var}</strong> - ${p.description}
-                            <br><small class="text-muted">Costo: &euro; ${p.cost_std.toFixed(4)}</small>
+                            <br><small class="text-muted">Costo unitario: &euro; ${p.cost_std.toFixed(4)}</small>
                         </div>
                     `).join('');
                 }
@@ -416,7 +442,7 @@ function addProductItem(product) {
         var: product.var,
         description: product.description,
         cost_std: product.cost_std,
-        use_percentage: 100
+        units: 1  // Default 1 unit
     });
 
     renderProductItems();
@@ -434,9 +460,9 @@ function removeProductItem(index) {
     updateTotals();
 }
 
-// Update product percentage
-function updateProductPercentage(index, value) {
-    productItems[index].use_percentage = parseInt(value) || 100;
+// Update product units
+function updateProductUnits(index, value) {
+    productItems[index].units = parseFloat(value) || 1;
     updateTotals();
 }
 
@@ -460,14 +486,14 @@ function renderProductItems() {
                 <br><small class="text-muted">Costo unitario: &euro; ${item.cost_std.toFixed(4)}</small>
             </div>
             <div>
-                <div class="input-group input-group-sm use-percentage-input">
-                    <input type="number" class="form-control" value="${item.use_percentage}"
-                           min="1" onchange="updateProductPercentage(${idx}, this.value)">
-                    <span class="input-group-text">%</span>
+                <div class="input-group input-group-sm units-input">
+                    <input type="number" class="form-control" value="${item.units}"
+                           step="0.01" min="0.01" onchange="updateProductUnits(${idx}, this.value)">
+                    <span class="input-group-text">u.</span>
                 </div>
             </div>
             <div class="text-end" style="min-width: 80px;">
-                <strong>&euro; ${(item.cost_std * item.use_percentage / 100).toFixed(2)}</strong>
+                <strong>&euro; ${(item.cost_std * item.units).toFixed(2)}</strong>
             </div>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeProductItem(${idx})">
                 <i class="bi bi-trash"></i>
@@ -480,7 +506,7 @@ function renderProductItems() {
 function addExternalItem() {
     const name = document.getElementById('extName').value.trim();
     const unitCost = parseFloat(document.getElementById('extUnitCost').value) || 0;
-    const usePct = parseInt(document.getElementById('extUsePct').value) || 100;
+    const units = parseFloat(document.getElementById('extUnits').value) || 1;
 
     if (!name) {
         alert('Inserisci un nome per l\'elemento');
@@ -491,14 +517,14 @@ function addExternalItem() {
         return;
     }
 
-    externalItems.push({ name, unit_cost: unitCost, use_percentage: usePct });
+    externalItems.push({ name, unit_cost: unitCost, units: units });
     renderExternalItems();
     updateTotals();
 
     // Clear inputs
     document.getElementById('extName').value = '';
     document.getElementById('extUnitCost').value = '';
-    document.getElementById('extUsePct').value = '100';
+    document.getElementById('extUnits').value = '1';
 }
 
 // Remove external item
@@ -508,9 +534,9 @@ function removeExternalItem(index) {
     updateTotals();
 }
 
-// Update external percentage
-function updateExternalPercentage(index, value) {
-    externalItems[index].use_percentage = parseInt(value) || 100;
+// Update external units
+function updateExternalUnits(index, value) {
+    externalItems[index].units = parseFloat(value) || 1;
     updateTotals();
 }
 
@@ -533,14 +559,14 @@ function renderExternalItems() {
                 <br><small class="text-muted">Costo unitario: &euro; ${item.unit_cost.toFixed(4)}</small>
             </div>
             <div>
-                <div class="input-group input-group-sm use-percentage-input">
-                    <input type="number" class="form-control" value="${item.use_percentage}"
-                           min="1" onchange="updateExternalPercentage(${idx}, this.value)">
-                    <span class="input-group-text">%</span>
+                <div class="input-group input-group-sm units-input">
+                    <input type="number" class="form-control" value="${item.units}"
+                           step="0.01" min="0.01" onchange="updateExternalUnits(${idx}, this.value)">
+                    <span class="input-group-text">u.</span>
                 </div>
             </div>
             <div class="text-end" style="min-width: 80px;">
-                <strong>&euro; ${(item.unit_cost * item.use_percentage / 100).toFixed(2)}</strong>
+                <strong>&euro; ${(item.unit_cost * item.units).toFixed(2)}</strong>
             </div>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeExternalItem(${idx})">
                 <i class="bi bi-trash"></i>
@@ -551,28 +577,32 @@ function renderExternalItems() {
 
 // Update base recipe cost display
 function updateBaseRecipeCost() {
+    updateBaseMultiplierVisibility();
     updateTotals();
 }
 
 // Update all totals
 function updateTotals() {
-    // Product items total
+    // Product items total (cost_std * units)
     const productTotal = productItems.reduce((sum, p) =>
-        sum + (p.cost_std * p.use_percentage / 100), 0);
+        sum + (p.cost_std * p.units), 0);
 
-    // External items total
+    // External items total (unit_cost * units)
     const externalTotal = externalItems.reduce((sum, e) =>
-        sum + (e.unit_cost * e.use_percentage / 100), 0);
+        sum + (e.unit_cost * e.units), 0);
 
-    // Base recipe cost
+    // Base recipe cost with multiplier
     let baseTotal = 0;
     const baseSelect = document.getElementById('base_recipe');
     const baseCostRow = document.getElementById('baseCostRow');
+    const baseMultiplier = parseFloat(document.getElementById('base_multiplier').value) || 1;
 
     if (baseSelect.value && baseSelect.selectedOptions[0]) {
-        baseTotal = parseFloat(baseSelect.selectedOptions[0].dataset.cost) || 0;
+        const baseCostPerUnit = parseFloat(baseSelect.selectedOptions[0].dataset.cost) || 0;
+        baseTotal = baseCostPerUnit * baseMultiplier;
         baseCostRow.style.display = 'block';
         document.getElementById('baseCost').textContent = `€ ${baseTotal.toFixed(2)}`;
+        document.getElementById('baseMultiplierDisplay').textContent = baseMultiplier;
     } else {
         baseCostRow.style.display = 'none';
     }
@@ -605,6 +635,7 @@ function updateTotals() {
     // Update hidden JSON fields
     document.getElementById('product_items_json').value = JSON.stringify(productItems);
     document.getElementById('external_items_json').value = JSON.stringify(externalItems);
+    document.getElementById('base_multiplier_hidden').value = baseMultiplier;
 }
 
 // Form validation before submit
@@ -624,9 +655,11 @@ document.getElementById('recipeForm').addEventListener('submit', function(e) {
         return;
     }
 
-    // Update JSON fields one last time
+    // Update hidden fields one last time
+    const baseMultiplier = parseFloat(document.getElementById('base_multiplier').value) || 1;
     document.getElementById('product_items_json').value = JSON.stringify(productItems);
     document.getElementById('external_items_json').value = JSON.stringify(externalItems);
+    document.getElementById('base_multiplier_hidden').value = baseMultiplier;
 });
 </script>
 {% endblock %}

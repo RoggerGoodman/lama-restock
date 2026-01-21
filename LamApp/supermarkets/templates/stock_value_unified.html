@@ -34,9 +34,9 @@
                     </div>
                     
                     <div class="col-md-4">
-                        <label for="storage_id" class="form-label">Settore</label>
+                        <label for="storage_id" class="form-label">Magazzino</label>
                         <select name="storage_id" id="storage_id" class="form-select" onchange="updateClusters()">
-                            <option value="">Tutti i Settori</option>
+                            <option value="">Tutti i Magazzini</option>
                             {% for storage in storages %}
                             <option value="{{ storage.id }}" data-supermarket="{{ storage.supermarket.id }}" 
                                     {% if storage.id|stringformat:"s" == selected_storage %}selected{% endif %}>
