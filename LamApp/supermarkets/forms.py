@@ -353,20 +353,28 @@ class InventorySearchForm(forms.Form):
     
     def __init__(self, user, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
+
         # Import here to avoid circular import
         from .models import Supermarket
-        
+
         # Populate supermarket choices
-        supermarkets = Supermarket.objects.filter(owner=user)
-        
-        # Override widget to add choices
-        self.fields['supermarket'].widget = forms.Select(
-            choices=[('', '-- Seleziona Punto vendita --')] + [
-                (str(sm.id), sm.name) for sm in supermarkets
-            ],
-            attrs={'class': 'form-select', 'id': 'id_supermarket'}
-        )
+        supermarkets = list(Supermarket.objects.filter(owner=user))
+
+        # If user has only one supermarket, default to it (no empty option needed)
+        if len(supermarkets) == 1:
+            self.fields['supermarket'].widget = forms.Select(
+                choices=[(str(supermarkets[0].id), supermarkets[0].name)],
+                attrs={'class': 'form-select', 'id': 'id_supermarket'}
+            )
+            self.fields['supermarket'].initial = str(supermarkets[0].id)
+        else:
+            # Override widget to add choices with empty default
+            self.fields['supermarket'].widget = forms.Select(
+                choices=[('', '-- Seleziona Punto vendita --')] + [
+                    (str(sm.id), sm.name) for sm in supermarkets
+                ],
+                attrs={'class': 'form-select', 'id': 'id_supermarket'}
+            )
     
     def clean(self):
         cleaned_data = super().clean()

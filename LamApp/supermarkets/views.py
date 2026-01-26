@@ -1980,8 +1980,9 @@ def promo_products_view(request):
                     WHERE %s BETWEEN e.sale_start AND e.sale_end
                       AND e.cost_s IS NOT NULL
                       AND ps.verified = TRUE
+                      AND p.settore = %s
                     ORDER BY p.cod, p.v
-                """, (today,))
+                """, (today, storage.settore))
 
                 for row in cur.fetchall():
                     cost_s = float(row['cost_s'] or 0)
