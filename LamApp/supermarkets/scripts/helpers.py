@@ -282,6 +282,10 @@ class Helper:
                 text = page.extract_text() or ""
 
                 # Extract promo dates
+                # DEBUG: Log first 500 chars of extracted text
+                if sale_start is None:
+                    logger.info(f"[PROMOS DEBUG] Extracted text (first 500 chars): {repr(text[:500])}")
+
                 m = re.search(
                     r"Pubblico Dal (\d{2}/\d{2}/\d{4}) al (\d{2}/\d{2}/\d{4})",
                     text
