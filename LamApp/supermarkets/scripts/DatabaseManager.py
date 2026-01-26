@@ -753,7 +753,7 @@ class DatabaseManager:
 
         # Step 3: perform the upsert on the filtered list
         cur.executemany("""
-            INSERT INTO economics (cod, v, price_s, cost_s, sale_start, sale_end, price_std, cost_std, category)
+            INSERT INTO economics (cod, v, cost_s, price_s, sale_start, sale_end, price_std, cost_std, category)
             VALUES (%s, %s, %s, %s, %s, %s, 0, 0, 0)
             ON CONFLICT (cod, v) DO UPDATE SET
                 price_s = EXCLUDED.price_s,
