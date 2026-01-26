@@ -723,13 +723,18 @@ class DatabaseManager:
         """
 
         if not promo_list:
+            logger.warning("[PROMOS] Empty promo_list received")
             return  # nothing to do
+
+        logger.info(f"[PROMOS] Received {len(promo_list)} items. First 3: {promo_list[:3]}")
 
         cur = self.cursor()
 
         # Step 1: get all existing (cod, v) combinations in the DB
         cur.execute("SELECT cod, v FROM economics")
-        existing = set((int(row["cod"]), int(row["v"])) for row in cur.fetchall())
+        rows = cur.fetchall()
+        existing = set((int(row["cod"]), int(row["v"])) for row in rows)
+        logger.info(f"[PROMOS] Found {len(existing)} products in economics table")
 
         # Filter promo_list using same type normalization
         filtered_list = [
@@ -737,7 +742,13 @@ class DatabaseManager:
             if (int(row[0]), int(row[1])) in existing
         ]
 
+        logger.info(f"[PROMOS] After filtering: {len(filtered_list)} items match")
+
         if not filtered_list:
+            # Debug: show what didn't match
+            sample_parsed = [(row[0], row[1]) for row in promo_list[:5]]
+            sample_existing = list(existing)[:5] if existing else []
+            logger.warning(f"[PROMOS] No matches! Parsed sample: {sample_parsed}, DB sample: {sample_existing}")
             return  # nothing to update
 
         # Step 3: perform the upsert on the filtered list
