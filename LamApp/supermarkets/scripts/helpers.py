@@ -304,7 +304,7 @@ class Helper:
                         if not row or len(row) < 7:
                             continue
 
-                        codice = row[1]
+                        codice = str(row[1]) if row[1] else None
                         cost = row[5]
                         price = row[6]
 
