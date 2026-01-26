@@ -1,5 +1,6 @@
 <!-- LamApp/supermarkets/templates/dashboard.html - OVERHAULED -->
 {% extends 'base.html' %}
+{% load dashboard_extras %}
 
 {% block title %}Dashboard - LamaRestock{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
@@ -32,49 +33,41 @@
     </div>
 
     <!-- Attention Needed Section -->
-    {% if failed_logs or storages_without_schedule or pending_verifications %}
+    {% if failed_logs or pending_verifications %}
     <div class="row mb-4">
         <div class="col-12">
             <div class="stat-card border-warning" style="border-left: 4px solid #ffc107;">
                 <h5 class="mb-3">
                     <i class="bi bi-exclamation-triangle text-warning"></i> Attenzione
                 </h5>
-                
+
                 <div class="row">
                     {% if failed_logs %}
-                    <div class="col-md-4 mb-3">
+                    <div class="col-md-6 mb-3">
                         <div class="alert alert-danger mb-0">
-                            <h6><i class="bi bi-x-circle"></i> Operazioni fallite</h6>
-                            <p class="mb-2">{{ failed_logs|length }} operazione/i necessitano attenzione</p>
-                            {% for log in failed_logs|slice:":3" %}
-                            <div class="small mb-1">
-                                <a href="{% url 'restock-log-detail' pk=log.id %}" class="alert-link">
-                                    {{ log.storage.name }} - {{ log.started_at|date:"M d" }}
+                            <div class="d-flex justify-content-between align-items-start">
+                                <h6 class="mb-0"><i class="bi bi-x-circle"></i> Operazioni fallite (ultime 24h)</h6>
+                            </div>
+                            <p class="mb-2 mt-2">{{ failed_logs|length }} operazione/i necessitano attenzione</p>
+                            {% for log in failed_logs %}
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <a href="{% url 'restock-log-detail' pk=log.id %}" class="alert-link small">
+                                    {{ log.storage.name }} - {{ log.started_at|date:"M d, H:i" }}
                                 </a>
+                                <form method="post" action="{% url 'dismiss-failed-log' pk=log.id %}" class="d-inline ms-2">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-light py-0 px-1" title="Archivia">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </form>
                             </div>
                             {% endfor %}
                         </div>
                     </div>
                     {% endif %}
-                    
-                    {% if storages_without_schedule %}
-                    <div class="col-md-4 mb-3">
-                        <div class="alert alert-warning mb-0">
-                            <h6><i class="bi bi-calendar-x"></i> Nessun agenda ordini</h6>
-                            <p class="mb-2">{{ storages_without_schedule|length }} Magazzini senza agenda ordini</p>
-                            {% for storage in storages_without_schedule|slice:":3" %}
-                            <div class="small mb-1">
-                                <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="alert-link">
-                                    {{ storage.name }}
-                                </a>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    {% endif %}
-                    
+
                     {% if pending_verifications %}
-                    <div class="col-md-4 mb-3">
+                    <div class="col-md-6 mb-3">
                         <div class="alert alert-info mb-0">
                             <h6><i class="bi bi-clipboard-check"></i> Necessita di verifica</h6>
                             <p class="mb-2">{{ pending_verifications }} articoli in attesa</p>
@@ -232,6 +225,22 @@
                                         <a href="{% url 'storage-detail' pk=storage.id %}" class="text-decoration-none">
                                             <i class="bi bi-box"></i> {{ storage.name }}
                                         </a>
+                                        {% with notifs=storage_notifications|get_item:storage.id %}
+                                        {% if notifs %}
+                                            {% if notifs.negative %}
+                                            <span class="badge rounded-pill bg-danger ms-1" title="Giacenza anomala" style="font-size: 0.65rem;">{{ notifs.negative }}</span>
+                                            {% endif %}
+                                            {% if notifs.unverified_sales %}
+                                            <span class="badge rounded-pill bg-primary ms-1" title="Da verificare (con vendite)" style="font-size: 0.65rem;">{{ notifs.unverified_sales }}</span>
+                                            {% endif %}
+                                            {% if notifs.newly_added %}
+                                            <span class="badge rounded-pill bg-success ms-1" title="Articoli nuovi" style="font-size: 0.65rem;">{{ notifs.newly_added }}</span>
+                                            {% endif %}
+                                            {% if notifs.out_of_stock %}
+                                            <span class="badge rounded-pill bg-warning ms-1" title="Esauriti" style="font-size: 0.65rem;">{{ notifs.out_of_stock }}</span>
+                                            {% endif %}
+                                        {% endif %}
+                                        {% endwith %}
                                     </td>
                                     <td>{{ sm.name }}</td>
                                     <td>

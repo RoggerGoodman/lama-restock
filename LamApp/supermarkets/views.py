@@ -22,7 +22,8 @@ from celery.result import AsyncResult
 from .models import (
     Supermarket, Storage, RestockSchedule, ScheduleException,
     Blacklist, BlacklistEntry, RestockLog,
-    Recipe, RecipeProductItem, RecipeExternalItem, RecipeCostAlert
+    Recipe, RecipeProductItem, RecipeExternalItem, RecipeCostAlert,
+    StockValueSnapshot
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
@@ -116,17 +117,15 @@ def dashboard_view(request):
         if len(recent_logs_by_storage[storage_key]) < 5:
             recent_logs_by_storage[storage_key].append(log)
     
-    # Get failed logs that need attention (all types)
+    # Get failed logs that need attention (last 24h, not dismissed)
+    from datetime import timedelta
+    last_24h = timezone.now() - timedelta(hours=24)
     failed_logs = RestockLog.objects.filter(
         storage__supermarket__owner=request.user,
-        status='failed'
+        status='failed',
+        started_at__gte=last_24h,
+        is_dismissed=False
     ).select_related('storage', 'storage__supermarket').order_by('-started_at')[:5]
-    
-    # Get storages without schedules
-    storages_without_schedule = Storage.objects.filter(
-        supermarket__owner=request.user,
-        schedule__isnull=True
-    ).select_related('supermarket')[:5]
     
     # Pending verifications count (efficient)
     pending_verifications = 0
@@ -190,6 +189,91 @@ def dashboard_view(request):
 
     logger.info(f"Dashboard: {pending_verifications} total pending verifications across {len(supermarkets_with_storages)} supermarkets")
 
+    # Get notification counts for each storage
+    storage_notifications = {}
+    for sm in supermarkets:
+        for storage in sm.storages.all():
+            try:
+                with RestockService(storage) as service:
+                    cursor = service.db.cursor()
+
+                    # Count negative stock products
+                    cursor.execute("""
+                        SELECT COUNT(*) as cnt
+                        FROM products p
+                        JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.settore = %s
+                            AND ps.verified = TRUE
+                            AND ps.stock < 0
+                    """, (storage.settore,))
+                    negative_count = cursor.fetchone()['cnt']
+
+                    # Count unverified products with sales
+                    cursor.execute("""
+                        SELECT COUNT(*) as cnt
+                        FROM products p
+                        JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.settore = %s
+                            AND p.purge_flag = FALSE
+                            AND ps.verified = FALSE
+                            AND ps.sales_sets IS NOT NULL
+                            AND jsonb_typeof(ps.sales_sets) = 'array'
+                            AND EXISTS (
+                                SELECT 1
+                                FROM jsonb_array_elements(
+                                    jsonb_path_query_array(ps.sales_sets, '$[0 to 6]')
+                                ) AS elem
+                                WHERE (elem::text)::int > 0
+                            )
+                    """, (storage.settore,))
+                    unverified_sales_count = cursor.fetchone()['cnt']
+
+                    # Count newly added products (bought but not sold)
+                    cursor.execute("""
+                        SELECT COUNT(*) as cnt
+                        FROM products p
+                        JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.settore = %s
+                            AND p.purge_flag = FALSE
+                            AND ps.verified = FALSE
+                            AND ps.sold_last_24 IS NULL
+                            AND ps.bought_last_24 IS NOT NULL
+                            AND jsonb_typeof(ps.bought_last_24) = 'array'
+                            AND EXISTS (
+                                SELECT 1
+                                FROM jsonb_array_elements(ps.bought_last_24)
+                            )
+                    """, (storage.settore,))
+                    newly_added_count = cursor.fetchone()['cnt']
+
+                    # Count out of stock products
+                    cursor.execute("""
+                        SELECT COUNT(*) as cnt
+                        FROM products p
+                        JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.settore = %s
+                            AND p.purge_flag = FALSE
+                            AND ps.verified = TRUE
+                            AND ps.stock = 0
+                            AND p.disponibilita = 'Si'
+                    """, (storage.settore,))
+                    out_of_stock_count = cursor.fetchone()['cnt']
+
+                    storage_notifications[storage.id] = {
+                        'negative': negative_count,
+                        'unverified_sales': unverified_sales_count,
+                        'newly_added': newly_added_count,
+                        'out_of_stock': out_of_stock_count,
+                    }
+            except Exception as e:
+                logger.warning(f"Could not load notifications for storage {storage.name}: {e}")
+                storage_notifications[storage.id] = {
+                    'negative': 0,
+                    'unverified_sales': 0,
+                    'newly_added': 0,
+                    'out_of_stock': 0,
+                }
+
     # Get unread recipe cost alerts for this user's supermarkets
     recipe_cost_alerts = RecipeCostAlert.objects.filter(
         recipe__supermarket__owner=request.user,
@@ -206,7 +290,6 @@ def dashboard_view(request):
         'recent_logs': recent_logs,  # ← NOW ONLY ORDERS
         'recent_logs_by_storage': recent_logs_by_storage,  # ← GROUPED BY STORAGE
         'failed_logs': failed_logs,
-        'storages_without_schedule': storages_without_schedule,
         'pending_verifications': pending_verifications,
         'top_pending_products': top_pending_products,
         'total_supermarkets': supermarkets.count(),
@@ -216,6 +299,7 @@ def dashboard_view(request):
         ).count(),
         'recipe_cost_alerts': recipe_cost_alerts,
         'unread_alerts_count': unread_alerts_count,
+        'storage_notifications': storage_notifications,
     }
 
     return render(request, 'dashboard.html', context)
@@ -464,64 +548,43 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 context['unverified_sales_products'] = unverified_sales_products
                 logger.info(f"Found {len(unverified_sales_products)} unverified products with recent sales")
 
+                # Load out of stock products (verified, stock=0, disponibilita='Si')
+                cursor.execute("""
+                    SELECT
+                        p.cod, p.v, p.descrizione, p.pz_x_collo, ps.stock
+                    FROM products p
+                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    WHERE p.settore = %s
+                        AND p.purge_flag = FALSE
+                        AND ps.verified = TRUE
+                        AND ps.stock = 0
+                        AND p.disponibilita = 'Si'
+                    ORDER BY p.descrizione
+                    LIMIT 50;
+                """, (self.object.settore,))
+
+                out_of_stock_products = []
+                for row in cursor.fetchall():
+                    out_of_stock_products.append({
+                        'cod': row['cod'],
+                        'var': row['v'],
+                        'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                        'stock': row['stock'],
+                        'package_size': row['pz_x_collo'] or 12
+                    })
+
+                context['out_of_stock_products'] = out_of_stock_products
+                logger.info(f"Found {len(out_of_stock_products)} out of stock products")
+
         except Exception as e:
             logger.exception("Error loading product anomalies")
             context['newly_added_products'] = []
             context['negative_stock_products'] = []
             context['unverified_sales_products'] = []
+            context['out_of_stock_products'] = []
 
         return context
 
-
-@login_required
-@require_POST
-def order_new_products_from_log_view(request, log_id):
-    """
-    FIXED: Now dispatches Celery task instead of blocking with Selenium.
-    Returns task_id for frontend to track progress.
-    """
-    log = get_object_or_404(
-        RestockLog,
-        id=log_id,
-        storage__supermarket__owner=request.user
-    )
-    
-    try:
-        data = json.loads(request.body)
-        products = data.get('products', [])
-        
-        if not products:
-            return JsonResponse({
-                'success': False,
-                'message': 'No products provided'
-            }, status=400)
-        
-        logger.info(f"Dispatching order for {len(products)} new products from log #{log_id}")
-        
-        # ✅ DISPATCH TO CELERY (non-blocking)
-        from .tasks import order_new_products_task
-        
-        result = order_new_products_task.apply_async(
-            args=[log_id, products],
-            retry=True,
-            retry_policy={
-                'max_retries': 3,
-                'interval_start': 600,
-            }
-        )
-        
-        return JsonResponse({
-            'success': True,
-            'task_id': result.id,
-            'message': f'Order started for {len(products)} products'
-        })
-            
-    except Exception as e:
-        logger.exception(f"Error dispatching order for log #{log_id}")
-        return JsonResponse({
-            'success': False,
-            'message': str(e)
-        }, status=500)
 
 class StorageDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Storage
@@ -1100,6 +1163,26 @@ class RestockLogDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         return context
 
 
+@login_required
+@require_POST
+def dismiss_failed_log(request, pk):
+    """Dismiss a failed log from the dashboard warnings"""
+    log = get_object_or_404(
+        RestockLog,
+        pk=pk,
+        storage__supermarket__owner=request.user,
+        status='failed'
+    )
+    log.is_dismissed = True
+    log.save(update_fields=['is_dismissed'])
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True})
+
+    messages.success(request, "Avviso archiviato")
+    return redirect('dashboard')
+
+
 # ============ Blacklist Views ============
 
 class BlacklistListView(LoginRequiredMixin, ListView):
@@ -1440,7 +1523,14 @@ def stock_value_unified_view(request):
     # Calculate percentages
     for cat in category_values:
         cat['percentage'] = (cat['value'] / total_value * 100) if total_value > 0 else 0
-    
+
+    # Get existing snapshots for this supermarket (if one is selected)
+    snapshots = []
+    if supermarket_id:
+        snapshots = StockValueSnapshot.objects.filter(
+            supermarket_id=supermarket_id
+        ).order_by('-created_at')[:36]
+
     context = {
         'supermarkets': supermarkets,
         'storages': Storage.objects.filter(supermarket__owner=request.user),
@@ -1451,9 +1541,104 @@ def stock_value_unified_view(request):
         'scope_description': scope_description,
         'category_values': category_values,
         'total_value': total_value,
+        'snapshots': snapshots,
     }
-    
+
     return render(request, 'stock_value_unified.html', context)
+
+
+@login_required
+@require_POST
+def create_stock_snapshot_view(request):
+    """Manually create a stock value snapshot for a supermarket."""
+    supermarket_id = request.POST.get('supermarket_id')
+
+    if not supermarket_id:
+        messages.error(request, "Seleziona un punto vendita per creare una fotografia.")
+        return redirect('stock-value-unified')
+
+    supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+    storages = Storage.objects.filter(supermarket=supermarket)
+
+    if not storages.exists():
+        messages.error(request, f"Nessun magazzino trovato per {supermarket.name}.")
+        return redirect('stock-value-unified')
+
+    # Calculate total value across all storages (same logic as the view)
+    category_totals = {}
+    total_value = 0
+
+    for storage in storages:
+        try:
+            with RestockService(storage) as service:
+                settore = storage.settore
+                cursor = service.db.cursor()
+
+                cursor.execute("""
+                    SELECT e.category,
+                        SUM((e.cost_std / p.rapp) * ps.stock) AS value
+                    FROM economics e
+                    JOIN product_stats ps
+                        ON e.cod = ps.cod AND e.v = ps.v
+                    JOIN products p
+                        ON e.cod = p.cod AND e.v = p.v
+                    WHERE e.category != '' AND ps.stock > 0
+                        AND p.settore = %s
+                    GROUP BY e.category
+                """, (settore,))
+
+                for row in cursor.fetchall():
+                    category_name = row['category']
+                    value = float(row['value'] or 0)
+
+                    if category_name in category_totals:
+                        category_totals[category_name] += value
+                    else:
+                        category_totals[category_name] = value
+
+                    total_value += value
+        except Exception as e:
+            logger.exception(f"Error calculating value for {storage.name}")
+            continue
+
+    # Build category breakdown with percentages
+    category_breakdown = []
+    for name, value in sorted(category_totals.items(), key=lambda x: x[1], reverse=True):
+        percentage = (value / total_value * 100) if total_value > 0 else 0
+        category_breakdown.append({
+            'name': name,
+            'value': round(value, 2),
+            'percentage': round(percentage, 1)
+        })
+
+    # Create the snapshot
+    snapshot = StockValueSnapshot.create_snapshot(
+        supermarket=supermarket,
+        total_value=total_value,
+        category_breakdown=category_breakdown,
+        is_manual=True
+    )
+
+    messages.success(
+        request,
+        f"Fotografia creata per {supermarket.name}: €{total_value:,.2f}"
+    )
+
+    return redirect(f"{reverse('stock-value-unified')}?supermarket_id={supermarket_id}")
+
+
+@login_required
+def delete_stock_snapshot_view(request, pk):
+    """Delete a stock value snapshot."""
+    snapshot = get_object_or_404(StockValueSnapshot, pk=pk, supermarket__owner=request.user)
+    supermarket_id = snapshot.supermarket_id
+
+    if request.method == 'POST':
+        snapshot.delete()
+        messages.success(request, "Fotografia eliminata.")
+
+    return redirect(f"{reverse('stock-value-unified')}?supermarket_id={supermarket_id}")
+
 
 @login_required
 def losses_analytics_unified_view(request):
@@ -1740,6 +1925,191 @@ def losses_analytics_unified_view(request):
     
     return render(request, 'losses_analytics_unified.html', context)
 
+
+@login_required
+def promo_products_view(request):
+    """
+    Display products currently on sale (today BETWEEN sale_start AND sale_end).
+    Filtered by storage, showing margins and stock for stocking decisions.
+    """
+    from datetime import date
+
+    supermarkets = Supermarket.objects.filter(owner=request.user)
+    storages = Storage.objects.filter(supermarket__owner=request.user)
+
+    # Get filter parameters
+    supermarket_id = request.GET.get('supermarket')
+    storage_id = request.GET.get('storage')
+
+    promo_products = []
+    scope_description = "Tutti i punti vendita"
+    today = date.today()
+
+    # Build list of storages to query
+    storages_to_query = []
+
+    if storage_id:
+        storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+        storages_to_query = [storage]
+        scope_description = f"{storage.supermarket.name} - {storage.settore}"
+    elif supermarket_id:
+        supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+        storages_to_query = list(supermarket.storages.all())
+        scope_description = supermarket.name
+    else:
+        storages_to_query = list(storages)
+
+    for storage in storages_to_query:
+        try:
+            with RestockService(storage) as service:
+                cur = service.db.cursor()
+                cur.execute("""
+                    SELECT
+                        p.cod,
+                        p.v,
+                        p.descrizione,
+                        e.cost_s,
+                        e.cost_std,
+                        e.price_std,
+                        e.sale_start,
+                        e.sale_end,
+                        ps.stock
+                    FROM products p
+                    JOIN economics e ON p.cod = e.cod AND p.v = e.v
+                    LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    WHERE %s BETWEEN e.sale_start AND e.sale_end
+                      AND e.cost_s IS NOT NULL
+                      AND ps.verified = TRUE
+                    ORDER BY p.cod, p.v
+                """, (today,))
+
+                for row in cur.fetchall():
+                    cost_s = float(row['cost_s'] or 0)
+                    cost_std = float(row['cost_std'] or 0)
+                    price_std = float(row['price_std'] or 0)
+                    stock = int(row['stock'] or 0)
+
+                    # Calculate margins (as percentages)
+                    margin_std = ((price_std - cost_std) / price_std * 100) if price_std > 0 else 0
+                    margin_promo = ((price_std - cost_s) / price_std * 100) if price_std > 0 else 0
+                    margin_gain = margin_promo - margin_std  # Extra margin from promo
+
+                    promo_products.append({
+                        'cod': row['cod'],
+                        'v': row['v'],
+                        'descrizione': row['descrizione'],
+                        'cost_s': cost_s,
+                        'cost_std': cost_std,
+                        'price_std': price_std,
+                        'margin_std': round(margin_std, 1),
+                        'margin_promo': round(margin_promo, 1),
+                        'margin_gain': round(margin_gain, 1),
+                        'stock': stock,
+                        'sale_start': row['sale_start'],
+                        'sale_end': row['sale_end'],
+                        'storage_id': storage.id,
+                        'storage_name': storage.settore,
+                        'supermarket_id': storage.supermarket.id,
+                        'supermarket_name': storage.supermarket.name,
+                    })
+        except Exception as e:
+            logger.exception(f"Error fetching promo products for storage {storage.id}")
+            continue
+
+    # Sort by margin gain (descending) by default
+    promo_products.sort(key=lambda x: x['margin_gain'], reverse=True)
+
+    context = {
+        'supermarkets': supermarkets,
+        'storages': storages,
+        'selected_supermarket': supermarket_id or '',
+        'selected_storage': storage_id or '',
+        'scope_description': scope_description,
+        'promo_products': promo_products,
+        'total_products': len(promo_products),
+        'today': today,
+    }
+
+    return render(request, 'inventory/promo_products.html', context)
+
+
+@login_required
+@require_POST
+def order_promo_products_view(request):
+    """
+    Order promo products from the promo products page.
+    Receives orders grouped by storage, dispatches Celery task for each storage.
+    """
+    try:
+        data = json.loads(request.body)
+        orders_by_storage = data.get('orders_by_storage', {})
+
+        if not orders_by_storage:
+            return JsonResponse({
+                'success': False,
+                'message': 'No products provided'
+            }, status=400)
+
+        # Validate all storages belong to user
+        storage_ids = [int(sid) for sid in orders_by_storage.keys()]
+        user_storages = Storage.objects.filter(
+            id__in=storage_ids,
+            supermarket__owner=request.user
+        ).select_related('supermarket')
+
+        if user_storages.count() != len(storage_ids):
+            return JsonResponse({
+                'success': False,
+                'message': 'Invalid storage access'
+            }, status=403)
+
+        # Build storage info map
+        storage_map = {s.id: s for s in user_storages}
+
+        # Prepare orders for the task
+        all_orders = []
+        for storage_id_str, order_data in orders_by_storage.items():
+            storage_id = int(storage_id_str)
+            storage = storage_map[storage_id]
+            for product in order_data['products']:
+                all_orders.append({
+                    'storage_id': storage_id,
+                    'storage_name': storage.name,
+                    'supermarket_id': storage.supermarket.id,
+                    'cod': product['cod'],
+                    'var': product['var'],
+                    'qty': product['qty']
+                })
+
+        total_products = len(all_orders)
+        logger.info(f"Dispatching promo order for {total_products} products across {len(storage_ids)} storages")
+
+        # Dispatch to Celery task
+        from .tasks import order_promo_products_task
+
+        result = order_promo_products_task.apply_async(
+            args=[request.user.id, all_orders],
+            retry=True,
+            retry_policy={
+                'max_retries': 3,
+                'interval_start': 600,
+            }
+        )
+
+        return JsonResponse({
+            'success': True,
+            'task_id': result.id,
+            'message': f'Order started for {total_products} promo products'
+        })
+
+    except Exception as e:
+        logger.exception("Error dispatching promo order")
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
 @login_required
 def add_products_view(request, storage_id):
     """
@@ -1924,38 +2294,47 @@ def flag_products_for_purge_view(request, log_id):
 @login_required
 def inventory_search_view(request):
     """Main inventory search interface"""
-    
+
+    # Get user's supermarkets for ILIKE search dropdown
+    user_supermarkets = Supermarket.objects.filter(owner=request.user)
+
     if request.method == 'POST':
         form = InventorySearchForm(request.user, request.POST)
-        
+
         if form.is_valid():
             search_type = form.cleaned_data['search_type']
-            
+
             if search_type == 'cod_var':
                 cod = form.cleaned_data['product_code']
                 var = form.cleaned_data['product_var']
                 return redirect(f'/inventory/results/cod_var/?cod={cod}&var={var}')
-            
+
             elif search_type == 'cod_all':
                 cod = form.cleaned_data['product_code']
                 return redirect(f'/inventory/results/cod_all/?cod={cod}')
-            
+
             elif search_type == 'settore_cluster':
                 supermarket_id = form.cleaned_data['supermarket']
                 settore = form.cleaned_data['settore']
                 cluster = form.cleaned_data.get('cluster') or ''
-                
+
                 if cluster:
                     return redirect(f'/inventory/results/settore_cluster/?supermarket_id={supermarket_id}&settore={settore}&cluster={cluster}')
                 else:
                     return redirect(f'/inventory/results/settore_cluster/?supermarket_id={supermarket_id}&settore={settore}')
         else:
             # Form has errors - re-render with errors
-            return render(request, 'inventory/search.html', {'form': form})
+            return render(request, 'inventory/search.html', {
+                'form': form,
+                'user_supermarkets': user_supermarkets
+            })
     else:
         form = InventorySearchForm(request.user)
-    
-    return render(request, 'inventory/search.html', {'form': form})
+
+    return render(request, 'inventory/search.html', {
+        'form': form,
+        'user_supermarkets': user_supermarkets
+    })
 
 @login_required  
 def inventory_results_view(request, search_type):

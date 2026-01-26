@@ -42,6 +42,12 @@ app.conf.beat_schedule = {
         'task': 'supermarkets.tasks.run_scheduled_list_updates',
         'schedule': crontab(hour=3, minute=0),
     },
+
+    # Monthly stock value snapshots on the 1st at 00:30
+    'monthly-stock-snapshots': {
+        'task': 'supermarkets.tasks.create_monthly_stock_snapshots',
+        'schedule': crontab(hour=0, minute=30, day_of_month='1'),
+    },
 }
 
 @app.task(bind=True)

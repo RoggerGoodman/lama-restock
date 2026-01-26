@@ -145,6 +145,56 @@
     </div>
     {% endif %}
 
+    <!-- Out of Stock Products Section -->
+    {% if out_of_stock_products %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card border-secondary">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="bi bi-box-seam text-secondary"></i> Articoli esauriti
+                    </h5>
+                    <span class="badge bg-secondary">{{ out_of_stock_products|length }} articoli</span>
+                </div>
+
+                <div class="alert alert-secondary">
+                    <i class="bi bi-info-circle"></i>
+                    Questi articoli verificati hanno giacenza zero ma sono ancora disponibili a listino. Non sono sopravvissuti fino al prossimo riordino.
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Codice</th>
+                                <th>Variante</th>
+                                <th>Descrizione</th>
+                                <th>Giacenza</th>
+                                <th>Pz x Collo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in out_of_stock_products %}
+                            <tr>
+                                <td><code>{{ product.cod }}</code></td>
+                                <td><code>{{ product.var }}</code></td>
+                                <td>{{ product.description|truncatewords:8 }}</td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ product.stock }}</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ product.package_size }}</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- ✅ NEW: Newly Added Products Section (if any exist) -->
     {% if newly_added_products %}
     <div class="row mb-4">

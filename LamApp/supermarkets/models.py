@@ -308,7 +308,10 @@ class RestockLog(models.Model):
     error_message = models.TextField(blank=True)
     
     coverage_used = models.DecimalField(max_digits=4, decimal_places=1, null=True)
-    
+
+    # Dismiss failed log warnings from dashboard
+    is_dismissed = models.BooleanField(default=False)
+
     # NEW: Helper methods for operation type display
     def get_operation_icon(self):
         """Return Bootstrap icon class for operation type"""
@@ -556,3 +559,55 @@ class RecipeCostAlert(models.Model):
     def is_cost_increase(self):
         """True if the ingredient cost increased"""
         return self.new_cost > self.old_cost
+
+
+class StockValueSnapshot(models.Model):
+    """
+    Snapshot of total stock value for a supermarket.
+    Used to track inventory value over time for margin calculations.
+    Maximum 36 snapshots stored per supermarket (auto-cleanup of oldest).
+    """
+    MAX_SNAPSHOTS = 36
+
+    supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='stock_snapshots')
+    created_at = models.DateTimeField(default=timezone.now)
+    is_manual = models.BooleanField(default=False, help_text="True if manually triggered, False if automatic monthly")
+    total_value = models.DecimalField(max_digits=14, decimal_places=2)
+    category_breakdown = models.JSONField(default=list, help_text="List of {name, value, percentage}")
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['supermarket', '-created_at']),
+        ]
+
+    def __str__(self):
+        snapshot_type = "Manual" if self.is_manual else "Auto"
+        return f"{self.supermarket.name} - {snapshot_type} - {self.created_at.strftime('%Y-%m-%d')}"
+
+    @classmethod
+    def create_snapshot(cls, supermarket, total_value, category_breakdown, is_manual=False):
+        """
+        Create a snapshot and enforce the 36-snapshot limit.
+        Deletes oldest snapshots if limit exceeded.
+        """
+        # Create the new snapshot
+        snapshot = cls.objects.create(
+            supermarket=supermarket,
+            total_value=total_value,
+            category_breakdown=category_breakdown,
+            is_manual=is_manual
+        )
+
+        # Enforce limit - delete oldest if over MAX_SNAPSHOTS
+        existing_count = cls.objects.filter(supermarket=supermarket).count()
+        if existing_count > cls.MAX_SNAPSHOTS:
+            # Get IDs of snapshots to keep (newest MAX_SNAPSHOTS)
+            keep_ids = cls.objects.filter(
+                supermarket=supermarket
+            ).order_by('-created_at').values_list('id', flat=True)[:cls.MAX_SNAPSHOTS]
+
+            # Delete the rest
+            cls.objects.filter(supermarket=supermarket).exclude(id__in=list(keep_ids)).delete()
+
+        return snapshot

@@ -1050,7 +1050,8 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
             meta={'error': str(exc)}
         )
         raise self.retry(exc=exc)
-    
+
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -1059,62 +1060,84 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
     acks_late=True,
     reject_on_worker_lost=True
 )
-def order_new_products_task(self, log_id, products_list):
+def order_promo_products_task(self, user_id, orders_list):
     """
-    Place order for new products from restock log.
-    
+    Place order for promo products from promo products page.
+
     Args:
-        log_id: RestockLog ID
-        products_list: List of dicts with {cod, var, qty}
+        user_id: User ID (for ownership validation)
+        orders_list: List of dicts with {storage_id, storage_name, supermarket_id, cod, var, qty}
     """
-    from .models import RestockLog
+    from .models import Supermarket
     from .scripts.orderer import Orderer
-    
+
     try:
-        log = RestockLog.objects.select_related(
-            'storage__supermarket'
-        ).get(id=log_id)
-        
-        logger.info(f"[ORDER NEW] Starting for log #{log_id}: {len(products_list)} products")
-        
-        # Convert to orderer format
-        orders_list = [
-            (p['cod'], p['var'], p['qty'])
-            for p in products_list
-        ]
-        
-        orderer = Orderer(
-            username=log.storage.supermarket.username,
-            password=log.storage.supermarket.password
+        # Group orders by supermarket (each supermarket has its own credentials)
+        by_supermarket = {}
+        for order in orders_list:
+            sm_id = order['supermarket_id']
+            if sm_id not in by_supermarket:
+                by_supermarket[sm_id] = {
+                    'storages': {},
+                }
+            storage_name = order['storage_name']
+            if storage_name not in by_supermarket[sm_id]['storages']:
+                by_supermarket[sm_id]['storages'][storage_name] = []
+            by_supermarket[sm_id]['storages'][storage_name].append(
+                (order['cod'], order['var'], order['qty'])
+            )
+
+        total_ordered = 0
+        total_skipped = 0
+        all_skipped_products = []
+
+        # Process each supermarket
+        for sm_id, sm_data in by_supermarket.items():
+            supermarket = Supermarket.objects.get(id=sm_id, owner_id=user_id)
+
+            logger.info(f"[ORDER PROMO] Processing supermarket {supermarket.name}")
+
+            orderer = Orderer(
+                username=supermarket.username,
+                password=supermarket.password
+            )
+
+            try:
+                orderer.login()
+
+                # Process each storage within this supermarket
+                for storage_name, products in sm_data['storages'].items():
+                    logger.info(f"[ORDER PROMO] Ordering {len(products)} products for {storage_name}")
+
+                    successful_orders, order_skipped = orderer.make_orders(
+                        storage_name,
+                        products
+                    )
+
+                    total_ordered += len(successful_orders)
+                    total_skipped += len(order_skipped)
+                    all_skipped_products.extend(order_skipped)
+
+            finally:
+                orderer.driver.quit()
+
+        logger.info(
+            f"✅ [ORDER PROMO] Complete: {total_ordered} ordered, "
+            f"{total_skipped} skipped"
         )
-        
-        try:
-            orderer.login()
-            successful_orders, order_skipped = orderer.make_orders(
-                log.storage.name,
-                orders_list
-            )
-            
-            logger.info(
-                f"✅ [ORDER NEW] Complete: {len(successful_orders)} ordered, "
-                f"{len(order_skipped)} skipped"
-            )
-            
-            return {
-                'success': True,
-                'log_id': log_id,
-                'ordered': len(successful_orders),
-                'skipped': len(order_skipped),
-                'skipped_products': order_skipped
-            }
-            
-        finally:
-            orderer.driver.quit()
-            
+
+        return {
+            'success': True,
+            'ordered': total_ordered,
+            'skipped': total_skipped,
+            'skipped_products': all_skipped_products
+        }
+
     except Exception as exc:
-        logger.exception(f"[ORDER NEW] Error for log #{log_id}")
+        logger.exception(f"[ORDER PROMO] Error for user #{user_id}")
         raise self.retry(exc=exc)
-    
+
+
 @shared_task(
     bind=True,
     max_retries=2,
@@ -1209,4 +1232,115 @@ def process_ddt_task(self, storage_id, pdf_file_path):
             
     except Exception as exc:
         logger.exception(f"[PROCESS DDT] Error for storage {storage_id}")
+        raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=3600  # 1 hour
+)
+def create_monthly_stock_snapshots(self):
+    """
+    Create automatic stock value snapshots for all supermarkets.
+    Runs on the 1st of each month at midnight.
+
+    Configured in Celery Beat schedule.
+    """
+    from .models import Supermarket, StockValueSnapshot, Storage
+    from .services import RestockService
+
+    try:
+        logger.info("[CELERY] Starting monthly stock value snapshot creation")
+
+        supermarkets = Supermarket.objects.all()
+
+        if not supermarkets.exists():
+            logger.info("[CELERY] No supermarkets found")
+            return "No supermarkets to process"
+
+        success_count = 0
+        error_count = 0
+
+        for supermarket in supermarkets:
+            try:
+                logger.info(f"[SNAPSHOT] Creating snapshot for {supermarket.name}")
+
+                # Get all storages for this supermarket
+                storages = Storage.objects.filter(supermarket=supermarket)
+
+                if not storages.exists():
+                    logger.warning(f"[SNAPSHOT] No storages found for {supermarket.name}")
+                    continue
+
+                # Calculate total value across all storages
+                category_totals = {}
+                total_value = 0
+
+                for storage in storages:
+                    try:
+                        with RestockService(storage) as service:
+                            settore = storage.settore
+                            cursor = service.db.cursor()
+
+                            cursor.execute("""
+                                SELECT e.category,
+                                    SUM((e.cost_std / p.rapp) * ps.stock) AS value
+                                FROM economics e
+                                JOIN product_stats ps
+                                    ON e.cod = ps.cod AND e.v = ps.v
+                                JOIN products p
+                                    ON e.cod = p.cod AND e.v = p.v
+                                WHERE e.category != '' AND ps.stock > 0
+                                    AND p.settore = %s
+                                GROUP BY e.category
+                            """, (settore,))
+
+                            for row in cursor.fetchall():
+                                category_name = row['category']
+                                value = float(row['value'] or 0)
+
+                                if category_name in category_totals:
+                                    category_totals[category_name] += value
+                                else:
+                                    category_totals[category_name] = value
+
+                                total_value += value
+                    except Exception as e:
+                        logger.exception(f"[SNAPSHOT] Error processing storage {storage.name}")
+                        continue
+
+                # Build category breakdown with percentages
+                category_breakdown = []
+                for name, value in sorted(category_totals.items(), key=lambda x: x[1], reverse=True):
+                    percentage = (value / total_value * 100) if total_value > 0 else 0
+                    category_breakdown.append({
+                        'name': name,
+                        'value': round(value, 2),
+                        'percentage': round(percentage, 1)
+                    })
+
+                # Create snapshot
+                StockValueSnapshot.create_snapshot(
+                    supermarket=supermarket,
+                    total_value=total_value,
+                    category_breakdown=category_breakdown,
+                    is_manual=False
+                )
+
+                logger.info(f"✓ [SNAPSHOT] Created snapshot for {supermarket.name}: €{total_value:.2f}")
+                success_count += 1
+
+            except Exception as e:
+                logger.exception(f"✗ [SNAPSHOT] Error creating snapshot for {supermarket.name}")
+                error_count += 1
+                continue
+
+        result_msg = f"Stock snapshots complete: {success_count} successful, {error_count} failed"
+        logger.info(f"[CELERY] {result_msg}")
+
+        return result_msg
+
+    except Exception as exc:
+        logger.exception("[CELERY] Fatal error in monthly snapshot task")
         raise self.retry(exc=exc)

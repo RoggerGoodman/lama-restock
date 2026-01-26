@@ -573,8 +573,8 @@
                         </div>
                     </div>
                     {% endif %}
-                    <!-- NEW PRODUCTS SECTION WITH ORDER CAPABILITY -->
-                     {% if enriched_new %}
+                    <!-- NEW PRODUCTS SECTION (display only) -->
+                    {% if enriched_new %}
                     <div class="collapsible-section">
                         <div class="collapsible-header success" onclick="toggleCollapse('newSection')">
                             <div>
@@ -585,50 +585,31 @@
                             </div>
                             <i class="bi bi-chevron-right chevron-icon" id="newChevron"></i>
                         </div>
-                        
+
                         <div class="collapse" id="newSection">
                             <div class="p-4">
                                 <div class="alert alert-success">
                                     <i class="bi bi-info-circle"></i>
-                                    Si tratta di articoli nuovi di zecca che non sono mai stati nel sistema. Seleziona quali ordinare.
-                                </div>
-
-                                <div class="mb-3">
-                                    <button class="btn btn-primary" onclick="orderSelectedNew()">
-                                        <i class="bi bi-cart-plus"></i> Ordina i selezionati
-                                    </button>
-                                    <button class="btn btn-outline-primary ms-2" onclick="orderAllNew()">
-                                        <i class="bi bi-cart-check"></i> Ordina tutti
-                                    </button>
+                                    Si tratta di articoli nuovi di zecca che non sono mai stati nel sistema.
                                 </div>
 
                                 <div class="table-responsive">
                                     <table class="table table-hover">
                                         <thead>
                                             <tr>
-                                                <th><input type="checkbox" id="selectAllNew" onclick="toggleSelectAllNew()"></th>
                                                 <th>Codice</th>
                                                 <th>Descrizione</th>
                                                 <th>Imballo</th>
                                                 <th>Costo unitario</th>
                                                 <th>Prezzo unitario</th>
                                                 <th>Margine</th>
-                                                <th>Giacenza</th>
                                                 <th>Disponibilità</th>
-                                                <th>Quantità da ordinare</th>
                                                 <th>Motivo</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {% for item in enriched_new %}
                                             <tr>
-                                                <td>
-                                                    <input type="checkbox" 
-                                                        class="new-product-checkbox" 
-                                                        value="{{ item.cod }},{{ item.var }}"
-                                                        data-cod="{{ item.cod }}"
-                                                        data-var="{{ item.var }}">
-                                                </td>
                                                 <td><code>{{ item.cod }}.{{ item.var }}</code></td>
                                                 <td>{{ item.name|truncatewords:6 }}</td>
                                                 <td>
@@ -649,22 +630,11 @@
                                                     {% endif %}
                                                 </td>
                                                 <td>
-                                                    <span class="badge bg-secondary">{{ item.stock }} unità</span>
-                                                </td>
-                                                <td>
                                                     {% if item.disponibilita == 'Si' %}
                                                         <span class="badge bg-success">Disponibile</span>
                                                     {% else %}
                                                         <span class="badge bg-danger">Non Disponibile</span>
                                                     {% endif %}
-                                                </td>
-                                                <td>
-                                                    <input type="number" 
-                                                        class="form-control form-control-sm qty-input" 
-                                                        id="qty-{{ item.cod }}-{{ item.var }}" 
-                                                        value="1" 
-                                                        min="1" 
-                                                        style="width: 80px;">
                                                 </td>
                                                 <td><small class="text-muted">{{ item.reason }}</small></td>
                                             </tr>
@@ -767,7 +737,7 @@
                                     </h6>
                                 </div>
                                 <div>
-                                    <span class="badge bg-primary me-2">{{ cluster_data.count }} voci</span>
+                                    <span class="badge bg-primary me-2">{{ cluster_data.count }} articoli</span>
                                     <span class="badge bg-success me-2">{{ cluster_data.total_packages }} colli</span>
                                     <span class="badge bg-info">€{{ cluster_data.total_cost|floatformat:2 }}</span>
                                 </div>
@@ -1054,80 +1024,6 @@ function flagAllZombiesForPurge() {
     if (!confirm(`Flag all ${all.length} zombie products for purging?`)) return;
     
     flagProductsForPurge(all);
-}
-function toggleSelectAllNew() {
-    const selectAll = document.getElementById('selectAllNew');
-    const checkboxes = document.querySelectorAll('.new-product-checkbox');
-    checkboxes.forEach(cb => cb.checked = selectAll.checked);
-}
-function orderSelectedNew() {
-    const selected = [];
-    document.querySelectorAll('.new-product-checkbox:checked').forEach(cb => {
-        const cod = parseInt(cb.dataset.cod);
-        const var_ = parseInt(cb.dataset.var);
-        const qtyInput = document.getElementById(`qty-${cod}-${var_}`);
-        const qty = parseInt(qtyInput.value) || 1;
-        
-        selected.push({cod, var: var_, qty});
-    });
-    
-    if (selected.length === 0) {
-        alert('No products selected');
-        return;
-    }
-    
-    if (!confirm(`Order ${selected.length} new product(s)?`)) return;
-    
-    placeNewProductOrder(selected);
-}
-
-function orderAllNew() {
-    const all = [];
-    document.querySelectorAll('.new-product-checkbox').forEach(cb => {
-        const cod = parseInt(cb.dataset.cod);
-        const var_ = parseInt(cb.dataset.var);
-        const qtyInput = document.getElementById(`qty-${cod}-${var_}`);
-        const qty = parseInt(qtyInput.value) || 1;
-        
-        all.push({cod, var: var_, qty});
-    });
-    
-    if (!confirm(`Order ALL ${all.length} new products?`)) return;
-    
-    placeNewProductOrder(all);
-}
-
-function placeNewProductOrder(products) {
-    const btn = event.target;
-    const originalHtml = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Starting...';
-    
-    fetch(`/logs/{{ log.id }}/order-new-products/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}'
-        },
-        body: JSON.stringify({products})
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success && data.task_id) {
-            // ✅ REDIRECT TO PROGRESS TRACKER
-            window.location.href = `/tasks/${data.task_id}/progress/`;
-        } else {
-            alert('Error: ' + (data.message || 'Failed to start order'));
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Error: ' + error);
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
-    });
 }
 </script>
 {% endblock %}

@@ -1159,7 +1159,8 @@ function generateMonthCalendar(year, month) {
                 if (isPast) {
                     cellClass += ' text-muted';
                 } else {
-                    clickAttr = `onclick="openExceptionModal('${dateStr}')" style="cursor: pointer;"`;
+                    cellClass += ' clickable-day';
+                    clickAttr = `data-date="${dateStr}" style="cursor: pointer;"`;
                 }
 
                 // Check for exceptions first
@@ -1257,10 +1258,35 @@ function renderThreeMonthCalendar() {
 }
 
 // Initialize the 3-month calendar
+let exceptionModal = null;  // Single modal instance
+
 function initThreeMonthCalendar() {
     // Set start month to current month
     calendarStartMonth = new Date();
     calendarStartMonth.setDate(1);
+
+    // Initialize modal instance once
+    const modalEl = document.getElementById('exceptionModal');
+    if (modalEl) {
+        exceptionModal = new bootstrap.Modal(modalEl);
+    }
+
+    // Event delegation for calendar day clicks
+    const calendarContainer = document.getElementById('threeMonthCalendar');
+    if (calendarContainer) {
+        calendarContainer.addEventListener('click', function(e) {
+            // Find the closest clickable day cell
+            const dayCell = e.target.closest('.clickable-day');
+            if (dayCell) {
+                e.preventDefault();
+                e.stopPropagation();
+                const dateStr = dayCell.dataset.date;
+                if (dateStr) {
+                    openExceptionModal(dateStr);
+                }
+            }
+        });
+    }
 
     // Navigation buttons
     document.getElementById('calendarPrevMonth')?.addEventListener('click', () => {
@@ -1300,7 +1326,7 @@ function initThreeMonthCalendar() {
                 note: note
             };
             renderThreeMonthCalendar();
-            bootstrap.Modal.getInstance(document.getElementById('exceptionModal')).hide();
+            if (exceptionModal) exceptionModal.hide();
         } else {
             alert('Errore nel salvare l\'eccezione. Riprova.');
         }
@@ -1313,7 +1339,7 @@ function initThreeMonthCalendar() {
         if (success) {
             delete scheduleExceptions[dateStr];
             renderThreeMonthCalendar();
-            bootstrap.Modal.getInstance(document.getElementById('exceptionModal')).hide();
+            if (exceptionModal) exceptionModal.hide();
         } else {
             alert('Errore nel rimuovere l\'eccezione. Riprova.');
         }
@@ -1365,10 +1391,10 @@ function openExceptionModal(dateStr) {
     document.getElementById('deliveryOffsetSection').style.display =
         (selectedType === 'add' || selectedType === 'modify') ? 'block' : 'none';
 
-    // Show modal (use getOrCreateInstance to avoid duplicate instances)
-    const modalEl = document.getElementById('exceptionModal');
-    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-    modal.show();
+    // Show modal using the single instance
+    if (exceptionModal) {
+        exceptionModal.show();
+    }
 }
 
 // Update 3-month calendar when weekly schedule changes

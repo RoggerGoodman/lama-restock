@@ -48,8 +48,8 @@ urlpatterns = [
     path('logs/<int:pk>/delete/', views.RestockLogDeleteView.as_view(), name='restock-log-delete'),
     path('logs/<int:log_id>/retry/', views.retry_restock_view, name='retry-restock'),
     path('logs/<int:log_id>/flag-products/', views.flag_products_for_purge_view, name='flag-products-for-purge'),
-    path('logs/<int:log_id>/order-new-products/', views.order_new_products_from_log_view, name='order-new-products'),
-    
+    path('logs/<int:pk>/dismiss/', views.dismiss_failed_log, name='dismiss-failed-log'),
+
     # ============ Blacklists (accessed from dashboard/storage) ============
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),
     path('blacklists/add/', views.BlacklistCreateView.as_view(), name='blacklist-add'),
@@ -85,12 +85,17 @@ urlpatterns = [
     path('inventory/record-losses/', views.record_losses_unified_view, name='record-losses-unified'),
     path('inventory/verification-report/', views.verification_report_unified_view, name='verification-report-unified'),
     path('inventory/stock-value/', views.stock_value_unified_view, name='stock-value-unified'),
+    path('inventory/stock-value/snapshot/', views.create_stock_snapshot_view, name='create-stock-snapshot'),
+    path('inventory/stock-value/snapshot/<int:pk>/delete/', views.delete_stock_snapshot_view, name='delete-stock-snapshot'),
     path('inventory/losses-analytics/', views.losses_analytics_unified_view, name='losses-analytics-unified'),
-    
+    path('inventory/promo-products/', views.promo_products_view, name='promo-products'),
+    path('inventory/order-promo-products/', views.order_promo_products_view, name='order-promo-products'),
+
     # Inventory AJAX endpoints
     path('inventory/api/settores/<int:supermarket_id>/', views.get_settores_for_supermarket_view, name='api-settores'),
     path('inventory/api/clusters/<int:supermarket_id>/<str:settore>/', views.get_clusters_for_settore_view, name='api-clusters'),
     path('inventory/api/storages/<int:supermarket_id>/', views.get_storages_for_supermarket_ajax_view, name='api-storages'),
+    path('inventory/api/search-products/', views.recipe_product_search_view, name='inventory-search-products'),
     path('inventory/adjust-stock/', views.inventory_adjust_stock_ajax_view, name='inventory-adjust-stock'),
     path('inventory/flag-for-purge/', views.inventory_flag_for_purge_ajax_view, name='inventory-flag-purge'),
 

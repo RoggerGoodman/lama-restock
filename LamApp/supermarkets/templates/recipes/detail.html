@@ -154,7 +154,7 @@
                                     <span class="badge bg-secondary">{{ item.units|floatformat:2 }}</span>
                                 </td>
                                 <td class="text-end text-muted">
-                                    &euro; {{ item.live_cost_std|default:item.cached_cost_std|floatformat:4 }}
+                                    &euro; {{ item.live_cost_std|default:item.cached_cost_std|floatformat:2 }}
                                 </td>
                                 <td class="text-end">
                                     <strong>&euro; {{ item.live_cost|floatformat:2 }}</strong>
@@ -206,7 +206,7 @@
                                 <td class="text-center">
                                     <span class="badge bg-secondary">{{ item.units|floatformat:2 }}</span>
                                 </td>
-                                <td class="text-end text-muted">&euro; {{ item.unit_cost|floatformat:4 }}</td>
+                                <td class="text-end text-muted">&euro; {{ item.unit_cost|floatformat:2 }}</td>
                                 <td class="text-end"><strong>&euro; {{ item.get_cost|floatformat:2 }}</strong></td>
                             </tr>
                             {% endfor %}

@@ -132,7 +132,151 @@
             </div>
         </div>
     </div>
+
+    <!-- Stock Value Snapshots Section -->
+    {% if selected_supermarket %}
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h5 class="mb-0"><i class="bi bi-camera"></i> Fotografie del valore</h5>
+                    <form method="post" action="{% url 'create-stock-snapshot' %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="supermarket_id" value="{{ selected_supermarket }}">
+                        <button type="submit" class="btn btn-primary btn-sm" {% if not total_value %}disabled{% endif %}>
+                            <i class="bi bi-camera-fill"></i> Scatta fotografia
+                        </button>
+                    </form>
+                </div>
+
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-info-circle"></i>
+                    Le fotografie vengono create automaticamente il 1° di ogni mese.
+                    Puoi anche scattarne una manualmente. Massimo 36 fotografie conservate.
+                </p>
+
+                {% if snapshots %}
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Tipo</th>
+                                <th class="text-end">Valore totale</th>
+                                <th class="text-end">Categorie</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for snapshot in snapshots %}
+                            <tr>
+                                <td>
+                                    <strong>{{ snapshot.created_at|date:"d/m/Y" }}</strong>
+                                    <small class="text-muted">{{ snapshot.created_at|time:"H:i" }}</small>
+                                </td>
+                                <td>
+                                    {% if snapshot.is_manual %}
+                                    <span class="badge bg-info"><i class="bi bi-hand-index"></i> Manuale</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary"><i class="bi bi-calendar-check"></i> Automatica</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <strong>€{{ snapshot.total_value|floatformat:2 }}</strong>
+                                </td>
+                                <td class="text-end">
+                                    <span class="text-muted">{{ snapshot.category_breakdown|length }} categorie</span>
+                                </td>
+                                <td class="text-end">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#snapshotModal{{ snapshot.id }}">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                    <form method="post" action="{% url 'delete-stock-snapshot' snapshot.id %}"
+                                          class="d-inline" onsubmit="return confirm('Eliminare questa fotografia?');">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-light">
+                    <i class="bi bi-camera"></i> Nessuna fotografia salvata. Scatta la prima fotografia!
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i>
+                Seleziona un punto vendita per visualizzare e gestire le fotografie del valore.
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </div>
+
+<!-- Snapshot Detail Modals -->
+{% for snapshot in snapshots %}
+<div class="modal fade" id="snapshotModal{{ snapshot.id }}" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-camera"></i>
+                    Fotografia del {{ snapshot.created_at|date:"d/m/Y" }}
+                    {% if snapshot.is_manual %}
+                    <span class="badge bg-info">Manuale</span>
+                    {% else %}
+                    <span class="badge bg-secondary">Automatica</span>
+                    {% endif %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-4" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px;">
+                    <h2 class="mb-0">€{{ snapshot.total_value|floatformat:2 }}</h2>
+                    <small>Valore totale al {{ snapshot.created_at|date:"d/m/Y H:i" }}</small>
+                </div>
+
+                {% if snapshot.category_breakdown %}
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Categoria</th>
+                            <th class="text-end">Valore</th>
+                            <th class="text-end">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cat in snapshot.category_breakdown %}
+                        <tr>
+                            <td>{{ cat.name }}</td>
+                            <td class="text-end">€{{ cat.value|floatformat:2 }}</td>
+                            <td class="text-end"><span class="badge bg-primary">{{ cat.percentage }}%</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
 {% endblock %}
 {% block scripts %}
 <script>

@@ -2,6 +2,42 @@
 {% block title %}Ricerca Inventario{% endblock %}
 {% block page_title %}Ricerca Inventario{% endblock %}
 
+{% block extra_css %}
+<style>
+    .product-search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 0 0 6px 6px;
+        max-height: 300px;
+        overflow-y: auto;
+        z-index: 1000;
+        display: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .product-search-results .dropdown-item {
+        padding: 10px 15px;
+        border-bottom: 1px solid #eee;
+        cursor: pointer;
+    }
+    .product-search-results .dropdown-item:hover {
+        background-color: #f8f9fa;
+    }
+    .product-search-results .dropdown-item:last-child {
+        border-bottom: none;
+    }
+    .selected-product-display {
+        background-color: #e8f4f8;
+        border-radius: 6px;
+        padding: 10px 15px;
+        margin-top: 10px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid">
     <div class="row mb-3">
@@ -29,16 +65,58 @@
                         </div>
                     </div>
 
-                    <!-- Code + Variant Fields -->
+                    <!-- Code + Variant Fields (ILIKE search for cod_var) -->
                     <div id="codVarFields" class="search-fields">
-                        <div class="row">
-                            <div class="col-6 mb-2">
-                                <label for="{{ form.product_code.id_for_label }}" class="form-label small mb-1">Codice</label>
-                                {{ form.product_code }}
+                        <!-- Hidden fields for form submission -->
+                        <input type="hidden" name="product_code" id="id_product_code">
+                        <input type="hidden" name="product_var" id="id_product_var">
+
+                        <!-- Supermarket selection for ILIKE search -->
+                        <div class="row mb-2">
+                            <div class="col-12">
+                                <label class="form-label small mb-1">Punto Vendita</label>
+                                <select id="searchSupermarket" class="form-select form-select-sm">
+                                    <option value="">-- Seleziona Punto Vendita --</option>
+                                    {% for sm in user_supermarkets %}
+                                    <option value="{{ sm.id }}">{{ sm.name }}</option>
+                                    {% endfor %}
+                                </select>
                             </div>
-                            <div class="col-6 mb-2" id="varField">
-                                <label for="{{ form.product_var.id_for_label }}" class="form-label small mb-1">Variante</label>
-                                {{ form.product_var }}
+                        </div>
+
+                        <!-- ILIKE Product Search -->
+                        <div class="row">
+                            <div class="col-12 mb-2">
+                                <label class="form-label small mb-1">Cerca Prodotto (min. 3 caratteri)</label>
+                                <div class="position-relative">
+                                    <div class="input-group">
+                                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                        <input type="text" class="form-control" id="productSearchInput"
+                                               placeholder="Cerca per descrizione...">
+                                    </div>
+                                    <div class="product-search-results" id="productSearchResults"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Selected product display -->
+                        <div id="selectedProductDisplay" class="selected-product-display" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong id="selectedProductCode"></strong>
+                                    <span class="text-muted ms-2" id="selectedProductDesc"></span>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearSelectedProduct()">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- cod_all variant (only code, no variant) -->
+                        <div class="row" id="codAllFields" style="display: none;">
+                            <div class="col-12 mb-2">
+                                <label for="codAllInput" class="form-label small mb-1">Codice Prodotto</label>
+                                <input type="number" class="form-control" id="codAllInput" placeholder="es. 12345">
                             </div>
                         </div>
                     </div>
@@ -101,6 +179,9 @@
                     <a href="{% url 'edit-losses' %}" class="btn btn-sm btn-primary">
                         <i class="bi bi-pencil-square"></i> Modifica Perdite
                     </a>
+                    <a href="{% url 'promo-products' %}" class="btn btn-sm btn-success">
+                        <i class="bi bi-tag"></i> Articoli in promozione
+                    </a>
                 </div>
 
                 <!-- Monitoraggio -->
@@ -125,32 +206,55 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchTypeRadios = document.querySelectorAll('input[name="search_type"]');
     const codVarFields = document.getElementById('codVarFields');
     const settoreFields = document.getElementById('settoreFields');
-    const varField = document.getElementById('varField');
+    const codAllFields = document.getElementById('codAllFields');
     const supermarketSelect = document.getElementById('id_supermarket');
     const settoreDisplay = document.getElementById('settore_display');
     const settoreHidden = document.getElementById('id_settore');
     const clusterDisplay = document.getElementById('cluster_display');
     const clusterHidden = document.getElementById('id_cluster');
 
+    // ILIKE search elements
+    const searchSupermarket = document.getElementById('searchSupermarket');
+    const productSearchInput = document.getElementById('productSearchInput');
+    const productSearchResults = document.getElementById('productSearchResults');
+    const selectedProductDisplay = document.getElementById('selectedProductDisplay');
+    const selectedProductCode = document.getElementById('selectedProductCode');
+    const selectedProductDesc = document.getElementById('selectedProductDesc');
+    const productCodeHidden = document.getElementById('id_product_code');
+    const productVarHidden = document.getElementById('id_product_var');
+    const codAllInput = document.getElementById('codAllInput');
+
+    // Debounce configuration
+    let searchTimeout = null;
+    const DEBOUNCE_MS = 500;
+    const MIN_CHARS = 3;
+
     function updateFieldsVisibility() {
         const selectedType = document.querySelector('input[name="search_type"]:checked').value;
 
         if (selectedType === 'cod_var') {
             codVarFields.style.display = 'block';
-            varField.style.display = 'block';
+            codAllFields.style.display = 'none';
             settoreFields.style.display = 'none';
+            // Show ILIKE search, hide cod_all input
+            searchSupermarket.parentElement.parentElement.style.display = 'block';
+            productSearchInput.parentElement.parentElement.parentElement.style.display = 'block';
         } else if (selectedType === 'cod_all') {
             codVarFields.style.display = 'block';
-            varField.style.display = 'none';
+            codAllFields.style.display = 'block';
             settoreFields.style.display = 'none';
+            // Hide ILIKE search for cod_all, show simple code input
+            searchSupermarket.parentElement.parentElement.style.display = 'none';
+            productSearchInput.parentElement.parentElement.parentElement.style.display = 'none';
+            selectedProductDisplay.style.display = 'none';
         } else if (selectedType === 'settore_cluster') {
             codVarFields.style.display = 'none';
             settoreFields.style.display = 'block';
 
             // Auto-select first supermarket if none selected and options are available
             if (!supermarketSelect.value && supermarketSelect.options.length > 1) {
-                supermarketSelect.selectedIndex = 1; // Select first actual option (index 0 is placeholder)
-                supermarketSelect.dispatchEvent(new Event('change')); // Trigger change to load settores
+                supermarketSelect.selectedIndex = 1;
+                supermarketSelect.dispatchEvent(new Event('change'));
             }
         }
     }
@@ -159,9 +263,92 @@ document.addEventListener('DOMContentLoaded', function() {
         radio.addEventListener('change', updateFieldsVisibility);
     });
 
+    // ILIKE Product Search
+    productSearchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+
+        if (searchTimeout) clearTimeout(searchTimeout);
+
+        if (query.length < MIN_CHARS) {
+            productSearchResults.style.display = 'none';
+            return;
+        }
+
+        const supermarketId = searchSupermarket.value;
+        if (!supermarketId) {
+            alert('Seleziona prima un Punto Vendita');
+            return;
+        }
+
+        // Show loading
+        productSearchResults.innerHTML = '<div class="dropdown-item text-muted"><i class="bi bi-hourglass-split"></i> Ricerca...</div>';
+        productSearchResults.style.display = 'block';
+
+        searchTimeout = setTimeout(() => {
+            fetch(`/inventory/api/search-products/?q=${encodeURIComponent(query)}&supermarket_id=${supermarketId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        productSearchResults.innerHTML = `<div class="dropdown-item text-danger">${data.error}</div>`;
+                    } else if (data.products.length === 0) {
+                        productSearchResults.innerHTML = '<div class="dropdown-item text-muted">Nessun risultato</div>';
+                    } else {
+                        productSearchResults.innerHTML = data.products.map(p => `
+                            <div class="dropdown-item" data-cod="${p.cod}" data-var="${p.var}" data-desc="${p.description}">
+                                <strong>${p.cod}.${p.var}</strong> - ${p.description}
+                            </div>
+                        `).join('');
+
+                        // Add click handlers
+                        productSearchResults.querySelectorAll('.dropdown-item').forEach(item => {
+                            item.addEventListener('click', function() {
+                                selectProduct(this.dataset.cod, this.dataset.var, this.dataset.desc);
+                            });
+                        });
+                    }
+                    productSearchResults.style.display = 'block';
+                })
+                .catch(err => {
+                    console.error('Search error:', err);
+                    productSearchResults.innerHTML = '<div class="dropdown-item text-danger">Errore di ricerca</div>';
+                    productSearchResults.style.display = 'block';
+                });
+        }, DEBOUNCE_MS);
+    });
+
+    // Hide search results when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!productSearchInput.contains(e.target) && !productSearchResults.contains(e.target)) {
+            productSearchResults.style.display = 'none';
+        }
+    });
+
+    function selectProduct(cod, varVal, description) {
+        productCodeHidden.value = cod;
+        productVarHidden.value = varVal;
+        selectedProductCode.textContent = `${cod}.${varVal}`;
+        selectedProductDesc.textContent = description;
+        selectedProductDisplay.style.display = 'block';
+        productSearchInput.value = '';
+        productSearchResults.style.display = 'none';
+    }
+
+    window.clearSelectedProduct = function() {
+        productCodeHidden.value = '';
+        productVarHidden.value = '';
+        selectedProductDisplay.style.display = 'none';
+    };
+
+    // Handle cod_all input change
+    codAllInput.addEventListener('input', function() {
+        productCodeHidden.value = this.value;
+        productVarHidden.value = '';  // Clear variant for cod_all
+    });
+
+    // Settore/Cluster logic
     supermarketSelect.addEventListener('change', function() {
         const supermarketId = this.value;
-        
+
         if (!supermarketId) {
             settoreDisplay.innerHTML = '<option value="">-- Seleziona Magazzino --</option>';
             settoreHidden.value = '';
@@ -169,19 +356,19 @@ document.addEventListener('DOMContentLoaded', function() {
             clusterHidden.value = '';
             return;
         }
-        
+
         fetch(`/inventory/api/settores/${supermarketId}/`)
             .then(response => response.json())
             .then(data => {
                 settoreDisplay.innerHTML = '<option value="">-- Seleziona Magazzino --</option>';
-                
+
                 data.settores.forEach(settore => {
                     const option = document.createElement('option');
                     option.value = settore;
                     option.textContent = settore;
                     settoreDisplay.appendChild(option);
                 });
-                
+
                 clusterDisplay.innerHTML = '<option value="">-- All Clusters --</option>';
                 clusterHidden.value = '';
             })
@@ -193,9 +380,9 @@ document.addEventListener('DOMContentLoaded', function() {
     settoreDisplay.addEventListener('change', function() {
         const supermarketId = supermarketSelect.value;
         const settore = this.value;
-        
+
         settoreHidden.value = settore;
-        
+
         if (!supermarketId || !settore) {
             clusterDisplay.innerHTML = '<option value="">-- All Clusters --</option>';
             clusterHidden.value = '';
@@ -206,7 +393,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(response => response.json())
             .then(data => {
                 clusterDisplay.innerHTML = '<option value="">-- All Clusters --</option>';
-                
+
                 data.clusters.forEach(cluster => {
                     const option = document.createElement('option');
                     option.value = cluster;

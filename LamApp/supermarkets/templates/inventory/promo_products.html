@@ -1,0 +1,377 @@
+{% extends 'base.html' %}
+{% block title %}Articoli in Promozione{% endblock %}
+{% block page_title %}Articoli in Promozione{% endblock %}
+
+{% block extra_css %}
+<style>
+    .promo-table th, .promo-table td {
+        padding: 0.4rem 0.5rem;
+        font-size: 0.85rem;
+        vertical-align: middle;
+    }
+    .promo-table .code-col {
+        font-family: monospace;
+        white-space: nowrap;
+    }
+    .promo-table .desc-col {
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .promo-table .num-col {
+        text-align: right;
+        white-space: nowrap;
+    }
+    .sortable-header {
+        cursor: pointer;
+        user-select: none;
+        position: relative;
+        padding-right: 18px !important;
+    }
+    .sortable-header:hover {
+        background-color: #f0f0f0;
+    }
+    .sort-icon {
+        position: absolute;
+        right: 3px;
+        top: 50%;
+        transform: translateY(-50%);
+        opacity: 0.4;
+        font-size: 0.7rem;
+    }
+    .sort-icon.active { opacity: 1; }
+    .sort-icon.asc::before { content: '\25B2'; }
+    .sort-icon.desc::before { content: '\25BC'; }
+    .sort-icon.neutral::before { content: '\21C5'; }
+    .margin-positive { color: #198754; font-weight: 600; }
+    .margin-negative { color: #dc3545; }
+    .margin-gain {
+        background-color: #d4edda;
+        font-weight: 600;
+    }
+    .stock-low { color: #dc3545; font-weight: 600; }
+    .stock-ok { color: #198754; }
+    .filter-row { background-color: #f8f9fa; padding: 0.75rem; border-radius: 6px; }
+    .compact-select { padding: 0.25rem 0.5rem; font-size: 0.85rem; }
+    .qty-input {
+        width: 60px !important;
+        padding: 0.2rem 0.4rem;
+        font-size: 0.85rem;
+        text-align: center;
+    }
+    .order-actions {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 6px;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+    }
+    .promo-table input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+            <li class="breadcrumb-item active">Articoli in Promozione</li>
+        </ol>
+    </nav>
+
+    <!-- Filters -->
+    <div class="filter-row mb-3">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label small mb-1">Punto Vendita</label>
+                <select name="supermarket" class="form-select compact-select" onchange="this.form.submit()">
+                    <option value="">Tutti</option>
+                    {% for sm in supermarkets %}
+                    <option value="{{ sm.id }}" {% if selected_supermarket == sm.id|stringformat:"s" %}selected{% endif %}>
+                        {{ sm.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-1">Magazzino</label>
+                <select name="storage" class="form-select compact-select" onchange="this.form.submit()">
+                    <option value="">Tutti</option>
+                    {% for st in storages %}
+                    <option value="{{ st.id }}" {% if selected_storage == st.id|stringformat:"s" %}selected{% endif %}>
+                        {{ st.supermarket.name }} - {{ st.settore }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <a href="{% url 'promo-products' %}" class="btn btn-sm btn-outline-secondary">Reset</a>
+            </div>
+            <div class="col-auto ms-auto">
+                <span class="badge bg-primary">{{ total_products }} articoli in promo</span>
+            </div>
+        </form>
+    </div>
+
+    <!-- Results -->
+    <div class="stat-card">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">
+                <i class="bi bi-tag text-success"></i> {{ scope_description }}
+                <small class="text-muted">({{ today|date:"d/m/Y" }})</small>
+            </h5>
+            <a href="{% url 'inventory-search' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Torna
+            </a>
+        </div>
+
+        {% if promo_products %}
+        <!-- Order Actions -->
+        <div class="order-actions">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-sm btn-primary" onclick="orderSelectedPromo()" id="orderSelectedBtn">
+                    <i class="bi bi-cart-plus"></i> Ordina selezionati
+                </button>
+                <button class="btn btn-sm btn-outline-primary" onclick="orderAllPromo()">
+                    <i class="bi bi-cart-check"></i> Ordina tutti
+                </button>
+                <span class="text-muted small ms-2" id="selectedCount">0 selezionati</span>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover table-bordered promo-table mb-0" id="promoTable">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:30px"><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th>
+                        <th class="code-col">Cod</th>
+                        <th>V</th>
+                        <th class="desc-col">Descrizione</th>
+                        <th class="num-col">C.Promo</th>
+                        <th class="num-col">C.Std</th>
+                        <th class="num-col">Prezzo</th>
+                        <th class="num-col sortable-header" onclick="sortTable('margin_std')" data-col="margin_std">
+                            M.Std%
+                            <span class="sort-icon neutral" id="sort-margin_std"></span>
+                        </th>
+                        <th class="num-col sortable-header" onclick="sortTable('margin_promo')" data-col="margin_promo">
+                            M.Promo%
+                            <span class="sort-icon neutral" id="sort-margin_promo"></span>
+                        </th>
+                        <th class="num-col sortable-header" onclick="sortTable('stock')" data-col="stock">
+                            Giac.
+                            <span class="sort-icon neutral" id="sort-stock"></span>
+                        </th>
+                        <th style="width:70px">Qty</th>
+                        <th>Mag.</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    {% for p in promo_products %}
+                    <tr data-margin-std="{{ p.margin_std }}"
+                        data-margin-promo="{{ p.margin_promo }}"
+                        data-stock="{{ p.stock }}">
+                        <td>
+                            <input type="checkbox" class="promo-checkbox"
+                                data-cod="{{ p.cod }}"
+                                data-var="{{ p.v }}"
+                                data-storage="{{ p.storage_id }}"
+                                data-supermarket="{{ p.supermarket_id }}"
+                                onchange="updateSelectedCount()">
+                        </td>
+                        <td class="code-col">{{ p.cod }}</td>
+                        <td>{{ p.v }}</td>
+                        <td class="desc-col" title="{{ p.descrizione }}">{{ p.descrizione|truncatechars:25 }}</td>
+                        <td class="num-col"><strong>{{ p.cost_s|floatformat:2 }}</strong></td>
+                        <td class="num-col text-muted">{{ p.cost_std|floatformat:2 }}</td>
+                        <td class="num-col">{{ p.price_std|floatformat:2 }}</td>
+                        <td class="num-col {% if p.margin_std >= 20 %}margin-positive{% elif p.margin_std < 10 %}margin-negative{% endif %}">
+                            {{ p.margin_std }}%
+                        </td>
+                        <td class="num-col margin-gain">
+                            {{ p.margin_promo }}%
+                            {% if p.margin_gain > 0 %}
+                            <small class="text-success">(+{{ p.margin_gain }})</small>
+                            {% endif %}
+                        </td>
+                        <td class="num-col {% if p.stock <= 2 %}stock-low{% elif p.stock >= 10 %}stock-ok{% endif %}">
+                            {{ p.stock }}
+                        </td>
+                        <td>
+                            <input type="number" class="form-control qty-input"
+                                id="qty-{{ p.cod }}-{{ p.v }}-{{ p.storage_id }}"
+                                value="1" min="1">
+                        </td>
+                        <td><small>{{ p.storage_name|truncatechars:8 }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="mt-2 text-muted small">
+            <i class="bi bi-info-circle"></i>
+            <strong>M.Std%</strong> = margine std |
+            <strong>M.Promo%</strong> = margine promo |
+            <strong>Giac.</strong> = giacenza |
+            <strong>Qty</strong> = colli da ordinare
+        </div>
+        {% else %}
+        <div class="alert alert-info mb-0">
+            <i class="bi bi-info-circle"></i> Nessun articolo in promozione trovato per oggi.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentSortCol = null;
+let currentSortDir = 'desc';
+
+function sortTable(column) {
+    const tbody = document.getElementById('tableBody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    if (currentSortCol === column) {
+        currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortCol = column;
+        currentSortDir = 'desc';
+    }
+
+    rows.sort((a, b) => {
+        let aVal, bVal;
+        if (column === 'margin_std') {
+            aVal = parseFloat(a.dataset.marginStd);
+            bVal = parseFloat(b.dataset.marginStd);
+        } else if (column === 'margin_promo') {
+            aVal = parseFloat(a.dataset.marginPromo);
+            bVal = parseFloat(b.dataset.marginPromo);
+        } else if (column === 'stock') {
+            aVal = parseInt(a.dataset.stock);
+            bVal = parseInt(b.dataset.stock);
+        }
+        return currentSortDir === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+
+    document.querySelectorAll('.sort-icon').forEach(icon => {
+        icon.className = 'sort-icon neutral';
+    });
+    const activeIcon = document.getElementById(`sort-${column}`);
+    activeIcon.className = `sort-icon ${currentSortDir} active`;
+}
+
+function toggleSelectAll() {
+    const selectAll = document.getElementById('selectAll');
+    document.querySelectorAll('.promo-checkbox').forEach(cb => {
+        cb.checked = selectAll.checked;
+    });
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const count = document.querySelectorAll('.promo-checkbox:checked').length;
+    document.getElementById('selectedCount').textContent = `${count} selezionati`;
+}
+
+function collectProducts(onlySelected) {
+    const checkboxes = onlySelected
+        ? document.querySelectorAll('.promo-checkbox:checked')
+        : document.querySelectorAll('.promo-checkbox');
+
+    // Group products by storage
+    const byStorage = {};
+    checkboxes.forEach(cb => {
+        const cod = parseInt(cb.dataset.cod);
+        const var_ = parseInt(cb.dataset.var);
+        const storageId = parseInt(cb.dataset.storage);
+        const supermarketId = parseInt(cb.dataset.supermarket);
+        const qtyInput = document.getElementById(`qty-${cod}-${var_}-${storageId}`);
+        const qty = parseInt(qtyInput.value) || 1;
+
+        if (!byStorage[storageId]) {
+            byStorage[storageId] = {
+                supermarket_id: supermarketId,
+                products: []
+            };
+        }
+        byStorage[storageId].products.push({cod, var: var_, qty});
+    });
+
+    return byStorage;
+}
+
+function orderSelectedPromo() {
+    const byStorage = collectProducts(true);
+    const storageIds = Object.keys(byStorage);
+
+    if (storageIds.length === 0) {
+        alert('Nessun articolo selezionato');
+        return;
+    }
+
+    const totalProducts = storageIds.reduce((sum, id) => sum + byStorage[id].products.length, 0);
+    if (!confirm(`Ordinare ${totalProducts} articolo/i da ${storageIds.length} magazzino/i?`)) return;
+
+    placePromoOrder(byStorage);
+}
+
+function orderAllPromo() {
+    const byStorage = collectProducts(false);
+    const storageIds = Object.keys(byStorage);
+
+    if (storageIds.length === 0) {
+        alert('Nessun articolo disponibile');
+        return;
+    }
+
+    const totalProducts = storageIds.reduce((sum, id) => sum + byStorage[id].products.length, 0);
+    if (!confirm(`Ordinare TUTTI i ${totalProducts} articoli in promozione?`)) return;
+
+    placePromoOrder(byStorage);
+}
+
+function placePromoOrder(byStorage) {
+    const btn = event.target;
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Avvio...';
+
+    fetch('/inventory/order-promo-products/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({orders_by_storage: byStorage})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.task_id) {
+            window.location.href = `/tasks/${data.task_id}/progress/`;
+        } else {
+            alert('Errore: ' + (data.message || 'Impossibile avviare ordine'));
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Errore: ' + error);
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    });
+}
+</script>
+{% endblock %}
