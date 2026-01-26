@@ -287,7 +287,7 @@ class Helper:
                     logger.info(f"[PROMOS DEBUG] Extracted text (first 500 chars): {repr(text[:500])}")
 
                 m = re.search(
-                    r"Pubblico Dal (\d{2}/\d{2}/\d{4}) al (\d{2}/\d{2}/\d{4})",
+                    r"Pubblico\s*Dal\s*(\d{2}/\d{2}/\d{4})\s*al\s*(\d{2}/\d{2}/\d{4})",
                     text
                 )
                 if m:
