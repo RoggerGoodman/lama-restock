@@ -65,58 +65,87 @@
                         </div>
                     </div>
 
-                    <!-- Code + Variant Fields (ILIKE search for cod_var) -->
+                    <!-- Code + Variant Fields -->
                     <div id="codVarFields" class="search-fields">
                         <!-- Hidden fields for form submission -->
                         <input type="hidden" name="product_code" id="id_product_code">
                         <input type="hidden" name="product_var" id="id_product_var">
 
-                        <!-- Supermarket selection for ILIKE search -->
-                        <div class="row mb-2">
-                            <div class="col-12">
-                                <label class="form-label small mb-1">Punto Vendita</label>
-                                <select id="searchSupermarket" class="form-select form-select-sm">
-                                    <option value="">-- Seleziona Punto Vendita --</option>
-                                    {% for sm in user_supermarkets %}
-                                    <option value="{{ sm.id }}">{{ sm.name }}</option>
-                                    {% endfor %}
-                                </select>
+                        <!-- Toggle between ILIKE and manual cod.var -->
+                        <div class="mb-2">
+                            <div class="btn-group btn-group-sm w-100" role="group">
+                                <input type="radio" class="btn-check" name="codvar_mode" id="modeIlike" value="ilike" checked>
+                                <label class="btn btn-outline-primary" for="modeIlike">
+                                    <i class="bi bi-search"></i> Cerca per descrizione
+                                </label>
+                                <input type="radio" class="btn-check" name="codvar_mode" id="modeCodVar" value="codvar">
+                                <label class="btn btn-outline-primary" for="modeCodVar">
+                                    <i class="bi bi-123"></i> Codice + Variante
+                                </label>
                             </div>
                         </div>
 
-                        <!-- ILIKE Product Search -->
-                        <div class="row">
-                            <div class="col-12 mb-2">
-                                <label class="form-label small mb-1">Cerca Prodotto (min. 3 caratteri)</label>
-                                <div class="position-relative">
-                                    <div class="input-group">
-                                        <span class="input-group-text"><i class="bi bi-search"></i></span>
-                                        <input type="text" class="form-control" id="productSearchInput"
-                                               placeholder="Cerca per descrizione...">
+                        <!-- ILIKE search panel -->
+                        <div id="ilikePanel">
+                            <!-- Supermarket selection for ILIKE search -->
+                            <div class="row mb-2">
+                                <div class="col-12">
+                                    <label class="form-label small mb-1">Punto Vendita</label>
+                                    <select id="searchSupermarket" class="form-select form-select-sm">
+                                        {% if user_supermarkets|length == 1 %}
+                                        {% for sm in user_supermarkets %}
+                                        <option value="{{ sm.id }}" selected>{{ sm.name }}</option>
+                                        {% endfor %}
+                                        {% else %}
+                                        <option value="">-- Seleziona Punto Vendita --</option>
+                                        {% for sm in user_supermarkets %}
+                                        <option value="{{ sm.id }}">{{ sm.name }}</option>
+                                        {% endfor %}
+                                        {% endif %}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- ILIKE Product Search -->
+                            <div class="row">
+                                <div class="col-12 mb-2">
+                                    <label class="form-label small mb-1">Cerca Prodotto (min. 3 caratteri)</label>
+                                    <div class="position-relative">
+                                        <div class="input-group">
+                                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                            <input type="text" class="form-control" id="productSearchInput"
+                                                   placeholder="Cerca per descrizione...">
+                                        </div>
+                                        <div class="product-search-results" id="productSearchResults"></div>
                                     </div>
-                                    <div class="product-search-results" id="productSearchResults"></div>
+                                </div>
+                            </div>
+
+                            <!-- Selected product display -->
+                            <div id="selectedProductDisplay" class="selected-product-display" style="display: none;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong id="selectedProductCode"></strong>
+                                        <span class="text-muted ms-2" id="selectedProductDesc"></span>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearSelectedProduct()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Selected product display -->
-                        <div id="selectedProductDisplay" class="selected-product-display" style="display: none;">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <strong id="selectedProductCode"></strong>
-                                    <span class="text-muted ms-2" id="selectedProductDesc"></span>
+                        <!-- Manual cod.var panel -->
+                        <div id="codVarPanel" style="display: none;">
+                            <div class="row">
+                                <div class="col-8 mb-2">
+                                    <label class="form-label small mb-1">Codice Prodotto</label>
+                                    <input type="number" class="form-control" id="manualCodInput" placeholder="es. 12345">
                                 </div>
-                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearSelectedProduct()">
-                                    <i class="bi bi-x"></i>
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- cod_all variant (only code, no variant) -->
-                        <div class="row" id="codAllFields" style="display: none;">
-                            <div class="col-12 mb-2">
-                                <label for="codAllInput" class="form-label small mb-1">Codice Prodotto</label>
-                                <input type="number" class="form-control" id="codAllInput" placeholder="es. 12345">
+                                <div class="col-4 mb-2">
+                                    <label class="form-label small mb-1">Variante</label>
+                                    <input type="number" class="form-control" id="manualVarInput" placeholder="1" value="1">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -206,7 +235,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchTypeRadios = document.querySelectorAll('input[name="search_type"]');
     const codVarFields = document.getElementById('codVarFields');
     const settoreFields = document.getElementById('settoreFields');
-    const codAllFields = document.getElementById('codAllFields');
     const supermarketSelect = document.getElementById('id_supermarket');
     const settoreDisplay = document.getElementById('settore_display');
     const settoreHidden = document.getElementById('id_settore');
@@ -222,39 +250,62 @@ document.addEventListener('DOMContentLoaded', function() {
     const selectedProductDesc = document.getElementById('selectedProductDesc');
     const productCodeHidden = document.getElementById('id_product_code');
     const productVarHidden = document.getElementById('id_product_var');
-    const codAllInput = document.getElementById('codAllInput');
+
+    // cod.var mode toggle elements
+    const ilikePanel = document.getElementById('ilikePanel');
+    const codVarPanel = document.getElementById('codVarPanel');
+    const modeRadios = document.querySelectorAll('input[name="codvar_mode"]');
+    const manualCodInput = document.getElementById('manualCodInput');
+    const manualVarInput = document.getElementById('manualVarInput');
 
     // Debounce configuration
     let searchTimeout = null;
     const DEBOUNCE_MS = 500;
     const MIN_CHARS = 3;
 
+    // Toggle between ILIKE and manual cod.var mode
+    modeRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (this.value === 'ilike') {
+                ilikePanel.style.display = 'block';
+                codVarPanel.style.display = 'none';
+                manualCodInput.value = '';
+                manualVarInput.value = '1';
+                productCodeHidden.value = '';
+                productVarHidden.value = '';
+            } else {
+                ilikePanel.style.display = 'none';
+                codVarPanel.style.display = 'block';
+                productSearchInput.value = '';
+                productSearchResults.style.display = 'none';
+                selectedProductDisplay.style.display = 'none';
+                productCodeHidden.value = '';
+                productVarHidden.value = '';
+            }
+        });
+    });
+
+    // Sync manual cod.var inputs to hidden fields
+    manualCodInput.addEventListener('input', function() {
+        productCodeHidden.value = this.value;
+    });
+    manualVarInput.addEventListener('input', function() {
+        productVarHidden.value = this.value;
+    });
+
     function updateFieldsVisibility() {
         const selectedType = document.querySelector('input[name="search_type"]:checked').value;
 
         if (selectedType === 'cod_var') {
             codVarFields.style.display = 'block';
-            codAllFields.style.display = 'none';
             settoreFields.style.display = 'none';
-            // Show ILIKE search, hide cod_all input
-            searchSupermarket.parentElement.parentElement.style.display = 'block';
-            productSearchInput.parentElement.parentElement.parentElement.style.display = 'block';
-        } else if (selectedType === 'cod_all') {
-            codVarFields.style.display = 'block';
-            codAllFields.style.display = 'block';
-            settoreFields.style.display = 'none';
-            // Hide ILIKE search for cod_all, show simple code input
-            searchSupermarket.parentElement.parentElement.style.display = 'none';
-            productSearchInput.parentElement.parentElement.parentElement.style.display = 'none';
-            selectedProductDisplay.style.display = 'none';
         } else if (selectedType === 'settore_cluster') {
             codVarFields.style.display = 'none';
             settoreFields.style.display = 'block';
 
-            // Auto-select first supermarket if none selected and options are available
-            if (!supermarketSelect.value && supermarketSelect.options.length > 1) {
-                supermarketSelect.selectedIndex = 1;
-                supermarketSelect.dispatchEvent(new Event('change'));
+            // If supermarket already has a value (e.g. single supermarket auto-selected), load settores
+            if (supermarketSelect.value) {
+                loadSettores(supermarketSelect.value);
             }
         }
     }
@@ -339,24 +390,8 @@ document.addEventListener('DOMContentLoaded', function() {
         selectedProductDisplay.style.display = 'none';
     };
 
-    // Handle cod_all input change
-    codAllInput.addEventListener('input', function() {
-        productCodeHidden.value = this.value;
-        productVarHidden.value = '';  // Clear variant for cod_all
-    });
-
-    // Settore/Cluster logic
-    supermarketSelect.addEventListener('change', function() {
-        const supermarketId = this.value;
-
-        if (!supermarketId) {
-            settoreDisplay.innerHTML = '<option value="">-- Seleziona Magazzino --</option>';
-            settoreHidden.value = '';
-            clusterDisplay.innerHTML = '<option value="">-- All Clusters --</option>';
-            clusterHidden.value = '';
-            return;
-        }
-
+    // Settore/Cluster logic - extracted to reusable function
+    function loadSettores(supermarketId) {
         fetch(`/inventory/api/settores/${supermarketId}/`)
             .then(response => response.json())
             .then(data => {
@@ -375,6 +410,20 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => {
                 console.error('Error loading settores:', error);
             });
+    }
+
+    supermarketSelect.addEventListener('change', function() {
+        const supermarketId = this.value;
+
+        if (!supermarketId) {
+            settoreDisplay.innerHTML = '<option value="">-- Seleziona Magazzino --</option>';
+            settoreHidden.value = '';
+            clusterDisplay.innerHTML = '<option value="">-- All Clusters --</option>';
+            clusterHidden.value = '';
+            return;
+        }
+
+        loadSettores(supermarketId);
     });
 
     settoreDisplay.addEventListener('change', function() {

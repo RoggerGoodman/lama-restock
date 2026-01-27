@@ -296,7 +296,6 @@ class InventorySearchForm(forms.Form):
     
     SEARCH_TYPE_CHOICES = [
         ('cod_var', 'Articolo specifico'),
-        ('cod_all', 'Tutte le varianti articolo'),
         ('settore_cluster', 'Magazzino + Cluster'),
     ]
     
@@ -380,11 +379,11 @@ class InventorySearchForm(forms.Form):
         cleaned_data = super().clean()
         search_type = cleaned_data.get('search_type')
         
-        if search_type in ['cod_var', 'cod_all']:
+        if search_type == 'cod_var':
             if not cleaned_data.get('product_code'):
                 raise forms.ValidationError("Product code is required for this search type")
-            
-            if search_type == 'cod_var' and not cleaned_data.get('product_var'):
+
+            if not cleaned_data.get('product_var'):
                 raise forms.ValidationError("Product variant is required for specific product search")
         
         elif search_type == 'settore_cluster':

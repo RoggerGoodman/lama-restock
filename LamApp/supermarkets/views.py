@@ -2310,10 +2310,6 @@ def inventory_search_view(request):
                 var = form.cleaned_data['product_var']
                 return redirect(f'/inventory/results/cod_var/?cod={cod}&var={var}')
 
-            elif search_type == 'cod_all':
-                cod = form.cleaned_data['product_code']
-                return redirect(f'/inventory/results/cod_all/?cod={cod}')
-
             elif search_type == 'settore_cluster':
                 supermarket_id = form.cleaned_data['supermarket']
                 settore = form.cleaned_data['settore']
