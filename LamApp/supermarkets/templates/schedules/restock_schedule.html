@@ -495,6 +495,44 @@
                             vertical-align: middle;
                             margin-right: 4px;
                         }
+                        /* Custom dialog (replaces Bootstrap Modal) */
+                        .exception-overlay {
+                            position: fixed;
+                            top: 0; left: 0; right: 0; bottom: 0;
+                            background: rgba(0,0,0,0.5);
+                            z-index: 1050;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        }
+                        .exception-dialog {
+                            background: #fff;
+                            border-radius: 8px;
+                            box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+                            width: 100%;
+                            max-width: 500px;
+                            margin: 1rem;
+                        }
+                        .exception-dialog-header {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            padding: 1rem 1.25rem;
+                            border-bottom: 1px solid #dee2e6;
+                        }
+                        .exception-dialog-body {
+                            padding: 1.25rem;
+                        }
+                        .exception-dialog-footer {
+                            display: flex;
+                            justify-content: flex-end;
+                            gap: 0.5rem;
+                            padding: 0.75rem 1.25rem;
+                            border-top: 1px solid #dee2e6;
+                        }
+                        .exception-dialog-footer #removeExceptionBtn {
+                            margin-right: auto;
+                        }
                     </style>
                     <div class="alert alert-light border mb-3">
                         <div class="d-flex flex-wrap gap-4 small align-items-center">
@@ -523,72 +561,70 @@
                     </div>
                 </div>
 
-                <!-- Exception Modal -->
-                <div class="modal fade" id="exceptionModal" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog modal-dialog-centered">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">
-                                    <i class="bi bi-calendar-event"></i>
-                                    Gestisci giorno: <span id="exceptionModalDate"></span>
-                                </h5>
-                                <button type="button" class="btn-close" onclick="exceptionModal.hide()"></button>
-                            </div>
-                            <div class="modal-body">
-                                <input type="hidden" id="exceptionDateInput">
+                <!-- Exception Dialog (custom, no Bootstrap Modal) -->
+                <div id="exceptionOverlay" class="exception-overlay" style="display:none;">
+                    <div class="exception-dialog">
+                        <div class="exception-dialog-header">
+                            <h5 class="mb-0">
+                                <i class="bi bi-calendar-event"></i>
+                                Gestisci giorno: <span id="exceptionModalDate"></span>
+                            </h5>
+                            <button type="button" class="btn-close" id="exceptionCloseBtn"></button>
+                        </div>
+                        <div class="exception-dialog-body">
+                            <input type="hidden" id="exceptionDateInput">
 
-                                <div class="mb-3">
-                                    <label class="form-label">Tipo di eccezione</label>
-                                    <div class="d-flex flex-column gap-2">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeSkip" value="skip" checked>
-                                            <label class="form-check-label" for="exceptionTypeSkip">
-                                                <i class="bi bi-x-circle text-danger"></i>
-                                                <strong>Salta ordine</strong>
-                                                <small class="text-muted d-block">Non effettuare l'ordine in questo giorno</small>
-                                            </label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeAdd" value="add">
-                                            <label class="form-check-label" for="exceptionTypeAdd">
-                                                <i class="bi bi-plus-circle text-success"></i>
-                                                <strong>Aggiungi ordine</strong>
-                                                <small class="text-muted d-block">Effettua un ordine extra in questo giorno</small>
-                                            </label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeModify" value="modify">
-                                            <label class="form-check-label" for="exceptionTypeModify">
-                                                <i class="bi bi-pencil text-warning"></i>
-                                                <strong>Modifica consegna</strong>
-                                                <small class="text-muted d-block">Cambia il giorno di consegna per questo ordine</small>
-                                            </label>
-                                        </div>
+                            <div class="mb-3">
+                                <label class="form-label">Tipo di eccezione</label>
+                                <div class="d-flex flex-column gap-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeSkip" value="skip" checked>
+                                        <label class="form-check-label" for="exceptionTypeSkip">
+                                            <i class="bi bi-x-circle text-danger"></i>
+                                            <strong>Salta ordine</strong>
+                                            <small class="text-muted d-block">Non effettuare l'ordine in questo giorno</small>
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeAdd" value="add">
+                                        <label class="form-check-label" for="exceptionTypeAdd">
+                                            <i class="bi bi-plus-circle text-success"></i>
+                                            <strong>Aggiungi ordine</strong>
+                                            <small class="text-muted d-block">Effettua un ordine extra in questo giorno</small>
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeModify" value="modify">
+                                        <label class="form-check-label" for="exceptionTypeModify">
+                                            <i class="bi bi-pencil text-warning"></i>
+                                            <strong>Modifica consegna</strong>
+                                            <small class="text-muted d-block">Cambia il giorno di consegna per questo ordine</small>
+                                        </label>
                                     </div>
                                 </div>
+                            </div>
 
-                                <div class="mb-3" id="deliveryOffsetSection" style="display: none;">
-                                    <label class="form-label">Consegna dopo quanti giorni?</label>
-                                    <div class="input-group" style="max-width: 200px;">
-                                        <input type="number" class="form-control" id="exceptionDeliveryOffset" min="0" max="7" value="1">
-                                        <span class="input-group-text">giorni</span>
-                                    </div>
-                                </div>
-
-                                <div class="mb-3">
-                                    <label class="form-label">Nota (opzionale)</label>
-                                    <input type="text" class="form-control" id="exceptionNote" placeholder="Es: Natale, Ferragosto, Chiusura straordinaria...">
+                            <div class="mb-3" id="deliveryOffsetSection" style="display: none;">
+                                <label class="form-label">Consegna dopo quanti giorni?</label>
+                                <div class="input-group" style="max-width: 200px;">
+                                    <input type="number" class="form-control" id="exceptionDeliveryOffset" min="0" max="7" value="1">
+                                    <span class="input-group-text">giorni</span>
                                 </div>
                             </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-outline-danger" id="removeExceptionBtn" style="display: none;">
-                                    <i class="bi bi-trash"></i> Rimuovi eccezione
-                                </button>
-                                <button type="button" class="btn btn-secondary" onclick="exceptionModal.hide()">Annulla</button>
-                                <button type="button" class="btn btn-primary" id="saveExceptionBtn">
-                                    <i class="bi bi-check"></i> Salva
-                                </button>
+
+                            <div class="mb-3">
+                                <label class="form-label">Nota (opzionale)</label>
+                                <input type="text" class="form-control" id="exceptionNote" placeholder="Es: Natale, Ferragosto, Chiusura straordinaria...">
                             </div>
+                        </div>
+                        <div class="exception-dialog-footer">
+                            <button type="button" class="btn btn-outline-danger" id="removeExceptionBtn" style="display: none;">
+                                <i class="bi bi-trash"></i> Rimuovi eccezione
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="exceptionCancelBtn">Annulla</button>
+                            <button type="button" class="btn btn-primary" id="saveExceptionBtn">
+                                <i class="bi bi-check"></i> Salva
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1252,31 +1288,25 @@ function renderThreeMonthCalendar() {
 }
 
 // Initialize the 3-month calendar
-let exceptionModal = null;  // Single modal instance
+function showExceptionDialog() {
+    document.getElementById('exceptionOverlay').style.display = 'flex';
+}
+
+function hideExceptionDialog() {
+    document.getElementById('exceptionOverlay').style.display = 'none';
+}
 
 function initThreeMonthCalendar() {
     // Set start month to current month
     calendarStartMonth = new Date();
     calendarStartMonth.setDate(1);
 
-    // Initialize modal instance once (disable focus enforcement to prevent flicker loop)
-    const modalEl = document.getElementById('exceptionModal');
-    if (modalEl) {
-        exceptionModal = new bootstrap.Modal(modalEl, {
-            focus: false,
-            backdrop: 'static'
-        });
-    }
-
     // Event delegation for calendar day clicks
     const calendarContainer = document.getElementById('threeMonthCalendar');
     if (calendarContainer) {
         calendarContainer.addEventListener('click', function(e) {
-            // Find the closest clickable day cell
             const dayCell = e.target.closest('.clickable-day');
             if (dayCell) {
-                e.preventDefault();
-                e.stopPropagation();
                 const dateStr = dayCell.dataset.date;
                 if (dateStr) {
                     openExceptionModal(dateStr);
@@ -1284,6 +1314,22 @@ function initThreeMonthCalendar() {
             }
         });
     }
+
+    // Close dialog buttons
+    document.getElementById('exceptionCloseBtn')?.addEventListener('click', hideExceptionDialog);
+    document.getElementById('exceptionCancelBtn')?.addEventListener('click', hideExceptionDialog);
+
+    // Close on overlay click (outside dialog)
+    document.getElementById('exceptionOverlay')?.addEventListener('click', function(e) {
+        if (e.target === this) hideExceptionDialog();
+    });
+
+    // Close on Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && document.getElementById('exceptionOverlay').style.display === 'flex') {
+            hideExceptionDialog();
+        }
+    });
 
     // Navigation buttons
     document.getElementById('calendarPrevMonth')?.addEventListener('click', () => {
@@ -1323,7 +1369,7 @@ function initThreeMonthCalendar() {
                 note: note
             };
             renderThreeMonthCalendar();
-            if (exceptionModal) exceptionModal.hide();
+            hideExceptionDialog();
         } else {
             alert('Errore nel salvare l\'eccezione. Riprova.');
         }
@@ -1336,7 +1382,7 @@ function initThreeMonthCalendar() {
         if (success) {
             delete scheduleExceptions[dateStr];
             renderThreeMonthCalendar();
-            if (exceptionModal) exceptionModal.hide();
+            hideExceptionDialog();
         } else {
             alert('Errore nel rimuovere l\'eccezione. Riprova.');
         }
@@ -1346,7 +1392,7 @@ function initThreeMonthCalendar() {
     loadExceptions();
 }
 
-// Open exception modal for a specific date
+// Open exception dialog for a specific date
 function openExceptionModal(dateStr) {
     const date = parseDate(dateStr);
     const exception = scheduleExceptions[dateStr];
@@ -1354,7 +1400,7 @@ function openExceptionModal(dateStr) {
     const weeklySchedule = getWeeklySchedule();
     const isScheduledOrderDay = weeklySchedule[weekday]?.isOrderDay || false;
 
-    // Set date in modal
+    // Set date
     document.getElementById('exceptionModalDate').textContent = formatDateDisplay(date) + ' (' + dayNames[weekday] + ')';
     document.getElementById('exceptionDateInput').value = dateStr;
 
@@ -1363,7 +1409,6 @@ function openExceptionModal(dateStr) {
     document.getElementById('exceptionDeliveryOffset').value = weeklySchedule[weekday]?.deliveryOffset || 1;
 
     if (exception) {
-        // Editing existing exception
         document.getElementById('removeExceptionBtn').style.display = 'inline-block';
         document.querySelector(`input[name="exceptionType"][value="${exception.type}"]`).checked = true;
         if (exception.note) {
@@ -1373,9 +1418,7 @@ function openExceptionModal(dateStr) {
             document.getElementById('exceptionDeliveryOffset').value = exception.offset;
         }
     } else {
-        // New exception
         document.getElementById('removeExceptionBtn').style.display = 'none';
-        // Default to 'skip' if it's an order day, 'add' if not
         if (isScheduledOrderDay) {
             document.getElementById('exceptionTypeSkip').checked = true;
         } else {
@@ -1388,10 +1431,7 @@ function openExceptionModal(dateStr) {
     document.getElementById('deliveryOffsetSection').style.display =
         (selectedType === 'add' || selectedType === 'modify') ? 'block' : 'none';
 
-    // Show modal using the single instance
-    if (exceptionModal) {
-        exceptionModal.show();
-    }
+    showExceptionDialog();
 }
 
 // Update 3-month calendar when weekly schedule changes
