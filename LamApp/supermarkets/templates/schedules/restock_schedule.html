@@ -524,7 +524,7 @@
                 </div>
 
                 <!-- Exception Modal -->
-                <div class="modal fade" id="exceptionModal" tabindex="-1">
+                <div class="modal fade" id="exceptionModal" tabindex="-1" aria-hidden="true">
                     <div class="modal-dialog modal-dialog-centered">
                         <div class="modal-content">
                             <div class="modal-header">
@@ -532,7 +532,7 @@
                                     <i class="bi bi-calendar-event"></i>
                                     Gestisci giorno: <span id="exceptionModalDate"></span>
                                 </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                <button type="button" class="btn-close" onclick="exceptionModal.hide()"></button>
                             </div>
                             <div class="modal-body">
                                 <input type="hidden" id="exceptionDateInput">
@@ -584,7 +584,7 @@
                                 <button type="button" class="btn btn-outline-danger" id="removeExceptionBtn" style="display: none;">
                                     <i class="bi bi-trash"></i> Rimuovi eccezione
                                 </button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                                <button type="button" class="btn btn-secondary" onclick="exceptionModal.hide()">Annulla</button>
                                 <button type="button" class="btn btn-primary" id="saveExceptionBtn">
                                     <i class="bi bi-check"></i> Salva
                                 </button>
@@ -1166,30 +1166,24 @@ function generateMonthCalendar(year, month) {
                 // Check for exceptions first
                 if (exception) {
                     if (exception.type === 'skip') {
-                        dots.push('<span class="cal-dot bg-danger" title="Ordine saltato"></span>');
-                        titleParts.push('Ordine saltato' + (exception.note ? ': ' + exception.note : ''));
+                        dots.push('<span class="cal-dot bg-danger"></span>');
                     } else if (exception.type === 'add') {
-                        dots.push('<span class="cal-dot bg-warning" title="Ordine aggiunto"></span>');
-                        titleParts.push('Ordine aggiunto' + (exception.note ? ': ' + exception.note : ''));
+                        dots.push('<span class="cal-dot bg-warning"></span>');
                     } else if (exception.type === 'modify') {
-                        dots.push('<span class="cal-dot bg-primary" title="Ordine"></span>');
-                        titleParts.push('Consegna modificata (+' + exception.offset + ' giorni)' + (exception.note ? ': ' + exception.note : ''));
+                        dots.push('<span class="cal-dot bg-primary"></span>');
                     }
                 } else if (actuallyIsOrderDay) {
-                    dots.push('<span class="cal-dot bg-primary" title="Ordine programmato"></span>');
-                    titleParts.push('Ordine programmato');
+                    dots.push('<span class="cal-dot bg-primary"></span>');
                 }
 
                 // Add delivery dot (can coexist with order dot)
                 if (isDeliveryDay) {
-                    dots.push('<span class="cal-dot bg-success" title="Consegna prevista"></span>');
-                    titleParts.push('Consegna prevista');
+                    dots.push('<span class="cal-dot bg-success"></span>');
                 }
 
                 const dotsHtml = dots.length > 0 ? `<div class="cal-dots">${dots.join('')}</div>` : '';
-                const titleAttr = titleParts.length > 0 ? `title="${titleParts.join(' | ')}"` : '';
 
-                html += `<td class="${cellClass}" ${clickAttr} ${titleAttr}>
+                html += `<td class="${cellClass}" ${clickAttr}>
                     <div class="cal-day-num">${dayCounter}</div>
                     ${dotsHtml}
                 </td>`;
