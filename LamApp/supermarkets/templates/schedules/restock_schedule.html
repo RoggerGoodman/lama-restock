@@ -1259,10 +1259,13 @@ function initThreeMonthCalendar() {
     calendarStartMonth = new Date();
     calendarStartMonth.setDate(1);
 
-    // Initialize modal instance once
+    // Initialize modal instance once (disable focus enforcement to prevent flicker loop)
     const modalEl = document.getElementById('exceptionModal');
     if (modalEl) {
-        exceptionModal = new bootstrap.Modal(modalEl);
+        exceptionModal = new bootstrap.Modal(modalEl, {
+            focus: false,
+            backdrop: 'static'
+        });
     }
 
     // Event delegation for calendar day clicks
