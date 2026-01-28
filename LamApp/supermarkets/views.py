@@ -1554,7 +1554,7 @@ def create_stock_snapshot_view(request):
     supermarket_id = request.POST.get('supermarket_id')
 
     if not supermarket_id:
-        messages.error(request, "Seleziona un punto vendita per creare una fotografia.")
+        messages.error(request, "Seleziona un punto vendita per creare uno snapshot.")
         return redirect('stock-value-unified')
 
     supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
@@ -1621,7 +1621,7 @@ def create_stock_snapshot_view(request):
 
     messages.success(
         request,
-        f"Fotografia creata per {supermarket.name}: €{total_value:,.2f}"
+        f"Snapshot creato per {supermarket.name}: €{total_value:,.2f}"
     )
 
     return redirect(f"{reverse('stock-value-unified')}?supermarket_id={supermarket_id}")
@@ -1635,7 +1635,7 @@ def delete_stock_snapshot_view(request, pk):
 
     if request.method == 'POST':
         snapshot.delete()
-        messages.success(request, "Fotografia eliminata.")
+        messages.success(request, "Snapshot eliminato.")
 
     return redirect(f"{reverse('stock-value-unified')}?supermarket_id={supermarket_id}")
 

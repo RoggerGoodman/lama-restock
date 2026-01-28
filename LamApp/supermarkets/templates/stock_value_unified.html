@@ -144,7 +144,7 @@
                         {% csrf_token %}
                         <input type="hidden" name="supermarket_id" value="{{ selected_supermarket }}">
                         <button type="submit" class="btn btn-primary btn-sm" {% if not total_value %}disabled{% endif %}>
-                            <i class="bi bi-camera-fill"></i> Scatta fotografia
+                            <i class="bi bi-camera-fill"></i> Fai uno snapshot
                         </button>
                     </form>
                 </div>
@@ -194,7 +194,7 @@
                                         <i class="bi bi-eye"></i>
                                     </button>
                                     <form method="post" action="{% url 'delete-stock-snapshot' snapshot.id %}"
-                                          class="d-inline" onsubmit="return confirm('Eliminare questa fotografia?');">
+                                          class="d-inline" onsubmit="return confirm('Eliminare questo snapshot?');">
                                         {% csrf_token %}
                                         <button type="submit" class="btn btn-outline-danger btn-sm">
                                             <i class="bi bi-trash"></i>
@@ -208,7 +208,7 @@
                 </div>
                 {% else %}
                 <div class="alert alert-light">
-                    <i class="bi bi-camera"></i> Nessuna fotografia salvata. Scatta la prima fotografia!
+                    <i class="bi bi-camera"></i> Nessuno snapshot salvato. Fai prima uno snapshot!
                 </div>
                 {% endif %}
             </div>
@@ -234,7 +234,7 @@
             <div class="modal-header">
                 <h5 class="modal-title">
                     <i class="bi bi-camera"></i>
-                    Fotografia del {{ snapshot.created_at|date:"d/m/Y" }}
+                    Snapshot del {{ snapshot.created_at|date:"d/m/Y" }}
                     {% if snapshot.is_manual %}
                     <span class="badge bg-info">Manuale</span>
                     {% else %}
