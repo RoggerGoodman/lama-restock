@@ -355,21 +355,54 @@ class SupermarketCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.instance.owner = self.request.user
         response = super().form_valid(form)
-        
-        # Try to sync storages automatically
-        try:
-            StorageService.sync_storages(self.object)
+
+        # Store client parameters from PAC2000A
+        client_json = self.request.POST.get('client_data', '')
+        if client_json:
+            try:
+                client_data = json.loads(client_json)
+                self.object.id_cliente = client_data.get('id_cliente')
+                self.object.id_azienda = client_data.get('id_azienda')
+                self.object.id_marchio = client_data.get('id_marchio')
+                self.object.id_clienti_canale = client_data.get('id_clienti_canale')
+                self.object.id_clienti_area = client_data.get('id_clienti_area')
+                self.object.save(update_fields=[
+                    'id_cliente', 'id_azienda', 'id_marchio',
+                    'id_clienti_canale', 'id_clienti_area'
+                ])
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Could not parse client data: {e}")
+
+        # Create storages from pre-discovered data (submitted as JSON hidden field)
+        storages_json = self.request.POST.get('discovered_storages', '')
+        if storages_json:
+            try:
+                storages_data = json.loads(storages_json)
+                for s in storages_data:
+                    Storage.objects.get_or_create(
+                        supermarket=self.object,
+                        name=s['name'],
+                        defaults={
+                            'settore': s.get('settore', ''),
+                            'id_cod_mag': s.get('id_cod_mag'),
+                        }
+                    )
+                messages.success(
+                    self.request,
+                    f"Punto vendita '{self.object.name}' creato con {len(storages_data)} magazzini!"
+                )
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.exception("Error parsing discovered storages")
+                messages.warning(
+                    self.request,
+                    f"Punto vendita creato, ma errore nel salvataggio dei magazzini: {str(e)}"
+                )
+        else:
             messages.success(
-                self.request, 
-                f"Supermarket '{self.object.name}' created and storages discovered!"
-            )
-        except Exception as e:
-            logger.exception("Error syncing storages")
-            messages.warning(
                 self.request,
-                f"Supermarket created, but couldn't sync storages: {str(e)}"
+                f"Punto vendita '{self.object.name}' creato. Nessun magazzino sincronizzato."
             )
-        
+
         return response
 
     def get_success_url(self):
@@ -407,15 +440,82 @@ class SupermarketDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView)
 def sync_storages_view(request, pk):
     """Manually sync storages for a supermarket"""
     supermarket = get_object_or_404(Supermarket, pk=pk, owner=request.user)
-    
+
     try:
         StorageService.sync_storages(supermarket)
         messages.success(request, "Storages synced successfully!")
     except Exception as e:
         logger.exception("Error syncing storages")
         messages.error(request, f"Error syncing storages: {str(e)}")
-    
+
     return redirect('supermarket-detail', pk=pk)
+
+
+@login_required
+@require_POST
+def discover_storages_ajax(request):
+    """
+    AJAX endpoint to discover storages and client parameters from PAC2000A.
+    Used by the supermarket creation form to preview storages before saving.
+    Two-phase: Finder discovers storages, then WebLister gathers client params.
+    """
+    import re
+    from .scripts.finder import Finder
+    from .scripts.web_lister import WebLister
+    import tempfile
+
+    username = request.POST.get('username', '').strip()
+    password = request.POST.get('password', '').strip()
+
+    if not username or not password:
+        return JsonResponse({'error': 'Username e password sono obbligatori.'}, status=400)
+
+    try:
+        # Phase 1: Discover storages via Finder
+        finder = Finder(username=username, password=password)
+        try:
+            finder.login()
+            storage_tuples = finder.find_storages()
+        finally:
+            finder.driver.quit()
+
+        results = []
+        for name, id_cod_mag in storage_tuples:
+            settore = re.sub(r'^[^ ]+\s*-?\s*', '', name)
+            results.append({
+                'name': name,
+                'settore': settore,
+                'id_cod_mag': id_cod_mag,
+            })
+
+        # Phase 2: Gather client parameters via WebLister
+        client_data = {}
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                lister = WebLister(
+                    username=username,
+                    password=password,
+                    storage_name=results[0]['name'] if results else '',
+                    download_dir=tmp_dir,
+                    headless=True
+                )
+                try:
+                    lister.login()
+                    client_data = lister.gather_client_data()
+                finally:
+                    lister.driver.quit()
+        except Exception as e:
+            logger.warning(f"Could not gather client data: {e}. "
+                           "Client parameters will need to be set manually or via re-sync.")
+
+        return JsonResponse({
+            'storages': results,
+            'client_data': client_data,
+        })
+
+    except Exception as e:
+        logger.exception("Error discovering storages")
+        return JsonResponse({'error': f'Errore durante la sincronizzazione: {str(e)}'}, status=500)
 
 
 # ============ Storage Views ============
@@ -686,6 +786,7 @@ def schedule_exceptions_api(request, storage_id):
                     'date': exc.date.isoformat(),
                     'exception_type': exc.exception_type,
                     'delivery_offset': exc.delivery_offset,
+                    'skip_sale': exc.skip_sale,
                     'note': exc.note
                 }
                 for exc in exceptions
@@ -700,6 +801,7 @@ def schedule_exceptions_api(request, storage_id):
             date_str = body.get('date')
             exception_type = body.get('exception_type', 'skip')
             delivery_offset = body.get('delivery_offset')
+            skip_sale = body.get('skip_sale', False)
             note = body.get('note', '')
 
             from datetime import datetime
@@ -711,6 +813,7 @@ def schedule_exceptions_api(request, storage_id):
                 defaults={
                     'exception_type': exception_type,
                     'delivery_offset': delivery_offset if exception_type in ('add', 'modify') else None,
+                    'skip_sale': skip_sale,
                     'note': note
                 }
             )
@@ -2372,46 +2475,16 @@ def inventory_results_view(request, search_type):
                             found = True
                             result = dict(row)
                             result['supermarket_name'] = sm.name
-                            result['storage_id'] = storage.id
+                            # Find the correct storage based on product's settore
+                            product_storage = sm.storages.filter(settore=row['settore']).first()
+                            result['storage_id'] = product_storage.id if product_storage else storage.id
                             result['minimum_stock'] = row['minimum_stock'] or 4  # ← ADD THIS
                             results.append(result)
                     except Exception as e:
                         logger.exception(f"Error searching in {sm.name}")
-            
+
             if not found:
                 return redirect('inventory-product-not-found', cod=cod, var=var)
-        
-        elif search_type == 'cod_all':
-            cod = int(request.GET.get('cod'))
-            search_description = f"All variants of product code {cod}"
-            
-            for sm in Supermarket.objects.filter(owner=request.user):
-                storage = sm.storages.first()
-                if not storage:
-                    continue
-                
-                with RestockService(storage) as service:
-                    try:
-                        cur = service.db.cursor()
-                        cur.execute("""
-                            SELECT 
-                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
-                                p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
-                            FROM products p
-                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                            WHERE p.cod = %s AND ps.verified = TRUE
-                            ORDER BY p.v
-                        """, (cod,))
-                        
-                        for row in cur.fetchall():
-                            result = dict(row)
-                            result['supermarket_name'] = sm.name
-                            result['storage_id'] = storage.id
-                            result['minimum_stock'] = row['minimum_stock'] or 4  # ← ADD THIS
-                            results.append(result)
-                    except Exception as e:
-                        logger.exception(f"Error searching in {sm.name}")
 
         elif search_type == 'settore_cluster':
             supermarket_id = request.GET.get('supermarket_id')

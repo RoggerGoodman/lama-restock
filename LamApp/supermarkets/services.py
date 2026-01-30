@@ -73,38 +73,43 @@ class StorageService:
     @staticmethod
     def discover_storages(supermarket):
         """
-        Use Finder to discover available storages for a supermarket
-        Returns: list of storage names
+        Use Finder to discover available storages for a supermarket.
+        Returns: list of (name, id_cod_mag) tuples
         """
-        from .scripts.finder import Finder 
-        
+        from .scripts.finder import Finder
+
         finder = Finder(
             username=supermarket.username,
             password=supermarket.password
         )
-        
+
         try:
             finder.login()
             return finder.find_storages()
         finally:
             finder.driver.quit()
-    
+
     @staticmethod
     def sync_storages(supermarket):
         """
-        Sync storages from PAC2000A to Django database
+        Sync storages from PAC2000A to Django database.
+        Creates new storages and updates id_cod_mag on existing ones.
         """
         import re
         from .models import Storage
-        
-        storage_names = StorageService.discover_storages(supermarket)
-        
-        for name in storage_names:
+
+        storage_tuples = StorageService.discover_storages(supermarket)
+
+        for name, id_cod_mag in storage_tuples:
             # Remove numeric prefix if present
             settore = re.sub(r'^[^ ]+\s*-?\s*', '', name)
-            
-            Storage.objects.get_or_create(
+
+            storage, created = Storage.objects.get_or_create(
                 supermarket=supermarket,
                 name=name,
-                settore=settore
+                defaults={'settore': settore, 'id_cod_mag': id_cod_mag}
             )
+            if not created:
+                # Update id_cod_mag on existing storages
+                storage.id_cod_mag = id_cod_mag
+                storage.save(update_fields=['id_cod_mag'])

@@ -83,6 +83,7 @@
                             <thead>
                                 <tr>
                                     <th>Nome Magazzino</th>
+                                    <th>IDCodMag</th>
                                     <th>Agenda ordini</th>
                                     <th>Aggiornamenti Listino</th>
                                     <th>Blacklists</th>
@@ -98,6 +99,13 @@
                                         </a>
                                         <br>
                                         <small class="text-muted">{{ storage.settore }}</small>
+                                    </td>
+                                    <td>
+                                        {% if storage.id_cod_mag %}
+                                            <code>{{ storage.id_cod_mag }}</code>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
                                     </td>
                                     <td>
                                         {% if storage.schedule %}

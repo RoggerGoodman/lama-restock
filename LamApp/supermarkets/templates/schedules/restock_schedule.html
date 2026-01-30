@@ -613,6 +613,17 @@
                             </div>
 
                             <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="exceptionSkipSale">
+                                    <label class="form-check-label" for="exceptionSkipSale">
+                                        <i class="bi bi-tag text-info"></i>
+                                        <strong>Salta prodotti in promozione</strong>
+                                        <small class="text-muted d-block">Non ordinare prodotti attualmente in offerta</small>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
                                 <label class="form-label">Nota (opzionale)</label>
                                 <input type="text" class="form-control" id="exceptionNote" placeholder="Es: Natale, Ferragosto, Chiusura straordinaria...">
                             </div>
@@ -1020,6 +1031,7 @@ async function loadExceptions() {
                 scheduleExceptions[exc.date] = {
                     type: exc.exception_type,
                     offset: exc.delivery_offset,
+                    skip_sale: exc.skip_sale || false,
                     note: exc.note
                 };
             });
@@ -1031,7 +1043,7 @@ async function loadExceptions() {
 }
 
 // Save exception to server
-async function saveException(date, exceptionType, deliveryOffset, note) {
+async function saveException(date, exceptionType, deliveryOffset, skipSale, note) {
     try {
         const response = await fetch('{% url "schedule-exceptions-api" storage_id=storage.id %}', {
             method: 'POST',
@@ -1043,6 +1055,7 @@ async function saveException(date, exceptionType, deliveryOffset, note) {
                 date: date,
                 exception_type: exceptionType,
                 delivery_offset: deliveryOffset,
+                skip_sale: skipSale,
                 note: note
             })
         });
@@ -1212,6 +1225,11 @@ function generateMonthCalendar(year, month) {
                     dots.push('<span class="cal-dot bg-primary"></span>');
                 }
 
+                // Add skip_sale indicator dot (info color)
+                if (exception && exception.skip_sale) {
+                    dots.push('<span class="cal-dot bg-info"></span>');
+                }
+
                 // Add delivery dot (can coexist with order dot)
                 if (isDeliveryDay) {
                     dots.push('<span class="cal-dot bg-success"></span>');
@@ -1359,13 +1377,15 @@ function initThreeMonthCalendar() {
         const dateStr = document.getElementById('exceptionDateInput').value;
         const exceptionType = document.querySelector('input[name="exceptionType"]:checked').value;
         const deliveryOffset = parseInt(document.getElementById('exceptionDeliveryOffset').value) || 1;
+        const skipSale = document.getElementById('exceptionSkipSale').checked;
         const note = document.getElementById('exceptionNote').value.trim();
 
-        const success = await saveException(dateStr, exceptionType, deliveryOffset, note);
+        const success = await saveException(dateStr, exceptionType, deliveryOffset, skipSale, note);
         if (success) {
             scheduleExceptions[dateStr] = {
                 type: exceptionType,
                 offset: (exceptionType === 'add' || exceptionType === 'modify') ? deliveryOffset : null,
+                skip_sale: skipSale,
                 note: note
             };
             renderThreeMonthCalendar();
@@ -1407,6 +1427,7 @@ function openExceptionModal(dateStr) {
     // Reset form
     document.getElementById('exceptionNote').value = '';
     document.getElementById('exceptionDeliveryOffset').value = weeklySchedule[weekday]?.deliveryOffset || 1;
+    document.getElementById('exceptionSkipSale').checked = false;
 
     if (exception) {
         document.getElementById('removeExceptionBtn').style.display = 'inline-block';
@@ -1417,6 +1438,7 @@ function openExceptionModal(dateStr) {
         if (exception.offset !== null) {
             document.getElementById('exceptionDeliveryOffset').value = exception.offset;
         }
+        document.getElementById('exceptionSkipSale').checked = exception.skip_sale || false;
     } else {
         document.getElementById('removeExceptionBtn').style.display = 'none';
         if (isScheduledOrderDay) {

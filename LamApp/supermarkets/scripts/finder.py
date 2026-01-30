@@ -123,7 +123,10 @@ class Finder:
         time.sleep(1)
 
     def find_storages(self):
-
+        """
+        Discover available storages for the supermarket.
+        Returns: list of (name, id_cod_mag) tuples
+        """
         storages = []
 
         WebDriverWait(self.driver, 10).until(
@@ -190,12 +193,17 @@ class Finder:
         # Arrivato alla fine della dropdown list non torna su, bisogna fixare forse, dipende da come vengono processati i file dalla cartella in cui sono salvate le liste
 
         # Loop through all the items and check for the matching label
+        seen_names = set()
         while True:
             input_value = combo_box_element.get_attribute("value")
-            if input_value in storages:
+            IDCodMag = combo_box_element.get_attribute("selected-values")
+            IDCodMag = IDCodMag.strip('[]"')
+            IDCodMag = int(IDCodMag)
+            if input_value in seen_names:
                 break
             else:
-                storages.append(input_value)
+                seen_names.add(input_value)
+                storages.append((input_value, IDCodMag))
             self.actions.send_keys(Keys.ARROW_DOWN)
             self.actions.perform()
             time.sleep(0.5)

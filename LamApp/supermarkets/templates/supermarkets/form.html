@@ -4,10 +4,161 @@
   {% if object %}Modifica Punto vendita{% else %}Aggiungi Punto vendita{% endif %}
 {% endblock %}
 {% block content %}
-  <h1>{% if object %}Modifica Punto vendita{% else %}Aggiungi Punto vendita{% endif %}</h1>
-  <form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit" class="btn btn-primary">Salva</button>
-  </form>
+<div class="container-fluid">
+  <div class="row mb-4">
+    <div class="col-lg-8">
+      <div class="stat-card">
+        <h4 class="mb-3">
+          <i class="bi bi-shop text-primary"></i>
+          {% if object %}Modifica Punto vendita{% else %}Aggiungi Punto vendita{% endif %}
+        </h4>
+
+        <form method="post" id="supermarket-form">
+          {% csrf_token %}
+          {{ form.as_p }}
+
+          <!-- Hidden fields to carry discovered data -->
+          <input type="hidden" name="discovered_storages" id="discovered-storages-input" value="">
+          <input type="hidden" name="client_data" id="client-data-input" value="">
+
+          {% if not object %}
+          <!-- Sync button (only on creation, not edit) -->
+          <div class="mt-4 mb-3">
+            <h6><i class="bi bi-boxes"></i> Sincronizzazione dei magazzini</h6>
+            <p class="text-muted small">
+              Inserisci le credenziali PAC2000A e clicca per scoprire i magazzini disponibili.
+            </p>
+            <button type="button" id="discover-btn" class="btn btn-outline-primary">
+              <i class="bi bi-arrow-repeat"></i> Sincronizzazione dei magazzini
+            </button>
+          </div>
+
+          <!-- Discovery results area -->
+          <div id="discover-status" class="mt-3" style="display:none;"></div>
+
+          <div id="storages-preview" class="mt-3" style="display:none;">
+            <h6><i class="bi bi-check-circle text-success"></i> Magazzini trovati</h6>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Settore</th>
+                    <th>IDCodMag</th>
+                  </tr>
+                </thead>
+                <tbody id="storages-table-body">
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endif %}
+
+          <hr class="mt-4">
+          <button type="submit" class="btn btn-primary" id="save-btn"
+            {% if not object %}disabled title="Sincronizza i magazzini prima di salvare"{% endif %}>
+            <i class="bi bi-check-lg"></i> Salva
+          </button>
+          <a href="{% if object %}{% url 'supermarket-detail' pk=object.pk %}{% else %}{% url 'supermarket-list' %}{% endif %}"
+             class="btn btn-outline-secondary ms-2">Annulla</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if not object %}
+<script>
+(function() {
+  const discoverBtn = document.getElementById('discover-btn');
+  const statusDiv = document.getElementById('discover-status');
+  const previewDiv = document.getElementById('storages-preview');
+  const tableBody = document.getElementById('storages-table-body');
+  const hiddenInput = document.getElementById('discovered-storages-input');
+  const clientDataInput = document.getElementById('client-data-input');
+  const saveBtn = document.getElementById('save-btn');
+  const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+  discoverBtn.addEventListener('click', function() {
+    const username = document.getElementById('id_username').value.trim();
+    const password = document.getElementById('id_password').value.trim();
+
+    if (!username || !password) {
+      statusDiv.style.display = 'block';
+      statusDiv.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> Inserisci nome utente e password PAC2000A.</div>';
+      return;
+    }
+
+    // Show loading
+    discoverBtn.disabled = true;
+    discoverBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Sincronizzazione in corso...';
+    statusDiv.style.display = 'block';
+    statusDiv.innerHTML = '<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> Connessione a PAC2000A in corso... Questo potrebbe richiedere qualche momento.</div>';
+    previewDiv.style.display = 'none';
+
+    fetch("{% url 'discover-storages' %}", {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrfToken,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({ username: username, password: password })
+    })
+    .then(response => response.json())
+    .then(data => {
+      discoverBtn.disabled = false;
+      discoverBtn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sincronizzazione dei magazzini';
+
+      if (data.error) {
+        statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + data.error + '</div>';
+        return;
+      }
+
+      const storages = data.storages;
+      if (!storages || storages.length === 0) {
+        statusDiv.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> Nessun magazzino trovato.</div>';
+        return;
+      }
+
+      // Populate table
+      tableBody.innerHTML = '';
+      storages.forEach(function(s) {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td><strong>' + escapeHtml(s.name) + '</strong></td>'
+                      + '<td>' + escapeHtml(s.settore) + '</td>'
+                      + '<td><code>' + s.id_cod_mag + '</code></td>';
+        tableBody.appendChild(row);
+      });
+
+      // Store in hidden inputs
+      hiddenInput.value = JSON.stringify(storages);
+      if (data.client_data) {
+        clientDataInput.value = JSON.stringify(data.client_data);
+      }
+
+      // Show preview, hide status
+      statusDiv.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + storages.length + ' magazzini trovati.</div>';
+      previewDiv.style.display = 'block';
+
+      // Enable save button
+      saveBtn.disabled = false;
+      saveBtn.removeAttribute('title');
+    })
+    .catch(function(err) {
+      discoverBtn.disabled = false;
+      discoverBtn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sincronizzazione dei magazzini';
+      statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> Errore di rete. Riprova.</div>';
+    });
+  });
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+})();
+</script>
+{% endif %}
 {% endblock %}

@@ -42,24 +42,39 @@ class WebLister:
     Adapted for web app usage - no hardcoded values.
     """
     
-    def __init__(self, username: str, password: str, storage_name: str, 
-                 download_dir: str, headless: bool = True):
+    def __init__(self, username: str, password: str, storage_name: str,
+                 download_dir: str, id_cod_mag: int = None,
+                 id_cliente: int = None, id_azienda: int = None,
+                 id_marchio: int = None, id_clienti_canale: int = None,
+                 id_clienti_area: int = None, headless: bool = True):
         """
         Initialize the lister.
-        
+
         Args:
             username: PAC2000A username
             password: PAC2000A password
             storage_name: Storage name (e.g., "01 RIANO GENERI VARI")
             download_dir: Directory to save downloaded files
+            id_cod_mag: Warehouse code from PAC2000A (stored on Storage model)
+            id_cliente: Client ID from PAC2000A (stored on Supermarket model)
+            id_azienda: Company ID from PAC2000A (stored on Supermarket model)
+            id_marchio: Brand ID from PAC2000A (stored on Supermarket model)
+            id_clienti_canale: Channel ID from PAC2000A (stored on Supermarket model)
+            id_clienti_area: Area ID from PAC2000A (stored on Supermarket model)
             headless: Run browser in headless mode (no UI)
         """
         self.username = username
         self.password = password
         self.storage_name = storage_name
         self.download_dir = download_dir
+        self.IDCodMag = id_cod_mag
         self.StatoAssIn=[16, 13] #TODO must be made user selectable (there are more than just these 2 options... sadly)
-        self.IDCliente=31659 #TODO must be made dynamic in future
+        self.IDCliente = id_cliente
+        self.IDAzienda = id_azienda
+        self.IDMarchio = id_marchio
+        self.IDClientiCanale = id_clienti_canale
+        self.IDClientiArea = id_clienti_area
+
         self.dataIntercettaPrezzi = date.today().strftime("%Y-%m-%d")
         
         # Extract settore name (remove numeric prefix)
@@ -160,6 +175,64 @@ class WebLister:
         time.sleep(1)
         logger.info("Navigation completed")
 
+    def gather_client_data(self):
+        """
+        Intercept a Listino API call to extract client-specific parameters.
+        Must be called after login(). Returns a dict with:
+        IDCliente, IDAzienda, IDMarchio, IDClientiCanale, IDClientiArea
+        """
+        from urllib.parse import parse_qs
+
+        select_button = self.driver.find_element(By.XPATH, '//*[@id="idMagConsegna"]/div[1]/div/div[1]/span[2]')
+        select_button.click()
+        self.actions.perform()
+        storage_item = WebDriverWait(self.driver, 10).until(EC.element_to_be_clickable((By.XPATH, "//smart-list-item[.//span[contains(normalize-space(), 'SURGELATI')]]")))
+        storage_item.click()
+        self.driver.execute_script("""
+        window.__lastListinoPayload = null;
+
+        (function() {
+            const origSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.send = function(body) {
+                if (this._url && this._url.includes('Listino_callV2.php')) {
+                    window.__lastListinoPayload = body;
+                }
+                return origSend.apply(this, arguments);
+            };
+
+            const origOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                this._url = url;
+                return origOpen.apply(this, arguments);
+            };
+        })();
+        """)
+        confirm_button = WebDriverWait(self.driver, 10).until(EC.element_to_be_clickable((By.XPATH, '//*[@id="confermaFooterFiltro"]/button')))
+        confirm_button.click()
+        self.wait.until(
+            EC.invisibility_of_element_located((By.ID, "loadingWindow"))
+        )
+        raw_payload = self.driver.execute_script(
+            "return window.__lastListinoPayload;"
+        )
+
+        if not raw_payload:
+            raise ValueError("Failed to intercept Listino payload - no client data captured")
+
+        parsed = parse_qs(raw_payload)
+
+        # Extract client-specific params (parse_qs returns lists, take first value)
+        client_data = {
+            'id_cliente': int(parsed['IDCliente'][0]),
+            'id_azienda': int(parsed['IDAzienda'][0]),
+            'id_marchio': int(parsed['IDMarchio'][0]),
+            'id_clienti_canale': int(parsed['IDClientiCanale'][0]),
+            'id_clienti_area': int(parsed['IDClientiArea'][0]),
+        }
+
+        logger.info(f"Gathered client data: {client_data}")
+        return client_data
+
     def close_ordini_popup(self):
         try:
             popup_title = self.driver.find_element(By.XPATH, "//h4[normalize-space()='Elenco Ordini In Corso']")
@@ -175,27 +248,31 @@ class WebLister:
         except TimeoutException:
             print("Popup detected but Chiudi button not clickable.")
 
-    def apply_category_filters(self): 
-        """Apply category filters based on storage type"""
+    def apply_category_filters(self):
+        """Apply category filters based on storage type.
+        IDCodMag is now set from the constructor (stored on Storage model).
+        RepartoIn remains hardcoded per settore for now.
+        """
         self.output_path = Path(self.download_dir) / f"{self.storage_name}.csv"
-        if self.settore == "RIANO GENERI VARI":
-            self.IDCodMag=46
-            self.RepartoIn=[28, 44, 76, 50, 52]
-        elif self.settore == "POMEZIA DEPERIBILI":
-            self.IDCodMag=47
-            self.RepartoIn=[28, 30, 34, 44]
-        elif self.settore == "S.PALOMBA SURGELATI":
-            self.IDCodMag=49
-            self.RepartoIn=[38]
-        else:
-            logger.info(f"No predefined filters for {self.settore}")
-            return
 
-    def fetch_listino(
-        self,
-        IDAzienda: int = 2,
-        IDMarchio: int = 10,
-        numRecord: int = 5000):
+        if self.IDCodMag is None:
+            logger.error(f"IDCodMag not set for {self.settore}. "
+                         "Storage may need re-sync from PAC2000A.")
+            raise ValueError(f"IDCodMag not configured for storage '{self.settore}'. "
+                             "Please re-sync storages.")
+
+        # RepartoIn still hardcoded per settore (to be made dynamic later)
+        if "GENERI VARI" in self.settore:
+            self.RepartoIn = [28, 44, 76, 50, 52]
+        elif "DEPERIBILI" in self.settore:
+            self.RepartoIn = [28, 30, 34, 44]
+        elif "SURGELATI" in self.settore:
+            self.RepartoIn = [38]
+        else:
+            logger.info(f"No predefined RepartoIn filters for {self.settore}, using empty list")
+            self.RepartoIn = []
+
+    def fetch_listino(self):
         """
         Fetch listino products from PAC2000A (Listino_callV2.php)
         Requires an authenticated Selenium driver.
@@ -205,9 +282,9 @@ class WebLister:
 
         payload = {
             "funzione": "lista",
-            "IDAzienda": IDAzienda,
+            "IDAzienda": self.IDAzienda,
             "IDCliente": self.IDCliente,
-            "IDMarchio": IDMarchio,
+            "IDMarchio": self.IDMarchio,
             "IDCodMag": self.IDCodMag,
             "dexArt": "",
             "codiceBarre": "",
@@ -216,7 +293,7 @@ class WebLister:
             "Livello3": "",
             "Livello4": "",
             "StatoAssIn": ",".join(map(str, self.StatoAssIn)),
-            "numRecord": numRecord,
+            "numRecord": 5000,
             "IDOrdine": "",
             "Riclassificatore2In": "",
             "articoliMarchio": "",
@@ -225,8 +302,8 @@ class WebLister:
             "dataIntercettaPrezzi": self.dataIntercettaPrezzi,
             "RepartoIn": ",".join(map(str, self.RepartoIn)),
             "dayInterval": 3,
-            "IDClientiCanale": 74,
-            "IDClientiArea": 40,
+            "IDClientiCanale": self.IDClientiCanale,
+            "IDClientiArea": self.IDClientiArea,
             "IDFornitore": "",
             "separaLivelloMerceologia": "S",
             "AreePreparazioneIN": "",
@@ -315,8 +392,8 @@ class WebLister:
             "CodiceBarre": "",
             "CodiceArticolo": cod,
             "VarianteArticolo": var,
-            "IDCliente": 31659,
-            "IDAzienda": 2,
+            "IDCliente": self.IDCliente,
+            "IDAzienda": self.IDAzienda,
             "decodificaAnagrafica": "S",
             "ricercaRepCommle_tipoCons": "S",
             "ricercaCodRappCommle": "S",
@@ -377,22 +454,36 @@ class WebLister:
         )
 
 
-def download_product_list(username: str, password: str, storage_name: str, 
-                          download_dir: str, headless: bool = True) -> str:
+def download_product_list(username: str, password: str, storage_name: str,
+                          download_dir: str, id_cod_mag: int = None,
+                          id_cliente: int = None, id_azienda: int = None,
+                          id_marchio: int = None, id_clienti_canale: int = None,
+                          id_clienti_area: int = None,
+                          headless: bool = True) -> str:
     """
     Convenience function to download product list.
-    
+
     Args:
         username: PAC2000A username
         password: PAC2000A password
         storage_name: Storage name (e.g., "01 RIANO GENERI VARI")
         download_dir: Directory to save downloaded files
+        id_cod_mag: Warehouse code from PAC2000A
+        id_cliente: Client ID from PAC2000A
+        id_azienda: Company ID from PAC2000A
+        id_marchio: Brand ID from PAC2000A
+        id_clienti_canale: Channel ID from PAC2000A
+        id_clienti_area: Area ID from PAC2000A
         headless: Run browser in headless mode
-    
+
     Returns:
         str: Path to downloaded CSV file
     """
-    lister = WebLister(username, password, storage_name, download_dir, headless)
+    lister = WebLister(username, password, storage_name, download_dir,
+                       id_cod_mag=id_cod_mag, id_cliente=id_cliente,
+                       id_azienda=id_azienda, id_marchio=id_marchio,
+                       id_clienti_canale=id_clienti_canale,
+                       id_clienti_area=id_clienti_area, headless=headless)
     return lister.run()
 
 def is_real_product(row: dict) -> bool:

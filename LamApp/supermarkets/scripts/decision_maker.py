@@ -13,14 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 class DecisionMaker:
-    def __init__(self, db: DatabaseManager, helper: Helper, blacklist_set=None):
+    def __init__(self, db: DatabaseManager, helper: Helper, blacklist_set = None, skip_sale: bool = False):
         """
         Initialize decision maker with PostgreSQL support.
         """
         self.helper = helper        
         self.conn = db.conn
         self.cursor = db.cursor()
-
+        self.skip_sale = skip_sale
         self.orders_list = []
         
         # NEW: Three separate tracking lists
@@ -326,6 +326,11 @@ class DecisionMaker:
             logger.info(f"Package consumption = {package_consumption:.2f}")
 
             if sale_info is not None:
+                if self.skip_sale == True:
+                    reason = "Skip products on sale mode is active for this order"
+                    self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
+                    self.helper.line_breaker()
+                    continue
                 discount = sale_info["discount"]
                 sale_start = sale_info["sale_start"]
                 sale_end = sale_info["sale_end"]

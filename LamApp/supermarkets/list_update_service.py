@@ -59,6 +59,12 @@ class ListUpdateService:
             password=self.supermarket.password,
             storage_name=self.storage.name,
             download_dir=str(self.download_dir),
+            id_cod_mag=self.storage.id_cod_mag,
+            id_cliente=self.supermarket.id_cliente,
+            id_azienda=self.supermarket.id_azienda,
+            id_marchio=self.supermarket.id_marchio,
+            id_clienti_canale=self.supermarket.id_clienti_canale,
+            id_clienti_area=self.supermarket.id_clienti_area,
             headless=True
         )
         

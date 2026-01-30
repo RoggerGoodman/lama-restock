@@ -10,7 +10,7 @@ from pathlib import Path
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
-from .models import Storage, RestockLog
+from .models import Storage, RestockLog, ScheduleException
 from .services import RestockService
 from .scripts.decision_maker import DecisionMaker
 from .scripts.inventory_scrapper import Inventory_Scrapper
@@ -146,18 +146,27 @@ class AutomatedRestockService(RestockService):
                 schedule = self.storage.schedule
                 today = timezone.now().weekday()
                 coverage = schedule.calculate_coverage_for_day(today)
-            
+
+            # Check if today has a skip_sale exception
+            today_date = timezone.now().date()
+            skip_sale = ScheduleException.objects.filter(
+                schedule=self.storage.schedule,
+                date=today_date,
+                skip_sale=True
+            ).exists()
+
             log.coverage_used = coverage
             log.save()
-            
+
             if progress_callback:
                 progress_callback(30, 'Running decision algorithm...')
-            
+
             try:
                 decision_maker = DecisionMaker(
-                    self.db, 
-                    self.helper, 
-                    blacklist_set=self.get_blacklist_set()
+                    self.db,
+                    self.helper,
+                    blacklist_set=self.get_blacklist_set(),
+                    skip_sale=skip_sale
                 )
                 
                 decision_maker.decide_orders_for_settore(self.settore, coverage)

@@ -10,6 +10,12 @@ class Supermarket(models.Model):
     name = models.CharField(max_length=255, unique=True)
     username = models.CharField(max_length=255)
     password = models.CharField(max_length=255)
+    # PAC2000A client parameters (discovered via gather_client_data)
+    id_cliente = models.IntegerField(null=True, blank=True, help_text="IDCliente from PAC2000A")
+    id_azienda = models.IntegerField(null=True, blank=True, help_text="IDAzienda from PAC2000A")
+    id_marchio = models.IntegerField(null=True, blank=True, help_text="IDMarchio from PAC2000A")
+    id_clienti_canale = models.IntegerField(null=True, blank=True, help_text="IDClientiCanale from PAC2000A")
+    id_clienti_area = models.IntegerField(null=True, blank=True, help_text="IDClientiArea from PAC2000A")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -25,6 +31,7 @@ class Storage(models.Model):
     supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='storages')
     name = models.CharField(max_length=255)
     settore = models.CharField(max_length=255, help_text="Internal settore name from DB")
+    id_cod_mag = models.IntegerField(null=True, blank=True, help_text="Warehouse code from PAC2000A (IDCodMag)")
     last_list_update = models.DateTimeField(null=True, blank=True, help_text="Last time product list was updated")
     
     class Meta:
@@ -201,6 +208,7 @@ class ScheduleException(models.Model):
         null=True, blank=True,
         help_text="Custom delivery offset for 'add' or 'modify' types"
     )
+    skip_sale = models.BooleanField(default=False, help_text="Skip products on sale for this order day")
     note = models.CharField(max_length=255, blank=True, help_text="Optional note (e.g., 'Natale', 'Ferragosto')")
     created_at = models.DateTimeField(auto_now_add=True)
 

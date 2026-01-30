@@ -491,16 +491,22 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                 password=storage.supermarket.password,
                 storage_name=storage.name,
                 download_dir=str(temp_dir),
+                id_cod_mag=storage.id_cod_mag,
+                id_cliente=storage.supermarket.id_cliente,
+                id_azienda=storage.supermarket.id_azienda,
+                id_marchio=storage.supermarket.id_marchio,
+                id_clienti_canale=storage.supermarket.id_clienti_canale,
+                id_clienti_area=storage.supermarket.id_clienti_area,
                 headless=True
-            ) 
-            
+            )
+
             try:
                 lister.login()
-                
+
                 added = []
                 failed = []
                 products_for_scrapper = []  # ← NEW: Collect for scrapper
-                
+
                 for cod, var in products_list:
                     try:
                         logger.info(f"[ADD PRODUCTS] Fetching {cod}.{var}...")
@@ -852,6 +858,12 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                     password=storage.supermarket.password,
                     storage_name=storage.name,
                     download_dir=str(temp_dir),
+                    id_cod_mag=storage.id_cod_mag,
+                    id_cliente=storage.supermarket.id_cliente,
+                    id_azienda=storage.supermarket.id_azienda,
+                    id_marchio=storage.supermarket.id_marchio,
+                    id_clienti_canale=storage.supermarket.id_clienti_canale,
+                    id_clienti_area=storage.supermarket.id_clienti_area,
                     headless=True
                 )
                 
