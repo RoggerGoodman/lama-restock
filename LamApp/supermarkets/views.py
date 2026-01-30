@@ -31,7 +31,7 @@ from .forms import (
     RecordLossesForm, DDTUploadForm,
 )
 
-from .services import RestockService, StorageService
+from .services import RestockService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -434,21 +434,6 @@ class SupermarketDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView)
         messages.success(request, f"Supermarket '{self.get_object().name}' deleted successfully!")
         return super().delete(request, *args, **kwargs)
 
-
-@login_required
-@require_POST
-def sync_storages_view(request, pk):
-    """Manually sync storages for a supermarket"""
-    supermarket = get_object_or_404(Supermarket, pk=pk, owner=request.user)
-
-    try:
-        StorageService.sync_storages(supermarket)
-        messages.success(request, "Storages synced successfully!")
-    except Exception as e:
-        logger.exception("Error syncing storages")
-        messages.error(request, f"Error syncing storages: {str(e)}")
-
-    return redirect('supermarket-detail', pk=pk)
 
 
 @login_required

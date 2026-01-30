@@ -44,12 +44,6 @@
                     <a href="{% url 'supermarket-edit' pk=supermarket.pk %}" class="btn btn-primary">
                         <i class="bi bi-pencil"></i> Modifica dettagli
                     </a>
-                    <form method="post" action="{% url 'sync-storages' pk=supermarket.pk %}" style="display: inline;">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-outline-primary">
-                            <i class="bi bi-arrow-repeat"></i> Sincronizzazione dei magazzini
-                        </button>
-                    </form>
                 </div>
 
                 <!-- NEW: Promo Upload -->
@@ -150,13 +144,7 @@
                 {% else %}
                     <div class="alert alert-warning">
                         <i class="bi bi-exclamation-triangle"></i>
-                        Nessun magazzino trovato. 
-                        <form method="post" action="{% url 'sync-storages' pk=supermarket.pk %}" style="display: inline;">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-outline-primary">
-                                Sincronizza i magazzini ora
-                            </button>
-                        </form>
+                        Nessun magazzino trovato.
                     </div>
                 {% endif %}
             </div>
