@@ -61,6 +61,12 @@ class Helper:
             final_array_bought.pop()
             final_array_sold.pop()
 
+        # If a list is empty, return [0] instead
+        if not final_array_bought:
+            final_array_bought = [0]
+        if not final_array_sold:
+            final_array_sold = [0]
+
         return final_array_bought, final_array_sold
     
     def calculate_weighted_avg_sales_new(self, final_array_sold: list, alpha: float = 3.0):

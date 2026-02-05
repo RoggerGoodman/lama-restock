@@ -43,10 +43,10 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=3, minute=0),
     },
 
-    # Monthly stock value snapshots on the 1st at 00:30
+    # Monthly stock value snapshots on the 1st at 12:00
     'monthly-stock-snapshots': {
         'task': 'supermarkets.tasks.create_monthly_stock_snapshots',
-        'schedule': crontab(hour=0, minute=30, day_of_month='1'),
+        'schedule': crontab(hour=12, minute=0, day_of_month='1'),
     },
 }
 
