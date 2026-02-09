@@ -89,6 +89,61 @@
                 <form method="post" id="scheduleForm">
                     {% csrf_token %}
 
+                    <!-- Day Weights Section (Supermarket-wide) -->
+                    <div class="card mb-4 border-0 bg-light">
+                        <div class="card-body py-3">
+                            <div class="d-flex align-items-center gap-2 mb-3">
+                                <h6 class="mb-0">
+                                    <i class="bi bi-graph-up text-primary"></i>
+                                    Pesi giornalieri
+                                </h6>
+                                <span class="badge bg-secondary">{{ supermarket.name }}</span>
+                                <i class="bi bi-info-circle text-muted" data-bs-toggle="tooltip"
+                                   title="Regola il peso per ogni giorno in base all'affluenza. 1.0 = normale, >1 = più affollato, <1 = meno affollato"></i>
+                            </div>
+                            <div class="d-flex justify-content-between gap-2 flex-wrap">
+                                <div class="text-center">
+                                    <label class="form-label small mb-1">Lun</label>
+                                    <input type="number" name="monday_weight" class="form-control form-control-sm text-center day-weight-input"
+                                           value="{{ supermarket.monday_weight }}" min="0.5" max="2.0" step="0.1" style="width: 65px;">
+                                </div>
+                                <div class="text-center">
+                                    <label class="form-label small mb-1">Mar</label>
+                                    <input type="number" name="tuesday_weight" class="form-control form-control-sm text-center day-weight-input"
+                                           value="{{ supermarket.tuesday_weight }}" min="0.5" max="2.0" step="0.1" style="width: 65px;">
+                                </div>
+                                <div class="text-center">
+                                    <label class="form-label small mb-1">Mer</label>
+                                    <input type="number" name="wednesday_weight" class="form-control form-control-sm text-center day-weight-input"
+                                           value="{{ supermarket.wednesday_weight }}" min="0.5" max="2.0" step="0.1" style="width: 65px;">
+                                </div>
+                                <div class="text-center">
+                                    <label class="form-label small mb-1">Gio</label>
+                                    <input type="number" name="thursday_weight" class="form-control form-control-sm text-center day-weight-input"
+                                           value="{{ supermarket.thursday_weight }}" min="0.5" max="2.0" step="0.1" style="width: 65px;">
+                                </div>
+                                <div class="text-center">
+                                    <label class="form-label small mb-1">Ven</label>
+                                    <input type="number" name="friday_weight" class="form-control form-control-sm text-center day-weight-input"
+                                           value="{{ supermarket.friday_weight }}" min="0.5" max="2.0" step="0.1" style="width: 65px;">
+                                </div>
+                                <div class="text-center">
+                                    <label class="form-label small mb-1">Sab</label>
+                                    <input type="number" name="saturday_weight" class="form-control form-control-sm text-center day-weight-input"
+                                           value="{{ supermarket.saturday_weight }}" min="0.5" max="2.0" step="0.1" style="width: 65px;">
+                                </div>
+                                <div class="text-center">
+                                    <label class="form-label small mb-1">Dom</label>
+                                    <input type="number" name="sunday_weight" class="form-control form-control-sm text-center day-weight-input"
+                                           value="{{ supermarket.sunday_weight }}" min="0.5" max="2.0" step="0.1" style="width: 65px;">
+                                </div>
+                            </div>
+                            <p class="text-muted small mb-0 mt-2">
+                                <i class="bi bi-lightbulb"></i> Es: Sabato affollato = 1.3, Lunedì tranquillo = 0.8
+                            </p>
+                        </div>
+                    </div>
+
                     <div class="mb-4">
                         <h5 class="mb-3">
                             <i class="bi bi-calendar-plus text-primary"></i>
@@ -650,6 +705,7 @@
 // Day names for display
 const dayNames = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
 const dayNamesShort = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 // Get delivery day name based on order day and offset
 function getDeliveryDay(orderDayIndex, offset) {
@@ -657,11 +713,21 @@ function getDeliveryDay(orderDayIndex, offset) {
     return dayNames[deliveryDayIndex];
 }
 
-// Calculate coverage for a specific order day
-function calculateCoverage(orderDayIndex, orderDays, deliveryOffsets) {
+// Get day weights from form inputs
+function getDayWeights() {
+    const weights = {};
+    dayKeys.forEach((day, index) => {
+        const input = document.querySelector(`input[name="${day}_weight"]`);
+        weights[index] = input ? parseFloat(input.value) || 1.0 : 1.0;
+    });
+    return weights;
+}
+
+// Calculate number of days in coverage period (unweighted)
+function calculateCoverageDays(orderDayIndex, orderDays, deliveryOffsets) {
     if (orderDays.length === 0) return 0;
     if (orderDays.length === 1) return 9;
-    
+
     // Find next order day
     let nextOrderDay = null;
     for (let day of orderDays) {
@@ -670,19 +736,32 @@ function calculateCoverage(orderDayIndex, orderDays, deliveryOffsets) {
             break;
         }
     }
-    
+
     // Wrap to next week if needed
     if (nextOrderDay === null) {
         nextOrderDay = orderDays[0] + 7;
     }
-    
+
     // Get delivery offset for next order
     const nextDeliveryOffset = deliveryOffsets[nextOrderDay % 7];
-    
+
     // Coverage = (next_order_day + next_delivery_offset) - order_day_index + 1
-    const coverage = (nextOrderDay + nextDeliveryOffset) - orderDayIndex + 1;
-    
-    return coverage;
+    return (nextOrderDay + nextDeliveryOffset) - orderDayIndex + 1;
+}
+
+// Calculate weighted coverage for a specific order day
+function calculateCoverage(orderDayIndex, orderDays, deliveryOffsets) {
+    const numDays = calculateCoverageDays(orderDayIndex, orderDays, deliveryOffsets);
+    const weights = getDayWeights();
+
+    // Sum weights for each day in coverage period
+    let weightedSum = 0;
+    for (let i = 0; i < numDays; i++) {
+        const dayIndex = (orderDayIndex + i) % 7;
+        weightedSum += weights[dayIndex];
+    }
+
+    return Math.round(weightedSum * 100) / 100;  // Round to 2 decimals
 }
 
 // Update the visual weekly calendar
@@ -802,13 +881,14 @@ function updateCoveragePreview() {
     }
     
     // Build coverage table
-    let html = '<table class="table table-sm mb-0"><thead><tr><th>Giorno ordine</th><th>Giorno consegna</th><th>Copertura</th><th>Dettagli</th></tr></thead><tbody>';
-    
+    let html = '<table class="table table-sm mb-0"><thead><tr><th>Giorno ordine</th><th>Giorno consegna</th><th>Giorni</th><th>Copertura pesata</th><th>Dettagli</th></tr></thead><tbody>';
+
     orderDays.forEach(orderDayIdx => {
         const offset = deliveryOffsets[orderDayIdx];
         const deliveryDay = getDeliveryDay(orderDayIdx, offset);
-        const coverage = calculateCoverage(orderDayIdx, orderDays, deliveryOffsets);
-        
+        const numDays = calculateCoverageDays(orderDayIdx, orderDays, deliveryOffsets);
+        const weightedCoverage = calculateCoverage(orderDayIdx, orderDays, deliveryOffsets);
+
         // Find next order for explanation
         let nextOrderIdx = null;
         for (let day of orderDays) {
@@ -820,20 +900,21 @@ function updateCoveragePreview() {
         if (nextOrderIdx === null) {
             nextOrderIdx = orderDays[0];
         }
-        
+
         const nextDeliveryOffset = deliveryOffsets[nextOrderIdx];
         const nextDeliveryDay = getDeliveryDay(nextOrderIdx, nextDeliveryOffset);
-        
-        const explanation = `Fino alla consegna di ${dayNamesShort[nextOrderIdx]} (${nextDeliveryDay})`;
-        
+
+        const explanation = `Fino a ${dayNamesShort[nextOrderIdx]} (${nextDeliveryDay})`;
+
         html += `<tr>
             <td><strong>${dayNames[orderDayIdx]}</strong></td>
             <td>${offset === 0 ? '<span class="badge bg-success">Stesso giorno</span>' : deliveryDay}</td>
-            <td><span class="badge bg-primary">${coverage} giorni</span></td>
+            <td><span class="badge bg-secondary">${numDays}</span></td>
+            <td><span class="badge bg-primary">${weightedCoverage}</span></td>
             <td><small class="text-muted">${explanation}</small></td>
         </tr>`;
     });
-    
+
     html += '</tbody></table>';
     display.innerHTML = html;
     preview.style.display = 'block';
@@ -995,6 +1076,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 syncOffsetFromUI(day);
                 updateCoveragePreview();
                 updateWeeklyCalendar();
+            });
+        }
+
+        // Weight input change event - update coverage preview when weights change
+        const weightInput = document.querySelector(`input[name="${day}_weight"]`);
+        if (weightInput) {
+            weightInput.addEventListener('input', function() {
+                updateCoveragePreview();
             });
         }
     });

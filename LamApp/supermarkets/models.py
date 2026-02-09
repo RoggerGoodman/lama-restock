@@ -19,11 +19,40 @@ class Supermarket(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Day weights for coverage calculation (1.0 = normal, 0.9 = less traffic, 1.2 = more traffic)
+    monday_weight = models.DecimalField(max_digits=3, decimal_places=2, default=1.0, help_text="Traffic weight for Monday")
+    tuesday_weight = models.DecimalField(max_digits=3, decimal_places=2, default=1.0, help_text="Traffic weight for Tuesday")
+    wednesday_weight = models.DecimalField(max_digits=3, decimal_places=2, default=1.0, help_text="Traffic weight for Wednesday")
+    thursday_weight = models.DecimalField(max_digits=3, decimal_places=2, default=1.0, help_text="Traffic weight for Thursday")
+    friday_weight = models.DecimalField(max_digits=3, decimal_places=2, default=1.0, help_text="Traffic weight for Friday")
+    saturday_weight = models.DecimalField(max_digits=3, decimal_places=2, default=1.0, help_text="Traffic weight for Saturday")
+    sunday_weight = models.DecimalField(max_digits=3, decimal_places=2, default=1.0, help_text="Traffic weight for Sunday")
+
     class Meta:
         ordering = ['name']
 
     def __str__(self):
         return f"{self.name} ({self.owner.username})"
+
+    def get_day_weight(self, day_index):
+        """Get traffic weight for a specific day (0=Monday, 6=Sunday)"""
+        weight_fields = [
+            'monday_weight', 'tuesday_weight', 'wednesday_weight',
+            'thursday_weight', 'friday_weight', 'saturday_weight', 'sunday_weight'
+        ]
+        return float(getattr(self, weight_fields[day_index]))
+
+    def get_all_day_weights(self):
+        """Return dict of all day weights for JSON serialization"""
+        return {
+            'monday': float(self.monday_weight),
+            'tuesday': float(self.tuesday_weight),
+            'wednesday': float(self.wednesday_weight),
+            'thursday': float(self.thursday_weight),
+            'friday': float(self.friday_weight),
+            'saturday': float(self.saturday_weight),
+            'sunday': float(self.sunday_weight),
+        }
 
 
 class Storage(models.Model):
@@ -95,48 +124,65 @@ class RestockSchedule(models.Model):
 
     def calculate_coverage_for_day(self, order_day_index):
         """
-        Calculate coverage (days from order day to next delivery day, inclusive).
-        
-        Formula: Coverage = (next_order_day + next_delivery_offset) - order_day_index + 1
-        
-        Example:
-        - Order Monday (index=0), delivery Tuesday (offset=1)
-        - Next order Friday (index=4), delivery Sunday (offset=2)
-        - Coverage = (4 + 2) - 0 + 1 = 7 days
-        
+        Calculate weighted coverage (sum of day weights from order day to next delivery).
+
+        Uses supermarket's day weights instead of just counting days.
+        Example: If covering Mon→Thu with weights [0.9, 1.0, 1.0, 1.2] = 4.1 weighted days
+
         Args:
             order_day_index: 0=Monday, 6=Sunday
-            
+
         Returns:
-            int: Number of days to cover
+            float: Weighted number of days to cover
         """
         order_days = self.get_order_days()
-        
+
         if not order_days:
             return 0
-        
+
         if len(order_days) == 1:
-            # Only one order per week - default to 9 days
-            return 9
-        
+            # Only one order per week - default to 9 days weighted
+            return self._calculate_weighted_days(order_day_index, 9)
+
         # Find the next order day after current order_day_index
         next_order_day = None
         for day in order_days:
             if day > order_day_index:
                 next_order_day = day
                 break
-        
+
         # If no order day found after current, wrap around to first day of next week
         if next_order_day is None:
             next_order_day = order_days[0] + 7
-        
+
         # Get delivery offset for the next order
         next_delivery_offset = self.get_delivery_offset(next_order_day % 7)
-        
-        # Coverage = days from current order day to next delivery day (inclusive)
-        coverage = (next_order_day + next_delivery_offset) - order_day_index + 1
-        
-        return coverage
+
+        # Number of days to cover (unweighted)
+        num_days = (next_order_day + next_delivery_offset) - order_day_index + 1
+
+        # Calculate weighted coverage
+        return self._calculate_weighted_days(order_day_index, num_days)
+
+    def _calculate_weighted_days(self, start_day_index, num_days):
+        """
+        Sum the day weights for a period starting from start_day_index.
+
+        Args:
+            start_day_index: Starting day (0=Monday, 6=Sunday)
+            num_days: Number of days to cover
+
+        Returns:
+            float: Sum of weights for the coverage period
+        """
+        supermarket = self.storage.supermarket
+        weighted_sum = 0.0
+
+        for i in range(num_days):
+            day_index = (start_day_index + i) % 7
+            weighted_sum += supermarket.get_day_weight(day_index)
+
+        return round(weighted_sum, 2)
 
     def get_week_visual(self):
         """Returns visual data for each day of the week for template rendering"""

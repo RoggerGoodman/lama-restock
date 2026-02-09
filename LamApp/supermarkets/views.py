@@ -28,7 +28,7 @@ from .models import (
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
     BlacklistEntryForm, AddProductsForm, PromoUploadForm,
-    RecordLossesForm, DDTUploadForm,
+    RecordLossesForm, DDTUploadForm, DayWeightsForm,
 )
 
 from .services import RestockService
@@ -724,15 +724,39 @@ class RestockScheduleView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["storage"] = get_object_or_404(
+        storage = get_object_or_404(
             Storage,
             id=self.kwargs.get("storage_id"),
             supermarket__owner=self.request.user
         )
+        context["storage"] = storage
+        context["supermarket"] = storage.supermarket
+        context["day_weights_form"] = DayWeightsForm(instance=storage.supermarket)
+        context["day_weights_json"] = json.dumps(storage.supermarket.get_all_day_weights())
         return context
 
     def form_valid(self, form):
-        messages.success(self.request, "Schedule updated successfully!")
+        # Also save supermarket-wide day weights from POST data
+        supermarket = self.object.storage.supermarket
+        valid_days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        weights_changed = False
+
+        for day in valid_days:
+            weight_key = f'{day}_weight'
+            if weight_key in self.request.POST:
+                try:
+                    weight = float(self.request.POST[weight_key])
+                    weight = max(0.5, min(2.0, weight))
+                    if getattr(supermarket, weight_key) != weight:
+                        setattr(supermarket, weight_key, weight)
+                        weights_changed = True
+                except (ValueError, TypeError):
+                    pass
+
+        if weights_changed:
+            supermarket.save()
+
+        messages.success(self.request, "Agenda ordini aggiornata!")
         return super().form_valid(form)
 
     def get_success_url(self):

@@ -1,6 +1,59 @@
 # LamApp/supermarkets/forms.py
 from django import forms
-from .models import RestockSchedule, Blacklist, BlacklistEntry
+from .models import RestockSchedule, Blacklist, BlacklistEntry, Supermarket
+
+
+class DayWeightsForm(forms.ModelForm):
+    """
+    Form for supermarket-wide day traffic weights.
+    Weights adjust coverage calculations (1.0 = normal, 0.9 = less traffic, 1.2 = more traffic).
+    """
+
+    class Meta:
+        model = Supermarket
+        fields = [
+            'monday_weight', 'tuesday_weight', 'wednesday_weight',
+            'thursday_weight', 'friday_weight', 'saturday_weight', 'sunday_weight'
+        ]
+
+        widgets = {
+            'monday_weight': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm text-center',
+                'min': '0.5', 'max': '2.0', 'step': '0.1',
+                'style': 'width: 70px;'
+            }),
+            'tuesday_weight': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm text-center',
+                'min': '0.5', 'max': '2.0', 'step': '0.1',
+                'style': 'width: 70px;'
+            }),
+            'wednesday_weight': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm text-center',
+                'min': '0.5', 'max': '2.0', 'step': '0.1',
+                'style': 'width: 70px;'
+            }),
+            'thursday_weight': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm text-center',
+                'min': '0.5', 'max': '2.0', 'step': '0.1',
+                'style': 'width: 70px;'
+            }),
+            'friday_weight': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm text-center',
+                'min': '0.5', 'max': '2.0', 'step': '0.1',
+                'style': 'width: 70px;'
+            }),
+            'saturday_weight': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm text-center',
+                'min': '0.5', 'max': '2.0', 'step': '0.1',
+                'style': 'width: 70px;'
+            }),
+            'sunday_weight': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm text-center',
+                'min': '0.5', 'max': '2.0', 'step': '0.1',
+                'style': 'width: 70px;'
+            }),
+        }
+
 
 class RestockScheduleForm(forms.ModelForm):
     """
