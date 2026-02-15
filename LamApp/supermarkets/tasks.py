@@ -1249,6 +1249,61 @@ def process_ddt_task(self, storage_id, pdf_file_path):
 
 @shared_task(
     bind=True,
+    max_retries=3,
+    default_retry_delay=900
+)
+def prepend_monthly_loss_zeros(self):
+    """
+    Prepend [0, 0] to every loss array in extra_losses for ALL supermarkets.
+    Runs on the 1st of every month at 00:30.
+
+    This ensures arr[0] always represents the current month, even for
+    products that haven't had a new loss registered in months.
+    """
+    from .models import Supermarket
+    from .services import RestockService
+
+    try:
+        logger.info("[CELERY] Starting monthly loss zero-prepend for all supermarkets")
+
+        supermarkets = Supermarket.objects.all()
+
+        if not supermarkets.exists():
+            logger.info("[CELERY] No supermarkets found")
+            return "No supermarkets to process"
+
+        success_count = 0
+        error_count = 0
+
+        for supermarket in supermarkets:
+            try:
+                first_storage = supermarket.storages.first()
+
+                if not first_storage:
+                    logger.warning(f"[CELERY] No storages found for {supermarket.name}")
+                    continue
+
+                with RestockService(first_storage) as service:
+                    updated = service.db.prepend_monthly_loss_zeros()
+                    logger.info(f"[CELERY] {supermarket.name}: {updated} loss rows updated")
+                    success_count += 1
+
+            except Exception as e:
+                logger.exception(f"[CELERY] Error prepending zeros for {supermarket.name}")
+                error_count += 1
+                continue
+
+        result_msg = f"Monthly loss zero-prepend complete: {success_count} successful, {error_count} failed"
+        logger.info(f"[CELERY] {result_msg}")
+        return result_msg
+
+    except Exception as exc:
+        logger.exception("[CELERY] Fatal error in monthly loss zero-prepend task")
+        raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
     max_retries=2,
     default_retry_delay=3600  # 1 hour
 )

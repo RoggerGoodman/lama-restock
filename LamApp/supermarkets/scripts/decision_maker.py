@@ -51,58 +51,44 @@ class DecisionMaker:
         return self.cursor.fetchall()
     
     def get_internal_use_losess(self):
-        """Return list of (cod, v, internal, internal_updated) from extra_losses
-        where internal is valid JSON and internal_updated is not null."""
-        
+        """Return list of (cod, v, internal) from extra_losses
+        where internal is valid JSON."""
+
         query = """
-            SELECT cod, v, internal, internal_updated
+            SELECT cod, v, internal
             FROM extra_losses
-            WHERE internal IS NOT NULL
-            AND internal_updated IS NOT NULL;
+            WHERE internal IS NOT NULL;
         """
         self.cursor.execute(query)
         rows = self.cursor.fetchall()
 
-        # Convert JSON strings into Python objects
         extra_losses = []
         for row in rows:
             extra_losses.append({
                 "cod": row["cod"],
                 "v": row["v"],
                 "internal": row["internal"] or [],
-                "internal_updated": row["internal_updated"]
             })
-        
+
         return extra_losses
     
     def integrate_internal_losses(self, cod, v, sold_array, extra_losses):
-        """If cod,v in results: pad internal with zeros for months since last update
-        and return elementwise sum with sold_array."""
-        
-        # Find the matching entry
+        """Element-wise sum of internal losses with sold_array.
+        Arrays are kept aligned by the monthly zero-prepend task."""
+
         match = next((r for r in extra_losses if r["cod"] == cod and r["v"] == v), None)
+        internal = match["internal"]
 
-        # Compute months passed since internal_updated
-        updated_date:date = match["internal_updated"]
-        today = date.today()
-        months_passed = (today.year - updated_date.year) * 12 + (today.month - updated_date.month)
-
-        # Pad internal list with zeros
-        internal = match["internal"].copy()
-        for _ in range(months_passed):
-            internal.insert(0, 0)  # This will be int for old format, that's fine
-
-        # ✅ FIX: Handle both old format (int) and new format ([qty, cost])
         summed = []
         for i in range(len(sold_array)):
             internal_value = internal[i] if i < len(internal) else 0
-            
-            # Extract quantity from new format [qty, cost] or use old format (int)
+
+            # Handle both old format (int) and new format ([qty, cost])
             if isinstance(internal_value, list) and len(internal_value) == 2:
-                internal_qty = internal_value[0]  # New format: [qty, cost]
+                internal_qty = internal_value[0]
             else:
-                internal_qty = internal_value  # Old format: just qty (int)
-            
+                internal_qty = internal_value
+
             summed.append(internal_qty + sold_array[i])
 
         return summed
@@ -300,24 +286,8 @@ class DecisionMaker:
             if avg_daily_sales == None: 
                 avg_daily_sales, avg_sales_base = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
-            if len(sold_array) >= 4:                    
-                recent_months_sales = self.helper.calculate_data_recent_months(sold_array, 3)
-                deviation_corrected = self.helper.calculate_deviation(sold_array, recent_months_sales, True)               
-                trend = self.helper.find_trend(sold_array, bought_array)
-            else:
-                recent_months_sales = -1
-                deviation_corrected = 0
-                trend = 0
-                logger.info(f"Deviation and recent months sales are not available for this article") 
-            
-            if len(sold_array) >= 16:
-                ly_slice = sold_array[12:]
-                ly_recent_months_sales = self.helper.calculate_data_recent_months(ly_slice, 3)
-                ly_deviation = self.helper.calculate_deviation(ly_slice, ly_recent_months_sales, False)
-                deviation_corrected = self.helper.deviation_blender(deviation_corrected, ly_deviation)
-                logger.info(f"Deviation Blended = {deviation_corrected} %")
-            elif len(sold_array) >= 4:
-                logger.info(f"Deviation = {deviation_corrected} %")
+            deviation_corrected = self.helper.calculate_deviation(sales_sets)
+            logger.info(f"Deviation = {deviation_corrected} %")
 
             req_stock = avg_daily_sales * coverage
             logger.info(f"Required stock = {req_stock:.2f}")

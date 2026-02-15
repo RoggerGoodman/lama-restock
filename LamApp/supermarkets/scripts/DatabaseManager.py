@@ -422,6 +422,20 @@ class DatabaseManager:
 
         cur = self.cursor()
 
+        if type == "internal":
+            cur.execute("""
+                SELECT sales_sets FROM product_stats WHERE cod=%s AND v=%s
+            """, (cod, v))
+            ss_row = cur.fetchone()
+            if ss_row:
+                sales_sets = ss_row["sales_sets"] or [0]
+                if not sales_sets:
+                    sales_sets = [0]
+                sales_sets[0] += delta
+                cur.execute("""
+                    UPDATE product_stats SET sales_sets=%s WHERE cod=%s AND v=%s
+                """, (Json(sales_sets), cod, v))
+
         # 1) Check product exists
         cur.execute("SELECT 1 FROM products WHERE cod=%s AND v=%s", (cod, v))
         if cur.fetchone() is None:
@@ -928,3 +942,47 @@ class DatabaseManager:
             return results
         except:
             return []
+
+    def prepend_monthly_loss_zeros(self):
+        """
+        Prepend [0, 0] to every non-null loss array in extra_losses and update the
+        corresponding _updated date. This keeps arr[0] always meaning "current month".
+        Called on the 1st of every month at 00:30 via Celery Beat.
+        """
+        cur = self.cursor()
+        today = date.today()
+        loss_types = ['broken', 'expired', 'internal', 'stolen']
+        total_updated = 0
+
+        for loss_type in loss_types:
+            try:
+                cur.execute(f"""
+                    SELECT cod, v, {loss_type}
+                    FROM extra_losses
+                    WHERE {loss_type} IS NOT NULL
+                """)
+                rows = cur.fetchall()
+
+                for row in rows:
+                    arr = row[loss_type]
+                    if not isinstance(arr, list):
+                        continue
+
+                    new_arr = [[0, 0]] + arr
+                    new_arr = new_arr[:24]
+
+                    cur.execute(f"""
+                        UPDATE extra_losses
+                        SET {loss_type} = %s, {loss_type}_updated = %s
+                        WHERE cod = %s AND v = %s
+                    """, (Json(new_arr), today, row['cod'], row['v']))
+
+                total_updated += len(rows)
+                self.conn.commit()
+                logger.info(f"Prepended monthly zero for {loss_type}: {len(rows)} rows")
+
+            except Exception as e:
+                logger.warning(f"Could not prepend zeros for {loss_type}: {e}")
+                continue
+
+        return total_updated

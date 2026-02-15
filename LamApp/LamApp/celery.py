@@ -43,6 +43,12 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=3, minute=0),
     },
 
+    # Monthly loss zero-prepend on the 1st at 00:30
+    'monthly-loss-zero-prepend': {
+        'task': 'supermarkets.tasks.prepend_monthly_loss_zeros',
+        'schedule': crontab(hour=0, minute=30, day_of_month='1'),
+    },
+
     # Monthly stock value snapshots on the 1st at 12:00
     'monthly-stock-snapshots': {
         'task': 'supermarkets.tasks.create_monthly_stock_snapshots',

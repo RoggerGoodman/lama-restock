@@ -2,6 +2,7 @@ from datetime import datetime
 from calendar import monthrange
 import logging
 import math
+import statistics
 import pdfplumber
 import re
 
@@ -173,34 +174,32 @@ class Helper:
 
         return avg_daily_sales
     
-    def calculate_data_recent_months(self, list: list, period: int):
-        weights = [0.7, 0.2, 0.1]  # You can adjust these weights
-        weighted_sum = sum(list[i+1] * weights[i] for i in range(period))
-        recent_months = weighted_sum / sum(weights)
-        return recent_months
+    def calculate_deviation(self, sales_sets: list):
+        """
+        Calculate sales deviation from daily sales data.
+        Compares median of recent 8 days vs median of baseline (days 8-30).
+        Uses median for outlier resistance.
 
-    def calculate_deviation(self, final_array_sold, recent_months, present_time : bool):
-        this_month = final_array_sold[0]
-        if present_time:
-            last_month = final_array_sold[1]
-            days_to_recover = self.days_this_month - (self.current_day - 1)
-            if (days_to_recover > 0):
-                last_month = (days_to_recover/self.days_this_month)*last_month
-                this_month += last_month
-        if recent_months != 0:
-            deviation = ((this_month - recent_months) /recent_months)*100
-            deviation = round(deviation, 2)
-        else:
-            deviation = 0
-        deviation_corrected = max(-50, min(deviation, 50))
-        return deviation_corrected
-    
-    def deviation_blender(self, deviation, ly_deviation):
+        Returns: deviation percentage clamped to [-50, 50]. 0 if insufficient data.
+        """
+        min_days = 14
+        recent_window = 8
 
-        alpha = 1.0 - (self.current_day / self.days_this_month)
-        blended = round(alpha * ly_deviation + (1.0 - alpha) * deviation, 2)
+        if not sales_sets or len(sales_sets) < min_days:
+            return 0
 
-        return blended
+        recent = sales_sets[:recent_window]
+        baseline = sales_sets[recent_window:]
+
+        median_recent = statistics.median(recent)
+        median_baseline = statistics.median(baseline)
+
+        if median_baseline == 0:
+            return 50 if median_recent > 0 else 0
+
+        deviation = ((median_recent - median_baseline) / median_baseline) * 100
+        deviation = round(deviation, 2)
+        return max(-50, min(deviation, 50))
 
     def calculate_stock(self, final_array_sold, final_array_bought):
         tot_sold = sum(final_array_sold)
@@ -211,51 +210,6 @@ class Helper:
             true_stock = true_stock - math.floor(period/5)
         logger.info(f"True Stock = {true_stock}")
         return true_stock
-
-    def find_trend(self, final_array_sold, final_array_bought):
-        diffs = []
-        start = 0
-        
-        if self.current_day == 1:
-            start = 1
-
-        for sold, bought in zip(final_array_sold[start:], final_array_bought[start:]):
-            diffs.append(bought - sold)
-
-        if diffs[0] == 0:
-            logger.info(f"No trend")
-            return 0
-
-        total = diffs[0]
-        direction = diffs[0] > 0  # True = positive, False = negative
-        combo = 0
-
-        i = 1
-        while i < len(diffs):
-            d = diffs[i]
-            if d == 0:
-                i += 1
-                continue  # skip zeros
-
-            if (d > 0) == direction:
-                # same direction, accumulate
-                total += d
-                i += 1
-                combo += 1
-            else:
-                # sign changed
-                if  i + 1 < len(diffs) and abs(diffs[i+1]) > abs(d) and (diffs[i+1]) == direction:
-                    # only continue if stronger than previous
-                    total += d + diffs[i+1]
-                    i+=2
-                    combo += 1
-                else:
-                    break  # trend broken
-        if combo == 0:
-            logger.info(f"No trend")
-            return 0        
-        logger.info(f"Trend value is {total}")
-        return total
 
     def next_article(self, product_cod, product_var, package_size, product_name, reason):
         logger.info(f"Will NOT order {product_name}: {product_cod}.{product_var}.{package_size}!")
