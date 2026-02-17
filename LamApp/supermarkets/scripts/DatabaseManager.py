@@ -80,7 +80,7 @@ class DatabaseManager:
                 sales_sets JSONB,
                 stock INTEGER DEFAULT 0,
                 verified BOOLEAN DEFAULT FALSE,
-                minimum_stock INTEGER DEFAULT 4,
+                minimum_stock INTEGER DEFAULT 6,
                 last_update DATE,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)

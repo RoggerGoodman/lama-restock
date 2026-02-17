@@ -224,7 +224,7 @@ class DecisionMaker:
             package_multi = row["rapp"]
             verified = row["verified"]
             disponibilita = row["disponibilita"]
-            minimum_stock_base = row.get("minimum_stock", 4)
+            minimum_stock_base = row.get("minimum_stock", 6)
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
             
