@@ -113,6 +113,10 @@ class DatabaseManager:
                 expired_updated DATE,
                 internal JSONB,
                 internal_updated DATE,
+                stolen JSONB,
+                stolen_updated DATE,
+                shrinkage JSONB,
+                shrinkage_updated DATE,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)
             )
@@ -415,7 +419,7 @@ class DatabaseManager:
         NOW STORES COST SNAPSHOT: [[qty, cost], [qty, cost], ...]
         AUTO-CREATES extra_losses entry if missing.
         """
-        allowed = ("broken", "expired", "internal", "stolen")  # ✅ ADDED STOLEN
+        allowed = ("broken", "expired", "internal", "stolen", "shrinkage")
         delta = int(delta)
         if type not in allowed:
             raise ValueError(f"Invalid type '{type}'. Allowed: {allowed}")
@@ -951,7 +955,7 @@ class DatabaseManager:
         """
         cur = self.cursor()
         today = date.today()
-        loss_types = ['broken', 'expired', 'internal', 'stolen']
+        loss_types = ['broken', 'expired', 'internal', 'stolen', 'shrinkage']
         total_updated = 0
 
         for loss_type in loss_types:

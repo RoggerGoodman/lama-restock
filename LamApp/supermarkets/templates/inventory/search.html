@@ -165,10 +165,16 @@
                                 <input type="hidden" name="settore" id="id_settore">
                             </div>
                             <div class="col-md-4 mb-2">
-                                <label for="cluster_display" class="form-label small mb-1">Cluster</label>
-                                <select id="cluster_display" class="form-select form-select-sm">
-                                    <option value="">-- Tutti --</option>
-                                </select>
+                                <label class="form-label small mb-1">Cluster</label>
+                                <div class="d-flex gap-1">
+                                    <select id="cluster_display" class="form-select form-select-sm">
+                                        <option value="">-- Tutti --</option>
+                                    </select>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="addClusterBtn" title="Aggiungi cluster">
+                                        <i class="bi bi-plus-lg"></i>
+                                    </button>
+                                </div>
+                                <div id="selectedClusters" class="mt-1 d-flex flex-wrap gap-1"></div>
                                 <input type="hidden" name="cluster" id="id_cluster">
                             </div>
                         </div>
@@ -455,8 +461,37 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     });
 
-    clusterDisplay.addEventListener('change', function() {
-        clusterHidden.value = this.value;
+    // Multi-cluster selection
+    const selectedClusterSet = new Set();
+
+    function updateClusterHidden() {
+        clusterHidden.value = [...selectedClusterSet].join(',');
+    }
+
+    function renderClusterBadges() {
+        const container = document.getElementById('selectedClusters');
+        container.innerHTML = '';
+        selectedClusterSet.forEach(cluster => {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-secondary d-flex align-items-center gap-1';
+            badge.style.fontSize = '0.75rem';
+            badge.innerHTML = `${cluster} <button type="button" class="btn-close btn-close-white" style="font-size:0.5rem;" data-cluster="${cluster}" aria-label="Rimuovi"></button>`;
+            badge.querySelector('button').addEventListener('click', () => {
+                selectedClusterSet.delete(cluster);
+                renderClusterBadges();
+                updateClusterHidden();
+            });
+            container.appendChild(badge);
+        });
+    }
+
+    document.getElementById('addClusterBtn').addEventListener('click', function() {
+        const val = clusterDisplay.value;
+        if (val && !selectedClusterSet.has(val)) {
+            selectedClusterSet.add(val);
+            renderClusterBadges();
+            updateClusterHidden();
+        }
     });
 
     updateFieldsVisibility();

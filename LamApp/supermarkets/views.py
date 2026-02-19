@@ -417,6 +417,18 @@ class SupermarketUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView)
     def test_func(self):
         return self.get_object().owner == self.request.user
 
+    def post(self, request, *args, **kwargs):
+        if 'sync_storages' in request.POST:
+            supermarket = self.get_object()
+            try:
+                from .services import StorageService
+                StorageService.sync_storages(supermarket)
+                messages.success(request, "Magazzini sincronizzati con successo.")
+            except Exception as e:
+                messages.error(request, f"Errore durante la sincronizzazione: {e}")
+            return redirect('supermarket-edit', pk=supermarket.pk)
+        return super().post(request, *args, **kwargs)
+
     def get_success_url(self):
         messages.success(self.request, "Supermarket updated successfully!")
         return reverse_lazy('supermarket-detail', kwargs={'pk': self.object.pk})
@@ -1849,9 +1861,16 @@ def losses_analytics_unified_view(request):
             'monthly_value': [0.0]*24
         },
         'stolen': {
-            'total_units': 0, 
+            'total_units': 0,
             'total_value': 0.0,
-            'products': 0, 
+            'products': 0,
+            'monthly_units': [0]*24,
+            'monthly_value': [0.0]*24
+        },
+        'shrinkage': {
+            'total_units': 0,
+            'total_value': 0.0,
+            'products': 0,
             'monthly_units': [0]*24,
             'monthly_value': [0.0]*24
         },
@@ -1879,7 +1898,7 @@ def losses_analytics_unified_view(request):
                 query = f"""
                     SELECT 
                         el.cod, el.v,
-                        el.broken, el.expired, el.internal, el.stolen,
+                        el.broken, el.expired, el.internal, el.stolen, el.shrinkage,
                         p.descrizione,
                         e.cost_std,
                         e.category
@@ -1892,7 +1911,7 @@ def losses_analytics_unified_view(request):
                 
                 cursor.execute(query)
                 
-                loss_types = ['broken', 'expired', 'internal', 'stolen']
+                loss_types = ['broken', 'expired', 'internal', 'stolen', 'shrinkage']
                 
                 for row in cursor.fetchall():
                     cod = row['cod']
@@ -1927,6 +1946,8 @@ def losses_analytics_unified_view(request):
                         'internal_value': 0.0,
                         'stolen_units': 0,
                         'stolen_value': 0.0,
+                        'shrinkage_units': 0,
+                        'shrinkage_value': 0.0,
                         'total_units': 0,
                         'total_value': 0.0
                     }
@@ -2498,50 +2519,52 @@ def inventory_results_view(request, search_type):
         elif search_type == 'settore_cluster':
             supermarket_id = request.GET.get('supermarket_id')
             settore = request.GET.get('settore')
-            cluster = request.GET.get('cluster', '')
-            
+            cluster_param = request.GET.get('cluster', '')
+            clusters = [c.strip() for c in cluster_param.split(',') if c.strip()]
+
             if not supermarket_id or not settore:
                 messages.error(request, "Missing search parameters")
                 return redirect('inventory-search')
-            
+
             try:
                 supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
             except Exception as e:
                 logger.exception("Supermarket not found")
                 messages.error(request, f"Supermarket not found: {e}")
                 return redirect('inventory-search')
-            
+
             settore_name = settore
-            
-            if cluster:
-                search_description = f"{supermarket.name} - {settore} - Cluster: {cluster}"
+
+            if clusters:
+                search_description = f"{supermarket.name} - {settore} - Cluster: {', '.join(clusters)}"
             else:
                 search_description = f"{supermarket.name} - {settore} (All Clusters)"
-            
+
             storage = supermarket.storages.filter(settore=settore).first()
-            
+
             if not storage:
                 messages.warning(request, f"No storage found for settore: {settore}")
                 return redirect('inventory-search')
-            
+
             with RestockService(storage) as service:
                 try:
                     cur = service.db.cursor()
-                    
-                    if cluster:
-                        cur.execute("""
-                            SELECT 
+
+                    if clusters:
+                        placeholders = ','.join(['%s'] * len(clusters))
+                        cur.execute(f"""
+                            SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
                                 ps.stock, ps.last_update, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                            WHERE p.settore = %s AND p.cluster = %s AND ps.verified = TRUE
-                            ORDER BY p.descrizione
-                        """, (settore, cluster))
+                            WHERE p.settore = %s AND p.cluster IN ({placeholders}) AND ps.verified = TRUE
+                            ORDER BY p.cluster, p.descrizione
+                        """, [settore] + clusters)
                     else:
                         cur.execute("""
-                            SELECT 
+                            SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
                                 ps.stock, ps.last_update, ps.verified, ps.minimum_stock
@@ -2550,12 +2573,12 @@ def inventory_results_view(request, search_type):
                             WHERE p.settore = %s AND ps.verified = TRUE
                             ORDER BY p.cluster, p.descrizione
                         """, (settore,))
-                    
+
                     for row in cur.fetchall():
                         result = dict(row)
                         result['supermarket_name'] = supermarket.name
                         result['storage_id'] = storage.id
-                        result['minimum_stock'] = row['minimum_stock'] or 6  
+                        result['minimum_stock'] = row['minimum_stock'] or 6
                         results.append(result)
 
                 except Exception as e:
@@ -2574,10 +2597,101 @@ def inventory_results_view(request, search_type):
         'search_type': search_type,
         'supermarket': supermarket,
         'settore': settore_name,
+        'cluster_param': request.GET.get('cluster', '') if search_type == 'settore_cluster' else '',
     }
-    
+
     return render(request, 'inventory/results.html', context)
 
+
+@login_required
+def cluster_order_preview_view(request):
+    """Run the decision maker for specific clusters and render a printable order preview.
+    No order is actually placed — Selenium is not used."""
+    from .scripts.decision_maker import DecisionMaker
+
+    supermarket_id = request.GET.get('supermarket_id')
+    settore = request.GET.get('settore')
+    cluster_param = request.GET.get('clusters', '')
+    coverage_str = request.GET.get('coverage', '')
+
+    clusters = [c.strip() for c in cluster_param.split(',') if c.strip()]
+
+    try:
+        coverage = int(coverage_str)
+        if coverage < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        messages.error(request, "Copertura non valida — inserire un numero intero >= 1")
+        return redirect('inventory-search')
+
+    supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+    storage = supermarket.storages.filter(settore=settore).first()
+    if not storage:
+        messages.error(request, f"Magazzino non trovato per settore: {settore}")
+        return redirect('inventory-search')
+
+    orders = []
+    try:
+        with RestockService(storage) as service:
+            blacklist = service.get_blacklist_set()
+            dm = DecisionMaker(service.db, service.helper, blacklist_set=blacklist)
+            dm.decide_orders_for_settore(settore, coverage)
+
+            if dm.orders_list:
+                cur = service.db.cursor()
+                cur.execute("""
+                    SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp, p.cluster, ps.stock
+                    FROM products p
+                    LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    WHERE p.settore = %s
+                """, (settore,))
+                product_lookup = {(row['cod'], row['v']): dict(row) for row in cur.fetchall()}
+
+                for (cod, var, qty_packages, discount) in dm.orders_list:
+                    product = product_lookup.get((cod, var))
+                    if not product:
+                        continue
+                    product_cluster = product.get('cluster') or ''
+                    if clusters and product_cluster not in clusters:
+                        continue
+                    rapp = product.get('rapp') or 1
+                    pz_x_collo = product.get('pz_x_collo') or 1
+                    package_size = pz_x_collo * rapp
+                    orders.append({
+                        'cod': cod,
+                        'var': var,
+                        'descrizione': product.get('descrizione', ''),
+                        'cluster': product_cluster,
+                        'stock': product.get('stock', 0),
+                        'pz_x_collo': pz_x_collo,
+                        'rapp': rapp,
+                        'package_size': package_size,
+                        'qty_packages': qty_packages,
+                        'qty_units': qty_packages * package_size,
+                        'discount': discount,
+                    })
+    except Exception as e:
+        logger.exception("Error in cluster order preview")
+        messages.error(request, f"Errore nel calcolo dell'ordine: {e}")
+        return redirect('inventory-search')
+
+    # Sort by cluster then description for readability
+    orders.sort(key=lambda o: (o['cluster'], o['descrizione']))
+
+    total_packages = sum(o['qty_packages'] for o in orders)
+    total_units = sum(o['qty_units'] for o in orders)
+
+    context = {
+        'supermarket': supermarket,
+        'settore': settore,
+        'clusters': clusters,
+        'coverage': coverage,
+        'orders': orders,
+        'total_packages': total_packages,
+        'total_units': total_units,
+        'generated_at': timezone.now(),
+    }
+    return render(request, 'inventory/cluster_order_preview.html', context)
 
 
 @login_required
@@ -3564,6 +3678,7 @@ def edit_losses_view(request):
                         el.broken, el.broken_updated,
                         el.expired, el.expired_updated,
                         el.internal, el.internal_updated,
+                        el.shrinkage, el.shrinkage_updated,
                         p.descrizione,
                         p.settore,
                         e.cost_std as current_cost
@@ -3611,7 +3726,8 @@ def edit_losses_view(request):
                     broken_data = process_loss_array(row['broken'], current_cost)
                     expired_data = process_loss_array(row['expired'], current_cost)
                     internal_data = process_loss_array(row['internal'], current_cost)
-                    
+                    shrinkage_data = process_loss_array(row['shrinkage'], current_cost)
+
                     product = {
                         'cod': cod,
                         'var': v,
@@ -3626,10 +3742,12 @@ def edit_losses_view(request):
                         'expired_updated': row['expired_updated'],
                         'internal': internal_data,
                         'internal_updated': row['internal_updated'],
+                        'shrinkage': shrinkage_data,
+                        'shrinkage_updated': row['shrinkage_updated'],
                     }
-                    
+
                     # Only include if has at least one loss recorded
-                    if broken_data or expired_data or internal_data:
+                    if broken_data or expired_data or internal_data or shrinkage_data:
                         products_with_losses.append(product)
         except Exception as e:
             logger.exception(f"Error loading losses for supermarket {sm_id}")
@@ -3662,12 +3780,12 @@ def edit_loss_ajax_view(request):
         supermarket_id = int(data['supermarket_id'])
         cod = int(data['cod'])
         var = int(data['var'])
-        loss_type = data['loss_type']  # 'broken', 'expired', or 'internal'
+        loss_type = data['loss_type']  # 'broken', 'expired', 'internal', or 'shrinkage'
         month_index = int(data['month_index'])  # 0 = most recent month
         new_value = int(data['new_value'])  # New quantity
-        
+
         # Validate loss type
-        if loss_type not in ['broken', 'expired', 'internal']:
+        if loss_type not in ['broken', 'expired', 'internal', 'shrinkage']:
             return JsonResponse({
                 'success': False,
                 'message': 'Invalid loss type'
@@ -3842,6 +3960,7 @@ def inventory_adjust_stock_ajax_view(request):
                 'expired': 'expired',
                 'internal_use': 'internal',
                 'stolen': 'stolen',
+                'shrinkage': 'shrinkage',
             }
             
             adjustment = None

@@ -105,6 +105,7 @@
                             <option value="expired" {% if show_type == 'expired' %}selected{% endif %}>Solo Scaduto</option>
                             <option value="internal" {% if show_type == 'internal' %}selected{% endif %}>Solo Utilizzo interno</option>
                             <option value="stolen" {% if show_type == 'stolen' %}selected{% endif %}>Solo Furti</option>
+                            <option value="shrinkage" {% if show_type == 'shrinkage' %}selected{% endif %}>Solo Diff. inventariali</option>
                         </select>
                     </div>
                     
@@ -229,7 +230,21 @@
             </div>
         </div>
         {% endif %}
-        
+
+        {% if show_type == 'all' or show_type == 'shrinkage' %}
+        <div class="{% if show_type == 'shrinkage' %}col-md-6{% else %}col-md-2{% endif %}">
+            <div class="stat-card">
+                <div class="icon" style="background-color: #e2d9f3; color: #6f42c1;">
+                    <i class="bi bi-clipboard2-x"></i>
+                </div>
+                <h3 class="mb-1">{{ stats.shrinkage.total_units }}</h3>
+                <p class="text-muted mb-1">Diff. inventariali</p>
+                <small class="text-success">€{{ stats.shrinkage.total_value|floatformat:2 }}</small><br>
+                <small class="text-muted">{{ stats.shrinkage.products }} articolo{{ stats.shrinkage.products|pluralize }}</small>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="col-md-3">
             <div class="stat-card">
                 <div class="icon icon-red">
@@ -302,7 +317,11 @@
                                 {% if show_type == 'all' or show_type == 'stolen' %}
                                 <th class="text-end">Furti</th>
                                 {% endif %}
-                                
+
+                                {% if show_type == 'all' or show_type == 'shrinkage' %}
+                                <th class="text-end">Diff. inventariali</th>
+                                {% endif %}
+
                                 <th class="text-end">Unità totali</th>
                                 <th class="text-end">Valore totale</th>
                             </tr>
@@ -357,7 +376,18 @@
                                     {% endif %}
                                 </td>
                                 {% endif %}
-                                
+
+                                {% if show_type == 'all' or show_type == 'shrinkage' %}
+                                <td class="text-end">
+                                    {% if product.shrinkage_units > 0 %}
+                                        <span class="badge" style="background-color: #6f42c1;">{{ product.shrinkage_units }}</span>
+                                        <small class="text-muted d-block">€{{ product.shrinkage_value|floatformat:2 }}</small>
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                {% endif %}
+
                                 <td class="text-end">
                                     <strong>{{ product.total_units }}</strong>
                                 </td>
@@ -372,7 +402,7 @@
                                 <td colspan="3"><strong>Totals</strong></td>
                                 
                                 {% if show_type == 'all' %}
-                                    <td></td><td></td><td></td><td></td>
+                                    <td></td><td></td><td></td><td></td><td></td>
                                 {% else %}
                                     <td></td>
                                 {% endif %}
@@ -561,6 +591,21 @@ if (showType === 'all' || showType === 'stolen') {
         label: 'Furti',
         data: {{ stats.stolen.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
         backgroundColor: 'rgba(133, 100, 4, 0.7)',
+    });
+}
+
+if (showType === 'all' || showType === 'shrinkage') {
+    unitsDatasets.push({
+        label: 'Diff. inventariali',
+        data: {{ stats.shrinkage.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        borderColor: 'rgb(111, 66, 193)',
+        backgroundColor: 'rgba(111, 66, 193, 0.1)',
+        tension: 0.4
+    });
+    valueDatasets.push({
+        label: 'Diff. inventariali',
+        data: {{ stats.shrinkage.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        backgroundColor: 'rgba(111, 66, 193, 0.7)',
     });
 }
 

@@ -72,6 +72,7 @@ urlpatterns = [
     # ============ Inventory Panel (Unified Operations) ============
     path('inventory/', views.inventory_search_view, name='inventory-search'),
     path('inventory/results/<str:search_type>/', views.inventory_results_view, name='inventory-results'),
+    path('inventory/cluster-order-preview/', views.cluster_order_preview_view, name='cluster-order-preview'),
     path('inventory/not-found/<int:cod>/<int:var>/', views.inventory_product_not_found_view, name='inventory-product-not-found'),
     path('inventory/auto-add/', views.auto_add_product_view, name='inventory-auto-add'),
     path('inventory/edit-losses/', views.edit_losses_view, name='edit-losses'),

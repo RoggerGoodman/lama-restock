@@ -218,7 +218,8 @@ class RecordLossesForm(forms.Form):
         choices=[
             ('broken', 'ROTTURE (Broken/Damaged)'),
             ('expired', 'SCADUTO (Expired)'),
-            ('internal', 'UTILIZZO INTERNO (Internal Use)')
+            ('internal', 'UTILIZZO INTERNO (Internal Use)'),
+            ('shrinkage', 'DIFFERENZE INVENTARIALI (Shrinkage)'),
         ],
         widget=forms.Select(attrs={'class': 'form-select'}),
         help_text="Select the type of loss you want to record"

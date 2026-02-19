@@ -92,6 +92,7 @@
                                 <th class="text-center">Rotture</th>
                                 <th class="text-center">Scaduto</th>
                                 <th class="text-center">Uso interno</th>
+                                <th class="text-center">Diff. inv.</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -122,8 +123,15 @@
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
+                                <td class="text-center">
+                                    {% if product.shrinkage %}
+                                        <span class="badge" style="background-color: #6f42c1;">{{ product.shrinkage|length }} mesi</span>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
                                 <td>
-                                    <button class="btn btn-sm btn-primary" onclick="editProduct({{ product.cod }}, {{ product.var }}, '{{ product.description|escapejs }}', {{ product.supermarket_id }}, {{ product.broken|safe }}, {{ product.expired|safe }}, {{ product.internal|safe }})">
+                                    <button class="btn btn-sm btn-primary" onclick="editProduct({{ product.cod }}, {{ product.var }}, '{{ product.description|escapejs }}', {{ product.supermarket_id }}, {{ product.broken|safe }}, {{ product.expired|safe }}, {{ product.internal|safe }}, {{ product.shrinkage|safe }})">
                                         <i class="bi bi-pencil"></i> Edit
                                     </button>
                                 </td>
@@ -186,6 +194,14 @@
                     </h6>
                     <div id="internalArrayContainer" class="row g-2"></div>
                 </div>
+
+                <!-- Shrinkage Perdite -->
+                <div class="mb-4">
+                    <h6 style="color: #6f42c1;">
+                        <i class="bi bi-clipboard2-x"></i> Differenze inventariali
+                    </h6>
+                    <div id="shrinkageArrayContainer" class="row g-2"></div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
@@ -199,20 +215,21 @@
 <script>
 const editModal = new bootstrap.Modal(document.getElementById('editLossModal'));
 
-function editProduct(cod, var_, description, supermarketId, brokenArray, expiredArray, internalArray) {
+function editProduct(cod, var_, description, supermarketId, brokenArray, expiredArray, internalArray, shrinkageArray) {
     // Store IDs
     document.getElementById('edit_supermarket_id').value = supermarketId;
     document.getElementById('edit_cod').value = cod;
     document.getElementById('edit_var').value = var_;
-    
+
     // Set title
     document.getElementById('productTitle').textContent = `${cod}.${var_} - ${description}`;
-    
+
     // Render arrays with cost information
     renderLossArray('broken', brokenArray);
     renderLossArray('expired', expiredArray);
     renderLossArray('internal', internalArray);
-    
+    renderLossArray('shrinkage', shrinkageArray);
+
     editModal.show();
 }
 
