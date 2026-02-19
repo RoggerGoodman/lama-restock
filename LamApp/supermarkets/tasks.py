@@ -1411,3 +1411,32 @@ def create_monthly_stock_snapshots(self):
     except Exception as exc:
         logger.exception("[CELERY] Fatal error in monthly snapshot task")
         raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
+)
+def sync_storages_task(self, supermarket_id):
+    """Sync storages from PAC2000A for a supermarket."""
+    from .models import Supermarket
+    from .services import StorageService
+
+    try:
+        supermarket = Supermarket.objects.get(id=supermarket_id)
+        logger.info(f"[SYNC STORAGES] Starting for {supermarket.name}")
+        StorageService.sync_storages(supermarket)
+        logger.info(f"[SYNC STORAGES] Complete for {supermarket.name}")
+        return {
+            'success': True,
+            'synced': True,
+            'supermarket_id': supermarket_id,
+            'message': 'Magazzini sincronizzati con successo.',
+        }
+    except Exception as exc:
+        logger.exception(f"[SYNC STORAGES] Error for supermarket #{supermarket_id}")
+        raise self.retry(exc=exc)

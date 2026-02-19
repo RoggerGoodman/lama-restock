@@ -420,13 +420,9 @@ class SupermarketUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView)
     def post(self, request, *args, **kwargs):
         if 'sync_storages' in request.POST:
             supermarket = self.get_object()
-            try:
-                from .services import StorageService
-                StorageService.sync_storages(supermarket)
-                messages.success(request, "Magazzini sincronizzati con successo.")
-            except Exception as e:
-                messages.error(request, f"Errore durante la sincronizzazione: {e}")
-            return redirect('supermarket-edit', pk=supermarket.pk)
+            from .tasks import sync_storages_task
+            result = sync_storages_task.apply_async(args=[supermarket.pk])
+            return redirect('task-progress', task_id=result.id)
         return super().post(request, *args, **kwargs)
 
     def get_success_url(self):
@@ -3514,6 +3510,10 @@ def task_status_ajax_view(request, task_id):
                     # Storage operation (list update, stats update, etc.)
                     response_data['redirect_url'] = f"/storages/{result['storage_id']}/"
                 
+                elif 'synced' in result:
+                    # Storage sync operation
+                    response_data['redirect_url'] = f"/supermarkets/{result['supermarket_id']}/edit/"
+
                 elif 'products_added' in result:
                     # Add products operation
                     response_data['redirect_url'] = "/inventory/"
