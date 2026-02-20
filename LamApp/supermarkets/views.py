@@ -1766,7 +1766,7 @@ def losses_analytics_unified_view(request):
     FIXED: Type filter now properly filters ALL data including totals and table columns
     Auto-selects single supermarket if user has only one
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime
     from calendar import month_abbr
     
     # Get user's supermarkets
@@ -1778,7 +1778,6 @@ def losses_analytics_unified_view(request):
         supermarket_id = str(supermarkets.first().id)
     
     storage_id = request.GET.get('storage_id')
-    period = request.GET.get('period', '3')
     show_type = request.GET.get('show_type', 'all')
     show_category = request.GET.get('show_category', 'all')
     product_code_filter = request.GET.get('product_code', '').strip()
@@ -1794,11 +1793,59 @@ def losses_analytics_unified_view(request):
         except (ValueError, IndexError):
             filter_cod = None
             filter_v = None
-    
-    try:
-        period_months = int(period)
-    except ValueError:
-        period_months = 3
+
+    # --- Period selection ---
+    # period_mode: 'current' (only this month) or 'range' (from_month to to_month)
+    # Array index 0 = current month, 23 = oldest month (24 months ago)
+    period_mode = request.GET.get('period_mode', 'current')
+    from_month_str = request.GET.get('from_month', '')
+    to_month_str = request.GET.get('to_month', '')
+
+    today = datetime.now()
+    current_year, current_month = today.year, today.month
+
+    def index_to_yearmonth(idx):
+        """Array index → (year, month). Index 0 = current month."""
+        total = current_year * 12 + (current_month - 1) - idx
+        return total // 12, total % 12 + 1
+
+    def yearmonth_to_index(year, month):
+        """(year, month) → array index (0 = current, 23 = oldest)."""
+        return (current_year - year) * 12 + (current_month - month)
+
+    # Build available months for the UI dropdowns
+    available_months = []
+    for i in range(24):
+        y, m = index_to_yearmonth(i)
+        available_months.append({
+            'value': f'{y}-{m:02d}',
+            'label': f'{month_abbr[m]} {y}',
+            'is_current': i == 0,
+        })
+
+    if period_mode == 'range':
+        # Default: last 6 months when not yet specified
+        if not from_month_str:
+            y6, m6 = index_to_yearmonth(5)
+            from_month_str = f'{y6}-{m6:02d}'
+        if not to_month_str:
+            to_month_str = f'{current_year}-{current_month:02d}'
+        try:
+            from_y, from_m = map(int, from_month_str.split('-'))
+            to_y, to_m = map(int, to_month_str.split('-'))
+            from_idx = yearmonth_to_index(from_y, from_m)
+            to_idx = yearmonth_to_index(to_y, to_m)
+            # Clamp and normalise: start_idx ≤ end_idx (start = more recent)
+            start_idx = max(0, min(23, min(from_idx, to_idx)))
+            end_idx = max(0, min(23, max(from_idx, to_idx)))
+        except (ValueError, AttributeError):
+            period_mode = 'current'
+            start_idx = end_idx = 0
+            from_month_str = to_month_str = f'{current_year}-{current_month:02d}'
+    else:
+        period_mode = 'current'
+        start_idx = end_idx = 0
+        from_month_str = to_month_str = f'{current_year}-{current_month:02d}'
     
     # Build scope
     scope_parts = []
@@ -1958,14 +2005,14 @@ def losses_analytics_unified_view(request):
                             try:
                                 loss_array = loss_json
                                 
-                                # Calculate for period
-                                months_to_include = min(period_months, len(loss_array))
+                                # Sum losses within the selected period window
                                 period_losses = 0
                                 period_value = 0.0
-                                
-                                for idx in range(months_to_include):
+
+                                for idx in range(start_idx, end_idx + 1):
+                                    if idx >= len(loss_array):
+                                        break
                                     item = loss_array[idx]
-                                    
                                     if isinstance(item, list) and len(item) == 2:
                                         qty, cost = item
                                         period_losses += qty
@@ -2019,13 +2066,25 @@ def losses_analytics_unified_view(request):
         total_units = stats[show_type]['total_units']
         total_value = stats[show_type]['total_value']
     
-    # Generate month labels (last 12 months)
-    today = datetime.now()
-    month_labels = []
-    for i in range(11, -1, -1):
-        month_date = today - timedelta(days=30 * i)
-        month_labels.append(month_abbr[month_date.month])
-    
+    # Build chart data: chronological slice of the selected range (oldest → newest)
+    loss_types_list = ['broken', 'expired', 'internal', 'stolen', 'shrinkage']
+    chart_month_labels = []
+    for i in range(end_idx, start_idx - 1, -1):
+        y, m = index_to_yearmonth(i)
+        chart_month_labels.append(f'{month_abbr[m]} {y}')
+
+    for lt in loss_types_list:
+        stats[lt]['chart_units'] = [stats[lt]['monthly_units'][i] for i in range(end_idx, start_idx - 1, -1)]
+        stats[lt]['chart_value'] = [stats[lt]['monthly_value'][i] for i in range(end_idx, start_idx - 1, -1)]
+
+    # Human-readable period label
+    if period_mode == 'current':
+        selected_period_label = f'Mese corrente ({month_abbr[current_month]} {current_year})'
+    else:
+        old_y, old_m = index_to_yearmonth(end_idx)
+        new_y, new_m = index_to_yearmonth(start_idx)
+        selected_period_label = f'{month_abbr[old_m]} {old_y} → {month_abbr[new_m]} {new_y}'
+
     context = {
         'supermarkets': supermarkets,
         'storages': Storage.objects.filter(supermarket__owner=request.user),
@@ -2041,15 +2100,12 @@ def losses_analytics_unified_view(request):
         'show_category': show_category,
         'product_code_filter': product_code_filter,
         'all_categories': sorted(list(all_categories)),
-        'period': period_months,
-        'month_labels': json.dumps(month_labels),
-        'period_options': [
-            {'value': 1, 'label': 'Last Month'},
-            {'value': 3, 'label': 'Last 3 Months'},
-            {'value': 6, 'label': 'Last 6 Months'},
-            {'value': 12, 'label': 'Last Year'},
-            {'value': 24, 'label': 'All Time (24 months)'},
-        ]
+        'period_mode': period_mode,
+        'from_month': from_month_str,
+        'to_month': to_month_str,
+        'available_months': available_months,
+        'selected_period_label': selected_period_label,
+        'chart_labels': json.dumps(chart_month_labels),
     }
     
     return render(request, 'losses_analytics_unified.html', context)

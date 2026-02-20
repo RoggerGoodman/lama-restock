@@ -86,11 +86,30 @@
                     </div>
                     
                     <div class="col-md-2">
-                        <label for="period" class="form-label">Lasso di tempo</label>
-                        <select name="period" id="period" class="form-select" onchange="this.form.submit()">
-                            {% for opt in period_options %}
-                            <option value="{{ opt.value }}" {% if period == opt.value|add:0 %}selected{% endif %}>
-                                {{ opt.label }}
+                        <label for="period_mode" class="form-label">Modalità periodo</label>
+                        <select name="period_mode" id="period_mode" class="form-select" onchange="onPeriodModeChange()">
+                            <option value="current" {% if period_mode == 'current' %}selected{% endif %}>Mese corrente</option>
+                            <option value="range" {% if period_mode == 'range' %}selected{% endif %}>Intervallo personalizzato</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-2" id="from_month_col" {% if period_mode != 'range' %}style="display:none"{% endif %}>
+                        <label for="from_month" class="form-label">Dal mese</label>
+                        <select name="from_month" id="from_month" class="form-select" onchange="this.form.submit()">
+                            {% for m in available_months %}
+                            <option value="{{ m.value }}" {% if from_month == m.value %}selected{% endif %}>
+                                {{ m.label }}{% if m.is_current %} ★{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-md-2" id="to_month_col" {% if period_mode != 'range' %}style="display:none"{% endif %}>
+                        <label for="to_month" class="form-label">Al mese</label>
+                        <select name="to_month" id="to_month" class="form-select" onchange="this.form.submit()">
+                            {% for m in available_months %}
+                            <option value="{{ m.value }}" {% if to_month == m.value %}selected{% endif %}>
+                                {{ m.label }}{% if m.is_current %} ★{% endif %}
                             </option>
                             {% endfor %}
                         </select>
@@ -252,7 +271,7 @@
                 </div>
                 <h3 class="mb-1">€{{ total_value|floatformat:2 }}</h3>
                 <p class="text-muted mb-1">Valore totale delle perdite</p>
-                <small class="text-muted">{{ total_units }} unità | Ultimo {{ period }} mese{{ period|pluralize }}</small>
+                <small class="text-muted">{{ total_units }} unità | {{ selected_period_label }}</small>
             </div>
         </div>
     </div>
@@ -506,6 +525,21 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// Show/hide range pickers based on period mode
+function onPeriodModeChange() {
+    const mode = document.getElementById('period_mode').value;
+    const fromCol = document.getElementById('from_month_col');
+    const toCol = document.getElementById('to_month_col');
+    if (mode === 'range') {
+        fromCol.style.display = '';
+        toCol.style.display = '';
+    } else {
+        fromCol.style.display = 'none';
+        toCol.style.display = 'none';
+        document.querySelector('form').submit();
+    }
+}
+
 // Clear product filter
 function clearProductFilter() {
     document.getElementById('product_code_hidden').value = '';
@@ -518,9 +552,8 @@ const monthMap = {
     'May': 'Mag', 'Jun': 'Giu', 'Jul': 'Lug', 'Aug': 'Ago',
     'Sep': 'Set', 'Oct': 'Ott', 'Nov': 'Nov', 'Dec': 'Dic'
 };
-const rawLabels = {{ month_labels|safe }};
+const rawLabels = {{ chart_labels|safe }};
 const monthLabels = rawLabels.map(label => {
-    // Handle formats like "Jan 2024" or just "Jan"
     for (const [eng, ita] of Object.entries(monthMap)) {
         if (label.includes(eng)) {
             return label.replace(eng, ita);
@@ -530,21 +563,21 @@ const monthLabels = rawLabels.map(label => {
 });
 const showType = '{{ show_type }}';
 
-// ✅ FIXED: Build datasets based on filter
+// Build datasets based on type filter, using pre-sliced chart data from the view
 const unitsDatasets = [];
 const valueDatasets = [];
 
 if (showType === 'all' || showType === 'broken') {
     unitsDatasets.push({
         label: 'Rotture',
-        data: {{ stats.broken.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.broken.chart_units|default:"[]"|safe }},
         borderColor: 'rgb(220, 53, 69)',
         backgroundColor: 'rgba(220, 53, 69, 0.1)',
         tension: 0.4
     });
     valueDatasets.push({
         label: 'Rotture',
-        data: {{ stats.broken.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.broken.chart_value|default:"[]"|safe }},
         backgroundColor: 'rgba(220, 53, 69, 0.7)',
     });
 }
@@ -552,14 +585,14 @@ if (showType === 'all' || showType === 'broken') {
 if (showType === 'all' || showType === 'expired') {
     unitsDatasets.push({
         label: 'Scaduto',
-        data: {{ stats.expired.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.expired.chart_units|default:"[]"|safe }},
         borderColor: 'rgb(255, 193, 7)',
         backgroundColor: 'rgba(255, 193, 7, 0.1)',
         tension: 0.4
     });
     valueDatasets.push({
         label: 'Scaduto',
-        data: {{ stats.expired.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.expired.chart_value|default:"[]"|safe }},
         backgroundColor: 'rgba(255, 193, 7, 0.7)',
     });
 }
@@ -567,14 +600,14 @@ if (showType === 'all' || showType === 'expired') {
 if (showType === 'all' || showType === 'internal') {
     unitsDatasets.push({
         label: 'Uso interno',
-        data: {{ stats.internal.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.internal.chart_units|default:"[]"|safe }},
         borderColor: 'rgb(13, 110, 253)',
         backgroundColor: 'rgba(13, 110, 253, 0.1)',
         tension: 0.4
     });
     valueDatasets.push({
         label: 'Uso interno',
-        data: {{ stats.internal.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.internal.chart_value|default:"[]"|safe }},
         backgroundColor: 'rgba(13, 110, 253, 0.7)',
     });
 }
@@ -582,14 +615,14 @@ if (showType === 'all' || showType === 'internal') {
 if (showType === 'all' || showType === 'stolen') {
     unitsDatasets.push({
         label: 'Furti',
-        data: {{ stats.stolen.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.stolen.chart_units|default:"[]"|safe }},
         borderColor: 'rgb(133, 100, 4)',
         backgroundColor: 'rgba(133, 100, 4, 0.1)',
         tension: 0.4
     });
     valueDatasets.push({
         label: 'Furti',
-        data: {{ stats.stolen.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.stolen.chart_value|default:"[]"|safe }},
         backgroundColor: 'rgba(133, 100, 4, 0.7)',
     });
 }
@@ -597,14 +630,14 @@ if (showType === 'all' || showType === 'stolen') {
 if (showType === 'all' || showType === 'shrinkage') {
     unitsDatasets.push({
         label: 'Diff. inventariali',
-        data: {{ stats.shrinkage.monthly_units|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.shrinkage.chart_units|default:"[]"|safe }},
         borderColor: 'rgb(111, 66, 193)',
         backgroundColor: 'rgba(111, 66, 193, 0.1)',
         tension: 0.4
     });
     valueDatasets.push({
         label: 'Diff. inventariali',
-        data: {{ stats.shrinkage.monthly_value|default:"[]"|safe }}.reverse().slice(-12),
+        data: {{ stats.shrinkage.chart_value|default:"[]"|safe }},
         backgroundColor: 'rgba(111, 66, 193, 0.7)',
     });
 }
