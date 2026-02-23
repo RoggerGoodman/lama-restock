@@ -94,20 +94,16 @@ def update_stats_all_scheduled_storages(self):
     This ensures orders NEVER run for a storage whose stats update failed.
     """
     from .models import Storage
+    from .services import RestockService
 
     try:
         logger.info("[CELERY] Starting morning stats update for all scheduled storages")
 
-        # Get all storages with active schedules
-        storages = Storage.objects.filter(
-            schedule__isnull=False
-        ).select_related('schedule', 'supermarket')
+        storages = Storage.objects.select_related('schedule', 'supermarket').all()
 
         if not storages.exists():
-            logger.info("[CELERY] No storages with schedules found")
+            logger.info("[CELERY] No storages found")
             return "No storages to process"
-
-        logger.info(f"[CELERY] Found {storages.count()} storage(s) with schedules")
 
         # Determine which day it is for order scheduling
         now = datetime.datetime.now()
@@ -115,16 +111,32 @@ def update_stats_all_scheduled_storages(self):
         weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         today_field = weekday_fields[current_weekday]
 
-        # Update stats for each storage
+        queued_count = 0
+
+        # Update stats for each storage that has at least 1 product in the external DB
         # Each subtask will trigger orders ONLY if stats succeed
         for storage in storages:
             try:
+                # Check product count in external DB
+                with RestockService(storage) as service:
+                    cur = service.db.cursor()
+                    cur.execute(
+                        "SELECT COUNT(*) AS cnt FROM products WHERE settore = %s",
+                        (storage.settore,)
+                    )
+                    row = cur.fetchone()
+                    product_count = row['cnt'] if row else 0
+
+                if product_count == 0:
+                    logger.info(f"[CELERY] Skipping {storage.name} - no products listed")
+                    continue
+
                 # Check if this storage has orders scheduled for today
                 is_order_day = getattr(storage.schedule, today_field, False)
 
                 logger.info(
                     f"[CELERY] Queueing stats update for {storage.name} "
-                    f"(order day: {is_order_day})"
+                    f"({product_count} products, order day: {is_order_day})"
                 )
 
                 # Call subtask to update stats
@@ -140,13 +152,15 @@ def update_stats_all_scheduled_storages(self):
                     }
                 )
 
+                queued_count += 1
+
             except Exception as e:
                 logger.exception(f"[CELERY] Error queuing stats update for {storage.name}")
                 continue
 
-        logger.info("[CELERY] All stats update tasks queued successfully")
+        logger.info(f"[CELERY] All stats update tasks queued successfully ({queued_count} storages)")
 
-        return f"Stats update queued for {storages.count()} storages"
+        return f"Stats update queued for {queued_count} storages"
 
     except Exception as exc:
         logger.exception("[CELERY] Fatal error in stats update task")
