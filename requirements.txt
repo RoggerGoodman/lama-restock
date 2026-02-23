@@ -12,7 +12,6 @@ click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
 colorama==0.4.6
-cornflakes==3.3.28
 cryptography==46.0.5
 cssbeautifier==1.15.4
 dj-database-url==3.1.2
