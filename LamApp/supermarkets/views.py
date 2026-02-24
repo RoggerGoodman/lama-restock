@@ -13,6 +13,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from pathlib import Path
 from django.conf import settings
+import math
 from psycopg2.extras import Json
 from .automation_services import AutomatedRestockService
 import threading
@@ -697,8 +698,37 @@ def storage_set_minimum_stock_view(request, pk):
 
 @login_required
 def storage_valutazione_ordine_view(request, pk):
-    """Render a printable stock calibration report showing understocked and overstocked products."""
+    """Render a printable stock calibration report showing understocked and overstocked products.
+
+    Mirrors process_N_sales minimum_stock logic so thresholds match what the automated
+    order system actually computes. Coverage is taken from the last completed restock log
+    for this specific storage, falling back to the schedule average, then to 7 days.
+    Discount effects are not factored in — this evaluates structural calibration only.
+    """
     storage = get_object_or_404(Storage, pk=pk, supermarket__owner=request.user)
+
+    # Use coverage from the last completed restock for THIS storage, then schedule avg, then 7
+    coverage_source = 'default'
+    coverage = 7
+    last_log = (
+        RestockLog.objects
+        .filter(storage=storage, operation_type='full_restock', status='completed', coverage_used__isnull=False)
+        .order_by('-started_at')
+        .first()
+    )
+    if last_log:
+        coverage = float(last_log.coverage_used)
+        coverage_source = 'last_order'
+    else:
+        try:
+            schedule = storage.schedule
+            order_days = schedule.get_order_days()
+            if order_days:
+                coverages = [schedule.calculate_coverage_for_day(d) for d in order_days]
+                coverage = round(sum(coverages) / len(coverages))
+                coverage_source = 'schedule'
+        except Exception:
+            pass
 
     understocked = []
     overstocked = []
@@ -708,7 +738,7 @@ def storage_valutazione_ordine_view(request, pk):
             cur = service.db.cursor()
             cur.execute("""
                 SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp, p.cluster,
-                       ps.stock, ps.minimum_stock
+                       ps.stock, ps.minimum_stock, ps.sold_last_24, ps.sales_sets
                 FROM products p
                 JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                 WHERE p.settore = %s
@@ -724,15 +754,48 @@ def storage_valutazione_ordine_view(request, pk):
                 rapp = row['rapp'] or 1
                 effective_package_size = pz_x_collo * rapp
                 minimum_stock_override = row.get('minimum_stock')
+                sold_array = row['sold_last_24'] or []
+                sales_sets = row['sales_sets'] or []
 
+                # Mirror DecisionMaker: prefer sales_sets, fall back to sold_last_24
+                avg_daily_sales = service.helper.avg_daily_sales_from_sales_sets(sales_sets)
+                if avg_daily_sales is None:
+                    avg_daily_sales, _ = service.helper.calculate_weighted_avg_sales_new(sold_array)
+
+                deviation_corrected = service.helper.calculate_deviation(sales_sets)
+                req_stock = avg_daily_sales * coverage
+
+                # Mirror process_N_sales minimum_stock computation (no discount factor)
                 if minimum_stock_override is not None:
-                    minimum_stock = minimum_stock_override
+                    eff_min = minimum_stock_override
                     is_override = True
                 else:
-                    minimum_stock = storage.minimum_stock
+                    eff_min = storage.minimum_stock
                     is_override = False
 
-                overstocked_threshold = minimum_stock + effective_package_size
+                if avg_daily_sales >= 1:
+                    eff_min += round(avg_daily_sales)
+                    eff_min += math.floor(req_stock * 0.2)
+                elif avg_daily_sales < 0.6:
+                    eff_min -= 1
+                    if avg_daily_sales < 0.3:
+                        eff_min -= 1
+                        if avg_daily_sales < 0.2:
+                            eff_min -= 1
+                            if avg_daily_sales < 0.1:
+                                eff_min -= 1
+
+                if deviation_corrected >= 40:
+                    eff_min = math.floor(eff_min * 1.2)
+                elif deviation_corrected >= 20:
+                    eff_min = math.floor(eff_min * 1.1)
+                elif deviation_corrected <= -40:
+                    eff_min = math.ceil(eff_min * 0.7)
+                elif deviation_corrected <= -20:
+                    eff_min = math.ceil(eff_min * 0.9)
+
+                eff_min = round(eff_min)
+                overstocked_threshold = eff_min + effective_package_size
 
                 item = {
                     'cod': row['cod'],
@@ -743,13 +806,13 @@ def storage_valutazione_ordine_view(request, pk):
                     'pz_x_collo': pz_x_collo,
                     'rapp': rapp,
                     'package_size': effective_package_size,
-                    'minimum_stock': minimum_stock,
+                    'minimum_stock': eff_min,
                     'is_override': is_override,
                     'overstocked_threshold': overstocked_threshold,
-                    'deficit': minimum_stock - stock,
+                    'deficit': eff_min - stock,
                 }
 
-                if stock < minimum_stock:
+                if stock < eff_min:
                     understocked.append(item)
                 elif stock >= overstocked_threshold:
                     overstocked.append(item)
@@ -763,6 +826,9 @@ def storage_valutazione_ordine_view(request, pk):
         'storage': storage,
         'understocked': understocked,
         'overstocked': overstocked,
+        'coverage': coverage,
+        'coverage_source': coverage_source,
+        'last_log': last_log,
         'generated_at': timezone.now(),
     }
     return render(request, 'storages/valutazione_ordine.html', context)

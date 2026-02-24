@@ -20,7 +20,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
     if minimum_stock_override is not None:
         minimum_stock = minimum_stock_override
     else:
-        minimum_stock = max(avg_sales_last_year, minimum_stock_base)
+        minimum_stock = minimum_stock_base
     leftover_stock = stock - req_stock
     
     if avg_daily_sales >= 1:

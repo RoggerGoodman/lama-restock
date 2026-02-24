@@ -78,6 +78,18 @@
             <div class="d-flex flex-wrap gap-4 small">
                 <span><strong>Giacenza insufficiente:</strong> {{ understocked|length }} articoli</span>
                 <span><strong>Giacenza in eccesso:</strong> {{ overstocked|length }} articoli</span>
+                <span>
+                    <strong>Copertura usata:</strong> {{ coverage }} giorni
+                    <span class="text-muted">
+                        {% if coverage_source == 'last_order' %}
+                            (dall'ultimo ordine del {{ last_log.started_at|date:"d/m/Y" }})
+                        {% elif coverage_source == 'schedule' %}
+                            (da agenda ordini)
+                        {% else %}
+                            (default)
+                        {% endif %}
+                    </span>
+                </span>
             </div>
         </div>
 
