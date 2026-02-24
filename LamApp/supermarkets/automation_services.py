@@ -169,7 +169,7 @@ class AutomatedRestockService(RestockService):
                     skip_sale=skip_sale
                 )
                 
-                decision_maker.decide_orders_for_settore(self.settore, coverage)
+                decision_maker.decide_orders_for_settore(self.settore, coverage, self.storage.minimum_stock)
                 
                 orders_list = decision_maker.orders_list
                 new_products = decision_maker.new_products

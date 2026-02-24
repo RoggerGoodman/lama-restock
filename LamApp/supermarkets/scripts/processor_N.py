@@ -5,19 +5,22 @@ import logging
 # Use Django's logging system
 logger = logging.getLogger(__name__)
 
-def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year, 
-                   req_stock, stock, discount=None, minimum_stock_base=6):
+def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year,
+                   req_stock, stock, discount=None, minimum_stock_base=None, minimum_stock_override=None):
     """
     Process N category sales and calculate order quantity.
-    
+
     Args:
-        minimum_stock_base: Base minimum stock from database (default 6)
+        minimum_stock_base: Base minimum stock from the storage (set per-storage in the UI)
+        minimum_stock_override: Product-level override; if set, bypasses the max(avg, base) logic
     """
-    order = 1   
+    order = 1
     req_stock = round(req_stock)
-    
-    # Use database value instead of hardcoded 6
-    minimum_stock = max(avg_sales_last_year, minimum_stock_base)
+
+    if minimum_stock_override is not None:
+        minimum_stock = minimum_stock_override
+    else:
+        minimum_stock = max(avg_sales_last_year, minimum_stock_base)
     leftover_stock = stock - req_stock
     
     if avg_daily_sales >= 1:
@@ -34,7 +37,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
                 if avg_daily_sales < 0.1:
                     minimum_stock -= 1
 
-    logger.info(f"Minimum Stock = {minimum_stock} (base: {minimum_stock_base})")
+    logger.info(f"Minimum Stock = {minimum_stock} (base: {minimum_stock_base}, override: {minimum_stock_override})")
 
     if deviation_corrected >= 40:
         minimum_stock = math.floor(minimum_stock * 1.2)

@@ -62,6 +62,7 @@ class Storage(models.Model):
     settore = models.CharField(max_length=255, help_text="Internal settore name from DB")
     id_cod_mag = models.IntegerField(null=True, blank=True, help_text="Warehouse code from PAC2000A (IDCodMag)")
     last_list_update = models.DateTimeField(null=True, blank=True, help_text="Last time product list was updated")
+    minimum_stock = models.IntegerField(default=6, help_text="Base minimum stock for all products in this storage")
     
     class Meta:
         unique_together = ('supermarket', 'name')

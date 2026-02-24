@@ -180,7 +180,7 @@ class DecisionMaker:
         threshold_date = sale_start + timedelta(days=threshold_day - 1)
         return today <= threshold_date
 
-    def decide_orders_for_settore(self, settore, coverage):
+    def decide_orders_for_settore(self, settore, coverage, minimum_stock_base=None):
         """
         Main method — iterate over all products in a settore and decide what to order.
         Now tracks THREE lists: new_products, skipped_products, zombie_products
@@ -224,7 +224,7 @@ class DecisionMaker:
             package_multi = row["rapp"]
             verified = row["verified"]
             disponibilita = row["disponibilita"]
-            minimum_stock_base = row.get("minimum_stock", 6)
+            minimum_stock_override = row.get("minimum_stock", None)
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
             
@@ -322,8 +322,8 @@ class DecisionMaker:
             if verified == True:
                 category = "N"
                 result, check, status, returned_discount = process_N_sales(
-                    package_size, deviation_corrected, avg_daily_sales, 
-                    avg_sales_base, req_stock, stock, discount, minimum_stock_base
+                    package_size, deviation_corrected, avg_daily_sales,
+                    avg_sales_base, req_stock, stock, discount, minimum_stock_base, minimum_stock_override
                 )
             else:
                 reason = "Not verified in system"

@@ -679,6 +679,95 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         return context
 
 
+@login_required
+@require_POST
+def storage_set_minimum_stock_view(request, pk):
+    storage = get_object_or_404(Storage, pk=pk, supermarket__owner=request.user)
+    try:
+        data = json.loads(request.body)
+        value = int(data['minimum_stock'])
+        if value < 0:
+            return JsonResponse({'success': False, 'error': 'Il valore deve essere >= 0'}, status=400)
+        storage.minimum_stock = value
+        storage.save(update_fields=['minimum_stock'])
+        return JsonResponse({'success': True, 'minimum_stock': storage.minimum_stock})
+    except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+        return JsonResponse({'success': False, 'error': 'Valore non valido'}, status=400)
+
+
+@login_required
+def storage_valutazione_ordine_view(request, pk):
+    """Render a printable stock calibration report showing understocked and overstocked products."""
+    storage = get_object_or_404(Storage, pk=pk, supermarket__owner=request.user)
+
+    understocked = []
+    overstocked = []
+
+    try:
+        with RestockService(storage) as service:
+            cur = service.db.cursor()
+            cur.execute("""
+                SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp, p.cluster,
+                       ps.stock, ps.minimum_stock
+                FROM products p
+                JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                WHERE p.settore = %s
+                  AND ps.verified = TRUE
+                  AND p.purge_flag = FALSE
+                ORDER BY p.cluster, p.descrizione
+            """, (storage.settore,))
+            rows = cur.fetchall()
+
+            for row in rows:
+                stock = row['stock'] if row['stock'] is not None else 0
+                pz_x_collo = row['pz_x_collo'] or 1
+                rapp = row['rapp'] or 1
+                effective_package_size = pz_x_collo * rapp
+                minimum_stock_override = row.get('minimum_stock')
+
+                if minimum_stock_override is not None:
+                    minimum_stock = minimum_stock_override
+                    is_override = True
+                else:
+                    minimum_stock = storage.minimum_stock
+                    is_override = False
+
+                overstocked_threshold = minimum_stock + effective_package_size
+
+                item = {
+                    'cod': row['cod'],
+                    'var': row['v'],
+                    'descrizione': row['descrizione'],
+                    'cluster': row.get('cluster') or '',
+                    'stock': stock,
+                    'pz_x_collo': pz_x_collo,
+                    'rapp': rapp,
+                    'package_size': effective_package_size,
+                    'minimum_stock': minimum_stock,
+                    'is_override': is_override,
+                    'overstocked_threshold': overstocked_threshold,
+                    'deficit': minimum_stock - stock,
+                }
+
+                if stock < minimum_stock:
+                    understocked.append(item)
+                elif stock >= overstocked_threshold:
+                    overstocked.append(item)
+
+    except Exception as e:
+        logger.exception("Error in valutazione ordine")
+        messages.error(request, f"Errore nel calcolo della valutazione: {e}")
+        return redirect('storage-detail', pk=pk)
+
+    context = {
+        'storage': storage,
+        'understocked': understocked,
+        'overstocked': overstocked,
+        'generated_at': timezone.now(),
+    }
+    return render(request, 'storages/valutazione_ordine.html', context)
+
+
 class StorageDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Storage
     template_name = 'storages/confirm_delete.html'
@@ -2687,7 +2776,7 @@ def cluster_order_preview_view(request):
         with RestockService(storage) as service:
             blacklist = service.get_blacklist_set()
             dm = DecisionMaker(service.db, service.helper, blacklist_set=blacklist)
-            dm.decide_orders_for_settore(settore, coverage)
+            dm.decide_orders_for_settore(settore, coverage, storage.minimum_stock)
 
             if dm.orders_list:
                 cur = service.db.cursor()
