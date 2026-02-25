@@ -176,8 +176,9 @@ class DatabaseManager:
             array_data.insert(0, current_value)
             array_data = array_data[:24]
 
-            # Update previous month if different
-            if len(array_data) > 1 and array_data[1] != previous_value:
+            # Update previous month if different (skip if previous_value is None —
+            # it means PAC2000A returned only 1 month of data; don't overwrite with None)
+            if len(array_data) > 1 and previous_value is not None and array_data[1] != previous_value:
                 array_data[1] = previous_value
 
         return array_data
@@ -216,6 +217,14 @@ class DatabaseManager:
         # --- Load arrays and previous metadata ---
         sold_array = row["sold_last_24"]
         bought_array = row["bought_last_24"]
+
+        # Guard against JSONB object {} (data corruption). Arrays must always be lists.
+        if not isinstance(sold_array, list):
+            logger.warning(f"update_product_stats {cod}.{v}: sold_last_24 is not an array (type={type(sold_array).__name__}, value={sold_array!r}). Resetting to [0].")
+            sold_array = [0]
+        if not isinstance(bought_array, list):
+            logger.warning(f"update_product_stats {cod}.{v}: bought_last_24 is not an array (type={type(bought_array).__name__}, value={bought_array!r}). Resetting to [0].")
+            bought_array = [0]
         stock = int(row["stock"]) if row["stock"] is not None else 0
         sales_sets = row["sales_sets"] or []
         last_update_date = row["last_update"]

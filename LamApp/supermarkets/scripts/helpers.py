@@ -83,10 +83,14 @@ class Helper:
         if not final_array_sold:
             return 0.0, 0.0
 
-        sold_this_month = final_array_sold[0] if len(final_array_sold) >= 1 else 0.0
-        sold_prev_month = final_array_sold[1] if len(final_array_sold) >= 2 else 0.0
-        sold_same_month_last_year = final_array_sold[12] if len(final_array_sold) > 12 else 0.0
-        sold_prev_month_last_year = final_array_sold[13] if len(final_array_sold) > 13 else 0.0
+        sold_this_month = final_array_sold[0] if len(final_array_sold) >= 1 and final_array_sold[0] is not None else 0
+        sold_prev_month = final_array_sold[1] if len(final_array_sold) >= 2 and final_array_sold[1] is not None else 0
+        sold_same_month_last_year = final_array_sold[12] if len(final_array_sold) > 12 and final_array_sold[12] is not None else 0
+        sold_prev_month_last_year = final_array_sold[13] if len(final_array_sold) > 13 and final_array_sold[13] is not None else 0
+
+        null_indices = [i for i in [0, 1, 12, 13] if i < len(final_array_sold) and final_array_sold[i] is None]
+        if null_indices:
+            logger.warning(f"calculate_weighted_avg_sales_new: sold_last_24 has None at indices {null_indices} — data corruption, values defaulted to 0")
 
         days_this_month = max(1, int(self.days_this_month))
         days_prev_month = max(1, int(self.days_previous_month))
