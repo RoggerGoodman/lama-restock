@@ -814,7 +814,7 @@ def storage_valutazione_ordine_view(request, pk):
                     'is_override': is_override,
                     'overstocked_threshold': overstocked_threshold,
                     'deficit': eff_min - stock,
-                    'excess': stock - eff_min,
+                    'excess': stock - overstocked_threshold,
                 }
 
                 if stock < eff_min:
