@@ -738,7 +738,7 @@ def storage_valutazione_ordine_view(request, pk):
             cur = service.db.cursor()
             cur.execute("""
                 SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp, p.cluster,
-                       ps.stock, ps.minimum_stock, ps.sold_last_24, ps.sales_sets
+                       p.disponibilita, ps.stock, ps.minimum_stock, ps.sold_last_24, ps.sales_sets
                 FROM products p
                 JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                 WHERE p.settore = %s
@@ -748,6 +748,9 @@ def storage_valutazione_ordine_view(request, pk):
             """, (storage.settore,))
             rows = cur.fetchall()
 
+            # Denominator for percentages: all verified, non-purged products in this storage
+            total_verified = len(rows)
+
             for row in rows:
                 stock = row['stock'] if row['stock'] is not None else 0
                 pz_x_collo = row['pz_x_collo'] or 1
@@ -756,6 +759,7 @@ def storage_valutazione_ordine_view(request, pk):
                 minimum_stock_override = row.get('minimum_stock')
                 sold_array = row['sold_last_24'] or []
                 sales_sets = row['sales_sets'] or []
+                disponibilita = row.get('disponibilita') or 'Si'
 
                 # Mirror DecisionMaker: prefer sales_sets, fall back to sold_last_24
                 avg_daily_sales = service.helper.avg_daily_sales_from_sales_sets(sales_sets)
@@ -810,10 +814,13 @@ def storage_valutazione_ordine_view(request, pk):
                     'is_override': is_override,
                     'overstocked_threshold': overstocked_threshold,
                     'deficit': eff_min - stock,
+                    'excess': stock - eff_min,
                 }
 
                 if stock < eff_min:
-                    understocked.append(item)
+                    # Exclude non-restockable products from understocked (can't order them anyway)
+                    if disponibilita != 'No':
+                        understocked.append(item)
                 elif stock >= overstocked_threshold:
                     overstocked.append(item)
 
@@ -822,10 +829,16 @@ def storage_valutazione_ordine_view(request, pk):
         messages.error(request, f"Errore nel calcolo della valutazione: {e}")
         return redirect('storage-detail', pk=pk)
 
+    understocked_pct = round(len(understocked) / total_verified * 100, 1) if total_verified > 0 else 0
+    overstocked_pct = round(len(overstocked) / total_verified * 100, 1) if total_verified > 0 else 0
+
     context = {
         'storage': storage,
         'understocked': understocked,
         'overstocked': overstocked,
+        'total_verified': total_verified,
+        'understocked_pct': understocked_pct,
+        'overstocked_pct': overstocked_pct,
         'coverage': coverage,
         'coverage_source': coverage_source,
         'last_log': last_log,

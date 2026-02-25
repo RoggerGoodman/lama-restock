@@ -10,7 +10,7 @@
         @media screen {
             body {
                 padding: 24px;
-                max-width: 1100px;
+                max-width: 1200px;
                 margin: 0 auto;
                 background: #f8f9fa;
             }
@@ -28,6 +28,15 @@
                 z-index: 100;
                 margin-bottom: 20px;
             }
+            th.sortable {
+                cursor: pointer;
+                user-select: none;
+                white-space: nowrap;
+            }
+            th.sortable:hover { background-color: rgba(0,0,0,0.05); }
+            th.sortable .sort-icon { font-size: 0.7rem; opacity: 0.4; margin-left: 3px; }
+            th.sortable.asc .sort-icon { opacity: 1; }
+            th.sortable.desc .sort-icon { opacity: 1; }
         }
 
         @media print {
@@ -38,6 +47,7 @@
             thead { display: table-header-group; }
             tr { page-break-inside: avoid; }
             .section-break { page-break-before: auto; }
+            .sort-icon { display: none; }
             @page { margin: 1.2cm; }
         }
     </style>
@@ -53,8 +63,11 @@
                 <i class="bi bi-x-circle"></i> Chiudi
             </button>
             <span class="text-muted small ms-2">
-                <strong>{{ understocked|length }}</strong> sottostoccati &nbsp;|&nbsp;
-                <strong>{{ overstocked|length }}</strong> sovrastoccati
+                <strong>{{ understocked|length }}</strong> sottostoccati ({{ understocked_pct }}%)
+                &nbsp;|&nbsp;
+                <strong>{{ overstocked|length }}</strong> sovrastoccati ({{ overstocked_pct }}%)
+                &nbsp;|&nbsp;
+                {{ total_verified }} articoli verificati totali
             </span>
         </div>
     </div>
@@ -75,21 +88,35 @@
 
             <hr class="my-3">
 
-            <div class="d-flex flex-wrap gap-4 small">
-                <span><strong>Giacenza insufficiente:</strong> {{ understocked|length }} articoli</span>
-                <span><strong>Giacenza in eccesso:</strong> {{ overstocked|length }} articoli</span>
-                <span>
-                    <strong>Copertura usata:</strong> {{ coverage }} giorni
-                    <span class="text-muted">
+            <!-- Summary stats -->
+            <div class="d-flex flex-wrap gap-3">
+                <div class="border rounded px-3 py-2 text-center" style="min-width:120px;">
+                    <div class="text-muted small">Articoli verificati</div>
+                    <div class="fs-5 fw-bold">{{ total_verified }}</div>
+                </div>
+                <div class="border border-danger rounded px-3 py-2 text-center" style="min-width:120px;">
+                    <div class="text-danger small">Giacenza insufficiente</div>
+                    <div class="fs-5 fw-bold text-danger">{{ understocked|length }}</div>
+                    <div class="text-muted small">{{ understocked_pct }}% del totale</div>
+                </div>
+                <div class="border border-warning rounded px-3 py-2 text-center" style="min-width:120px;">
+                    <div class="text-warning small">Giacenza in eccesso</div>
+                    <div class="fs-5 fw-bold" style="color:#e6a817;">{{ overstocked|length }}</div>
+                    <div class="text-muted small">{{ overstocked_pct }}% del totale</div>
+                </div>
+                <div class="border rounded px-3 py-2 text-center" style="min-width:160px;">
+                    <div class="text-muted small">Copertura usata</div>
+                    <div class="fs-5 fw-bold">{{ coverage }} giorni</div>
+                    <div class="text-muted small">
                         {% if coverage_source == 'last_order' %}
-                            (dall'ultimo ordine del {{ last_log.started_at|date:"d/m/Y" }})
+                            ordine del {{ last_log.started_at|date:"d/m/Y" }}
                         {% elif coverage_source == 'schedule' %}
-                            (da agenda ordini)
+                            da agenda ordini
                         {% else %}
-                            (default)
+                            default
                         {% endif %}
-                    </span>
-                </span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -98,48 +125,51 @@
             <i class="bi bi-exclamation-triangle text-danger"></i>
             Giacenza insufficiente
             <span class="badge bg-danger ms-1">{{ understocked|length }}</span>
+            {% if total_verified > 0 %}
+                <span class="text-muted fs-6 fw-normal ms-1">({{ understocked_pct }}%)</span>
+            {% endif %}
         </h5>
 
         {% if understocked %}
         <div class="table-responsive mb-5">
-            <table class="table table-bordered table-sm table-hover">
+            <table id="understocked-table" class="table table-bordered table-sm table-hover">
                 <thead class="table-danger">
                     <tr>
-                        <th>Codice</th>
-                        <th>Descrizione</th>
-                        <th>Cluster</th>
-                        <th class="text-end">Giacenza</th>
-                        <th class="text-end">Min. Stock</th>
-                        <th class="text-end">Imballo</th>
-                        <th class="text-end">Deficit</th>
+                        <th class="sortable" onclick="sortTable('understocked-table',0)">Codice<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('understocked-table',1)">Descrizione<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('understocked-table',2)">Cluster<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('understocked-table',3)">Giacenza<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('understocked-table',4)">Min. Stock<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('understocked-table',5)">Imballo<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('understocked-table',6)">Deficit<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in understocked %}
                     <tr>
-                        <td><code>{{ p.cod }}.{{ p.var }}</code></td>
-                        <td>{{ p.descrizione }}</td>
-                        <td>
+                        <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.var }}</code></td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
+                        <td data-sort="{{ p.cluster }}">
                             {% if p.cluster %}
                                 <span class="badge bg-secondary">{{ p.cluster }}</span>
                             {% else %}
                                 <span class="text-muted">—</span>
                             {% endif %}
                         </td>
-                        <td class="text-end text-danger fw-bold">{{ p.stock }}</td>
-                        <td class="text-end">
+                        <td class="text-end text-danger fw-bold" data-sort="{{ p.stock }}">{{ p.stock }}</td>
+                        <td class="text-end" data-sort="{{ p.minimum_stock }}">
                             {{ p.minimum_stock }}
                             {% if p.is_override %}
                                 <small class="text-muted" title="Override prodotto">(ov.)</small>
                             {% endif %}
                         </td>
-                        <td class="text-end">
+                        <td class="text-end" data-sort="{{ p.package_size }}">
                             {{ p.package_size }}
                             {% if p.rapp != 1 %}
                                 <small class="text-muted">({{ p.pz_x_collo }}×{{ p.rapp }})</small>
                             {% endif %}
                         </td>
-                        <td class="text-end text-danger">{{ p.deficit }}</td>
+                        <td class="text-end text-danger fw-bold" data-sort="{{ p.deficit }}">{{ p.deficit }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -157,48 +187,51 @@
             <i class="bi bi-archive text-warning"></i>
             Giacenza in eccesso
             <span class="badge bg-warning text-dark ms-1">{{ overstocked|length }}</span>
+            {% if total_verified > 0 %}
+                <span class="text-muted fs-6 fw-normal ms-1">({{ overstocked_pct }}%)</span>
+            {% endif %}
         </h5>
 
         {% if overstocked %}
         <div class="table-responsive mb-4">
-            <table class="table table-bordered table-sm table-hover">
+            <table id="overstocked-table" class="table table-bordered table-sm table-hover">
                 <thead class="table-warning">
                     <tr>
-                        <th>Codice</th>
-                        <th>Descrizione</th>
-                        <th>Cluster</th>
-                        <th class="text-end">Giacenza</th>
-                        <th class="text-end">Min. Stock</th>
-                        <th class="text-end">Imballo</th>
-                        <th class="text-end">Soglia eccesso</th>
+                        <th class="sortable" onclick="sortTable('overstocked-table',0)">Codice<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('overstocked-table',1)">Descrizione<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('overstocked-table',2)">Cluster<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',3)">Giacenza<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',4)">Min. Stock<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',5)">Imballo<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',6)">Eccesso<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in overstocked %}
                     <tr>
-                        <td><code>{{ p.cod }}.{{ p.var }}</code></td>
-                        <td>{{ p.descrizione }}</td>
-                        <td>
+                        <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.var }}</code></td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
+                        <td data-sort="{{ p.cluster }}">
                             {% if p.cluster %}
                                 <span class="badge bg-secondary">{{ p.cluster }}</span>
                             {% else %}
                                 <span class="text-muted">—</span>
                             {% endif %}
                         </td>
-                        <td class="text-end text-warning fw-bold">{{ p.stock }}</td>
-                        <td class="text-end">
+                        <td class="text-end fw-bold" style="color:#e6a817;" data-sort="{{ p.stock }}">{{ p.stock }}</td>
+                        <td class="text-end" data-sort="{{ p.minimum_stock }}">
                             {{ p.minimum_stock }}
                             {% if p.is_override %}
                                 <small class="text-muted" title="Override prodotto">(ov.)</small>
                             {% endif %}
                         </td>
-                        <td class="text-end">
+                        <td class="text-end" data-sort="{{ p.package_size }}">
                             {{ p.package_size }}
                             {% if p.rapp != 1 %}
                                 <small class="text-muted">({{ p.pz_x_collo }}×{{ p.rapp }})</small>
                             {% endif %}
                         </td>
-                        <td class="text-end text-muted">≥ {{ p.overstocked_threshold }}</td>
+                        <td class="text-end fw-bold" style="color:#e6a817;" data-sort="{{ p.excess }}">+{{ p.excess }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -223,7 +256,42 @@
         <div class="mt-3 text-muted no-print" style="font-size: 0.8rem;">
             Valutazione eseguita il {{ generated_at|date:"d/m/Y" }} alle {{ generated_at|date:"H:i" }}.
             Strumento di analisi — nessun ordine è stato inviato.
+            Prodotti con disponibilita=No esclusi dalla lista giacenza insufficiente.
         </div>
     </div>
+
+    <script>
+    function sortTable(tableId, colIndex) {
+        const table = document.getElementById(tableId);
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const headers = table.querySelectorAll('thead th.sortable');
+        const header = headers[colIndex];
+
+        const goAsc = !header.classList.contains('asc');
+
+        headers.forEach(h => {
+            h.classList.remove('asc', 'desc');
+            h.querySelector('.sort-icon').textContent = '⇅';
+        });
+        header.classList.add(goAsc ? 'asc' : 'desc');
+        header.querySelector('.sort-icon').textContent = goAsc ? '▲' : '▼';
+
+        rows.sort((a, b) => {
+            const aCell = a.cells[colIndex];
+            const bCell = b.cells[colIndex];
+            const aRaw = aCell.dataset.sort !== undefined ? aCell.dataset.sort : aCell.textContent.trim();
+            const bRaw = bCell.dataset.sort !== undefined ? bCell.dataset.sort : bCell.textContent.trim();
+            const aNum = parseFloat(aRaw);
+            const bNum = parseFloat(bRaw);
+            if (!isNaN(aNum) && !isNaN(bNum)) {
+                return goAsc ? aNum - bNum : bNum - aNum;
+            }
+            return goAsc ? aRaw.localeCompare(bRaw, 'it') : bRaw.localeCompare(aRaw, 'it');
+        });
+
+        rows.forEach(row => tbody.appendChild(row));
+    }
+    </script>
 </body>
 </html>

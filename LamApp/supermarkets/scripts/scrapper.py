@@ -167,13 +167,13 @@ class Scrapper:
         }
 
         for cod, v, is_verified, package_size in product_tuples:
-            
+
             report["processed"] += 1
 
-            iframe = self.driver.find_element(By.ID, "ifStatistiche Articolo")
-            self.driver.switch_to.frame(iframe)
-
             try:
+                iframe = self.driver.find_element(By.ID, "ifStatistiche Articolo")
+                self.driver.switch_to.frame(iframe)
+
                 cod_art_field = self.driver.find_element(By.NAME, "cod_art")
                 var_art_field = self.driver.find_element(By.NAME, "var_art")
 
@@ -215,9 +215,9 @@ class Scrapper:
                         cleaned_current_year_sold  == empty_list and
                         cleaned_last_year_bought   == empty_list
                     ):
-                    
+
                     print(f"Newly added product detected: {cod}.{v}")
-                    
+
                     # Only add to list if NOT verified
                     if is_verified == False:
                         report["newly_added"].append({
@@ -226,7 +226,7 @@ class Scrapper:
                             'package_size': package_size,
                             'reason': 'Product ordered but not yet sold (needs verification)'
                         })
-                
+
                 if cleaned_current_year_bought is None or cleaned_last_year_bought is None or cleaned_current_year_sold is None or cleaned_last_year_sold is None:
                     report["errors"] += 1
                     continue
@@ -255,15 +255,39 @@ class Scrapper:
             except UnexpectedAlertPresentException:
                 self.actions.send_keys(Keys.ENTER)
                 report["errors"] += 1
+                try:
+                    self.driver.switch_to.default_content()
+                    self.driver.back()
+                    WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located((By.ID, "ifStatistiche Articolo"))
+                    )
+                except Exception:
+                    pass
                 continue
 
             except TimeoutException:
                 report["errors"] += 1
+                try:
+                    self.driver.switch_to.default_content()
+                    self.driver.back()
+                    WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located((By.ID, "ifStatistiche Articolo"))
+                    )
+                except Exception:
+                    pass
                 continue
 
             except Exception as e:
                 print(f"Error initializing stats for {cod}.{v}: {e}")
                 report["errors"] += 1
+                try:
+                    self.driver.switch_to.default_content()
+                    self.driver.back()
+                    WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located((By.ID, "ifStatistiche Articolo"))
+                    )
+                except Exception:
+                    pass
                 continue
 
         logger.info(report)

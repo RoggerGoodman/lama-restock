@@ -237,15 +237,18 @@ class DatabaseManager:
                 sold_delta = cur_sold_val - old_current
             else:
                 old_previous_stored = sold_array[0] if sold_array else 0
-                sold_delta = cur_sold_val + (prev_sold_val - old_previous_stored)
-           
+                # prev_sold_val is None when PAC2000A returned only 1 month of data
+                # (e.g. brand-new product with no history). Treat as no correction needed.
+                prev_sold_safe = prev_sold_val if prev_sold_val is not None else old_previous_stored
+                sold_delta = cur_sold_val + (prev_sold_safe - old_previous_stored)
+
             if days_since > 0:
                 value = int(sold_delta)
                 sales_sets.insert(0, value)
                 # Keep most recent 30 days
                 sales_sets = sales_sets[:30]
 
-            
+
 
         if bought_pkt is not None:
             cur_bought_val, prev_bought_val = bought_pkt
@@ -254,7 +257,10 @@ class DatabaseManager:
                 bought_delta = cur_bought_val - old_current
             else:
                 old_previous_stored = bought_array[0] if bought_array else 0
-                bought_delta = cur_bought_val + (prev_bought_val - old_previous_stored)
+                # prev_bought_val is None when PAC2000A returned only 1 month of data
+                # (e.g. brand-new product with no history). Treat as no correction needed.
+                prev_bought_safe = prev_bought_val if prev_bought_val is not None else old_previous_stored
+                bought_delta = cur_bought_val + (prev_bought_safe - old_previous_stored)
 
         # --- Apply array modifications using your existing helper ---
         if sold_pkt is not None:
