@@ -707,6 +707,11 @@ def storage_valutazione_ordine_view(request, pk):
     """
     storage = get_object_or_404(Storage, pk=pk, supermarket__owner=request.user)
 
+    try:
+        days_in_advance = max(0, int(request.GET.get('days_in_advance', 0) or 0))
+    except (ValueError, TypeError):
+        days_in_advance = 0
+
     # Use coverage from the last completed restock for THIS storage, then schedule avg, then 7
     coverage_source = 'default'
     coverage = 7
@@ -801,6 +806,11 @@ def storage_valutazione_ordine_view(request, pk):
                 eff_min = round(eff_min)
                 overstocked_threshold = eff_min + effective_package_size
 
+                # Adjust overstocked threshold for days before delivery:
+                # stock will decrease by burn units before the delivery arrives
+                burn = round(avg_daily_sales * days_in_advance)
+                adjusted_overstocked_threshold = overstocked_threshold + burn
+
                 item = {
                     'cod': row['cod'],
                     'var': row['v'],
@@ -812,16 +822,16 @@ def storage_valutazione_ordine_view(request, pk):
                     'package_size': effective_package_size,
                     'minimum_stock': eff_min,
                     'is_override': is_override,
-                    'overstocked_threshold': overstocked_threshold,
+                    'overstocked_threshold': adjusted_overstocked_threshold,
                     'deficit': eff_min - stock,
-                    'excess': stock - overstocked_threshold,
+                    'excess': stock - adjusted_overstocked_threshold,
                 }
 
                 if stock < eff_min:
                     # Exclude non-restockable products from understocked (can't order them anyway)
                     if disponibilita != 'No':
                         understocked.append(item)
-                elif stock >= overstocked_threshold:
+                elif stock > adjusted_overstocked_threshold:
                     overstocked.append(item)
 
     except Exception as e:
@@ -842,6 +852,7 @@ def storage_valutazione_ordine_view(request, pk):
         'coverage': coverage,
         'coverage_source': coverage_source,
         'last_log': last_log,
+        'days_in_advance': days_in_advance,
         'generated_at': timezone.now(),
     }
     return render(request, 'storages/valutazione_ordine.html', context)

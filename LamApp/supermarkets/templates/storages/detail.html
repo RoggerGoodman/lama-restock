@@ -284,9 +284,9 @@
                     <a href="{% url 'restock_schedule' storage_id=storage.id %}" class="btn btn-outline-primary">
                         <i class="bi bi-calendar-check"></i> {% if schedule %}Modifica Agenda ordini{% else %}Crea Agenda ordini{% endif %}
                     </a>
-                    <a href="{% url 'storage-valutazione-ordine' pk=storage.id %}" class="btn btn-outline-secondary" target="_blank">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#valutazioneModal">
                         <i class="bi bi-clipboard2-data"></i> Valutazione ordine
-                    </a>
+                    </button>
                 </div>
 
                 <!-- Data Management Actions -->
@@ -561,10 +561,52 @@
         </div>
     </div>
 </div>
+
+<!-- Valutazione Ordine Modal -->
+<div class="modal fade" id="valutazioneModal" tabindex="-1" aria-labelledby="valutazioneModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="valutazioneModalLabel">
+                    <i class="bi bi-clipboard2-data"></i> Valutazione ordine
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label for="daysInAdvanceInput" class="form-label">Quanti giorni in anticipo alla consegna?</label>
+                <input type="number" id="daysInAdvanceInput" class="form-control" min="0" step="1" value="0">
+                <div class="form-text text-muted">Inserisci 0 se stai analizzando il giorno stesso della consegna.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-primary" onclick="openValutazione()">
+                    <i class="bi bi-box-arrow-up-right"></i> Avvia
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+function openValutazione() {
+    const input = document.getElementById('daysInAdvanceInput');
+    const days = parseInt(input.value);
+    if (isNaN(days) || days < 0 || !Number.isInteger(days)) {
+        input.classList.add('is-invalid');
+        return;
+    }
+    input.classList.remove('is-invalid');
+    const url = "{% url 'storage-valutazione-ordine' pk=storage.id %}?days_in_advance=" + days;
+    window.open(url, '_blank');
+    bootstrap.Modal.getInstance(document.getElementById('valutazioneModal')).hide();
+}
+
+document.getElementById('daysInAdvanceInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') openValutazione();
+});
+
 // Giacenza minima inline edit
 function editMinimumStock() {
     document.getElementById('minimum-stock-display').classList.add('d-none');
