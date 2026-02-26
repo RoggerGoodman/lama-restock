@@ -70,7 +70,7 @@ class Helper:
 
         return final_array_bought, final_array_sold
     
-    def calculate_weighted_avg_sales_new(self, final_array_sold: list, alpha: float = 3.0):
+    def calculate_weighted_avg_sales_new(self, final_array_sold: list, alpha: float = 3.0, silent: bool = False):
         """
         Returns (avg_daily_sales, avg_sales_last_year)
 
@@ -126,19 +126,20 @@ class Helper:
 
         avg_sales_base = rate_same_month_last_year
 
-        try:
-            logger.info(
-                f"Day {self.current_day}/{days_this_month} | progress={progress:.2f} | "
-                f"growth_ratio={growth_ratio:.2f} | w_prior={w_prior:.2f} | "
-                f"rate_obs={rate_current_obs:.2f} | prior_rate={prior_rate:.2f} | "
-                f"avg_daily_sales={avg_daily_sales:.2f}"
-            )
-        except Exception:
-            pass
+        if not silent:
+            try:
+                logger.info(
+                    f"Day {self.current_day}/{days_this_month} | progress={progress:.2f} | "
+                    f"growth_ratio={growth_ratio:.2f} | w_prior={w_prior:.2f} | "
+                    f"rate_obs={rate_current_obs:.2f} | prior_rate={prior_rate:.2f} | "
+                    f"avg_daily_sales={avg_daily_sales:.2f}"
+                )
+            except Exception:
+                pass
 
         return avg_daily_sales, avg_sales_base
     
-    def avg_daily_sales_from_sales_sets(self, daily_sales: list):
+    def avg_daily_sales_from_sales_sets(self, daily_sales: list, silent: bool = False):
         """
         Compute a recency-weighted average daily sales rate.
 
@@ -171,10 +172,11 @@ class Helper:
 
         avg_daily_sales = weighted_sum / weight_total
 
-        try:
-            logger.info(f"avg_daily_sales={avg_daily_sales:.2f}")
-        except Exception:
-            pass
+        if not silent:
+            try:
+                logger.info(f"avg_daily_sales={avg_daily_sales:.2f}")
+            except Exception:
+                pass
 
         return avg_daily_sales
     
@@ -233,9 +235,6 @@ class Helper:
         
         logger.info(f"Reason: {category}{check}")
               
-    def line_breaker(self):
-        logger.info(f"=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/=/")
-
     def parse_promo_pdf(self, file_path):
         data = []
         sale_start = None
@@ -246,10 +245,6 @@ class Helper:
                 text = page.extract_text() or ""
 
                 # Extract promo dates
-                # DEBUG: Log first 500 chars of extracted text
-                if sale_start is None:
-                    logger.info(f"[PROMOS DEBUG] Extracted text (first 500 chars): {repr(text[:500])}")
-
                 m = re.search(
                     r"Pubblico\s*Dal\s*(\d{2}/\d{2}/\d{4})\s*al\s*(\d{2}/\d{2}/\d{4})",
                     text

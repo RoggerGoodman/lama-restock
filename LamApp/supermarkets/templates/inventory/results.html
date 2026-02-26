@@ -301,10 +301,10 @@
                                             onclick="adjustStock(
                                                 {{ product.cod }}, 
                                                 {{ product.v }}, 
-                                                '{{ product.supermarket_name }}', 
+                                                '{{ product.supermarket_name|escapejs }}',
                                                 {{ product.stock }},
                                                 {{ product.minimum_stock|default:6 }},
-                                                '{{ product.cluster|default:'' }}'
+                                                '{{ product.cluster|default:''|escapejs }}'
                                             )">
                                             <i class="bi bi-pencil"></i> Rettifica
                                         </button>

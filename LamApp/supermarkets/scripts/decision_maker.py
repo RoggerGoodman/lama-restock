@@ -255,7 +255,6 @@ class DecisionMaker:
                     reason = "Never been in system (brand new product)"
                     analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
-                    self.helper.line_breaker()
                     new_products.append({
                         'cod': product_cod,
                         'var': product_var,
@@ -265,9 +264,8 @@ class DecisionMaker:
                 elif disponibilita == "No":
                     reason = "Not available for restocking and no sales history"
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
-                    self.helper.line_breaker()
                     continue
-            
+
             if (product_cod, product_var) in extra_losses_lookup:
                 sold_array = self.integrate_internal_losses(product_cod, product_var, sold_array, extra_losses_list)
 
@@ -299,7 +297,6 @@ class DecisionMaker:
                 if self.skip_sale == True:
                     reason = "Skip products on sale mode is active for this order"
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
-                    self.helper.line_breaker()
                     continue
                 discount = sale_info["discount"]
                 sale_start = sale_info["sale_start"]
@@ -328,7 +325,6 @@ class DecisionMaker:
             else:
                 reason = "Not verified in system"
                 self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
-                self.helper.line_breaker()
                 continue
 
             if result:
@@ -336,11 +332,9 @@ class DecisionMaker:
                     analyzer.low_sale_recorder(descrizione, product_cod, product_var)
                 analyzer.stat_recorder(result, status)
                 self.helper.order_this(order_list, product_cod, product_var, result, descrizione, category, check, returned_discount)
-                self.helper.line_breaker()
             else:
                 analyzer.stat_recorder(0, status)
                 self.helper.order_denied(product_cod, product_var, package_size, descrizione, category, check)
-                self.helper.line_breaker()
 
         analyzer.log_statistics()
         

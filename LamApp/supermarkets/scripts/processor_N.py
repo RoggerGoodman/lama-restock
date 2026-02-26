@@ -49,6 +49,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
         minimum_stock = math.ceil(minimum_stock * 0.9)
 
     minimum_stock = round(minimum_stock)
+    minimum_stock = max(1, minimum_stock)
 
     order = (req_stock + minimum_stock - stock) / package_size
     if order >= 0:

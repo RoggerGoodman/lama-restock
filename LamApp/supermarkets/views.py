@@ -767,9 +767,9 @@ def storage_valutazione_ordine_view(request, pk):
                 disponibilita = row.get('disponibilita') or 'Si'
 
                 # Mirror DecisionMaker: prefer sales_sets, fall back to sold_last_24
-                avg_daily_sales = service.helper.avg_daily_sales_from_sales_sets(sales_sets)
+                avg_daily_sales = service.helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True)
                 if avg_daily_sales is None:
-                    avg_daily_sales, _ = service.helper.calculate_weighted_avg_sales_new(sold_array)
+                    avg_daily_sales, _ = service.helper.calculate_weighted_avg_sales_new(sold_array, silent=True)
 
                 deviation_corrected = service.helper.calculate_deviation(sales_sets)
                 req_stock = avg_daily_sales * coverage
