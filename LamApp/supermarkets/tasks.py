@@ -132,7 +132,10 @@ def update_stats_all_scheduled_storages(self):
                     continue
 
                 # Check if this storage has orders scheduled for today
-                is_order_day = getattr(storage.schedule, today_field, False)
+                try:
+                    is_order_day = getattr(storage.schedule, today_field, False)
+                except storage.__class__.schedule.RelatedObjectDoesNotExist:
+                    is_order_day = False
 
                 logger.info(
                     f"[CELERY] Queueing stats update for {storage.name} "
