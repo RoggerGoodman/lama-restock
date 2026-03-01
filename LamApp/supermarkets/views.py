@@ -2739,7 +2739,9 @@ def inventory_results_view(request, search_type):
                             # Find the correct storage based on product's settore
                             product_storage = sm.storages.filter(settore=row['settore']).first()
                             result['storage_id'] = product_storage.id if product_storage else storage.id
-                            result['minimum_stock'] = row['minimum_stock'] or 6  
+                            result['minimum_stock'] = row['minimum_stock']  # None if no per-product override
+                            effective_storage = product_storage or storage
+                            result['storage_minimum_stock'] = effective_storage.minimum_stock
                             results.append(result)
                     except Exception as e:
                         logger.exception(f"Error searching in {sm.name}")
@@ -2809,7 +2811,8 @@ def inventory_results_view(request, search_type):
                         result = dict(row)
                         result['supermarket_name'] = supermarket.name
                         result['storage_id'] = storage.id
-                        result['minimum_stock'] = row['minimum_stock'] or 6
+                        result['minimum_stock'] = row['minimum_stock']  # None if no per-product override
+                        result['storage_minimum_stock'] = storage.minimum_stock
                         results.append(result)
 
                 except Exception as e:

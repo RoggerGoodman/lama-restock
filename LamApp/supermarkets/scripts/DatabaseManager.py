@@ -730,16 +730,16 @@ class DatabaseManager:
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(cod, v) DO UPDATE SET
                 price_std = CASE
-                    WHEN excluded.sale_start IS NOT NULL
-                    AND excluded.sale_end IS NOT NULL
-                    AND CURRENT_DATE BETWEEN excluded.sale_start AND excluded.sale_end
-                    THEN economics.price_std    -- keep existing
+                    WHEN economics.sale_start IS NOT NULL
+                    AND economics.sale_end IS NOT NULL
+                    AND CURRENT_DATE <= economics.sale_end
+                    THEN economics.price_std    -- keep existing (active or upcoming sale)
                     ELSE excluded.price_std     -- update
                 END,
                 cost_std = CASE
-                    WHEN excluded.sale_start IS NOT NULL
-                    AND excluded.sale_end IS NOT NULL
-                    AND CURRENT_DATE BETWEEN excluded.sale_start AND excluded.sale_end
+                    WHEN economics.sale_start IS NOT NULL
+                    AND economics.sale_end IS NOT NULL
+                    AND CURRENT_DATE <= economics.sale_end
                     THEN economics.cost_std
                     ELSE excluded.cost_std
                 END,

@@ -297,14 +297,15 @@
                                 </td>
                                 <td class="no-print">
                                     <div class="btn-group btn-group-sm">
-                                        <button class="btn btn-outline-primary" 
+                                        <button class="btn btn-outline-primary"
                                             onclick="adjustStock(
-                                                {{ product.cod }}, 
-                                                {{ product.v }}, 
+                                                {{ product.cod }},
+                                                {{ product.v }},
                                                 '{{ product.supermarket_name|escapejs }}',
                                                 {{ product.stock }},
-                                                {{ product.minimum_stock|default:6 }},
-                                                '{{ product.cluster|default:''|escapejs }}'
+                                                {{ product.minimum_stock|default:'null' }},
+                                                '{{ product.cluster|default:''|escapejs }}',
+                                                {{ product.storage_minimum_stock }}
                                             )">
                                             <i class="bi bi-pencil"></i> Rettifica
                                         </button>
@@ -408,12 +409,12 @@
                     <!-- Minimum Stock Field -->
                     <div class="mb-3">
                         <label for="minimum_stock" class="form-label">
-                            <i class="bi bi-shield-check"></i> Minima giacenza garantita
+                            <i class="bi bi-shield-check"></i> Override giacenza minima
                         </label>
-                        <input type="number" class="form-control" id="minimum_stock" name="minimum_stock" 
-                               min="1" max="100" required>
-                        <div class="form-text">
-                            Giacenza minima di base per i calcoli di riassortimento (default: 6)
+                        <input type="number" class="form-control" id="minimum_stock" name="minimum_stock"
+                               min="1" max="100">
+                        <div class="form-text" id="minimum_stock_help">
+                            Lascia vuoto per usare il default del magazzino. Inserisci un valore per sovrascriverlo solo per questo prodotto.
                         </div>
                     </div>
                     
@@ -533,16 +534,20 @@ function sortTable(column) {
     activeIcon.className = `sort-icon ${currentSortDirection} active`;
 }
 
-function adjustStock(cod, var_, supermarket, currentStock, minimumStock, currentCluster) {
+function adjustStock(cod, var_, supermarket, currentStock, minimumStock, currentCluster, storageDefault) {
     document.getElementById('adjust_cod').value = cod;
     document.getElementById('adjust_var').value = var_;
     document.getElementById('adjust_supermarket').value = supermarket;
     document.getElementById('adjust_product_display').textContent = `${cod}.${var_} (${supermarket})`;
     document.getElementById('adjust_current_stock').textContent = currentStock;
     document.getElementById('adjustment').value = '';
-    document.getElementById('minimum_stock').value = minimumStock || 6;
+    // null = no per-product override; show empty so the user knows storage default applies
+    document.getElementById('minimum_stock').value = minimumStock !== null ? minimumStock : '';
+    document.getElementById('minimum_stock').placeholder = storageDefault;
+    document.getElementById('minimum_stock_help').textContent =
+        `Default magazzino: ${storageDefault}. Lascia vuoto per usarlo, oppure inserisci un valore per sovrascriverlo solo per questo prodotto.`;
     document.getElementById('cluster').value = currentCluster || '';
-    
+
     adjustModal.show();
 }
 
@@ -556,23 +561,23 @@ function submitAdjustment() {
         return;
     }
     
-    const minimumStock = parseInt(formData.get('minimum_stock'));
-    if (!minimumStock || minimumStock < 1) {
-        alert('Minimum stock must be at least 1');
+    const minimumStockRaw = formData.get('minimum_stock').trim();
+    if (minimumStockRaw !== '' && parseInt(minimumStockRaw) < 1) {
+        alert('La giacenza minima deve essere almeno 1');
         return;
     }
-    
+
     const cluster = formData.get('cluster').trim().toUpperCase();
-    
+
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    
+
     const data = new URLSearchParams();
     data.append('cod', formData.get('cod'));
     data.append('var', formData.get('var'));
     data.append('adjustment', formData.get('adjustment'));
     data.append('reason', formData.get('reason'));
     data.append('supermarket', formData.get('supermarket'));
-    data.append('minimum_stock', minimumStock);
+    data.append('minimum_stock', minimumStockRaw);  // empty string = keep existing / use storage default
     data.append('cluster', cluster);  // ✅ INCLUDE CLUSTER
     data.append('csrfmiddlewaretoken', csrfToken);
     

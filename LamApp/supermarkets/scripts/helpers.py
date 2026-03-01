@@ -144,7 +144,7 @@ class Helper:
         Compute a recency-weighted average daily sales rate.
 
         Args:
-            daily_sales: list[int], oldest → newest
+            daily_sales: list[int], newest → oldest (index 0 is most recent day)
         Returns:
             float
         """
@@ -154,18 +154,42 @@ class Helper:
 
         min_days = 14
         half_life = 14
+        outlier_k = 10
 
         observed_days = len(daily_sales)
         if observed_days < min_days:
             return None
+
+        # Outlier capping: a day is an outlier if it exceeds outlier_k × p95.
+        # p95 captures the "normal ceiling" of the product's sales.
+        # Outliers are capped to the highest non-outlier value in the set,
+        # preserving position and temporal structure.
+        # If p95 == 0 (product barely sells), skip — no meaningful reference.
+        sorted_vals = sorted(daily_sales)
+        idx = 0.95 * (len(sorted_vals) - 1)
+        lo = int(idx)
+        hi = min(lo + 1, len(sorted_vals) - 1)
+        p95 = sorted_vals[lo] + (idx - lo) * (sorted_vals[hi] - sorted_vals[lo])
+        if p95 > 0:
+            threshold = outlier_k * p95
+            outlier_indices = [i for i, v in enumerate(daily_sales) if v > threshold]
+            if outlier_indices:
+                safe_max = max(v for v in daily_sales if v <= threshold)
+                if not silent:
+                    logger.warning(
+                        f"avg_daily_sales_from_sales_sets: capped outliers to {safe_max} "
+                        f"(threshold={threshold:.1f}, p95={p95:.1f}): "
+                        f"{[(i, daily_sales[i]) for i in outlier_indices]}"
+                    )
+                daily_sales = [safe_max if v > threshold else v for v in daily_sales]
 
         lam = math.log(2) / half_life
 
         weighted_sum = 0.0
         weight_total = 0.0
 
-        # newest day has age = 0
-        for age, sold in enumerate(reversed(daily_sales)):
+        # index 0 is newest (age=0, highest weight); index n-1 is oldest
+        for age, sold in enumerate(daily_sales):
             weight = math.exp(-lam * age)
             weighted_sum += sold * weight
             weight_total += weight
@@ -201,7 +225,7 @@ class Helper:
         median_baseline = statistics.median(baseline)
 
         if median_baseline == 0:
-            return 50 if median_recent > 0 else 0
+            return 0
 
         deviation = ((median_recent - median_baseline) / median_baseline) * 100
         deviation = round(deviation, 2)
