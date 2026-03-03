@@ -210,7 +210,7 @@ class Helper:
         Compares median of recent 8 days vs median of baseline (days 8-30).
         Uses median for outlier resistance.
 
-        Returns: deviation percentage clamped to [-50, 50]. 0 if insufficient data.
+        Returns: deviation percentage clamped to [-50, 50]. 0 if insufficient data or baseline median < 2 (slow mover).
         """
         min_days = 14
         recent_window = 8
@@ -224,7 +224,7 @@ class Helper:
         median_recent = statistics.median(recent)
         median_baseline = statistics.median(baseline)
 
-        if median_baseline == 0:
+        if median_baseline < 2:
             return 0
 
         deviation = ((median_recent - median_baseline) / median_baseline) * 100
