@@ -535,8 +535,8 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             failed.append((cod, var, "Not found in PAC2000A"))
                             continue
                         
-                        description, package, multiplier, availability, cost, price, category = product_data
-                        
+                        description, package, multiplier, availability, cost, price, category, ean = product_data
+
                         # Add to products table
                         service.db.add_product(
                             cod=cod,
@@ -545,7 +545,8 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             rapp=multiplier or 1,
                             pz_x_collo=package or 12,
                             settore=settore,
-                            disponibilita=availability or "Si"
+                            disponibilita=availability or "Si",
+                            ean=ean
                         )
                         
                         # ✅ FIXED: Collect for scrapper (don't init stats yet!)
@@ -908,8 +909,8 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 })
                                 continue
                             
-                            description, package, multiplier, availability, cost, price, category = product_data
-                            
+                            description, package, multiplier, availability, cost, price, category, ean = product_data
+
                             # Add to products table
                             service.db.add_product(
                                 cod=cod,
@@ -918,7 +919,8 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 rapp=multiplier or 1,
                                 pz_x_collo=package or 12,
                                 settore=storage.settore,
-                                disponibilita=availability or "Si"
+                                disponibilita=availability or "Si",
+                                ean=ean
                             )
                             
                             products_for_scrapper.append((cod, var, True, package or 12))
@@ -1457,3 +1459,168 @@ def sync_storages_task(self, supermarket_id):
     except Exception as exc:
         logger.exception(f"[SYNC STORAGES] Error for supermarket #{supermarket_id}")
         raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=600,
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
+)
+def backfill_ean_for_verified_products(self):
+    """
+    For every storage with a schedule, fetch and store the EAN for all verified
+    products whose ean column is NULL. Runs at 3:30 AM, after the nightly list update.
+    """
+    from .models import Storage
+    from .services import RestockService
+    from .scripts.web_lister import WebLister
+    from pathlib import Path
+    import shutil
+    import time
+
+    try:
+        storages = Storage.objects.filter(
+            schedule__isnull=False
+        ).select_related('supermarket', 'schedule')
+
+        if not storages.exists():
+            logger.info("[EAN BACKFILL] No storages with schedules found")
+            return "No storages to process"
+
+        total_updated = 0
+        total_failed = 0
+
+        for storage in storages:
+            # Query missing EANs
+            with RestockService(storage) as service:
+                cur = service.db.cursor()
+                cur.execute("""
+                    SELECT p.cod, p.v
+                    FROM products p
+                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    WHERE ps.verified = TRUE AND p.ean IS NULL
+                """)
+                missing = cur.fetchall()
+
+            if not missing:
+                logger.info(f"[EAN BACKFILL] No verified products with missing EAN in {storage.name}")
+                continue
+
+            logger.info(f"[EAN BACKFILL] Found {len(missing)} products to fill in {storage.name}")
+
+            temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
+            temp_dir.mkdir(exist_ok=True)
+
+            lister = WebLister(
+                username=storage.supermarket.username,
+                password=storage.supermarket.password,
+                storage_name=storage.name,
+                download_dir=str(temp_dir),
+                id_cod_mag=storage.id_cod_mag,
+                id_cliente=storage.supermarket.id_cliente,
+                id_azienda=storage.supermarket.id_azienda,
+                id_marchio=storage.supermarket.id_marchio,
+                id_clienti_canale=storage.supermarket.id_clienti_canale,
+                id_clienti_area=storage.supermarket.id_clienti_area,
+                headless=True
+            )
+
+            try:
+                lister.login()
+
+                with RestockService(storage) as service:
+                    for row in missing:
+                        cod, v = row['cod'], row['v']
+                        try:
+                            product_data = lister.gather_missing_product_data(cod, v)
+                            if not product_data:
+                                logger.debug(f"[EAN BACKFILL] No data returned for {cod}.{v}")
+                                total_failed += 1
+                                continue
+
+                            ean = product_data[7]
+                            if ean is None:
+                                logger.debug(f"[EAN BACKFILL] No EAN found for {cod}.{v}")
+                                total_failed += 1
+                                continue
+
+                            cur = service.db.cursor()
+                            cur.execute(
+                                "UPDATE products SET ean = %s WHERE cod = %s AND v = %s",
+                                (ean, cod, v)
+                            )
+                            service.db.conn.commit()
+                            total_updated += 1
+                            logger.info(f"[EAN BACKFILL] {cod}.{v} -> EAN {ean}")
+
+                        except Exception as e:
+                            logger.warning(f"[EAN BACKFILL] Failed for {cod}.{v}: {e}")
+                            total_failed += 1
+
+                        time.sleep(0.5)
+
+            finally:
+                lister.driver.quit()
+                shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+
+        result_msg = f"EAN backfill complete: {total_updated} updated, {total_failed} failed/missing"
+        logger.info(f"[EAN BACKFILL] {result_msg}")
+        return result_msg
+
+    except Exception as exc:
+        logger.exception("[EAN BACKFILL] Fatal error")
+        raise self.retry(exc=exc)
+
+
+@shared_task(queue='selenium', acks_late=True, reject_on_worker_lost=True)
+def fetch_single_ean(storage_id, cod, v):
+    """
+    Fetch and store the EAN for a single product (cod, v).
+    Triggered manually from the delivery check page.
+    """
+    from .models import Storage
+    from .services import RestockService
+    from .scripts.web_lister import WebLister
+    from pathlib import Path
+    import shutil
+
+    storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+
+    temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
+    temp_dir.mkdir(exist_ok=True)
+
+    lister = WebLister(
+        username=storage.supermarket.username,
+        password=storage.supermarket.password,
+        storage_name=storage.name,
+        download_dir=str(temp_dir),
+        id_cod_mag=storage.id_cod_mag,
+        id_cliente=storage.supermarket.id_cliente,
+        id_azienda=storage.supermarket.id_azienda,
+        id_marchio=storage.supermarket.id_marchio,
+        id_clienti_canale=storage.supermarket.id_clienti_canale,
+        id_clienti_area=storage.supermarket.id_clienti_area,
+        headless=True,
+    )
+
+    try:
+        lister.login()
+        product_data = lister.gather_missing_product_data(cod, v)
+        if not product_data or product_data[7] is None:
+            return {'ean': None, 'message': f'EAN non trovato per {cod}.{v}'}
+
+        ean = product_data[7]
+        with RestockService(storage) as service:
+            cur = service.db.cursor()
+            cur.execute("UPDATE products SET ean = %s WHERE cod = %s AND v = %s", (ean, cod, v))
+            service.db.conn.commit()
+
+        logger.info(f"[EAN FETCH] {cod}.{v} -> EAN {ean}")
+        return {'ean': ean, 'message': f'EAN {ean} salvato per {cod}.{v}'}
+
+    finally:
+        lister.driver.quit()
+        shutil.rmtree(lister.user_data_dir, ignore_errors=True)

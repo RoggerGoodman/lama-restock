@@ -301,6 +301,9 @@
                     <a href="{% url 'upload-ddt' storage_id=storage.id %}" class="btn btn-outline-success">
                         <i class="bi bi-truck"></i> Carica DDT (Consegna)
                     </a>
+                    <a href="{% url 'delivery-check' storage_id=storage.id %}" class="btn btn-outline-primary">
+                        <i class="bi bi-upc-scan"></i> Verifica consegna
+                    </a>
                     <a href="{% url 'purge-products' storage_id=storage.id %}" class="btn btn-outline-danger">
                         <i class="bi bi-trash"></i> Elimina articoli
                     </a>

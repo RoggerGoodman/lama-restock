@@ -66,6 +66,7 @@ class DatabaseManager:
                 disponibilita TEXT CHECK(disponibilita IN ('Si','No')) DEFAULT 'Si',
                 cluster TEXT,
                 purge_flag BOOLEAN DEFAULT FALSE,
+                ean BIGINT,
                 PRIMARY KEY (cod, v)
             )
         """)
@@ -134,13 +135,13 @@ class DatabaseManager:
 
     # ---------- PRODUCT MANAGEMENT ----------
 
-    def add_product(self, cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita="Si"):
+    def add_product(self, cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita="Si", ean=None):
         cur = self.cursor()
         cur.execute("""
-            INSERT INTO products (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO products (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita, ean)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (cod, v) DO NOTHING
-        """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
+        """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita, ean))
         self.conn.commit()
 
     def init_product_stats(self, cod:int, v:int, sold:list, bought:list, stock:int=0, verified:bool=False):
@@ -331,6 +332,25 @@ class DatabaseManager:
         if not row:
             raise ValueError(f"No product_stats found for {cod}.{v}")
         return row["stock"]
+
+    def get_product_by_ean(self, ean):
+        """
+        Look up a product by its EAN barcode.
+
+        Args:
+            ean (int): EAN barcode value.
+
+        Returns:
+            dict or None: Product row with cod, v, descrizione, pz_x_collo, settore, or None if not found.
+        """
+        cur = self.cursor()
+        cur.execute("""
+            SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.settore
+            FROM products p
+            WHERE p.ean = %s
+            LIMIT 1
+        """, (ean,))
+        return cur.fetchone()
       
     def get_all_stats_by_settore(self, settore):
         """

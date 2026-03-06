@@ -250,7 +250,7 @@ class DecisionMaker:
             if stock < 0 and verified == True:
                 analyzer.anomalous_stock_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
             
-            if all(v == 0 for v in bought_array) and all(v == 0 for v in sold_array):
+            if bought_array[0] == 0 and sold_array[0] == 0:
                 if verified == False and (disponibilita == "Si" or settore == "DEPERIBILI"):
                     reason = "Never been in system (brand new product)"
                     analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")

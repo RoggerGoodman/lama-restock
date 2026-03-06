@@ -434,7 +434,7 @@ class WebLister:
         if not isinstance(data, dict):
             logger.warning(f"Unexpected response format for {cod}.{var}")
             return None
-        
+
         description = data.get("Descrizione")
         package = data.get("Imballo")
         multiplier = data.get("RapportoCessioneVendita")
@@ -442,7 +442,30 @@ class WebLister:
         cost = data.get("cessione")
         price = data.get("vendita")
         category = data.get("DexReparto")
-        
+
+        # Fetch EAN barcode from CodiciBarreProxyAbs_call.php
+        ean = None
+        id_articolo = data.get("IDArticolo")
+        if id_articolo:
+            try:
+                barcode_url = "https://dropzone.pac2000a.it/anagrafiche/CodiciBarreProxyAbs_call.php"
+                barcode_payload = {
+                    "funzione": "lista",
+                    "IDArticolo": id_articolo,
+                    "IDAzienda": self.IDAzienda,
+                    "Limit": 999,
+                    "AbilitatoVendita": 1,
+                }
+                barcode_response = session.post(barcode_url, headers=headers, data=barcode_payload, timeout=15)
+                barcode_response.raise_for_status()
+                barcode_data = barcode_response.json()
+                if isinstance(barcode_data, list) and barcode_data:
+                    raw_ean = barcode_data[0].get("CodiceBarre")
+                    if raw_ean:
+                        ean = int(raw_ean)
+            except Exception as e:
+                logger.warning(f"EAN fetch failed for {cod}.{var}: {e}")
+
         return (
             description,
             package,
@@ -451,6 +474,7 @@ class WebLister:
             cost,
             price,
             category,
+            ean,
         )
 
 

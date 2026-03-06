@@ -43,6 +43,12 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=3, minute=0),
     },
 
+    # EAN backfill at 3:30 AM every day (after list update)
+    'backfill-ean': {
+        'task': 'supermarkets.tasks.backfill_ean_for_verified_products',
+        'schedule': crontab(hour=3, minute=30),
+    },
+
     # Monthly loss zero-prepend on the 1st at 00:30
     'monthly-loss-zero-prepend': {
         'task': 'supermarkets.tasks.prepend_monthly_loss_zeros',

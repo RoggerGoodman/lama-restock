@@ -4336,6 +4336,148 @@ def upload_ddt_view(request, storage_id):
     })
 
 @login_required
+def delivery_check_view(request, storage_id):
+    """
+    Delivery verification page. The user scans barcodes with the laser gun;
+    the page builds a list of scanned products client-side.
+    """
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+    return render(request, 'storages/delivery_check.html', {'storage': storage})
+
+
+@login_required
+def delivery_check_lookup_ean_ajax(request, storage_id):
+    """
+    AJAX endpoint: receive an EAN barcode, return product info.
+    POST JSON: {"ean": "1234567890123"}
+    Returns JSON: {"found": true, "product": {...}} or {"found": false}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+
+    try:
+        data = json.loads(request.body)
+        ean_raw = data.get('ean', '').strip()
+        if not ean_raw:
+            return JsonResponse({'found': False, 'error': 'EAN vuoto'}, status=400)
+
+        try:
+            ean = int(ean_raw)
+        except ValueError:
+            return JsonResponse({'found': False, 'error': 'EAN non valido'}, status=400)
+
+        with RestockService(storage) as service:
+            row = service.db.get_product_by_ean(ean)
+
+        if row is None:
+            return JsonResponse({'found': False})
+
+        return JsonResponse({
+            'found': True,
+            'product': {
+                'cod': row['cod'],
+                'var': row['v'],
+                'descrizione': row['descrizione'],
+                'pz_x_collo': row['pz_x_collo'],
+                'settore': row['settore'],
+            }
+        })
+
+    except Exception:
+        logger.exception("Error in delivery_check_lookup_ean_ajax")
+        return JsonResponse({'found': False, 'error': 'Errore interno'}, status=500)
+
+
+@login_required
+def delivery_check_parse_ddt_ajax(request, storage_id):
+    """
+    AJAX: upload DDT PDF, parse it, enrich with descriptions, return expected delivery list.
+    POST multipart: pdf_file
+    Returns JSON: {"entries": [{cod, var, descrizione, qty}, ...]}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    storage = get_object_or_404(
+        Storage,
+        id=storage_id,
+        supermarket__owner=request.user
+    )
+
+    pdf_file = request.FILES.get('pdf_file')
+    if not pdf_file:
+        return JsonResponse({'error': 'Nessun file caricato'}, status=400)
+
+    temp_path = None
+    try:
+        temp_dir = Path(settings.BASE_DIR) / 'temp_ddt'
+        temp_dir.mkdir(exist_ok=True)
+        timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+        temp_path = temp_dir / f"ddt_check_{timestamp}_{pdf_file.name}"
+
+        with open(temp_path, 'wb+') as f:
+            for chunk in pdf_file.chunks():
+                f.write(chunk)
+
+        from .scripts.ddt_parser import parse_ddt_pdf
+        raw_entries = parse_ddt_pdf(str(temp_path))
+
+        entries = []
+        with RestockService(storage) as service:
+            cur = service.db.cursor()
+            for cod, var, qty in raw_entries:
+                cur.execute(
+                    "SELECT descrizione, ean FROM products WHERE cod=%s AND v=%s",
+                    (cod, var)
+                )
+                row = cur.fetchone()
+                descrizione = row['descrizione'] if row else f"{cod}.{var}"
+                ean = row['ean'] if row else None
+                entries.append({'cod': cod, 'var': var, 'descrizione': descrizione, 'qty': qty, 'ean': ean})
+
+        return JsonResponse({'entries': entries})
+
+    except Exception:
+        logger.exception("Error parsing DDT for delivery check")
+        return JsonResponse({'error': 'Errore nel parsing del DDT'}, status=500)
+
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
+
+
+@login_required
+def delivery_check_fetch_ean_ajax(request, storage_id):
+    """
+    Trigger a Celery task to fetch and store the EAN for a single product.
+    POST JSON: {"cod": 1234, "var": 1}
+    Returns JSON: {"task_id": "..."}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+
+    data = json.loads(request.body)
+    cod = int(data['cod'])
+    var = int(data['var'])
+
+    from .tasks import fetch_single_ean
+    result = fetch_single_ean.apply_async(args=[storage.id, cod, var])
+    return JsonResponse({'task_id': result.id})
+
+
+@login_required
 def pending_verifications_view(request):
     """
     Show all products that need verification across all supermarkets.

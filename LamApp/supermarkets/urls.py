@@ -34,8 +34,12 @@ urlpatterns = [
     path('storages/<int:storage_id>/add-products/', views.add_products_view, name='add-products'),
     path('storages/<int:storage_id>/purge/', views.purge_products_view, name='purge-products'),
     path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),
-    path('storages/<int:storage_id>/upload-ddt/', views.upload_ddt_view, name='upload-ddt'),  
-    
+    path('storages/<int:storage_id>/upload-ddt/', views.upload_ddt_view, name='upload-ddt'),
+    path('storages/<int:storage_id>/delivery-check/', views.delivery_check_view, name='delivery-check'),
+    path('storages/<int:storage_id>/delivery-check/lookup-ean/', views.delivery_check_lookup_ean_ajax, name='delivery-check-lookup-ean'),
+    path('storages/<int:storage_id>/delivery-check/parse-ddt/', views.delivery_check_parse_ddt_ajax, name='delivery-check-parse-ddt'),
+    path('storages/<int:storage_id>/delivery-check/fetch-ean/', views.delivery_check_fetch_ean_ajax, name='delivery-check-fetch-ean'),
+
     # ============ List Updates ============
     path('storages/<int:storage_id>/update-list/', views.manual_list_update_view, name='manual-list-update'),
     

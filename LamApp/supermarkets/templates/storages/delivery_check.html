@@ -1,0 +1,703 @@
+{% extends "base.html" %}
+
+{% block title %}Verifica Consegna - {{ storage.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    #scan-input {
+        font-size: 1.2rem;
+        letter-spacing: 0.1em;
+        background-color: #fff;
+        border: 2px solid var(--secondary-color);
+        transition: border-color 0.15s, background-color 0.15s;
+    }
+    #scan-input:focus {
+        border-color: var(--success-color);
+        box-shadow: 0 0 0 0.2rem rgba(39,174,96,0.25);
+    }
+    #scan-input.flash-ok {
+        border-color: var(--success-color);
+        background-color: #d4edda;
+    }
+    #scan-input.flash-err {
+        border-color: var(--danger-color);
+        background-color: #f8d7da;
+    }
+    .scan-status-badge { min-width: 140px; font-size: 0.9rem; }
+    #scanned-table th, #scanned-table td,
+    #compare-table th, #compare-table td { vertical-align: middle; }
+    .qty-badge { font-size: 1rem; min-width: 36px; }
+    .row-ok    { background-color: rgba(39,174,96,0.08); }
+    .row-miss  { background-color: rgba(231,76,60,0.08); }
+    .row-extra { background-color: rgba(52,152,219,0.08); }
+    .row-qty   { background-color: rgba(243,156,18,0.08); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center mb-3 gap-3 flex-wrap">
+        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Torna al magazzino
+        </a>
+        <div>
+            <h2 class="mb-0"><i class="bi bi-upc-scan"></i> Verifica Consegna</h2>
+            <small class="text-muted">{{ storage.supermarket.name }} &mdash; {{ storage.name }}</small>
+        </div>
+    </div>
+
+    <!-- Top row: scan zone + DDT upload -->
+    <div class="row g-3 mb-4">
+
+        <!-- Scan zone -->
+        <div class="col-12 col-lg-7">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-start gap-3 flex-wrap">
+                        <div class="flex-grow-1" style="max-width: 420px;">
+                            <label for="scan-input" class="form-label fw-semibold">
+                                <i class="bi bi-crosshair"></i> Zona scansione &mdash; tenere il cursore qui
+                            </label>
+                            <input type="text" id="scan-input" class="form-control"
+                                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                placeholder="Puntare la pistola e premere il grilletto...">
+                            <div class="form-text">Il campo si aggiorna automaticamente dopo ogni scansione.</div>
+                        </div>
+                        <div class="d-flex flex-column gap-2 align-items-start mt-4">
+                            <span id="status-badge" class="badge bg-secondary scan-status-badge">
+                                <i class="bi bi-circle"></i> In attesa
+                            </span>
+                            <span class="text-muted small">
+                                Scansionati: <strong id="total-units">0</strong> pz,
+                                <strong id="total-lines">0</strong> prodotti
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DDT upload -->
+        <div class="col-12 col-lg-5" data-no-refocus>
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="bi bi-file-earmark-pdf"></i> Documento di trasporto (DDT)</h6>
+                    <span id="ddt-badge" class="badge bg-secondary">Non caricato</span>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex gap-2 align-items-end flex-wrap">
+                        <div class="flex-grow-1">
+                            <label for="ddt-file-input" class="form-label small">Carica il PDF del DDT</label>
+                            <input type="file" id="ddt-file-input" class="form-control form-control-sm" accept=".pdf">
+                        </div>
+                        <button id="ddt-upload-btn" class="btn btn-success btn-sm" disabled>
+                            <i class="bi bi-upload"></i> Carica
+                        </button>
+                        <button id="ddt-clear-btn" class="btn btn-outline-danger btn-sm" disabled title="Rimuovi DDT">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <div id="ddt-status" class="form-text mt-1"></div>
+                    <div id="ddt-summary" class="mt-2 small text-muted d-none">
+                        DDT: <strong id="ddt-product-count">0</strong> prodotti,
+                        <strong id="ddt-qty-total">0</strong> pz totali
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Middle row: scanned products + not found -->
+    <div class="row g-4 mb-4">
+
+        <div class="col-12 col-xl-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-list-check"></i> Prodotti scansionati</h5>
+                    <button id="clear-btn" class="btn btn-outline-danger btn-sm" disabled>
+                        <i class="bi bi-trash"></i> Azzera lista
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0" id="scanned-table">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>EAN</th>
+                                    <th>Cod.Var</th>
+                                    <th>Descrizione</th>
+                                    <th class="text-center">Pz/Collo</th>
+                                    <th class="text-center">Qty</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="scanned-tbody">
+                                <tr id="empty-row">
+                                    <td colspan="6" class="text-center text-muted py-4">
+                                        <i class="bi bi-upc-scan fs-3 d-block mb-2"></i>
+                                        Nessun prodotto scansionato ancora.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-xl-4">
+            <div class="card border-warning">
+                <div class="card-header bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0 text-warning"><i class="bi bi-exclamation-triangle"></i> Barcode non trovati</h5>
+                    <span class="badge bg-warning text-dark" id="not-found-count">0</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">Barcode scansionati ma non presenti nel DB.</p>
+                    <div id="not-found-list" class="d-flex flex-wrap gap-2">
+                        <span class="text-muted small" id="not-found-empty">Nessuno</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Comparison section (shown only when DDT is loaded) -->
+    <div id="compare-section" class="d-none mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0"><i class="bi bi-arrow-left-right"></i> Confronto DDT vs Scansionato</h5>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <span class="badge bg-success" id="cmp-ok-count">0 OK</span>
+                    <span class="badge bg-warning text-dark" id="cmp-qty-count">0 qty diversa</span>
+                    <span class="badge bg-danger" id="cmp-miss-count">0 mancanti</span>
+                    <span class="badge bg-primary" id="cmp-extra-count">0 extra</span>
+                    <button id="compare-btn" class="btn btn-primary btn-sm">
+                        <i class="bi bi-arrow-repeat"></i> Confronta
+                    </button>
+                </div>
+                <div id="cmp-nontrovati-hint" class="d-none small text-warning mt-1 w-100"></div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0" id="compare-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Stato</th>
+                                <th>Cod.Var</th>
+                                <th>Descrizione</th>
+                                <th class="text-center">Qty DDT</th>
+                                <th class="text-center">Qty scansionata</th>
+                                <th class="text-center">Differenza</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="compare-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const STORAGE_ID = {{ storage.id }};
+    const LOOKUP_URL    = "{% url 'delivery-check-lookup-ean'  storage_id=storage.id %}";
+    const PARSE_DDT_URL = "{% url 'delivery-check-parse-ddt'  storage_id=storage.id %}";
+    const FETCH_EAN_URL = "{% url 'delivery-check-fetch-ean'  storage_id=storage.id %}";
+    const CSRF_TOKEN   = "{{ csrf_token }}";
+    const LS_KEY       = `delivery_check_${STORAGE_ID}`;
+
+    // scanList:  { [ean]:     {cod, var, descrizione, pz_x_collo, settore, qty} }
+    // ddtList:   { [cod.var]: {cod, var, descrizione, qty, ean} }
+    // notFoundList: [ean, ...]
+    let scanList     = {};
+    let ddtList      = {};
+    let notFoundList = [];
+
+    // ---- Persistence ----
+    function load() {
+        try {
+            const raw = localStorage.getItem(LS_KEY);
+            if (raw) {
+                const data = JSON.parse(raw);
+                scanList     = data.scanList     || {};
+                ddtList      = data.ddtList      || {};
+                notFoundList = data.notFoundList  || [];
+            }
+        } catch (e) { /* ignore */ }
+        render();
+        updateDdtUI();
+    }
+
+    function save() {
+        try {
+            localStorage.setItem(LS_KEY, JSON.stringify({ scanList, ddtList, notFoundList }));
+        } catch (e) { /* ignore */ }
+    }
+
+    // ---- Refocus logic ----
+    const scanInput = document.getElementById('scan-input');
+    const statusBadge = document.getElementById('status-badge');
+
+    function refocus() { scanInput.focus(); }
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('[data-no-refocus]')) refocus();
+    });
+    refocus();
+
+    // ---- Scanner input ----
+    let scanTimeout = null;
+
+    function triggerScan() {
+        clearTimeout(scanTimeout);
+        scanTimeout = null;
+        const ean = scanInput.value.trim();
+        scanInput.value = '';
+        if (ean) processEan(ean);
+    }
+
+    scanInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); triggerScan(); }
+    });
+
+    scanInput.addEventListener('input', () => {
+        clearTimeout(scanTimeout);
+        scanTimeout = setTimeout(triggerScan, 100);
+    });
+
+    // ---- EAN lookup ----
+    function setStatus(text, type) {
+        statusBadge.className = `badge scan-status-badge bg-${type}`;
+        statusBadge.innerHTML = text;
+    }
+
+    function flashInput(ok) {
+        const cls = ok ? 'flash-ok' : 'flash-err';
+        scanInput.classList.add(cls);
+        setTimeout(() => scanInput.classList.remove(cls), 600);
+    }
+
+    function processEan(ean) {
+        setStatus('<i class="bi bi-hourglass-split"></i> Ricerca...', 'secondary');
+        fetch(LOOKUP_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body: JSON.stringify({ ean }),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.found) {
+                addScanned(ean, data.product);
+                flashInput(true);
+                setStatus(`<i class="bi bi-check-circle"></i> ${escHtml(data.product.descrizione.substring(0, 24))}`, 'success');
+            } else {
+                addNotFound(ean);
+                flashInput(false);
+                setStatus('<i class="bi bi-x-circle"></i> Non trovato', 'danger');
+            }
+            save();
+            render();
+            setTimeout(() => setStatus('<i class="bi bi-circle"></i> In attesa', 'secondary'), 2500);
+        })
+        .catch(() => {
+            flashInput(false);
+            setStatus('<i class="bi bi-wifi-off"></i> Errore rete', 'danger');
+        })
+        .finally(refocus);
+    }
+
+    function addScanned(ean, product) {
+        if (scanList[ean]) {
+            scanList[ean].qty += 1;
+        } else {
+            scanList[ean] = {
+                cod: product.cod, var: product.var,
+                descrizione: product.descrizione,
+                pz_x_collo: product.pz_x_collo,
+                settore: product.settore,
+                qty: 1,
+            };
+        }
+    }
+
+    function addNotFound(ean) {
+        if (!notFoundList.includes(ean)) notFoundList.push(ean);
+    }
+
+    // ---- DDT upload ----
+    const ddtFileInput  = document.getElementById('ddt-file-input');
+    const ddtUploadBtn  = document.getElementById('ddt-upload-btn');
+    const ddtClearBtn   = document.getElementById('ddt-clear-btn');
+    const ddtStatus     = document.getElementById('ddt-status');
+    const ddtBadge      = document.getElementById('ddt-badge');
+
+    ddtFileInput.addEventListener('change', () => {
+        ddtUploadBtn.disabled = !ddtFileInput.files.length;
+    });
+
+    ddtUploadBtn.addEventListener('click', () => {
+        const file = ddtFileInput.files[0];
+        if (!file) return;
+
+        ddtUploadBtn.disabled = true;
+        ddtStatus.textContent = 'Parsing in corso...';
+
+        const formData = new FormData();
+        formData.append('pdf_file', file);
+        formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+        fetch(PARSE_DDT_URL, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': CSRF_TOKEN },
+            body: formData,
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                ddtStatus.textContent = 'Errore: ' + data.error;
+                ddtStatus.className = 'form-text text-danger mt-1';
+                ddtUploadBtn.disabled = false;
+                return;
+            }
+            ddtList = {};
+            for (const e of data.entries) {
+                const key = `${e.cod}.${e.var}`;
+                ddtList[key] = e;
+            }
+            save();
+            updateDdtUI();
+            ddtStatus.textContent = 'DDT caricato. Clicca "Confronta" quando hai finito di scansionare.';
+            ddtStatus.className = 'form-text text-success mt-1';
+        })
+        .catch(() => {
+            ddtStatus.textContent = 'Errore di rete.';
+            ddtStatus.className = 'form-text text-danger mt-1';
+            ddtUploadBtn.disabled = false;
+        });
+    });
+
+    ddtClearBtn.addEventListener('click', () => {
+        ddtList = {};
+        ddtFileInput.value = '';
+        save();
+        updateDdtUI();
+        document.getElementById('compare-section').classList.add('d-none');
+        ddtStatus.textContent = '';
+        refocus();
+    });
+
+    function updateDdtUI() {
+        const count = Object.keys(ddtList).length;
+        const hasDdt = count > 0;
+
+        ddtClearBtn.disabled  = !hasDdt;
+        ddtUploadBtn.disabled = !ddtFileInput.files.length;
+
+        if (hasDdt) {
+            const totalQty = Object.values(ddtList).reduce((s, e) => s + e.qty, 0);
+            ddtBadge.className = 'badge bg-success';
+            ddtBadge.textContent = `${count} prodotti`;
+            document.getElementById('ddt-summary').classList.remove('d-none');
+            document.getElementById('ddt-product-count').textContent = count;
+            document.getElementById('ddt-qty-total').textContent = totalQty;
+        } else {
+            ddtBadge.className = 'badge bg-secondary';
+            ddtBadge.textContent = 'Non caricato';
+            document.getElementById('ddt-summary').classList.add('d-none');
+        }
+    }
+
+    // ---- Comparison ----
+    document.getElementById('compare-btn').addEventListener('click', () => {
+        document.getElementById('compare-section').classList.remove('d-none');
+        renderComparison();
+        refocus();
+    });
+
+    function buildScanByCodVar() {
+        // Aggregate scan list by cod.var (in case multiple EANs resolve to the same product)
+        const result = {};
+        for (const p of Object.values(scanList)) {
+            const key = `${p.cod}.${p.var}`;
+            if (!result[key]) result[key] = { cod: p.cod, var: p.var, descrizione: p.descrizione, qty: 0 };
+            result[key].qty += p.qty;
+        }
+        return result;
+    }
+
+    function renderComparison() {
+        const scanByCodVar = buildScanByCodVar();
+        const allKeys = new Set([...Object.keys(ddtList), ...Object.keys(scanByCodVar)]);
+
+        let okCount = 0, qtyCount = 0, missCount = 0, extraCount = 0;
+        const rows = [];
+
+        for (const key of [...allKeys].sort()) {
+            const ddt  = ddtList[key];
+            const scan = scanByCodVar[key];
+            const ddtQty  = ddt  ? ddt.qty  : 0;
+            const scanQty = scan ? scan.qty : 0;
+            const diff    = scanQty - ddtQty;
+            const desc    = (ddt || scan).descrizione;
+
+            let rowClass, statLabel, statBadge;
+
+            if (ddt && scan && ddtQty === scanQty) {
+                rowClass = 'row-ok';
+                statLabel = '<i class="bi bi-check-circle-fill text-success"></i>';
+                statBadge = 'success';
+                okCount++;
+            } else if (ddt && scan) {
+                rowClass = 'row-qty';
+                statLabel = '<i class="bi bi-exclamation-circle-fill text-warning"></i>';
+                statBadge = 'warning';
+                qtyCount++;
+            } else if (ddt && !scan) {
+                rowClass = 'row-miss';
+                statLabel = '<i class="bi bi-x-circle-fill text-danger"></i> Mancante';
+                statBadge = 'danger';
+                missCount++;
+            } else {
+                rowClass = 'row-extra';
+                statLabel = '<i class="bi bi-plus-circle-fill text-primary"></i> Extra';
+                statBadge = 'primary';
+                extraCount++;
+            }
+
+            let fetchBtn = '';
+            if (ddt && !scan) {
+                if (ddt.ean != null) {
+                    // EAN is in DB: product was definitively not scanned → not delivered
+                    fetchBtn = `<span class="badge bg-danger">
+                        <i class="bi bi-x-circle-fill"></i> Non consegnato
+                    </span>`;
+                } else {
+                    // EAN missing from DB: can't confirm via scan → offer to fetch it
+                    fetchBtn = `<button class="btn btn-outline-secondary btn-sm"
+                           data-action="fetch-ean" data-cod="${escHtml(String(ddt.cod))}" data-var="${escHtml(String(ddt.var))}"
+                           title="EAN non nel DB — Recupera da PAC2000A, poi riscansiona">
+                           <i class="bi bi-cloud-download"></i>
+                       </button>
+                       <div class="text-muted" style="font-size:0.7rem;">EAN mancante</div>`;
+                }
+            }
+
+            rows.push(`
+                <tr class="${rowClass}">
+                    <td>${statLabel}</td>
+                    <td class="text-nowrap"><code>${escHtml(key)}</code></td>
+                    <td>${escHtml(desc)}</td>
+                    <td class="text-center">${ddtQty  || '—'}</td>
+                    <td class="text-center">${scanQty || '—'}</td>
+                    <td class="text-center fw-bold ${diff > 0 ? 'text-primary' : diff < 0 ? 'text-danger' : 'text-success'}">
+                        ${ddtQty && scanQty ? (diff > 0 ? '+' : '') + diff : '—'}
+                    </td>
+                    <td class="text-end">${fetchBtn}</td>
+                </tr>
+            `);
+        }
+
+        document.getElementById('compare-tbody').innerHTML = rows.join('');
+        document.getElementById('cmp-ok-count').textContent    = `${okCount} OK`;
+        document.getElementById('cmp-qty-count').textContent   = `${qtyCount} qty diversa`;
+        document.getElementById('cmp-miss-count').textContent  = `${missCount} mancanti`;
+        document.getElementById('cmp-extra-count').textContent = `${extraCount} extra`;
+
+        // Hint: if there are unresolved scans, they might correspond to mancanti
+        const hint = document.getElementById('cmp-nontrovati-hint');
+        if (notFoundList.length > 0 && missCount > 0) {
+            hint.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${notFoundList.length} barcode non trovati — potrebbero corrispondere ai prodotti mancanti`;
+            hint.classList.remove('d-none');
+        } else {
+            hint.classList.add('d-none');
+        }
+
+    }
+
+    // ---- Render scan list ----
+    function render() {
+        renderScannedTable();
+        renderNotFound();
+        updateCounters();
+        document.getElementById('clear-btn').disabled =
+            (Object.keys(scanList).length === 0 && notFoundList.length === 0);
+    }
+
+    function renderScannedTable() {
+        const tbody  = document.getElementById('scanned-tbody');
+        const entries = Object.entries(scanList);
+
+        if (entries.length === 0) {
+            tbody.innerHTML = '';
+            tbody.appendChild(buildEmptyRow());
+            return;
+        }
+
+        entries.sort((a, b) => a[1].descrizione.localeCompare(b[1].descrizione));
+        tbody.innerHTML = '';
+        entries.forEach(([ean, p]) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><code class="small">${escHtml(ean)}</code></td>
+                <td class="text-nowrap">${escHtml(String(p.cod))}.${escHtml(String(p.var))}</td>
+                <td>${escHtml(p.descrizione)}</td>
+                <td class="text-center">${p.pz_x_collo ?? '—'}</td>
+                <td class="text-center"><span class="badge bg-primary qty-badge">${p.qty}</span></td>
+                <td class="text-end">
+                    <button class="btn btn-outline-danger btn-sm remove-btn" data-ean="${escHtml(ean)}" title="Rimuovi una unità">
+                        <i class="bi bi-dash-circle"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        tbody.querySelectorAll('.remove-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const ean = btn.dataset.ean;
+                if (scanList[ean]) {
+                    scanList[ean].qty -= 1;
+                    if (scanList[ean].qty <= 0) delete scanList[ean];
+                    save();
+                    render();
+                }
+                refocus();
+            });
+        });
+    }
+
+    function buildEmptyRow() {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td colspan="6" class="text-center text-muted py-4">
+                <i class="bi bi-upc-scan fs-3 d-block mb-2"></i>
+                Nessun prodotto scansionato ancora.
+            </td>
+        `;
+        return tr;
+    }
+
+    function renderNotFound() {
+        const container = document.getElementById('not-found-list');
+        document.getElementById('not-found-count').textContent = notFoundList.length;
+
+        if (notFoundList.length === 0) {
+            container.innerHTML = '<span class="text-muted small" id="not-found-empty">Nessuno</span>';
+            return;
+        }
+        container.innerHTML = '';
+        notFoundList.forEach(ean => {
+            const span = document.createElement('span');
+            span.className = 'badge bg-warning text-dark d-flex align-items-center gap-1';
+            span.innerHTML = `
+                <code>${escHtml(ean)}</code>
+                <button class="btn-close ms-1" style="font-size:0.55rem;" data-ean="${escHtml(ean)}" title="Rimuovi"></button>
+            `;
+            span.querySelector('button').addEventListener('click', () => {
+                notFoundList = notFoundList.filter(e => e !== ean);
+                save();
+                render();
+                refocus();
+            });
+            container.appendChild(span);
+        });
+    }
+
+    function updateCounters() {
+        const totalUnits = Object.values(scanList).reduce((s, p) => s + p.qty, 0);
+        document.getElementById('total-units').textContent = totalUnits;
+        document.getElementById('total-lines').textContent = Object.keys(scanList).length;
+    }
+
+    // ---- Fetch EAN (event delegation on compare tbody) ----
+    document.getElementById('compare-tbody').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action="fetch-ean"]');
+        if (!btn) return;
+
+        const cod = parseInt(btn.dataset.cod);
+        const v   = parseInt(btn.dataset.var);
+        const ddt = ddtList[`${cod}.${v}`];
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+        fetch(FETCH_EAN_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body: JSON.stringify({ cod, var: v }),
+        })
+        .then(r => r.json())
+        .then(({ task_id }) => pollFetchEan(task_id, btn, ddt))
+        .catch(() => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-cloud-download"></i>';
+            btn.title = 'Errore di rete';
+        });
+    });
+
+    function pollFetchEan(task_id, btn, ddt) {
+        const STATUS_URL = `/tasks/${task_id}/status/`;
+        const interval = setInterval(() => {
+            fetch(STATUS_URL)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.ready) return;
+                clearInterval(interval);
+                const result = data.result || {};
+                if (result.ean && ddt) {
+                    // Auto-add to scan list with DDT qty — no rescan needed
+                    const eanKey = String(result.ean);
+                    if (scanList[eanKey]) {
+                        scanList[eanKey].qty += ddt.qty;
+                    } else {
+                        scanList[eanKey] = {
+                            cod: ddt.cod, var: ddt.var,
+                            descrizione: ddt.descrizione,
+                            pz_x_collo: null, settore: null,
+                            qty: ddt.qty,
+                        };
+                    }
+                    save();
+                    render();
+                    renderComparison();
+                } else {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-cloud-download"></i>';
+                    btn.title = result.message || 'EAN non trovato su PAC2000A';
+                }
+            })
+            .catch(() => clearInterval(interval));
+        }, 2000);
+    }
+
+    // ---- Clear scan list ----
+    document.getElementById('clear-btn').addEventListener('click', () => {
+        if (!confirm('Azzerare tutta la lista di scansione?')) { refocus(); return; }
+        scanList = {};
+        notFoundList = [];
+        save();
+        render();
+        setStatus('<i class="bi bi-circle"></i> In attesa', 'secondary');
+        refocus();
+    });
+
+    // ---- Utils ----
+    function escHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // ---- Init ----
+    load();
+})();
+</script>
+{% endblock %}
