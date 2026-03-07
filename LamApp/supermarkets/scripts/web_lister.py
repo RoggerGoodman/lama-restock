@@ -448,7 +448,7 @@ class WebLister:
         id_articolo = data.get("IDArticolo")
         if id_articolo:
             try:
-                barcode_url = "https://dropzone.pac2000a.it/anagrafiche/CodiciBarreProxyAbs_call.php"
+                barcode_url = "https://dropzone.pac2000a.it/articoli/codiciBarre/CodiciBarreProxyAbs_call.php"
                 barcode_payload = {
                     "funzione": "lista",
                     "IDArticolo": id_articolo,

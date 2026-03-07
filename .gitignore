@@ -127,3 +127,4 @@ settings.py
 LamApp/LamApp/settings.py
 LOGGING_GUIDE.md
 DEPLOYMENT_CHANGES.md
+debug_ean_fetch.py

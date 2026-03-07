@@ -1494,15 +1494,15 @@ def backfill_ean_for_verified_products(self):
         total_failed = 0
 
         for storage in storages:
-            # Query missing EANs
+            # Query missing EANs for this storage's settore only
             with RestockService(storage) as service:
                 cur = service.db.cursor()
                 cur.execute("""
                     SELECT p.cod, p.v
                     FROM products p
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                    WHERE ps.verified = TRUE AND p.ean IS NULL
-                """)
+                    WHERE ps.verified = TRUE AND p.ean IS NULL AND p.settore = %s
+                """, (storage.settore,))
                 missing = cur.fetchall()
 
             if not missing:
