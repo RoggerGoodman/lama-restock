@@ -165,7 +165,14 @@
 
     </div>
 
-    <!-- Comparison section (shown only when DDT is loaded) -->
+    <!-- Compare trigger (visible only when DDT is loaded) -->
+    <div id="compare-trigger-row" class="d-none mb-3 text-end">
+        <button id="compare-btn" class="btn btn-primary">
+            <i class="bi bi-arrow-left-right"></i> Confronta DDT vs Scansionato
+        </button>
+    </div>
+
+    <!-- Comparison section (shown only after compare is run) -->
     <div id="compare-section" class="d-none mb-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -175,8 +182,8 @@
                     <span class="badge bg-warning text-dark" id="cmp-qty-count">0 qty diversa</span>
                     <span class="badge bg-danger" id="cmp-miss-count">0 mancanti</span>
                     <span class="badge bg-primary" id="cmp-extra-count">0 extra</span>
-                    <button id="compare-btn" class="btn btn-primary btn-sm">
-                        <i class="bi bi-arrow-repeat"></i> Confronta
+                    <button id="recompare-btn" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-arrow-repeat"></i> Aggiorna
                     </button>
                 </div>
                 <div id="cmp-nontrovati-hint" class="d-none small text-warning mt-1 w-100"></div>
@@ -391,6 +398,7 @@
         save();
         updateDdtUI();
         document.getElementById('compare-section').classList.add('d-none');
+        document.getElementById('compare-trigger-row').classList.add('d-none');
         ddtStatus.textContent = '';
         refocus();
     });
@@ -409,19 +417,23 @@
             document.getElementById('ddt-summary').classList.remove('d-none');
             document.getElementById('ddt-product-count').textContent = count;
             document.getElementById('ddt-qty-total').textContent = totalQty;
+            document.getElementById('compare-trigger-row').classList.remove('d-none');
         } else {
             ddtBadge.className = 'badge bg-secondary';
             ddtBadge.textContent = 'Non caricato';
             document.getElementById('ddt-summary').classList.add('d-none');
+            document.getElementById('compare-trigger-row').classList.add('d-none');
         }
     }
 
     // ---- Comparison ----
-    document.getElementById('compare-btn').addEventListener('click', () => {
+    function runCompare() {
         document.getElementById('compare-section').classList.remove('d-none');
         renderComparison();
         refocus();
-    });
+    }
+    document.getElementById('compare-btn').addEventListener('click', runCompare);
+    document.getElementById('recompare-btn').addEventListener('click', runCompare);
 
     function buildScanByCodVar() {
         // Aggregate scan list by cod.var (in case multiple EANs resolve to the same product)
