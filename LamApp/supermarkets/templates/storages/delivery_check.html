@@ -323,15 +323,16 @@
     }
 
     function addScanned(ean, product) {
+        const pack = product.pz_x_collo || 1;
         if (scanList[ean]) {
-            scanList[ean].qty += 1;
+            scanList[ean].qty += pack;
         } else {
             scanList[ean] = {
                 cod: product.cod, var: product.var,
                 descrizione: product.descrizione,
                 pz_x_collo: product.pz_x_collo,
                 settore: product.settore,
-                qty: 1,
+                qty: pack,
             };
         }
     }
@@ -464,10 +465,8 @@
             let rowClass, statLabel, statBadge;
 
             if (ddt && scan && ddtQty === scanQty) {
-                rowClass = 'row-ok';
-                statLabel = '<i class="bi bi-check-circle-fill text-success"></i>';
-                statBadge = 'success';
                 okCount++;
+                continue; // don't render OK rows
             } else if (ddt && scan) {
                 rowClass = 'row-qty';
                 statLabel = '<i class="bi bi-exclamation-circle-fill text-warning"></i>';
@@ -518,7 +517,12 @@
             `);
         }
 
-        document.getElementById('compare-tbody').innerHTML = rows.join('');
+        const emptyRow = rows.length === 0
+            ? `<tr><td colspan="7" class="text-center text-success py-3">
+                   <i class="bi bi-check-circle-fill"></i> Nessuna discrepanza — consegna conforme al DDT
+               </td></tr>`
+            : '';
+        document.getElementById('compare-tbody').innerHTML = emptyRow + rows.join('');
         document.getElementById('cmp-ok-count').textContent    = `${okCount} OK`;
         document.getElementById('cmp-qty-count').textContent   = `${qtyCount} qty diversa`;
         document.getElementById('cmp-miss-count').textContent  = `${missCount} mancanti`;
