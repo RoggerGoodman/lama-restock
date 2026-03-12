@@ -603,8 +603,7 @@
                                                 <th>Costo unitario</th>
                                                 <th>Prezzo unitario</th>
                                                 <th>Margine</th>
-                                                <th>Disponibilità</th>
-                                                <th>Motivo</th>
+                                                <th>Azione</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -630,13 +629,11 @@
                                                     {% endif %}
                                                 </td>
                                                 <td>
-                                                    {% if item.disponibilita == 'Si' %}
-                                                        <span class="badge bg-success">Disponibile</span>
-                                                    {% else %}
-                                                        <span class="badge bg-danger">Non Disponibile</span>
-                                                    {% endif %}
+                                                    <button class="btn btn-sm btn-outline-success"
+                                                            onclick="openVerifyNewModal({{ item.cod }}, {{ item.var }}, '{{ item.name|truncatewords:6 }}', this)">
+                                                        <i class="bi bi-check-circle"></i> Verifica
+                                                    </button>
                                                 </td>
-                                                <td><small class="text-muted">{{ item.reason }}</small></td>
                                             </tr>
                                             {% endfor %}
                                         </tbody>
@@ -1020,10 +1017,116 @@ function flagAllZombiesForPurge() {
         const [cod, var_] = cb.value.split(',');
         all.push({cod: parseInt(cod), var: parseInt(var_)});
     });
-    
+
     if (!confirm(`Flag all ${all.length} zombie products for purging?`)) return;
-    
+
     flagProductsForPurge(all);
 }
+
+// ---- Verify New Product Modal ----
+let verifyNewModal = null;
+let verifyNewCod = null;
+let verifyNewVar = null;
+let verifyNewTriggerBtn = null;
+
+function openVerifyNewModal(cod, var_, name, triggerBtn) {
+    verifyNewCod = cod;
+    verifyNewVar = var_;
+    verifyNewTriggerBtn = triggerBtn;
+    document.getElementById('verifyNewProductLabel').textContent = name + ' (' + cod + '.' + var_ + ')';
+    document.getElementById('verifyNewCluster').value = '';
+    document.getElementById('verifyNewFeedback').textContent = '';
+
+    // Load existing clusters for this storage
+    const smId = {{ log.storage.supermarket.id }};
+    const settore = encodeURIComponent('{{ log.storage.settore }}');
+    fetch(`/inventory/api/clusters/${smId}/${settore}/`)
+        .then(r => r.json())
+        .then(data => {
+            const list = document.getElementById('verifyNewClusterList');
+            list.innerHTML = '';
+            (data.clusters || []).forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                list.appendChild(opt);
+            });
+        });
+
+    if (!verifyNewModal) {
+        verifyNewModal = new bootstrap.Modal(document.getElementById('verifyNewModal'));
+    }
+    verifyNewModal.show();
+}
+
+function submitVerifyNew() {
+    const cluster = document.getElementById('verifyNewCluster').value.trim().toUpperCase();
+    const feedback = document.getElementById('verifyNewFeedback');
+    const btn = document.getElementById('verifyNewSubmitBtn');
+
+    btn.disabled = true;
+    btn.textContent = 'Salvataggio...';
+
+    fetch('{% url "verify-product" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            storage_id: {{ log.storage.id }},
+            cod: verifyNewCod,
+            var: verifyNewVar,
+            cluster: cluster || null
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.textContent = 'Verifica';
+        if (data.success) {
+            verifyNewModal.hide();
+            if (verifyNewTriggerBtn) {
+                const cluster = document.getElementById('verifyNewCluster').value.trim().toUpperCase();
+                verifyNewTriggerBtn.outerHTML = '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Verificato' + (cluster ? ' · ' + cluster : '') + '</span>';
+            }
+        } else {
+            feedback.textContent = data.message || 'Errore sconosciuto';
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.textContent = 'Verifica';
+        feedback.textContent = 'Errore: ' + err;
+    });
+}
 </script>
+
+<!-- Verify New Product Modal -->
+<div class="modal fade" id="verifyNewModal" tabindex="-1" aria-labelledby="verifyNewProductLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="verifyNewProductLabel">Verifica articolo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="verifyNewCluster" class="form-label">Cluster <small class="text-muted">(opzionale)</small></label>
+                    <input type="text" class="form-control" id="verifyNewCluster"
+                           list="verifyNewClusterList" placeholder="Seleziona o crea nuovo cluster"
+                           style="text-transform: uppercase;">
+                    <datalist id="verifyNewClusterList"></datalist>
+                </div>
+                <div class="text-danger small" id="verifyNewFeedback"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-success" id="verifyNewSubmitBtn" onclick="submitVerifyNew()">
+                    <i class="bi bi-check-circle"></i> Verifica
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}

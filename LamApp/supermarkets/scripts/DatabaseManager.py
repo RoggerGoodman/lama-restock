@@ -956,6 +956,36 @@ class DatabaseManager:
         
         return purged
     
+    def purge_obsolete_products(self):
+        """
+        Delete products that are confirmed gone from all tables:
+          - verified = FALSE  (never confirmed in stock)
+          - disponibilita = 'No'  (marked unavailable by the supplier)
+          - stock = 0  (nothing physically on shelf)
+
+        Called after all list updates complete so that disponibilita is fresh.
+        Returns list of purge result dicts.
+        """
+        cur = self.cursor()
+
+        cur.execute("""
+            SELECT p.cod, p.v
+            FROM products p
+            JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+            WHERE ps.verified = FALSE
+              AND p.disponibilita = 'No'
+              AND ps.stock = 0
+        """)
+
+        candidates = cur.fetchall()
+        purged = []
+
+        for row in candidates:
+            result = self.purge_product(row['cod'], row['v'])
+            purged.append(result)
+
+        return purged
+
     def get_purge_pending(self):
         """Get all products flagged for purging (with stock > 0)"""
         cur = self.cursor()

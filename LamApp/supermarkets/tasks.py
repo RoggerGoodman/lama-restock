@@ -406,6 +406,35 @@ def run_scheduled_list_updates(self):
         result_msg = f"List updates complete: {success_count} successful, {error_count} failed"
         logger.info(f"[CELERY] {result_msg}")
 
+        # Purge obsolete products (verified=False, disponibilita=No, stock=0)
+        # once per supermarket now that all lists are fresh.
+        from .models import Supermarket
+        purge_total = 0
+        supermarket_ids = storages.values_list('supermarket_id', flat=True).distinct()
+        for sm in Supermarket.objects.filter(id__in=supermarket_ids):
+            try:
+                from .scripts.DatabaseManager import DatabaseManager
+                from .scripts.helpers import Helper
+                db = DatabaseManager(Helper(), supermarket_name=sm.name)
+                try:
+                    purged = db.purge_obsolete_products()
+                    if purged:
+                        purge_total += len(purged)
+                        for p in purged:
+                            logger.info(
+                                f"[CELERY] Purged obsolete product {p['cod']}.{p['v']} "
+                                f"from {sm.name}"
+                            )
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.exception(
+                    f"[CELERY] Error during obsolete-product purge for {sm.name}"
+                )
+
+        if purge_total:
+            logger.info(f"[CELERY] Purged {purge_total} obsolete product(s) total")
+
         return result_msg
 
     except Exception as exc:
