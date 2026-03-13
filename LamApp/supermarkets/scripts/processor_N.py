@@ -70,5 +70,9 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
     if leftover_stock <= minimum_stock:
         order = 1
         return order, 2, True, discount
+    
+    if stock <= package_size/5:
+        order = 1
+        return order, 3, True, discount
        
     return None, 0, False, discount
