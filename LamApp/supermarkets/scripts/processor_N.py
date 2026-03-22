@@ -27,7 +27,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
         minimum_stock += round(avg_daily_sales)
         if discount != None:
             minimum_stock += round(avg_daily_sales)
-        minimum_stock += math.floor(req_stock * 0.1)
+        minimum_stock += math.floor(req_stock * 0.05)
     elif avg_daily_sales < 0.6:
         minimum_stock -= 1
         if avg_daily_sales < 0.3:
@@ -71,7 +71,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
         order = 1
         return order, 2, True, discount
     
-    if stock <= package_size/5:
+    if discount != None and stock <= package_size*0.4 or stock <= package_size*0.2:
         order = 1
         return order, 3, True, discount
        
