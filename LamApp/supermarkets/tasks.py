@@ -548,6 +548,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
 
             try:
                 lister.login()
+                lister.navigate_to_lists()
 
                 added = []
                 failed = []
@@ -916,6 +917,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 
                 try:
                     lister.login()
+                    lister.navigate_to_lists()
                     
                     for idx, (cod, var, qty) in enumerate(missing_products, 1):
                         # ✅ Update progress for each product
@@ -1559,6 +1561,7 @@ def backfill_ean_for_verified_products(self):
 
             try:
                 lister.login()
+                lister.navigate_to_lists()
 
                 with RestockService(storage) as service:
                     for row in missing:
@@ -1637,6 +1640,7 @@ def fetch_single_ean(storage_id, cod, v):
 
     try:
         lister.login()
+        lister.navigate_to_lists()
         product_data = lister.gather_missing_product_data(cod, v)
         if not product_data or product_data[7] is None:
             return {'ean': None, 'message': f'EAN non trovato per {cod}.{v}'}

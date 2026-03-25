@@ -367,9 +367,11 @@ class SupermarketCreateView(LoginRequiredMixin, CreateView):
                 self.object.id_marchio = client_data.get('id_marchio')
                 self.object.id_clienti_canale = client_data.get('id_clienti_canale')
                 self.object.id_clienti_area = client_data.get('id_clienti_area')
+                self.object.id_user = client_data.get('id_user')
+                self.object.x5cper = client_data.get('x5cper')
                 self.object.save(update_fields=[
                     'id_cliente', 'id_azienda', 'id_marchio',
-                    'id_clienti_canale', 'id_clienti_area'
+                    'id_clienti_canale', 'id_clienti_area', 'id_user', 'x5cper'
                 ])
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Could not parse client data: {e}")

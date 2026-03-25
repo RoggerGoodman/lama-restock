@@ -16,6 +16,8 @@ class Supermarket(models.Model):
     id_marchio = models.IntegerField(null=True, blank=True, help_text="IDMarchio from PAC2000A")
     id_clienti_canale = models.IntegerField(null=True, blank=True, help_text="IDClientiCanale from PAC2000A")
     id_clienti_area = models.IntegerField(null=True, blank=True, help_text="IDClientiArea from PAC2000A")
+    id_user = models.IntegerField(null=True, blank=True, help_text="IDUser from PAC2000A (used for fatture_righe_data)")
+    x5cper = models.IntegerField(null=True, blank=True, help_text="N1CPER from PAC2000A (counterpart code for ScorporoAmministrativo)")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

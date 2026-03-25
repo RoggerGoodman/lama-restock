@@ -150,6 +150,25 @@ class WebLister:
         password_field.send_keys(self.password)
         self.actions.send_keys(Keys.ENTER)
         self.actions.perform()
+        time.sleep(1)
+        logger.info("Login completed")
+
+    def navigate_to_invoices(self):
+        self.wait.until(EC.presence_of_element_located((By.ID, "carta2")))
+        
+        documents_menu = self.driver.find_element(By.ID, "carta2")
+        documents_menu.click()
+
+        self.wait.until(EC.presence_of_element_located((By.ID, "carta60")))
+        
+        invoices_menu = self.driver.find_element(By.ID, "cart60")
+        invoices_menu.click()
+
+        self.wait.until(lambda driver: len(driver.window_handles) > 1)
+        
+        self.driver.switch_to.window(self.driver.window_handles[-1])
+    
+    def navigate_to_lists(self):
         
         self.wait.until(EC.presence_of_element_located((By.ID, "carta31")))
         
@@ -173,61 +192,84 @@ class WebLister:
         orders_menu1.click()
         
         time.sleep(1)
-        logger.info("Navigation completed")
+        logger.info("Navigation to List completed")
 
     def gather_client_data(self):
         """
-        Intercept a Listino API call to extract client-specific parameters.
-        Must be called after login(). Returns a dict with:
-        IDCliente, IDAzienda, IDMarchio, IDClientiCanale, IDClientiArea
+        Gather all client-specific parameters from PAC2000A APIs.
+        Must be called after login(). Navigates to the lists section to
+        intercept IDUser, then fetches client params and x5cper via API calls.
+        Returns a dict with all fields needed to populate the Supermarket model.
         """
         from urllib.parse import parse_qs
 
-        select_button = self.driver.find_element(By.XPATH, '//*[@id="idMagConsegna"]/div[1]/div/div[1]/span[2]')
-        select_button.click()
-        self.actions.perform()
-        storage_item = WebDriverWait(self.driver, 10).until(EC.element_to_be_clickable((By.XPATH, "//smart-list-item[.//span[contains(normalize-space(), 'SURGELATI')]]")))
-        storage_item.click()
-        self.driver.execute_script("""
-        window.__lastListinoPayload = null;
+        # Step 1: Navigate to lists section in a new tab, intercept IDUser via CDP
+        self.driver.find_element(By.ID, "carta31").click()
+        self.wait.until(EC.presence_of_element_located((By.ID, "carta139")))
+        self.driver.find_element(By.ID, "carta139").click()
+        self.wait.until(lambda driver: len(driver.window_handles) > 1)
+        self.driver.switch_to.window(self.driver.window_handles[-1])
 
-        (function() {
-            const origSend = XMLHttpRequest.prototype.send;
-            XMLHttpRequest.prototype.send = function(body) {
-                if (this._url && this._url.includes('Listino_callV2.php')) {
-                    window.__lastListinoPayload = body;
-                }
-                return origSend.apply(this, arguments);
-            };
+        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": """
+            window.__clientePayload = null;
+            (function() {
+                const origSend = XMLHttpRequest.prototype.send;
+                XMLHttpRequest.prototype.send = function(body) {
+                    if (this._url && this._url.includes('Cliente_call.php')) {
+                        window.__clientePayload = body;
+                    }
+                    return origSend.apply(this, arguments);
+                };
+                const origOpen = XMLHttpRequest.prototype.open;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    this._url = url;
+                    return origOpen.apply(this, arguments);
+                };
+            })();
+        """})
+        self.driver.refresh()
+        self.wait.until(EC.presence_of_element_located((By.ID, "linkListino")))
+        time.sleep(2)
 
-            const origOpen = XMLHttpRequest.prototype.open;
-            XMLHttpRequest.prototype.open = function(method, url) {
-                this._url = url;
-                return origOpen.apply(this, arguments);
-            };
-        })();
-        """)
-        confirm_button = WebDriverWait(self.driver, 10).until(EC.element_to_be_clickable((By.XPATH, '//*[@id="confermaFooterFiltro"]/button')))
-        confirm_button.click()
-        self.wait.until(
-            EC.invisibility_of_element_located((By.ID, "loadingWindow"))
-        )
-        raw_payload = self.driver.execute_script(
-            "return window.__lastListinoPayload;"
-        )
+        raw = self.driver.execute_script("return window.__clientePayload;")
+        if not raw:
+            raise ValueError("Failed to intercept Cliente_call.php — IDUser not captured")
+        parsed = parse_qs(raw)
+        id_user = int(parsed["IDUser"][0])
+        logger.info(f"Captured IDUser: {id_user}")
 
-        if not raw_payload:
-            raise ValueError("Failed to intercept Listino payload - no client data captured")
+        # Step 2: Fetch client params from Cliente_call.php
+        url_cliente = "https://dropzone.pac2000a.it/anagrafiche/Cliente_call.php"
+        payload_cliente = {"funzione": "loadComboV2", "IDUser": id_user, "Chiamante": "gestioneOrdini"}
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://dropzone.pac2000a.it/",
+            "User-Agent": self.driver.execute_script("return navigator.userAgent;"),
+        }
+        session = requests.Session()
+        for c in self.driver.get_cookies():
+            session.cookies.set(c["name"], c["value"])
 
-        parsed = parse_qs(raw_payload)
+        row = session.post(url_cliente, data=payload_cliente, headers=headers, timeout=30).json()[0]
 
-        # Extract client-specific params (parse_qs returns lists, take first value)
+        # Step 3: Fetch x5cper from PersoneProxy.php
+        persona_row = session.post(
+            "https://dropzone.pac2000a.it/include/PersoneProxy.php",
+            data={"ragsoc": "", "app": "RIEPFATT"},
+            headers=headers, timeout=30
+        ).json()
+        x5cper = int((persona_row[0] if isinstance(persona_row, list) else persona_row)["N1CPER"])
+
         client_data = {
-            'id_cliente': int(parsed['IDCliente'][0]),
-            'id_azienda': int(parsed['IDAzienda'][0]),
-            'id_marchio': int(parsed['IDMarchio'][0]),
-            'id_clienti_canale': int(parsed['IDClientiCanale'][0]),
-            'id_clienti_area': int(parsed['IDClientiArea'][0]),
+            'id_cliente':        int(row["value"]),
+            'id_azienda':        int(row["IDAzienda"]),
+            'id_marchio':        int(row["IDMarchio"]),
+            'id_clienti_canale': int(row["IDClientiCanale"]),
+            'id_clienti_area':   int(row["IDClientiArea"]),
+            'id_user':           id_user,
+            'x5cper':            x5cper,
         }
 
         logger.info(f"Gathered client data: {client_data}")
@@ -355,6 +397,7 @@ class WebLister:
         """
         try:
             self.login()
+            self.navigate_to_lists()
             self.apply_category_filters()
             self.data = self.fetch_listino()
             file_path = self.save_listino_to_csv(self.data)
