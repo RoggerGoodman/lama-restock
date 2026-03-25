@@ -20,33 +20,23 @@ logger = logging.getLogger(__name__)
 class RestockService:
     """Service to handle restock operations"""
     
+    def get_db_path(self):
+        """Get database path - now returns supermarket name for PostgreSQL."""
+        return self.supermarket.name
+
     def __init__(self, storage: Storage):
         self.storage = storage
         self.settore = storage.settore
         self.supermarket = storage.supermarket
-        
-        # Initialize your existing classes
         self.helper = Helper()
         
-        # Use storage-specific database path
-        db_path = self.get_db_path()
-        self.db = DatabaseManager(self.helper, db_path=db_path)
-        self.decision_maker = DecisionMaker(
+        # NEW: Pass supermarket name instead of db_path
+        self.db = DatabaseManager(
             self.helper, 
-            db_path=db_path,
-            blacklist_set=self.get_blacklist_set()  # ADD BLACKLIST
+            supermarket_name=self.supermarket.name
         )
-    
-    def get_db_path(self):
-        """Get database path for this storage"""
-        db_dir = Path(settings.BASE_DIR) / 'databases'
-        db_dir.mkdir(exist_ok=True)
         
-        # Sanitize supermarket name for filename
-        safe_name = "".join(c for c in self.supermarket.name if c.isalnum() or c in (' ', '_')).strip()
-        safe_name = safe_name.replace(' ', '_')
-        
-        return str(db_dir / f"{safe_name}.db")
+        self.decision_maker = DecisionMaker(self.db, self.helper, blacklist_set=self.get_blacklist_set())
     
     def get_blacklist_set(self):
         """
@@ -122,10 +112,13 @@ class RestockService:
         """
         Execute the actual order placement using Orderer
         """
-        orderer = Orderer()
+        orderer = Orderer(
+            username=self.supermarket.username,
+            password=self.supermarket.password
+        )
+        
         try:
             orderer.login()
-            # Use storage.name for orderer (this is what dropdown expects)
             orderer.make_orders(self.storage.name, orders_list)
             return True
         except Exception as e:
@@ -139,8 +132,17 @@ class RestockService:
         self.db.import_from_excel(file_path, self.settore)
     
     def update_product_stats(self):
-        """Update product statistics from PAC2000A"""
-        scrapper = Scrapper(self.helper, self.db)
+        """
+        Update product statistics from PAC2000A
+        """
+        
+        scrapper = Scrapper(
+            username=self.supermarket.username,
+            password=self.supermarket.password,
+            helper=self.helper,
+            db=self.db
+        )
+        
         try:
             scrapper.navigate()
             scrapper.init_product_stats_for_settore(self.settore)
@@ -173,9 +175,14 @@ class StorageService:
         """
         from .scripts.finder import Finder 
         
-        finder = Finder()
+        
+        finder = Finder(
+            username=supermarket.username,
+            password=supermarket.password
+        )
+        
         try:
-            finder.login(supermarket.username, supermarket.password)
+            finder.login()
             return finder.find_storages()
         finally:
             finder.driver.quit()

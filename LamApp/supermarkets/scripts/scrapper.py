@@ -7,7 +7,6 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
-from .constants import PASSWORD, USERNAME
 from .DatabaseManager import DatabaseManager
 from .helpers import Helper
 import pdfplumber
@@ -16,38 +15,51 @@ import re
 
 class Scrapper:
 
-    def __init__(self, helper: Helper, db: DatabaseManager) -> None:
-        # Set up the Selenium WebDriver (Ensure to have the correct browser driver installed)
-        chrome_options = Options()
-        # chrome_options.add_argument("--headless")  # Run Chrome in headless mode
-        # chrome_options.add_argument("--no-sandbox")  # Required for some environments
-        # chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-        # chrome_options.add_argument("--disable-gpu")  # Applicable only if you are running on Windows
-
+    def __init__(self, username: str, password: str, helper: Helper, db: DatabaseManager) -> None:
+        """
+        Initialize scrapper with credentials.
+        
+        Args:
+            username: PAC2000A username
+            password: PAC2000A password
+            helper: Helper instance
+            db: DatabaseManager instance
+        """
+        self.username = username
+        self.password = password
         self.helper = helper
+        self.db = db
+        
+        # Set up the Selenium WebDriver
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_argument('--log-level=3')
+
         self.driver = webdriver.Chrome(options=chrome_options)
         self.actions = ActionChains(self.driver)
-        self.db = db
-        self.offers_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Offers"
+        self.offers_path = r"C:\Users\rugge\Documents\GitHub\lama-restock\Offers"
         self.current_day = datetime.now().day
 
     def login(self):
-
+        """Login to PAC2000A"""
         self.driver.get('https://www.pac2000a.it/PacApplicationUserPanel/faces/home.jsf')
     
-
-        # Wait for the username field to be present, indicating that the page has loaded
+        # Wait for the username field to be present
         WebDriverWait(self.driver, 10).until(
             EC.presence_of_element_located((By.ID, "username"))
         )
 
-        # Log in by entering the username and password, then clicking the login button
+        # Log in
         username_field = self.driver.find_element(By.ID, "username")
         password_field = self.driver.find_element(By.ID, "Password")
         login_button = self.driver.find_element(By.CLASS_NAME, "btn-primary")
 
-        username_field.send_keys(USERNAME)
-        password_field.send_keys(PASSWORD)
+        username_field.send_keys(self.username)
+        password_field.send_keys(self.password)
         login_button.click()
 
     def navigate(self):
@@ -84,11 +96,19 @@ class Scrapper:
         """
         
         timeout=10
-        cur = self.db.conn.cursor()
+        cur = self.db.cursor()
         if settore == "GENERI VARI":
-            cur.execute("SELECT ps.cod, ps.v FROM 'product_stats' ps LEFT JOIN 'products' p ON ps.cod = p.cod AND ps.v = p.v WHERE p.settore = ? AND ps.verified = 1", (settore,))
+            cur.execute("""
+                SELECT ps.cod, ps.v
+                FROM product_stats ps
+                LEFT JOIN products p
+                ON ps.cod = p.cod
+                AND ps.v   = p.v
+                AND p.settore = %s
+                WHERE ps.verified = TRUE
+            """, (settore,))
         else :
-            cur.execute("SELECT cod, v FROM products WHERE settore = ?", (settore,))
+            cur.execute("SELECT cod, v FROM products WHERE settore = %s", (settore,))
 
         products = cur.fetchall()
 
@@ -170,7 +190,7 @@ class Scrapper:
 
                 # --- write to DB ---
                 # If row exists and force=True -> update; else init (INSERT)
-                cur.execute("SELECT 1 FROM product_stats WHERE cod=? AND v=?", (cod, v))
+                cur.execute("SELECT 1 FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
                 exists = cur.fetchone() is not None
 
                 if not exists:
@@ -303,18 +323,18 @@ class Scrapper:
 
                 pz_x_collo = self.determine_pz_x_collo(final_array_bought)
 
-                cur = self.db.conn.cursor()
+                cur = self.db.cursor()
                 cur.execute("""
                     INSERT INTO products 
                     (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
 
                 self.db.conn.commit()
 
                 # --- write to DB ---
                 # If row exists and force=True -> update; else init (INSERT)
-                cur.execute("SELECT 1 FROM product_stats WHERE cod=? AND v=?", (cod, v))
+                cur.execute("SELECT 1 FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
                 exists = cur.fetchone() is not None
 
                 if not exists:

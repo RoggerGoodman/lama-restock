@@ -1,0 +1,111 @@
+<!-- templates/storages/add_products.html -->
+{% extends 'base.html' %}
+{% block title %}Add Products - {{ storage.name }}{% endblock %}
+{% block page_title %}Add Products{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=storage.supermarket.id %}">{{ storage.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=storage.id %}">{{ storage.name }}</a></li>
+                    <li class="breadcrumb-item active">Add Products</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+            <div class="stat-card">
+                <h4 class="mb-4">
+                    <i class="bi bi-plus-circle text-primary"></i>
+                    Add Products to Database
+                </h4>
+
+                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle"></i> How This Works</h6>
+                    <ol class="mb-0">
+                        <li>Enter product codes in format <code>cod.var</code></li>
+                        <li>Select the settore where these products belong</li>
+                        <li>System will fetch product data from PAC2000A</li>
+                        <li>Products will be registered with their sales history</li>
+                    </ol>
+                </div>
+
+                <div class="alert alert-warning">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Important</h6>
+                    <ul class="mb-0">
+                        <li>This process may take 5-10 seconds per product</li>
+                        <li>Products must exist in PAC2000A system</li>
+                        <li>Browser window will open automatically</li>
+                        <li>Duplicate products will be skipped</li>
+                    </ul>
+                </div>
+
+                <form method="post">
+                    {% csrf_token %}
+                    
+                    <div class="mb-4">
+                        {{ form.settore.label_tag }}
+                        {{ form.settore }}
+                        {% if form.settore.help_text %}
+                        <div class="form-text">{{ form.settore.help_text }}</div>
+                        {% endif %}
+                        {% if form.settore.errors %}
+                        <div class="text-danger">{{ form.settore.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-4">
+                        {{ form.products.label_tag }}
+                        {{ form.products }}
+                        {% if form.products.help_text %}
+                        <div class="form-text">{{ form.products.help_text }}</div>
+                        {% endif %}
+                        {% if form.products.errors %}
+                        <div class="alert alert-danger mt-2">
+                            <pre class="mb-0" style="white-space: pre-wrap;">{{ form.products.errors }}</pre>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <i class="bi bi-plus-circle"></i> Add Products
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Example -->
+            <div class="stat-card mt-3">
+                <h6 class="mb-3"><i class="bi bi-code-square"></i> Format Example</h6>
+                <div class="bg-light p-3 rounded">
+                    <code style="display: block; white-space: pre;">12345.1
+67890.1
+11111.2
+22222.1</code>
+                </div>
+                <p class="text-muted small mb-0 mt-2">
+                    <strong>Format:</strong> <code>product_code.variant</code> (one per line)
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.querySelector('form').addEventListener('submit', function() {
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+});
+</script>
+{% endblock %}

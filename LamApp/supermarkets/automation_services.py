@@ -1,6 +1,7 @@
 # LamApp/supermarkets/automation_services.py
 """
-Automated services for scheduled restock operations.
+Automated services with checkpoint-based recovery.
+Each stage saves progress, allowing retry from last successful checkpoint.
 """
 import logging
 from pathlib import Path
@@ -21,30 +22,44 @@ logger = logging.getLogger(__name__)
 
 class AutomatedRestockService:
     """
-    Handles automated restock operations triggered by schedule.
+    Handles automated restock operations with checkpoint recovery.
+    
+    Each operation is divided into stages:
+    1. Update product stats (scrapper)
+    2. Calculate order (decision maker)
+    3. Execute order (orderer)
+    
+    If a stage fails, it can be retried from that checkpoint.
     """
     
     def __init__(self, storage: Storage):
         self.storage = storage
-        self.settore = storage.settore  # FIX: Use storage.settore, not storage.name
+        self.settore = storage.settore
         self.supermarket = storage.supermarket
         self.helper = Helper()
         
-        # Get database path for this supermarket
-        self.db_path = self.get_db_path()
-        self.db = DatabaseManager(self.helper, db_path=self.db_path)
+        # NEW: Pass supermarket name instead of db_path
+        self.db = DatabaseManager(
+            self.helper, 
+            supermarket_name=self.supermarket.name
+        )
+
+    def close(self):
+        """Clean up database connection - CRITICAL for thread safety"""
+        try:
+            if hasattr(self, 'db') and self.db:
+                self.db.close()
+                logger.debug(f"Closed database connection for {self.storage.name}")
+        except Exception as e:
+            logger.warning(f"Error closing database connection: {e}")
     
     def get_blacklist_set(self):
-        """
-        Get all blacklisted products for this storage as a set of (cod, var) tuples.
-        """
+        """Get all blacklisted products for this storage as a set of (cod, var) tuples."""
         from .models import BlacklistEntry
         
         blacklist_set = set()
         
-        # Get all blacklists for this storage
         for blacklist in self.storage.blacklists.all():
-            # Get all entries in this blacklist
             for entry in blacklist.entries.all():
                 blacklist_set.add((entry.product_code, entry.product_var))
         
@@ -56,7 +71,6 @@ class AutomatedRestockService:
         db_dir = Path(settings.BASE_DIR) / 'databases'
         db_dir.mkdir(exist_ok=True)
         
-        # Sanitize supermarket name for filename
         safe_name = "".join(c for c in self.supermarket.name if c.isalnum() or c in (' ', '_')).strip()
         safe_name = safe_name.replace(' ', '_')
         
@@ -65,12 +79,15 @@ class AutomatedRestockService:
     def record_losses(self):
         """
         Record product losses by downloading and processing inventory files.
-        Should run the day before orders at 22:30.
+        FIXED: Now passes credentials to Inventory_Scrapper
         """
-        logger.info(f"Starting loss recording for {self.storage.name} (settore: {self.settore})")
+        logger.info(f"Starting loss recording for {self.supermarket.name}")
         
         try:
-            inv_scrapper = Inventory_Scrapper()
+            inv_scrapper = Inventory_Scrapper(
+                username=self.supermarket.username,
+                password=self.supermarket.password
+            )
             
             try:
                 inv_scrapper.login()
@@ -88,57 +105,77 @@ class AutomatedRestockService:
                 logger.info("Processing loss files...")
                 verify_lost_stock_from_excel_combined(self.db)
                 
-                logger.info(f"Loss recording completed for {self.storage.name}")
+                logger.info(f" Loss recording completed for {self.supermarket.name}")
                 return True
                 
             finally:
                 inv_scrapper.driver.quit()
                 
         except Exception as e:
-            logger.exception(f"Error recording losses for {self.storage.name}")
+            logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
-    def update_product_stats(self):
+    def update_product_stats_checkpoint(self, log: RestockLog):
         """
-        Update product statistics from PAC2000A.
-        Should run on order day before making the order.
+        CHECKPOINT 1: Update product statistics from PAC2000A.
+        FIXED: Now passes credentials to Scrapper
         """
-        logger.info(f"Starting product stats update for {self.storage.name} (settore: {self.settore})")
+        logger.info(f"[CHECKPOINT 1] Updating product stats for {self.storage.name}")
+        
+        log.current_stage = 'updating_stats'
+        log.save()
         
         try:
-            scrapper = Scrapper(self.helper, self.db)
+            scrapper = Scrapper(
+                username=self.supermarket.username,
+                password=self.supermarket.password,
+                helper=self.helper,
+                db=self.db
+            )
             
             try:
                 scrapper.navigate()
                 scrapper.init_product_stats_for_settore(self.settore)
                 
-                logger.info(f"Product stats updated for {self.storage.name}")
+                # Auto-purge check after successful update
+                logger.info(f"[AUTO-PURGE] Checking for products ready to purge...")
+                purged_products = self.db.check_and_purge_flagged()
+                
+                if purged_products:
+                    logger.info(f"[AUTO-PURGE]  Purged {len(purged_products)} products with zero stock")
+                    for result in purged_products:
+                        logger.info(f"  - {result['cod']}.{result['v']}: {result['message']}")
+                else:
+                    logger.info(f"[AUTO-PURGE] No products ready for purging")
+                
+                log.current_stage = 'stats_updated'
+                log.stats_updated_at = timezone.now()
+                log.save()
+                
+                logger.info(f" [CHECKPOINT 1 COMPLETE] Stats updated for {self.storage.name}")
                 return True
                 
             finally:
                 scrapper.driver.quit()
                 
         except Exception as e:
-            logger.exception(f"Error updating product stats for {self.storage.name}")
+            log.current_stage = 'failed'
+            log.error_message = f"Stats update failed: {str(e)}"
+            log.save()
+            
+            logger.exception(f"[CHECKPOINT 1 FAILED] Error updating stats for {self.storage.name}")
             raise
     
-    def generate_and_execute_order(self, coverage=None):
+    def calculate_order_checkpoint(self, log: RestockLog, coverage=None):
         """
-        Generate order decisions and execute the order.
-        
-        Args:
-            coverage: Number of days to cover. If None, uses schedule calculation.
-        
-        Returns:
-            RestockLog instance with results
+        CHECKPOINT 2: Calculate what needs to be ordered.
+        ENHANCED: Now tracks THREE lists (new, skipped, zombie)
+        Returns orders_list on success, raises exception on failure.
         """
-        logger.info(f"Starting order generation for {self.storage.name} (settore: {self.settore})")
+        logger.info(f"[CHECKPOINT 2] Calculating order for {self.storage.name}")
         
-        log = RestockLog.objects.create(
-            storage=self.storage,
-            status='processing',
-            started_at=timezone.now()
-        )
+        log.current_stage = 'calculating_order'
+        log.save()
         
         try:
             # Calculate coverage if not provided
@@ -149,98 +186,230 @@ class AutomatedRestockService:
             
             log.coverage_used = coverage
             log.save()
+                        
+            try:
+                self.decision_maker = DecisionMaker(self.db, self.helper, blacklist_set=self.get_blacklist_set())
+                
+                # Run decision logic
+                logger.info(f"Running decision maker with coverage={coverage} for settore={self.settore}")
+                self.decision_maker.decide_orders_for_settore(self.settore, coverage)
+                
+                # Get all THREE lists from decision maker
+                orders_list = self.decision_maker.orders_list
+                new_products = self.decision_maker.new_products
+                skipped_products = self.decision_maker.skipped_products
+                zombie_products = self.decision_maker.zombie_products
+                
+                # Update log statistics
+                log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
+                log.products_ordered = len(orders_list)
+                log.total_packages = sum(qty for _, _, qty in orders_list)
+                
+                # Store detailed results INCLUDING ALL THREE LISTS
+                log.set_results({
+                    'orders': [
+                        {'cod': cod, 'var': var, 'qty': qty}
+                        for cod, var, qty in orders_list
+                    ],
+                    'new_products': new_products,
+                    'skipped_products': skipped_products,
+                    'zombie_products': zombie_products,
+                    'settore': self.settore,
+                    'coverage': float(coverage)
+                })
+                
+                # Mark checkpoint as complete
+                log.current_stage = 'order_calculated'
+                log.order_calculated_at = timezone.now()
+                log.save()
+                
+                logger.info(
+                    f" [CHECKPOINT 2 COMPLETE] Order calculated: "
+                    f"{len(orders_list)} products ordered, "
+                    f"{len(new_products)} new products, "
+                    f"{len(skipped_products)} skipped, "
+                    f"{len(zombie_products)} zombie products, "
+                    f"{log.total_packages} packages"
+                )
+                return orders_list
+                
+            finally:
+                self.decision_maker.close()
+                self.db.close()
             
-            # Get blacklist for this storage
-            blacklist_set = self.get_blacklist_set()
-            
-            # Initialize decision maker with blacklist
-            decision_maker = DecisionMaker(
-                self.helper, 
-                db_path=self.db_path,
-                blacklist_set=blacklist_set
-            )
-            
-            # Run decision logic
-            logger.info(f"Running decision maker with coverage={coverage} for settore={self.settore}")
-            decision_maker.decide_orders_for_settore(self.settore, coverage)
-            
-            # Get orders list
-            orders_list = decision_maker.orders_list
-            
-            # Update log statistics
-            log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
-            log.products_ordered = len(orders_list)
-            log.total_packages = sum(qty for _, _, qty in orders_list)
-            
-            # Store detailed results
-            log.set_results({
-                'orders': [
-                    {'cod': cod, 'var': var, 'qty': qty}
-                    for cod, var, qty in orders_list
-                ],
-                'settore': self.settore,
-                'coverage': float(coverage)
-            })
+        except Exception as e:
+            log.current_stage = 'failed'
+            log.error_message = f"Order calculation failed: {str(e)}"
             log.save()
             
-            # Now execute the order
-            if orders_list:
-                logger.info(f"Executing order with {len(orders_list)} items for settore={self.settore}")
-                orderer = Orderer()
-                
-                try:
-                    orderer.login()
-                    # Use storage.name for the orderer (this is what it expects for the dropdown)
-                    orderer.make_orders(self.storage.name, orders_list)
-                    
-                    log.status = 'completed'
-                    log.completed_at = timezone.now()
-                    log.save()
-                    
-                    logger.info(f"Order completed successfully for {self.storage.name}")
-                    
-                finally:
-                    orderer.driver.quit()
-            else:
+            logger.exception(f" [CHECKPOINT 2 FAILED] Error calculating order for {self.storage.name}")
+            raise
+   
+    def execute_order_checkpoint(self, log: RestockLog, orders_list):
+        """
+        CHECKPOINT 3: Execute the order in PAC2000A.
+        ENHANCED: Now also tracks products skipped during ordering
+        """
+        logger.info(f"[CHECKPOINT 3] Executing order for {self.storage.name}")
+        
+        log.current_stage = 'executing_order'
+        log.save()
+        
+        try:
+            if not orders_list:
+                logger.info(f"No items to order for {self.storage.name}")
+                log.current_stage = 'completed'
                 log.status = 'completed'
                 log.completed_at = timezone.now()
                 log.save()
-                logger.info(f"No items to order for {self.storage.name}")
+                return True
             
-            return log
+            logger.info(f"Executing order with {len(orders_list)} items for settore={self.settore}")
+                        
+            orderer = Orderer(
+                username=self.supermarket.username,
+                password=self.supermarket.password
+            )
             
+            try:
+                orderer.login()
+                successful_orders, order_skipped = orderer.make_orders(self.storage.name, orders_list)
+                
+                # Add order-skipped products to existing results
+                results = log.get_results()
+                if 'order_skipped_products' not in results:
+                    results['order_skipped_products'] = []
+                results['order_skipped_products'].extend(order_skipped)
+                log.set_results(results)
+                
+                # Update statistics
+                log.products_ordered = len(successful_orders)
+                log.total_packages = sum(qty for _, _, qty in successful_orders)
+                
+                log.current_stage = 'completed'
+                log.status = 'completed'
+                log.order_executed_at = timezone.now()
+                log.completed_at = timezone.now()
+                log.save()
+                
+                logger.info(
+                    f" [CHECKPOINT 3 COMPLETE] Order executed successfully: "
+                    f"{len(successful_orders)} ordered, {len(order_skipped)} skipped during ordering"
+                )
+                return True
+                
+            finally:
+                orderer.driver.quit()
+                
         except Exception as e:
-            logger.exception(f"Error generating/executing order for {self.storage.name}")
+            log.current_stage = 'failed'
             log.status = 'failed'
-            log.error_message = str(e)
-            log.completed_at = timezone.now()
+            log.error_message = f"Order execution failed: {str(e)}"
             log.save()
+            
+            logger.exception(f"[CHECKPOINT 3 FAILED] Error executing order for {self.storage.name}")
             raise
     
-    def run_full_restock_workflow(self, coverage=None):
+    def run_full_restock_workflow(self, coverage=None, log=None):
         """
-        Run the complete restock workflow:
-        1. Update product stats
-        2. Generate and execute order
+        Run complete restock workflow with checkpoint recovery.
         
-        This is what gets called by the scheduler on order day.
+        If a log is provided, it will attempt to resume from the last checkpoint.
+        Otherwise, creates a new log and runs from the beginning.
+        
+        Returns:
+            RestockLog instance with results
         """
-        logger.info(f"Starting full restock workflow for {self.storage.name} (settore: {self.settore})")
+        logger.info(f"Starting restock workflow for {self.storage.name}")
+        
+        # Create new log if not provided
+        if log is None:
+            log = RestockLog.objects.create(
+                storage=self.storage,
+                status='processing',
+                current_stage='pending',
+                started_at=timezone.now()
+            )
+            logger.info(f"Created new RestockLog #{log.id}")
+        else:
+            log.retry_count += 1
+            log.status = 'processing'
+            log.save()
+            logger.info(f"Resuming RestockLog #{log.id} from stage: {log.current_stage} (retry {log.retry_count})")
         
         try:
-            # Step 1: Update stats
-            self.update_product_stats()
+            # CHECKPOINT 1: Update stats
+            if log.current_stage in ['pending', 'updating_stats']:
+                self.update_product_stats_checkpoint(log)
+            else:
+                logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated at {log.stats_updated_at}")
             
-            # Step 2: Generate and execute order
-            log = self.generate_and_execute_order(coverage)
+            # CHECKPOINT 2: Calculate order
+            if log.current_stage in ['stats_updated', 'calculating_order']:
+                orders_list = self.calculate_order_checkpoint(log, coverage)
+            else:
+                # Retrieve orders from log
+                results = log.get_results()
+                orders_list = [
+                    (o['cod'], o['var'], o['qty'])
+                    for o in results.get('orders', [])
+                ]
+                logger.info(f"[CHECKPOINT 2 SKIP] Order already calculated at {log.order_calculated_at}")
             
-            logger.info(f"Full restock workflow completed for {self.storage.name}")
+            # CHECKPOINT 3: Execute order
+            if log.current_stage in ['order_calculated', 'executing_order']:
+                self.execute_order_checkpoint(log, orders_list)
+            else:
+                logger.info(f"[CHECKPOINT 3 SKIP] Order already executed at {log.order_executed_at}")
+            
+            logger.info(f" Restock workflow completed successfully for {self.storage.name}")
             return log
             
         except Exception as e:
-            logger.exception(f"Full restock workflow failed for {self.storage.name}")
+            logger.exception(f" Restock workflow failed for {self.storage.name}")
+            
+            # Check if we can retry
+            if log.can_retry():
+                logger.info(f"Will retry from checkpoint {log.current_stage} (attempt {log.retry_count + 1}/{log.max_retries})")
+            else:
+                logger.error(f"Max retries ({log.max_retries}) reached for RestockLog #{log.id}")
+                log.status = 'failed'
+                log.save()
+            
             raise
     
-    def close(self):
-        """Clean up resources"""
-        self.db.close()
+    def retry_from_checkpoint(self, log, coverage=None):
+        """Retry workflow from last successful checkpoint"""
+        from django.utils import timezone
+        
+        logger.info(f"Retrying workflow from checkpoint for {self.storage.name} with coverage={coverage}")
+        
+        # Checkpoint 1: Stats update
+        if log.stats_updated_at:
+            logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated at {log.stats_updated_at}")
+        else:
+            logger.info(f"[CHECKPOINT 1 START] Updating stats...")
+            self.update_product_stats_checkpoint(log)
+        
+        # Checkpoint 2: Order calculation
+        if log.order_calculated_at:
+            logger.info(f"[CHECKPOINT 2 SKIP] Order already calculated at {log.order_calculated_at}")
+            # Retrieve existing orders from log
+            results = log.get_results()
+            orders_list = [
+                (o['cod'], o['var'], o['qty'])
+                for o in results.get('orders', [])
+            ]
+        else:
+            logger.info(f"[CHECKPOINT 2 START] Calculating order with coverage={coverage}...")
+            orders_list = self.calculate_order_checkpoint(log, coverage)
+        
+        # Checkpoint 3: Order execution
+        if log.order_executed_at:
+            logger.info(f"[CHECKPOINT 3 SKIP] Order already executed at {log.order_executed_at}")
+        else:
+            logger.info(f"[CHECKPOINT 3 START] Executing order...")
+            self.execute_order_checkpoint(log, orders_list)
+        
+        logger.info(f"[SUCCESS] Restock workflow completed for {self.storage.name}")
+        return log

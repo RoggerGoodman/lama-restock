@@ -155,10 +155,22 @@ class BlacklistEntry(models.Model):
 
 
 class RestockLog(models.Model):
-    """Log of restock operations"""
+    """Log of restock operations with checkpoint tracking"""
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    
+    # NEW: Stage tracking for checkpoints
+    STAGE_CHOICES = [
+        ('pending', 'Pending Start'),
+        ('updating_stats', 'Updating Product Stats'),
+        ('stats_updated', 'Stats Updated'),
+        ('calculating_order', 'Calculating Order'),
+        ('order_calculated', 'Order Calculated'),
+        ('executing_order', 'Executing Order'),
         ('completed', 'Completed'),
         ('failed', 'Failed'),
     ]
@@ -167,6 +179,18 @@ class RestockLog(models.Model):
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    # NEW: Current stage for checkpoint recovery
+    current_stage = models.CharField(max_length=30, choices=STAGE_CHOICES, default='pending')
+    
+    # NEW: Stage timestamps
+    stats_updated_at = models.DateTimeField(null=True, blank=True)
+    order_calculated_at = models.DateTimeField(null=True, blank=True)
+    order_executed_at = models.DateTimeField(null=True, blank=True)
+    
+    # NEW: Retry tracking
+    retry_count = models.IntegerField(default=0)
+    max_retries = models.IntegerField(default=3)
     
     # Statistics
     total_products = models.IntegerField(default=0)
@@ -191,6 +215,24 @@ class RestockLog(models.Model):
         if self.results:
             return json.loads(self.results)
         return {}
+    
+    def can_retry(self):
+        """Check if this log can be retried"""
+        return self.retry_count < self.max_retries and self.status == 'failed'
+    
+    def get_stage_display_info(self):
+        """Get human-readable stage info with progress"""
+        stage_info = {
+            'pending': {'label': 'Pending', 'progress': 0, 'icon': 'clock'},
+            'updating_stats': {'label': 'Updating Stats...', 'progress': 10, 'icon': 'download'},
+            'stats_updated': {'label': 'Stats Updated', 'progress': 50, 'icon': 'check-circle'},
+            'calculating_order': {'label': 'Calculating Order...', 'progress': 60, 'icon': 'calculator'},
+            'order_calculated': {'label': 'Order Calculated', 'progress': 70, 'icon': 'check-circle'},
+            'executing_order': {'label': 'Placing Order...', 'progress': 80, 'icon': 'send'},
+            'completed': {'label': 'Completed', 'progress': 100, 'icon': 'check-circle-fill'},
+            'failed': {'label': 'Failed', 'progress': 0, 'icon': 'x-circle'},
+        }
+        return stage_info.get(self.current_stage, stage_info['pending'])
 
     def __str__(self):
         return f"{self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"

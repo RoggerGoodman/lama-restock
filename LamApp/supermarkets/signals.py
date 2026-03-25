@@ -7,8 +7,11 @@ from .scripts.finder import Finder  # Import the Finder class
 @receiver(post_save, sender=Supermarket)
 def fetch_storags(sender, instance, created, **kwargs):
     if created:  # Only run when a new supermarket is created
-        finder = Finder()
-        finder.login(instance.username, instance.password)  # Use the supermarket's credentials
+        finder = Finder(
+            username=instance.username,
+            password=instance.password
+        )
+        finder.login()
         storages = finder.find_storages()
 
         for storage_name in storages:

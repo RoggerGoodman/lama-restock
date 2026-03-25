@@ -1,7 +1,7 @@
 # LamApp/supermarkets/scripts/decision_maker.py
-import sqlite3
+from .DatabaseManager import DatabaseManager
 import json
-from datetime import datetime
+from datetime import datetime, date
 from .helpers import Helper
 from .logger import logger
 from .analyzer import analyzer
@@ -9,22 +9,21 @@ from .processor_N import process_N_sales
 
 
 class DecisionMaker:
-    def __init__(self, helper: Helper, db_path=r"C:\Users\rugge\Documents\GitHub\lama-restock\Database\supermarket.db", blacklist_set=None):
+    def __init__(self, db: DatabaseManager, helper: Helper, blacklist_set=None):
         """
-        Initialize the decision maker.
-
-        Args:
-            db_path (str): Path to your SQLite database.
-            helper: Your Helper instance (for calculations, utilities, etc.).
-            blacklist_set (set): Set of (cod, var) tuples to exclude from ordering
+        Initialize decision maker with PostgreSQL support.
         """
-        self.db_path = db_path
-        self.helper = helper
-        self.conn = sqlite3.connect(db_path)
-        self.conn.row_factory = sqlite3.Row
-        self.cursor = self.conn.cursor()
+        self.helper = helper        
+        self.conn = db.conn
+        self.cursor = db.cursor()
 
         self.orders_list = []
+        
+        # NEW: Three separate tracking lists
+        self.new_products = []      # Brand new products never in system
+        self.skipped_products = []  # Products skipped for various reasons
+        self.zombie_products = []   # Products that are finished/not restockable
+        
         self.sale_discounts = self.retrive_products_on_sale()
         
         # Store blacklist - if None, create empty set
@@ -38,11 +37,11 @@ class DecisionMaker:
         Returns a list of dict-like rows.
         """
         query = """
-            SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, 
+            SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
                 p.pz_x_collo, p.rapp, ps.verified, p.disponibilita
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-            WHERE p.settore = ?
+            WHERE p.settore = %s
         """
         self.cursor.execute(query, (settore,))
         return self.cursor.fetchall()
@@ -54,7 +53,7 @@ class DecisionMaker:
         query = """
             SELECT cod, v, internal, internal_updated
             FROM extra_losses
-            WHERE json_valid(internal) = 1
+            WHERE internal IS NOT NULL
             AND internal_updated IS NOT NULL;
         """
         self.cursor.execute(query)
@@ -66,7 +65,7 @@ class DecisionMaker:
             extra_losses.append({
                 "cod": row["cod"],
                 "v": row["v"],
-                "internal": json.loads(row["internal"]),
+                "internal": row["internal"] or [],
                 "internal_updated": row["internal_updated"]
             })
         
@@ -80,9 +79,8 @@ class DecisionMaker:
         match = next((r for r in extra_losses if r["cod"] == cod and r["v"] == v), None)
     
         # Compute months passed since internal_updated
-        updated_date = datetime.strptime(match["internal_updated"], "%Y-%m-%d")
-        today = datetime.today()
-
+        updated_date:date = match["internal_updated"]
+        today = date.today()
         months_passed = (today.year - updated_date.year) * 12 + (today.month - updated_date.month)
 
         # Pad internal list with zeros
@@ -98,23 +96,28 @@ class DecisionMaker:
         return summed
     
     def retrive_products_on_sale(self):
-        today = datetime.now().date().isoformat()  # 'YYYY-MM-DD'
+        today = date.today() 
 
         self.cursor.execute("""
             SELECT cod, v, price_std, price_s
             FROM economics
             WHERE sale_start IS NOT NULL
             AND sale_end IS NOT NULL
-            AND DATE(?) BETWEEN sale_start AND sale_end;
+            AND %s BETWEEN sale_start AND sale_end;
         """, (today,))
 
         rows = self.cursor.fetchall()
         sale_discounts = {}
 
-        for cod, v, price_std, price_s in rows:
-            price_std = float(price_std)
-            price_s   = float(price_s)
+        for row in rows:
+            cod = row["cod"]
+            v = row["v"]
 
+            price_std = row["price_std"]
+            price_s = row["price_s"]
+
+            if price_std is None or price_s is None:
+                continue
             # avoid division errors
             if price_std > price_s:
                 discount_pct = round((price_std - price_s) / price_std * 100, 2)
@@ -131,7 +134,7 @@ class DecisionMaker:
     def decide_orders_for_settore(self, settore, coverage):
         """
         Main method — iterate over all products in a settore and decide what to order.
-        Now respects blacklist!
+        Now tracks THREE lists: new_products, skipped_products, zombie_products
         """
         logger.info(f"Processing settore: {settore} with coverage: {coverage} days")
         logger.info(f"Active blacklist has {len(self.blacklist)} products")
@@ -143,6 +146,9 @@ class DecisionMaker:
         extra_losses_lookup = {(item["cod"], item["v"]) for item in extra_losses_list}
 
         order_list = []
+        new_products = []  
+        skipped_products = []
+        zombie_products = []
 
         for row in products:
             product_cod = row["cod"]
@@ -155,8 +161,9 @@ class DecisionMaker:
             
             descrizione = row["descrizione"]
             stock = row["stock"]
-            sold_array = json.loads(row["sold_last_24"]) if row["sold_last_24"] else []
-            bought_array = json.loads(row["bought_last_24"]) if row["bought_last_24"] else []
+            sold_array = row["sold_last_24"] or []
+            bought_array = row["bought_last_24"] or []
+            sales_sets = row["sales_sets"] or []
             package_size = row["pz_x_collo"]
             package_multi = row["rapp"]
             verified = row["verified"]
@@ -164,8 +171,17 @@ class DecisionMaker:
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
             
-            if verified == 0 and disponibilita == "No":
+            if verified == False and disponibilita == "No":
                 logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not verified and not available")
+                continue
+
+            if stock == 0 and verified == True and disponibilita == "No":
+                logger.info(f"{product_cod}.{product_var} - {descrizione} marked as zombie because is not available and has verified stock of 0")
+                zombie_products.append({
+                    'cod': product_cod,
+                    'var': product_var,
+                    'reason': 'Finished and not restockable (disponibilita=No, stock=0)'
+                })
                 continue
                         
             package_size *= package_multi
@@ -174,18 +190,23 @@ class DecisionMaker:
                 logger.info(f"Skipping Article: {product_cod}.{product_var}. Because has no registered stock")
                 continue
             
-            if stock < 0 and verified == 1:
+            if stock < 0 and verified == True:
                 analyzer.anomalous_stock_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
             
             if len(bought_array) == 0 and len(sold_array) == 0:
                 if disponibilita == "Si":
-                    reason = "The product has never been in the system"
+                    reason = "Never been in system (brand new product)"
                     analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     self.helper.line_breaker()
+                    new_products.append({
+                        'cod': product_cod,
+                        'var': product_var,
+                        'reason': reason
+                    })
                     continue
                 elif disponibilita == "No":
-                    reason = "The article is NOT available for restocking and hasn't been bought or sold for the last 3 months" 
+                    reason = "Not available for restocking and no sales history"
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     self.helper.line_breaker()
                     continue
@@ -193,25 +214,21 @@ class DecisionMaker:
             if (product_cod, product_var) in extra_losses_lookup:
                 sold_array = self.integrate_internal_losses(product_cod, product_var, sold_array, extra_losses_list)
 
-            avg_daily_sales, avg_sales_last_year = self.helper.calculate_weighted_avg_sales_new(sold_array)
+            avg_daily_sales = self.helper.avg_daily_sales_from_sales_sets(sales_sets)
+            avg_sales_base = avg_daily_sales
+            if avg_daily_sales == 0: 
+                avg_daily_sales, avg_sales_base = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
             if len(sold_array) >= 4:                    
                 recent_months_sales = self.helper.calculate_data_recent_months(sold_array, 3)
-                expected_packages = self.helper.calculate_expectd_packages(bought_array, package_size)
                 deviation_corrected = self.helper.calculate_deviation(sold_array, recent_months_sales, True)               
                 trend = self.helper.find_trend(sold_array, bought_array)
-                turnover = self.helper.calculate_turnover(sold_array, bought_array, package_size, trend)
             else:
                 recent_months_sales = -1
-                expected_packages = 0
                 deviation_corrected = 0
                 trend = 0
-                turnover = 0
                 logger.info(f"Deviation and recent months sales are not available for this article") 
             
-            #current_gap = self.helper.find_current_gap(sold_array, bought_array)
-            #logger.info(f"Current gap is {current_gap}")
-
             if len(sold_array) >= 16:
                 ly_slice = sold_array[12:]
                 ly_recent_months_sales = self.helper.calculate_data_recent_months(ly_slice, 3)
@@ -238,14 +255,14 @@ class DecisionMaker:
 
                 req_stock += (req_stock * discount/100)
 
-            if verified == 1:
+            if verified == True:
                 category = "N"
                 result, check, status = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales, 
-                    avg_sales_last_year, req_stock, stock
+                    avg_sales_base, req_stock, stock
                 )
             else:
-                reason = "skipped because is not verified"
+                reason = "Not verified in system"
                 self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                 self.helper.line_breaker()
                 continue
@@ -262,8 +279,18 @@ class DecisionMaker:
                 self.helper.line_breaker()
 
         analyzer.log_statistics()
+        
+        # Store all three lists
         self.orders_list = order_list
-        logger.info(f"Finished settore '{settore}'. Total orders: {len(order_list)}")
+        self.new_products = new_products 
+        self.skipped_products = skipped_products
+        self.zombie_products = zombie_products
+        
+        logger.info(f"Finished settore '{settore}':")
+        logger.info(f"  - Orders: {len(order_list)}")
+        logger.info(f"  - New products: {len(new_products)}")
+        logger.info(f"  - Skipped products: {len(skipped_products)}")
+        logger.info(f"  - Zombie products: {len(zombie_products)}")
 
     def close(self):
         """Cleanly close the database connection."""

@@ -32,6 +32,7 @@ urlpatterns = [
     # List Updates
     path('storages/<int:storage_id>/configure-updates/', views.configure_list_updates_view, name='configure-list-updates'),
     path('storages/<int:storage_id>/update-list/', views.manual_list_update_view, name='manual-list-update'),
+    path('storages/<int:storage_id>/add-products/', views.add_products_view, name='add-products'),
     
     # Stock Verification
     path('storages/<int:storage_id>/verify/', views.verify_stock_view, name='verify-stock'),
@@ -53,7 +54,8 @@ urlpatterns = [
     # Restock Logs
     path('logs/<int:pk>/', views.RestockLogDetailView.as_view(), name='restock-log-detail'),
     path('logs/<int:log_id>/execute/', views.execute_order_view, name='execute-order'),
-    
+    path('logs/<int:log_id>/retry/', views.retry_restock_view, name='retry-restock'),
+
     # Blacklists
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),
     path('blacklists/add/', views.BlacklistCreateView.as_view(), name='blacklist-add'),
@@ -66,5 +68,13 @@ urlpatterns = [
     # SUPERMARKET LEVEL - Recording (one CSV for all storages)
     path('supermarkets/<int:supermarket_id>/record-losses/', views.record_losses_view, name='record-losses'),
     path('losses-analytics/', views.losses_analytics_unified_view, name='losses-analytics-unified'),
+
+    # Restock progress endpoint (add after restock logs section)
+    path('logs/<int:log_id>/progress/', views.restock_progress_view, name='restock-progress'),
+    
+    # Purge endpoints (add after stock adjustment section)
+    path('storages/<int:storage_id>/purge/', views.purge_products_view, name='purge-products'),
+    path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),
+    path('logs/<int:log_id>/flag-products/', views.flag_products_for_purge_view, name='flag-products-for-purge'),
 
 ]

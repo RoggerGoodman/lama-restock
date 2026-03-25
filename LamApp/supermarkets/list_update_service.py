@@ -7,9 +7,7 @@ import logging
 from pathlib import Path
 from django.conf import settings
 from django.utils import timezone
-from datetime import timedelta
-
-from .models import Storage, ListUpdateLog
+from .models import Storage
 from .scripts.web_lister import download_product_list
 from .scripts.DatabaseManager import DatabaseManager
 from .scripts.helpers import Helper
@@ -26,9 +24,11 @@ class ListUpdateService:
         self.supermarket = storage.supermarket
         self.helper = Helper()
         
-        # Get database path
-        self.db_path = self.get_db_path()
-        self.db = DatabaseManager(self.helper, db_path=self.db_path)
+        # NEW: Pass supermarket name instead of db_path
+        self.db = DatabaseManager(
+            self.helper, 
+            supermarket_name=self.supermarket.name
+        )
         
         # Create temp directory for downloads
         self.download_dir = Path(settings.BASE_DIR) / 'temp_lists'
