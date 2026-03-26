@@ -45,7 +45,7 @@ app.conf.beat_schedule = {
 
     # EAN backfill at 3:30 AM every day (after list update)
     'backfill-ean': {
-        'task': 'supermarkets.tasks.backfill_ean_for_verified_products',
+        'task': 'supermarkets.tasks.backfill_ean_and_id_for_verified_products',
         'schedule': crontab(hour=3, minute=30),
     },
 

@@ -1477,7 +1477,7 @@ def sync_storages_task(self, supermarket_id):
     acks_late=True,
     reject_on_worker_lost=True
 )
-def backfill_ean_for_verified_products(self):
+def backfill_ean_and_id_for_verified_products(self):
     """
     For every storage with a schedule, fetch and store the EAN for all verified
     products whose ean column is NULL. Runs at 3:30 AM, after the nightly list update.
@@ -1551,19 +1551,21 @@ def backfill_ean_for_verified_products(self):
                                 continue
 
                             ean = product_data[7]
-                            if ean is None:
-                                logger.debug(f"[EAN BACKFILL] No EAN found for {cod}.{v}")
+                            id_articolo = product_data[8]
+
+                            if ean is None and id_articolo is None:
+                                logger.debug(f"[EAN BACKFILL] No EAN or id_articolo found for {cod}.{v}")
                                 total_failed += 1
                                 continue
 
                             cur = service.db.cursor()
                             cur.execute(
-                                "UPDATE products SET ean = %s WHERE cod = %s AND v = %s",
-                                (ean, cod, v)
+                                "UPDATE products SET ean = %s, id_articolo = %s WHERE cod = %s AND v = %s",
+                                (ean, id_articolo, cod, v)
                             )
                             service.db.conn.commit()
                             total_updated += 1
-                            logger.info(f"[EAN BACKFILL] {cod}.{v} -> EAN {ean}")
+                            logger.info(f"[EAN BACKFILL] {cod}.{v} -> EAN {ean}, id_articolo {id_articolo}")
 
                         except Exception as e:
                             logger.warning(f"[EAN BACKFILL] Failed for {cod}.{v}: {e}")
