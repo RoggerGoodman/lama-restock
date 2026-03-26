@@ -3,6 +3,7 @@
 Web-integrated version of the Lister script.
 Downloads product list Excel files from PAC2000A automatically.
 """
+from .DatabaseManager import DatabaseManager
 import re
 import csv
 from selenium import webdriver
@@ -518,7 +519,210 @@ class WebLister:
             price,
             category,
             ean,
+            id_articolo,
         )
+
+    # ── Stats API (replaces Selenium scrapper) ──────────────────────────────
+
+    def fetch_venduto_mensile(self, id_articolo: int) -> list | None:
+        """
+        Fetch monthly sales stats from VendutoPvMensile_call.php.
+        Returns list of 12 dicts (GEN..DIC, no TOT row) with integer values
+        (future months have "" converted to 0). Returns None on failure.
+        """
+        url = "https://dropzone.pac2000a.it/statistiche/mensili/VendutoPvMensile_call.php"
+        payload = {
+            "funzione": "statMensile",
+            "IDCliente": self.IDCliente,
+            "IDArticolo": id_articolo,
+        }
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://dropzone.pac2000a.it/",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/143.0.0.0 Safari/537.36"
+            ),
+        }
+        session = requests.Session()
+        for c in self.driver.get_cookies():
+            session.cookies.set(c["name"], c["value"])
+
+        try:
+            response = session.post(url, data=payload, headers=headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            logger.error(f"fetch_venduto_mensile failed for IDArticolo={id_articolo}: {e}")
+            return None
+
+        if not isinstance(data, dict) or "TOTALI" not in data:
+            logger.warning(f"Unexpected response for IDArticolo={id_articolo}: {data}")
+            return None
+
+        def _to_int(val):
+            if val == "" or val is None:
+                return 0
+            return int(val)
+
+        result = []
+        for row in data["TOTALI"]:
+            if row.get("Mese") == "TOT":
+                continue
+            result.append({
+                "Mese": row["Mese"],
+                "QtaAnnoCur":    _to_int(row.get("QtaAnnoCur")),
+                "QtaAnnoCurAcq": _to_int(row.get("QtaAnnoCurAcq")),
+                "QtaAnnoPrec":   _to_int(row.get("QtaAnnoPrec")),
+                "QtaAnnoPrecAcq": _to_int(row.get("QtaAnnoPrecAcq")),
+            })
+        return result
+
+    def _build_stats_arrays(self, monthly_data: list) -> tuple:
+        """
+        Convert fetch_venduto_mensile() result into (sold_array, bought_array).
+        Output: most-recent-month first, current year then last year, trailing zeros stripped.
+        Mirrors the old Selenium scrapper + helper.prepare_array() logic exactly.
+        """
+        MONTH_ORDER = ["GEN", "FEB", "MAR", "APR", "MAG", "GIU",
+                       "LUG", "AGO", "SET", "OTT", "NOV", "DIC"]
+
+        by_month = {row["Mese"]: row for row in monthly_data}
+
+        cur_sold    = [by_month.get(m, {}).get("QtaAnnoCur",     0) for m in MONTH_ORDER]
+        cur_bought  = [by_month.get(m, {}).get("QtaAnnoCurAcq",  0) for m in MONTH_ORDER]
+        prec_sold   = [by_month.get(m, {}).get("QtaAnnoPrec",    0) for m in MONTH_ORDER]
+        prec_bought = [by_month.get(m, {}).get("QtaAnnoPrecAcq", 0) for m in MONTH_ORDER]
+
+        # Most-recent month first, then concatenate current + last year
+        cur_sold.reverse();   cur_bought.reverse()
+        prec_sold.reverse();  prec_bought.reverse()
+
+        final_sold   = cur_sold   + prec_sold
+        final_bought = cur_bought + prec_bought
+
+        # Discard future months from the front (12 - current_month leading zeros)
+        months_to_discard = 12 - date.today().month
+        i = 0
+        while len(final_bought) > 1 and i < months_to_discard:
+            final_sold.pop(0)
+            final_bought.pop(0)
+            i += 1
+
+        # Strip trailing zeros from both simultaneously
+        while final_bought and final_bought[-1] == 0 and final_sold[-1] == 0:
+            final_bought.pop()
+            final_sold.pop()
+
+        return final_sold or [0], final_bought or [0]
+
+    def process_products_stats(self, product_tuples, db:DatabaseManager) -> dict:
+        """
+        Fetch and store monthly stats for a list of products via API.
+        Replaces Scrapper.process_products().
+
+        product_tuples: iterable of (cod, v, is_verified, package_size, id_articolo)
+        db: DatabaseManager instance
+        Returns: same report dict structure as Scrapper.process_products()
+        """
+        cur = db.cursor()
+        report = {
+            "total": len(product_tuples),
+            "processed": 0,
+            "initialized": 0,
+            "updated": 0,
+            "skipped_no_id": 0,
+            "empty": 0,
+            "errors": 0,
+            "newly_added": [],
+        }
+
+        for cod, v, is_verified, package_size, id_articolo in product_tuples:
+            report["processed"] += 1
+
+            if not id_articolo:
+                logger.warning(f"[STATS] No id_articolo for {cod}.{v}, skipping")
+                report["skipped_no_id"] += 1
+                continue
+
+            try:
+                monthly_data = self.fetch_venduto_mensile(id_articolo)
+                time.sleep(0.2)
+                if monthly_data is None:
+                    report["errors"] += 1
+                    continue
+
+                # Detect newly added: bought this year, never sold, nothing bought last year
+                cur_bought  = [row["QtaAnnoCurAcq"]  for row in monthly_data]
+                cur_sold    = [row["QtaAnnoCur"]      for row in monthly_data]
+                prec_bought = [row["QtaAnnoPrecAcq"]  for row in monthly_data]
+
+                if (any(q > 0 for q in cur_bought) and
+                        all(q == 0 for q in cur_sold) and
+                        all(q == 0 for q in prec_bought)):
+                    logger.info(f"Newly added product detected: {cod}.{v}")
+                    if not is_verified:
+                        report["newly_added"].append({
+                            "cod": cod,
+                            "var": v,
+                            "package_size": package_size,
+                            "reason": "Product ordered but not yet sold (needs verification)",
+                        })
+
+                final_sold, final_bought = self._build_stats_arrays(monthly_data)
+
+                if final_sold == [0] and final_bought == [0]:
+                    report["empty"] += 1
+
+                cur.execute("SELECT 1 FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
+                exists = cur.fetchone() is not None
+
+                if not exists:
+                    db.init_product_stats(cod, v, sold=final_sold, bought=final_bought, stock=0, verified=False)
+                    report["initialized"] += 1
+                else:
+                    db.update_product_stats(cod, v, sold_update=final_sold[:2], bought_update=final_bought[:2])
+                    report["updated"] += 1
+
+            except Exception:
+                logger.exception(f"[STATS] Error processing {cod}.{v}")
+                report["errors"] += 1
+
+        logger.info(report)
+        logger.info(f"Found {len(report['newly_added'])} newly added products needing verification")
+        return report
+
+    def init_stats_for_settore(self, settore: str, db:DatabaseManager, full: bool = True) -> dict:
+        """
+        Fetch and store stats for all products in a settore via API.
+        Replaces Scrapper.init_product_stats_for_settore().
+        """
+        cur = db.cursor()
+        if full:
+            cur.execute("""
+                SELECT p.cod, p.v, ps.verified, p.pz_x_collo, p.id_articolo
+                FROM products p
+                LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                WHERE p.settore = %s
+            """, (settore,))
+        else:
+            cur.execute("""
+                SELECT ps.cod, ps.v, ps.verified, p.pz_x_collo, p.id_articolo
+                FROM product_stats ps
+                JOIN products p ON ps.cod = p.cod AND ps.v = p.v
+                WHERE p.settore = %s AND ps.verified = TRUE
+            """, (settore,))
+
+        rows = cur.fetchall()
+        product_tuples = [
+            (row["cod"], row["v"], row.get("verified", False),
+             row.get("pz_x_collo", 12), row.get("id_articolo"))
+            for row in rows
+        ]
+        return self.process_products_stats(product_tuples, db)
 
 
 def download_product_list(username: str, password: str, storage_name: str,

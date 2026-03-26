@@ -512,10 +512,9 @@ def add_products_unified_task(self, storage_id, products_list, settore):
     from .models import Storage, RestockLog
     from .services import RestockService
     from .scripts.web_lister import WebLister
-    from .scripts.scrapper import Scrapper  # ← ADDED
-    from .scripts.helpers import Helper  # ← ADDED
     from pathlib import Path
     from django.utils import timezone
+    import shutil
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
@@ -565,7 +564,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             failed.append((cod, var, "Not found in PAC2000A"))
                             continue
                         
-                        description, package, multiplier, availability, cost, price, category, ean = product_data
+                        description, package, multiplier, availability, cost, price, category, ean, id_articolo = product_data
 
                         # Add to products table
                         service.db.add_product(
@@ -576,11 +575,11 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             pz_x_collo=package or 12,
                             settore=settore,
                             disponibilita=availability or "Si",
-                            ean=ean
+                            ean=ean,
+                            id_articolo=id_articolo
                         )
                         
-                        # ✅ FIXED: Collect for scrapper (don't init stats yet!)
-                        products_for_scrapper.append((cod, var, False, package or 12))
+                        products_for_scrapper.append((cod, var, False, package or 12, id_articolo))
                         
                         # Add economics data
                         if price and cost:
@@ -601,31 +600,19 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                         logger.exception(f"[ADD PRODUCTS] Error adding {cod}.{var}")
                         failed.append((cod, var, str(e)))
                 
-                lister.driver.quit()
                 if products_for_scrapper:
-                    logger.info(f"[ADD PRODUCTS] Initializing stats for {len(products_for_scrapper)} products via Scrapper...")
-                    
-                    helper = Helper()
-                    scrapper = Scrapper(
-                        username=storage.supermarket.username,
-                        password=storage.supermarket.password,
-                        helper=helper,
-                        db=service.db
-                    )
-                    scrapper.navigate()
-                    
-                    # Process products via scrapper
-                    scrapper_report = scrapper.process_products(products_for_scrapper)
-                    logger.info(f"[ADD PRODUCTS] Scrapper initialized {scrapper_report['initialized']} products")
-                
+                    logger.info(f"[ADD PRODUCTS] Initializing stats for {len(products_for_scrapper)} products via API...")
+                    scrapper_report = lister.process_products_stats(products_for_scrapper, service.db)
+                    logger.info(f"[ADD PRODUCTS] Stats initialized {scrapper_report['initialized']} products")
+
                 # Update log
                 log.status = 'completed'
                 log.completed_at = timezone.now()
                 log.products_ordered = len(added)
                 log.save()
-                
+
                 logger.info(f"[ADD PRODUCTS] ✅ Complete: {len(added)} added, {len(failed)} failed")
-                
+
                 return {
                     'success': True,
                     'products_added': len(added),
@@ -634,9 +621,10 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                     'failed': failed[:20],
                     'storage_name': storage.name,
                     'storage_id': storage_id
-                }   
+                }
             finally:
-                scrapper.driver.quit()
+                lister.driver.quit()
+                shutil.rmtree(lister.user_data_dir, ignore_errors=True)
            
     except Exception as exc:
         logger.exception(f"[ADD PRODUCTS] Error for storage {storage_id}")
@@ -814,10 +802,9 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
     from .automation_services import AutomatedRestockService
     from .scripts.inventory_reader import parse_pdf
     from .scripts.web_lister import WebLister
-    from .scripts.scrapper import Scrapper
-    from .scripts.helpers import Helper
     from pathlib import Path
     import os
+    import shutil
     
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
@@ -940,7 +927,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 })
                                 continue
                             
-                            description, package, multiplier, availability, cost, price, category, ean = product_data
+                            description, package, multiplier, availability, cost, price, category, ean, id_articolo = product_data
 
                             # Add to products table
                             service.db.add_product(
@@ -951,10 +938,11 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 pz_x_collo=package or 12,
                                 settore=storage.settore,
                                 disponibilita=availability or "Si",
-                                ean=ean
+                                ean=ean,
+                                id_articolo=id_articolo
                             )
                             
-                            products_for_scrapper.append((cod, var, True, package or 12))
+                            products_for_scrapper.append((cod, var, True, package or 12, id_articolo))
                             
                             # Add economics data
                             if price and cost:
@@ -988,35 +976,24 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 'reason': str(e)
                             })
                     
-                    lister.driver.quit()
-                    
-                    # Initialize stats using Scrapper
+                    # Initialize stats via API (no separate Selenium session needed)
                     if products_for_scrapper:
                         self.update_state(
                             state='PROGRESS',
-                            meta={'progress': 65, 'status': f'Initializing stats for {len(products_for_scrapper)} products (5-10 min)...'}
+                            meta={'progress': 65, 'status': f'Initializing stats for {len(products_for_scrapper)} products...'}
                         )
-                        logger.info(f"[VERIFY+AUTO-ADD] Initializing stats for {len(products_for_scrapper)} products via Scrapper...")
-                        
-                        helper = Helper()
-                        scrapper = Scrapper(
-                            username=storage.supermarket.username,
-                            password=storage.supermarket.password,
-                            helper=helper,
-                            db=service.db
-                        )
-                        scrapper.navigate()
-                        
-                        scrapper_report = scrapper.process_products(products_for_scrapper)
-                        logger.info(f"[VERIFY+AUTO-ADD] Scrapper initialized {scrapper_report['initialized']} products")
-                        
-                        # Now verify stock for newly added products
+                        logger.info(f"[VERIFY+AUTO-ADD] Initializing stats for {len(products_for_scrapper)} products via API...")
+
+                        scrapper_report = lister.process_products_stats(products_for_scrapper, service.db)
+                        logger.info(f"[VERIFY+AUTO-ADD] Stats initialized {scrapper_report['initialized']} products")
+
+                        # Verify stock for newly added products
                         for cod, var, qty in [(p[0], p[1], next((m[2] for m in missing_products if m[0]==p[0] and m[1]==p[1]), 0)) for p in products_for_scrapper]:
                             service.db.verify_stock(cod, var, qty, cluster)
-                
+
                 finally:
-                    if 'scrapper' in locals():
-                        scrapper.driver.quit()
+                    lister.driver.quit()
+                    shutil.rmtree(lister.user_data_dir, ignore_errors=True)
             
             # Step 5: Verify existing products
             self.update_state(
@@ -1532,7 +1509,7 @@ def backfill_ean_for_verified_products(self):
                     SELECT p.cod, p.v
                     FROM products p
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                    WHERE ps.verified = TRUE AND p.ean IS NULL AND p.settore = %s
+                    WHERE ps.verified = TRUE AND (p.ean IS NULL OR p.id_articolo IS NULL) AND p.settore = %s
                 """, (storage.settore,))
                 missing = cur.fetchall()
 

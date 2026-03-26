@@ -12,10 +12,11 @@ from django.utils import timezone
 from django.db import transaction
 from .models import Storage, RestockLog, ScheduleException
 from .services import RestockService
+import shutil
 from .scripts.decision_maker import DecisionMaker
 from .scripts.inventory_scrapper import Inventory_Scrapper
 from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
-from .scripts.scrapper import Scrapper
+from .scripts.web_lister import WebLister
 from .scripts.orderer import Orderer
 
 logger = logging.getLogger(__name__)
@@ -80,41 +81,49 @@ class AutomatedRestockService(RestockService):
         
         try:
             if progress_callback:
-                progress_callback(15, 'Downloading product statistics (5-10 min)...')
-            
-            scrapper = Scrapper(
+                progress_callback(15, 'Fetching product statistics via API...')
+
+            lister = WebLister(
                 username=self.supermarket.username,
                 password=self.supermarket.password,
-                helper=self.helper,
-                db=self.db
+                storage_name=self.storage.name,
+                download_dir='/tmp',
+                id_cod_mag=self.storage.id_cod_mag,
+                id_cliente=self.supermarket.id_cliente,
+                id_azienda=self.supermarket.id_azienda,
+                id_marchio=self.supermarket.id_marchio,
+                id_clienti_canale=self.supermarket.id_clienti_canale,
+                id_clienti_area=self.supermarket.id_clienti_area,
+                headless=True
             )
-            
+
             try:
-                scrapper.navigate()
-                
+                lister.login()
+
                 if progress_callback:
                     progress_callback(30, 'Processing product data...')
-                
-                scrapper.init_product_stats_for_settore(self.settore, full)
-                
+
+                lister.init_stats_for_settore(self.settore, self.db, full)
+
                 if progress_callback:
                     progress_callback(50, 'Finalizing statistics update...')
-                
+
                 purged_products = self.db.check_and_purge_flagged()
                 if purged_products:
                     logger.info(f"[AUTO-PURGE] ✅ Purged {len(purged_products)} products")
-                
+
                 with transaction.atomic():
                     log = RestockLog.objects.select_for_update().get(id=log.id)
                     log.current_stage = 'stats_updated'
                     log.stats_updated_at = timezone.now()
                     log.save()
-                
+
                 logger.info(f"✅ [CHECKPOINT 1 COMPLETE] Stats updated")
                 return True
-                    
+
             finally:
-                scrapper.driver.quit()
+                lister.driver.quit()
+                shutil.rmtree(lister.user_data_dir, ignore_errors=True)
                     
         except Exception as e:
             with transaction.atomic():
