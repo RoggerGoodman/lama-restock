@@ -650,7 +650,6 @@ class WebLister:
 
             try:
                 monthly_data = self.fetch_venduto_mensile(id_articolo)
-                time.sleep(0.2)
                 if monthly_data is None:
                     report["errors"] += 1
                     continue

@@ -1571,7 +1571,7 @@ def backfill_ean_and_id_for_verified_products(self):
                             logger.warning(f"[EAN BACKFILL] Failed for {cod}.{v}: {e}")
                             total_failed += 1
 
-                        time.sleep(0.5)
+                        time.sleep(0.1)
 
             finally:
                 lister.driver.quit()

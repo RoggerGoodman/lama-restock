@@ -67,7 +67,7 @@ class DatabaseManager:
                 cluster TEXT,
                 purge_flag BOOLEAN DEFAULT FALSE,
                 ean BIGINT,
-                id_articolo INTEGER,
+                id_articolo BIGINT,
                 PRIMARY KEY (cod, v)
             )
         """)
