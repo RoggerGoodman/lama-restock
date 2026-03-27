@@ -134,70 +134,97 @@
 
     <!-- Articoli Disponibili (brand-new, never in system) -->
     {% if available_products %}
+    {% with new_count=available_products|length %}
     <div class="row mb-4">
         <div class="col-12">
             <div class="stat-card border-success">
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <!-- Collapsed header -->
+                <div class="d-flex justify-content-between align-items-center"
+                     role="button" data-bs-toggle="collapse" data-bs-target="#availProdSection"
+                     aria-expanded="false" aria-controls="availProdSection"
+                     style="cursor:pointer;">
                     <h5 class="mb-0">
+                        <i class="bi bi-chevron-right me-1 avail-chevron" style="transition:transform .2s;"></i>
                         <i class="bi bi-star text-success"></i> Articoli Disponibili
+                        <span class="badge bg-success ms-1">{{ new_count }} articoli</span>
+                        {% for item in available_products %}{% if item.is_new %}{% if forloop.first %}<span class="badge bg-info ms-1"><i class="bi bi-star-fill"></i> Nuovi</span>{% endif %}{% endif %}{% endfor %}
                     </h5>
-                    <span class="badge bg-success">{{ available_products|length }} articoli</span>
                 </div>
 
-                <div class="alert alert-success">
-                    <i class="bi bi-info-circle"></i>
-                    Si tratta di articoli mai stati nel sistema.
-                </div>
+                <div class="collapse" id="availProdSection">
+                    <div class="mt-3">
+                        <div class="alert alert-success mb-3">
+                            <i class="bi bi-info-circle"></i>
+                            Si tratta di articoli mai stati nel sistema.
+                            {% for item in available_products %}{% if item.is_new %}{% if forloop.first %}
+                            Gli articoli con <span class="badge bg-info"><i class="bi bi-star-fill"></i> Nuovo</span> sono stati aggiunti negli ultimi 7 giorni.
+                            {% endif %}{% endif %}{% endfor %}
+                        </div>
 
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th>Codice</th>
-                                <th>Descrizione</th>
-                                <th>Imballo</th>
-                                <th>Costo unitario</th>
-                                <th>Prezzo unitario</th>
-                                <th>Margine</th>
-                                <th>Azione</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in available_products %}
-                            <tr id="avail-row-{{ item.cod }}-{{ item.var }}">
-                                <td><code>{{ item.cod }}.{{ item.var }}</code></td>
-                                <td>{{ item.name|truncatewords:6 }}</td>
-                                <td>
-                                    <span class="badge bg-info">{{ item.package_size }} unità</span>
-                                </td>
-                                <td>
-                                    <strong>€{{ item.unit_cost|floatformat:2 }}</strong>
-                                    <br><small class="text-muted">Collo: €{{ item.package_cost|floatformat:2 }}</small>
-                                </td>
-                                <td>
-                                    <strong>€{{ item.unit_price|floatformat:2 }}</strong>
-                                </td>
-                                <td>
-                                    {% if item.margin_pct > 0 %}
-                                        <span class="badge bg-success">{{ item.margin_pct|floatformat:1 }}%</span>
-                                    {% else %}
-                                        <span class="badge bg-danger">{{ item.margin_pct|floatformat:1 }}%</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <button class="btn btn-sm btn-outline-success"
-                                            onclick="openVerifyAvailModal({{ item.cod }}, {{ item.var }}, '{{ item.name|truncatewords:6 }}', this)">
-                                        <i class="bi bi-check-circle"></i> Verifica
-                                    </button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="availProdTable">
+                                <thead>
+                                    <tr>
+                                        <th>Codice</th>
+                                        <th>Descrizione</th>
+                                        <th>Imballo</th>
+                                        <th>Costo unitario</th>
+                                        <th>Prezzo unitario</th>
+                                        <th>Margine</th>
+                                        <th>Azione</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in available_products %}
+                                    <tr id="avail-row-{{ item.cod }}-{{ item.var }}" class="avail-prod-row{% if item.is_new %} table-info{% endif %}">
+                                        <td><code>{{ item.cod }}.{{ item.var }}</code></td>
+                                        <td>
+                                            {% if item.is_new %}<span class="badge bg-info me-1"><i class="bi bi-star-fill"></i> Nuovo</span>{% endif %}
+                                            {{ item.name|truncatewords:6 }}
+                                        </td>
+                                        <td><span class="badge bg-secondary">{{ item.package_size }} unità</span></td>
+                                        <td>
+                                            <strong>€{{ item.unit_cost|floatformat:2 }}</strong>
+                                            <br><small class="text-muted">Collo: €{{ item.package_cost|floatformat:2 }}</small>
+                                        </td>
+                                        <td><strong>€{{ item.unit_price|floatformat:2 }}</strong></td>
+                                        <td>
+                                            {% if item.margin_pct > 0 %}
+                                                <span class="badge bg-success">{{ item.margin_pct|floatformat:1 }}%</span>
+                                            {% else %}
+                                                <span class="badge bg-danger">{{ item.margin_pct|floatformat:1 }}%</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-success"
+                                                    onclick="openVerifyAvailModal({{ item.cod }}, {{ item.var }}, '{{ item.name|truncatewords:6 }}', this)">
+                                                <i class="bi bi-check-circle"></i> Verifica
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination controls -->
+                        <div class="d-flex justify-content-between align-items-center mt-2" id="availPagination">
+                            <small class="text-muted" id="availPagInfo"></small>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-secondary" id="availPrevBtn" onclick="availChangePage(-1)">
+                                    <i class="bi bi-chevron-left"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" id="availNextBtn" onclick="availChangePage(1)">
+                                    <i class="bi bi-chevron-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+    {% endwith %}
     {% endif %}
 
     <!-- Magazzino Info Card -->
@@ -719,6 +746,54 @@ function adjustNegativeStock(cod, var_, currentStock) {
         alert('Errore: ' + error);
     });
 }
+
+// ---- Articoli Disponibili: collapse chevron + pagination ----
+(function () {
+    const AVAIL_PAGE_SIZE = 25;
+    let availPage = 1;
+
+    function getAvailRows() {
+        return Array.from(document.querySelectorAll('#availProdTable tbody .avail-prod-row'));
+    }
+
+    function renderAvailPage() {
+        const rows = getAvailRows();
+        if (!rows.length) return;
+        const total = rows.length;
+        const totalPages = Math.ceil(total / AVAIL_PAGE_SIZE);
+        const start = (availPage - 1) * AVAIL_PAGE_SIZE;
+        const end = start + AVAIL_PAGE_SIZE;
+        rows.forEach((r, i) => r.style.display = (i >= start && i < end) ? '' : 'none');
+        document.getElementById('availPagInfo').textContent =
+            `Pagina ${availPage} di ${totalPages} (${total} articoli)`;
+        document.getElementById('availPrevBtn').disabled = availPage <= 1;
+        document.getElementById('availNextBtn').disabled = availPage >= totalPages;
+        document.getElementById('availPagination').style.display = total <= AVAIL_PAGE_SIZE ? 'none' : '';
+    }
+
+    window.availChangePage = function (delta) {
+        const rows = getAvailRows();
+        const totalPages = Math.ceil(rows.length / AVAIL_PAGE_SIZE);
+        availPage = Math.max(1, Math.min(availPage + delta, totalPages));
+        renderAvailPage();
+    };
+
+    // Init on collapse open
+    const section = document.getElementById('availProdSection');
+    if (section) {
+        section.addEventListener('shown.bs.collapse', renderAvailPage);
+    }
+
+    // Chevron rotation
+    const card = document.querySelector('[data-bs-target="#availProdSection"]');
+    const chevron = document.querySelector('.avail-chevron');
+    if (card && chevron) {
+        card.addEventListener('click', function () {
+            const expanded = section.classList.contains('show');
+            chevron.style.transform = expanded ? 'rotate(0deg)' : 'rotate(90deg)';
+        });
+    }
+})();
 
 // ---- Verify Available Product Modal ----
 let verifyAvailModal = null;

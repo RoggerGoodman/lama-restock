@@ -1,5 +1,6 @@
 # LamApp/supermarkets/views.py
 from django.utils import timezone
+from datetime import date
 import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse, reverse_lazy
@@ -578,7 +579,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 cursor.execute("""
                     SELECT
                         p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp,
-                        e.cost_std, e.price_std
+                        p.first_added_at, e.cost_std, e.price_std
                     FROM products p
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                     LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
@@ -588,10 +589,13 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         AND (p.disponibilita = 'Si' OR p.settore = 'DEPERIBILI')
                         AND (ps.bought_last_24 IS NULL OR ps.bought_last_24 = '[]'::jsonb OR (ps.bought_last_24->0)::numeric = 0)
                         AND (ps.sold_last_24 IS NULL OR ps.sold_last_24 = '[]'::jsonb OR (ps.sold_last_24->0)::numeric = 0)
-                    ORDER BY p.descrizione
-                    LIMIT 100;
+                    ORDER BY
+                        CASE WHEN p.first_added_at >= CURRENT_DATE - INTERVAL '7 days' THEN 0 ELSE 1 END,
+                        p.first_added_at DESC,
+                        p.descrizione;
                 """, (self.object.settore,))
 
+                today = date.today()
                 available_products = []
                 for row in cursor.fetchall():
                     pz_x_collo = row['pz_x_collo'] or 12
@@ -603,6 +607,8 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     margin_pct = 0
                     if price_std > 0 and cost_std > 0:
                         margin_pct = ((price_std - cost_std) / price_std) * 100
+                    first_added_at = row['first_added_at']
+                    is_new = first_added_at is not None and (today - first_added_at).days <= 7
                     available_products.append({
                         'cod': row['cod'],
                         'var': row['v'],
@@ -612,6 +618,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         'unit_price': price_std,
                         'package_cost': package_cost,
                         'margin_pct': margin_pct,
+                        'is_new': is_new,
                     })
 
                 context['available_products'] = available_products
