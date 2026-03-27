@@ -624,7 +624,7 @@ class WebLister:
         Fetch and store monthly stats for a list of products via API.
         Replaces Scrapper.process_products().
 
-        product_tuples: iterable of (cod, v, is_verified, package_size, id_articolo)
+        product_tuples: iterable of (cod, v, is_verified, package_size, id_articolo, rapp)
         db: DatabaseManager instance
         Returns: same report dict structure as Scrapper.process_products()
         """
@@ -637,10 +637,9 @@ class WebLister:
             "skipped_no_id": 0,
             "empty": 0,
             "errors": 0,
-            "newly_added": [],
         }
 
-        for cod, v, is_verified, package_size, id_articolo in product_tuples:
+        for cod, v, is_verified, package_size, id_articolo, rapp in product_tuples:
             report["processed"] += 1
 
             if not id_articolo:
@@ -654,22 +653,11 @@ class WebLister:
                     report["errors"] += 1
                     continue
 
-                # Detect newly added: bought this year, never sold, nothing bought last year
-                cur_bought  = [row["QtaAnnoCurAcq"]  for row in monthly_data]
-                cur_sold    = [row["QtaAnnoCur"]      for row in monthly_data]
-                prec_bought = [row["QtaAnnoPrecAcq"]  for row in monthly_data]
-
-                if (any(q > 0 for q in cur_bought) and
-                        all(q == 0 for q in cur_sold) and
-                        all(q == 0 for q in prec_bought)):
-                    logger.info(f"Newly added product detected: {cod}.{v}")
-                    if not is_verified:
-                        report["newly_added"].append({
-                            "cod": cod,
-                            "var": v,
-                            "package_size": package_size,
-                            "reason": "Product ordered but not yet sold (needs verification)",
-                        })
+                # API returns bought quantities in colli; multiply by rapp to get pezzi
+                if rapp and rapp > 1:
+                    for row in monthly_data:
+                        row["QtaAnnoCurAcq"]  = row["QtaAnnoCurAcq"]  * rapp
+                        row["QtaAnnoPrecAcq"] = row["QtaAnnoPrecAcq"] * rapp
 
                 final_sold, final_bought = self._build_stats_arrays(monthly_data)
 
@@ -691,34 +679,26 @@ class WebLister:
                 report["errors"] += 1
 
         logger.info(report)
-        logger.info(f"Found {len(report['newly_added'])} newly added products needing verification")
         return report
 
-    def init_stats_for_settore(self, settore: str, db:DatabaseManager, full: bool = True) -> dict:
+    def init_stats_for_settore(self, settore: str, db:DatabaseManager) -> dict:
         """
         Fetch and store stats for all products in a settore via API.
         Replaces Scrapper.init_product_stats_for_settore().
+        Only processes verified products since id_articolo is only available after verification.
         """
         cur = db.cursor()
-        if full:
-            cur.execute("""
-                SELECT p.cod, p.v, ps.verified, p.pz_x_collo, p.id_articolo
-                FROM products p
-                LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                WHERE p.settore = %s
-            """, (settore,))
-        else:
-            cur.execute("""
-                SELECT ps.cod, ps.v, ps.verified, p.pz_x_collo, p.id_articolo
-                FROM product_stats ps
-                JOIN products p ON ps.cod = p.cod AND ps.v = p.v
-                WHERE p.settore = %s AND ps.verified = TRUE
-            """, (settore,))
+        cur.execute("""
+            SELECT ps.cod, ps.v, ps.verified, p.pz_x_collo, p.id_articolo, p.rapp
+            FROM product_stats ps
+            JOIN products p ON ps.cod = p.cod AND ps.v = p.v
+            WHERE p.settore = %s AND ps.verified = TRUE
+        """, (settore,))
 
         rows = cur.fetchall()
         product_tuples = [
             (row["cod"], row["v"], row.get("verified", False),
-             row.get("pz_x_collo", 12), row.get("id_articolo"))
+             row.get("pz_x_collo", 12), row.get("id_articolo"), row.get("rapp", 1))
             for row in rows
         ]
         return self.process_products_stats(product_tuples, db)

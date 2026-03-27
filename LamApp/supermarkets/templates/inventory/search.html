@@ -150,6 +150,18 @@
                         </div>
                     </div>
 
+                    <!-- EAN Fields -->
+                    <div id="eanFields" class="search-fields" style="display: none;">
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">Codice EAN</label>
+                            <input type="text" name="ean_code" id="id_ean_code"
+                                   class="form-control"
+                                   style="background:#000; color:#0f0; font-family:monospace; font-size:1.1rem; letter-spacing:0.05em;"
+                                   placeholder="Scansiona o inserisci EAN..."
+                                   autocomplete="off">
+                        </div>
+                    </div>
+
                     <!-- Settore/Cluster Fields -->
                     <div id="settoreFields" class="search-fields" style="display: none;">
                         <div class="row">
@@ -241,6 +253,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchTypeRadios = document.querySelectorAll('input[name="search_type"]');
     const codVarFields = document.getElementById('codVarFields');
     const settoreFields = document.getElementById('settoreFields');
+    const eanFields = document.getElementById('eanFields');
+    const eanInput = document.getElementById('id_ean_code');
     const supermarketSelect = document.getElementById('id_supermarket');
     const settoreDisplay = document.getElementById('settore_display');
     const settoreHidden = document.getElementById('id_settore');
@@ -302,19 +316,33 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateFieldsVisibility() {
         const selectedType = document.querySelector('input[name="search_type"]:checked').value;
 
+        codVarFields.style.display = 'none';
+        settoreFields.style.display = 'none';
+        eanFields.style.display = 'none';
+
         if (selectedType === 'cod_var') {
             codVarFields.style.display = 'block';
-            settoreFields.style.display = 'none';
         } else if (selectedType === 'settore_cluster') {
-            codVarFields.style.display = 'none';
             settoreFields.style.display = 'block';
-
             // If supermarket already has a value (e.g. single supermarket auto-selected), load settores
             if (supermarketSelect.value) {
                 loadSettores(supermarketSelect.value);
             }
+        } else if (selectedType === 'ean') {
+            eanFields.style.display = 'block';
+            eanInput.focus();
         }
     }
+
+    // Auto-submit on Enter in EAN field (barcode gun fires Enter after scan)
+    eanInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (this.value.trim()) {
+                document.getElementById('searchForm').submit();
+            }
+        }
+    });
 
     searchTypeRadios.forEach(radio => {
         radio.addEventListener('change', updateFieldsVisibility);

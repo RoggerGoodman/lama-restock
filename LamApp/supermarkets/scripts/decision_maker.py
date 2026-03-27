@@ -23,8 +23,6 @@ class DecisionMaker:
         self.skip_sale = skip_sale
         self.orders_list = []
         
-        # NEW: Three separate tracking lists
-        self.new_products = []      # Brand new products never in system
         self.skipped_products = []  # Products skipped for various reasons
         self.zombie_products = []   # Products that are finished/not restockable
         
@@ -183,7 +181,7 @@ class DecisionMaker:
     def decide_orders_for_settore(self, settore, coverage, minimum_stock_base=None):
         """
         Main method — iterate over all products in a settore and decide what to order.
-        Now tracks THREE lists: new_products, skipped_products, zombie_products
+        Now tracks TWO lists: skipped_products, zombie_products
         """
         logger.info(f"Processing settore: {settore} with coverage: {coverage} days")
         logger.info(f"Active blacklist has {len(self.blacklist)} products")
@@ -195,7 +193,6 @@ class DecisionMaker:
         extra_losses_lookup = {(item["cod"], item["v"]) for item in extra_losses_list}
 
         order_list = []
-        new_products = []  
         skipped_products = []
         zombie_products = []
 
@@ -255,11 +252,6 @@ class DecisionMaker:
                     reason = "Never been in system (brand new product)"
                     analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
-                    new_products.append({
-                        'cod': product_cod,
-                        'var': product_var,
-                        'reason': reason
-                    })
                     continue
                 elif disponibilita == "No":
                     reason = "Not available for restocking and no sales history"
@@ -338,15 +330,13 @@ class DecisionMaker:
 
         analyzer.log_statistics()
         
-        # Store all three lists
+        # Store lists
         self.orders_list = order_list
-        self.new_products = new_products 
         self.skipped_products = skipped_products
         self.zombie_products = zombie_products
-        
+
         logger.info(f"Finished settore '{settore}':")
         logger.info(f"  - Orders: {len(order_list)}")
-        logger.info(f"  - New products: {len(new_products)}")
         logger.info(f"  - Skipped products: {len(skipped_products)}")
         logger.info(f"  - Zombie products: {len(zombie_products)}")
 

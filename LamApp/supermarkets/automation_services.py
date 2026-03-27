@@ -58,7 +58,7 @@ class AutomatedRestockService(RestockService):
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
-    def update_product_stats_checkpoint(self, log: RestockLog, full: bool = True, progress_callback=None):
+    def update_product_stats_checkpoint(self, log: RestockLog, progress_callback=None):
         """
         CHECKPOINT 1 (NIGHTLY ONLY): Update product statistics from PAC2000A.
         This should ONLY be called during nightly automated runs.
@@ -103,7 +103,7 @@ class AutomatedRestockService(RestockService):
                 if progress_callback:
                     progress_callback(30, 'Processing product data...')
 
-                lister.init_stats_for_settore(self.settore, self.db, full)
+                lister.init_stats_for_settore(self.settore, self.db)
 
                 if progress_callback:
                     progress_callback(50, 'Finalizing statistics update...')
@@ -181,7 +181,6 @@ class AutomatedRestockService(RestockService):
                 decision_maker.decide_orders_for_settore(self.settore, coverage, self.storage.minimum_stock)
                 
                 orders_list = decision_maker.orders_list
-                new_products = decision_maker.new_products
                 skipped_products = decision_maker.skipped_products
                 zombie_products = decision_maker.zombie_products
                 
@@ -207,7 +206,6 @@ class AutomatedRestockService(RestockService):
                         }
                         for order in orders_list
                     ],
-                    'new_products': new_products,
                     'skipped_products': skipped_products,
                     'zombie_products': zombie_products,
                     'settore': self.settore,
@@ -225,7 +223,7 @@ class AutomatedRestockService(RestockService):
                 logger.info(
                     f"✅ [CHECKPOINT 1 COMPLETE] Order calculated: "
                     f"{len(orders_list)} products ordered, "
-                    f"{len(new_products)} new, {len(skipped_products)} skipped, "
+                    f"{len(skipped_products)} skipped, "
                     f"{len(zombie_products)} zombie"
                 )
                 return orders_list

@@ -351,6 +351,7 @@ class InventorySearchForm(forms.Form):
     SEARCH_TYPE_CHOICES = [
         ('cod_var', 'Articolo specifico'),
         ('settore_cluster', 'Magazzino + Cluster'),
+        ('ean', 'Cerca per EAN'),
     ]
     
     search_type = forms.ChoiceField(
@@ -398,9 +399,19 @@ class InventorySearchForm(forms.Form):
         required=False,
         widget=forms.TextInput(attrs={
             'class': 'form-control',
-            'id': 'id_cluster', 
+            'id': 'id_cluster',
             'readonly': 'readonly',  # Will be set by JavaScript
             'placeholder': 'Select settore first'
+        })
+    )
+
+    ean_code = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'id': 'id_ean_code',
+            'placeholder': 'Scansiona o inserisci EAN...',
+            'autocomplete': 'off',
         })
     )
     
@@ -445,7 +456,11 @@ class InventorySearchForm(forms.Form):
                 raise forms.ValidationError("Supermarket is required for settore/cluster search")
             if not cleaned_data.get('settore'):
                 raise forms.ValidationError("Settore is required for this search type")
-        
+
+        elif search_type == 'ean':
+            if not cleaned_data.get('ean_code'):
+                raise forms.ValidationError("EAN obbligatorio per questo tipo di ricerca")
+
         return cleaned_data
     
 class DDTUploadForm(forms.Form):

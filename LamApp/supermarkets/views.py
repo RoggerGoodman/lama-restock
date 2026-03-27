@@ -209,44 +209,6 @@ def dashboard_view(request):
                     """, (storage.settore,))
                     negative_count = cursor.fetchone()['cnt']
 
-                    # Count unverified products with sales
-                    cursor.execute("""
-                        SELECT COUNT(*) as cnt
-                        FROM products p
-                        JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                        WHERE p.settore = %s
-                            AND p.purge_flag = FALSE
-                            AND ps.verified = FALSE
-                            AND ps.sales_sets IS NOT NULL
-                            AND jsonb_typeof(ps.sales_sets) = 'array'
-                            AND EXISTS (
-                                SELECT 1
-                                FROM jsonb_array_elements(
-                                    jsonb_path_query_array(ps.sales_sets, '$[0 to 6]')
-                                ) AS elem
-                                WHERE (elem::text)::int > 0
-                            )
-                    """, (storage.settore,))
-                    unverified_sales_count = cursor.fetchone()['cnt']
-
-                    # Count newly added products (bought but not sold)
-                    cursor.execute("""
-                        SELECT COUNT(*) as cnt
-                        FROM products p
-                        JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                        WHERE p.settore = %s
-                            AND p.purge_flag = FALSE
-                            AND ps.verified = FALSE
-                            AND ps.sold_last_24 IS NULL
-                            AND ps.bought_last_24 IS NOT NULL
-                            AND jsonb_typeof(ps.bought_last_24) = 'array'
-                            AND EXISTS (
-                                SELECT 1
-                                FROM jsonb_array_elements(ps.bought_last_24)
-                            )
-                    """, (storage.settore,))
-                    newly_added_count = cursor.fetchone()['cnt']
-
                     # Count out of stock products
                     cursor.execute("""
                         SELECT COUNT(*) as cnt
@@ -260,19 +222,32 @@ def dashboard_view(request):
                     """, (storage.settore,))
                     out_of_stock_count = cursor.fetchone()['cnt']
 
+                    # Count brand-new available products added within the last 7 days
+                    cursor.execute("""
+                        SELECT COUNT(*) as cnt
+                        FROM products p
+                        JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE p.settore = %s
+                            AND p.purge_flag = FALSE
+                            AND ps.verified = FALSE
+                            AND (p.disponibilita = 'Si' OR p.settore = 'DEPERIBILI')
+                            AND (ps.bought_last_24 IS NULL OR ps.bought_last_24 = '[]'::jsonb OR (ps.bought_last_24->0)::numeric = 0)
+                            AND (ps.sold_last_24 IS NULL OR ps.sold_last_24 = '[]'::jsonb OR (ps.sold_last_24->0)::numeric = 0)
+                            AND p.first_added_at >= CURRENT_DATE - INTERVAL '7 days'
+                    """, (storage.settore,))
+                    new_available_count = cursor.fetchone()['cnt']
+
                     storage_notifications[storage.id] = {
                         'negative': negative_count,
-                        'unverified_sales': unverified_sales_count,
-                        'newly_added': newly_added_count,
                         'out_of_stock': out_of_stock_count,
+                        'new_available': new_available_count,
                     }
             except Exception as e:
                 logger.warning(f"Could not load notifications for storage {storage.name}: {e}")
                 storage_notifications[storage.id] = {
                     'negative': 0,
-                    'unverified_sales': 0,
-                    'newly_added': 0,
                     'out_of_stock': 0,
+                    'new_available': 0,
                 }
 
     # Get unread recipe cost alerts for this user's supermarkets
@@ -539,51 +514,13 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         except RestockSchedule.DoesNotExist:
             context['schedule'] = None
         
-        # ✅ FIXED: Load newly added products with type checking
         from .services import RestockService
-        
+
         try:
             with RestockService(self.object) as service:
                 cursor = service.db.cursor()
-                
-                # ✅ FIXED: Add jsonb_typeof check to prevent "non-array" error
-                cursor.execute("""
-                    SELECT 
-                        p.cod, p.v, p.descrizione, p.pz_x_collo,
-                        ps.verified, ps.bought_last_24, ps.sold_last_24
-                    FROM products p
-                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                    WHERE p.settore = %s
-                        AND p.purge_flag = FALSE
-                        AND ps.verified = FALSE
-                        AND ps.sold_last_24 IS NULL
-                        AND ps.bought_last_24 IS NOT NULL
-                        AND jsonb_typeof(ps.bought_last_24) = 'array'
-                        AND EXISTS (
-                            SELECT 1
-                            FROM jsonb_array_elements(ps.bought_last_24)
-                        )
-                    LIMIT 20;
-                """, (self.object.settore,))
-                
-                newly_added = []
-                for row in cursor.fetchall():
-                    bought = row['bought_last_24'] or []
-                    sold = row['sold_last_24'] or []
-                    
-                    # Check if bought but not sold
-                    if bought and (not sold or all(s == 0 for s in sold)):
-                        newly_added.append({
-                            'cod': row['cod'],
-                            'var': row['v'],
-                            'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
-                            'package_size': row['pz_x_collo'] or 12
-                        })
-                
-                context['newly_added_products'] = newly_added
-                logger.info(f"Found {len(newly_added)} newly added products needing verification")
 
-                # NEW: Load products with negative stock (anomalies)
+                # Load products with negative stock (anomalies)
                 cursor.execute("""
                     SELECT
                         p.cod, p.v, p.descrizione, p.pz_x_collo, ps.stock
@@ -608,41 +545,6 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
                 context['negative_stock_products'] = negative_stock_products
                 logger.info(f"Found {len(negative_stock_products)} products with negative stock")
-
-                # NEW: Load unverified products with recent sales
-                cursor.execute("""
-                    SELECT
-                        p.cod, p.v, p.descrizione, p.pz_x_collo, ps.stock, ps.sales_sets
-                    FROM products p
-                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                    WHERE p.settore = %s
-                        AND p.purge_flag = FALSE
-                        AND ps.verified = FALSE
-                        AND ps.sales_sets IS NOT NULL
-                        AND jsonb_typeof(ps.sales_sets) = 'array'
-                        AND EXISTS (
-                            SELECT 1
-                            FROM jsonb_array_elements(
-                                jsonb_path_query_array(ps.sales_sets, '$[0 to 6]')
-                            ) AS elem
-                            WHERE (elem::text)::int > 0
-                        )
-                    ORDER BY p.descrizione
-                    LIMIT 50;
-                """, (self.object.settore,))
-
-                unverified_sales_products = []
-                for row in cursor.fetchall():
-                    unverified_sales_products.append({
-                        'cod': row['cod'],
-                        'var': row['v'],
-                        'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
-                        'stock': row['stock'],
-                        'package_size': row['pz_x_collo'] or 12
-                    })
-
-                context['unverified_sales_products'] = unverified_sales_products
-                logger.info(f"Found {len(unverified_sales_products)} unverified products with recent sales")
 
                 # Load out of stock products (verified, stock=0, disponibilita='Si')
                 cursor.execute("""
@@ -672,12 +574,54 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 context['out_of_stock_products'] = out_of_stock_products
                 logger.info(f"Found {len(out_of_stock_products)} out of stock products")
 
+                # Load brand-new available products (verified=False, disponibilita=Si, no history)
+                cursor.execute("""
+                    SELECT
+                        p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp,
+                        e.cost_std, e.price_std
+                    FROM products p
+                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
+                    WHERE p.settore = %s
+                        AND p.purge_flag = FALSE
+                        AND ps.verified = FALSE
+                        AND (p.disponibilita = 'Si' OR p.settore = 'DEPERIBILI')
+                        AND (ps.bought_last_24 IS NULL OR ps.bought_last_24 = '[]'::jsonb OR (ps.bought_last_24->0)::numeric = 0)
+                        AND (ps.sold_last_24 IS NULL OR ps.sold_last_24 = '[]'::jsonb OR (ps.sold_last_24->0)::numeric = 0)
+                    ORDER BY p.descrizione
+                    LIMIT 100;
+                """, (self.object.settore,))
+
+                available_products = []
+                for row in cursor.fetchall():
+                    pz_x_collo = row['pz_x_collo'] or 12
+                    rapp = row['rapp'] or 1
+                    package_size = pz_x_collo * rapp
+                    cost_std = row['cost_std'] or 0
+                    price_std = row['price_std'] or 0
+                    package_cost = cost_std * package_size
+                    margin_pct = 0
+                    if price_std > 0 and cost_std > 0:
+                        margin_pct = ((price_std - cost_std) / price_std) * 100
+                    available_products.append({
+                        'cod': row['cod'],
+                        'var': row['v'],
+                        'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                        'package_size': package_size,
+                        'unit_cost': cost_std,
+                        'unit_price': price_std,
+                        'package_cost': package_cost,
+                        'margin_pct': margin_pct,
+                    })
+
+                context['available_products'] = available_products
+                logger.info(f"Found {len(available_products)} brand-new available products")
+
         except Exception as e:
             logger.exception("Error loading product anomalies")
-            context['newly_added_products'] = []
             context['negative_stock_products'] = []
-            context['unverified_sales_products'] = []
             context['out_of_stock_products'] = []
+            context['available_products'] = []
 
         return context
 
@@ -1181,7 +1125,6 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             'total_packages': self.object.total_packages or 0,
             'total_clusters': 0,
             'total_cost': 0,
-            'total_new': 0,
             'total_skipped': 0,
             'total_zombie': 0,
             'total_order_skipped': 0,
@@ -1198,7 +1141,6 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         if operation_type in ['full_restock', 'order_execution', 'verification']:
             # Get all lists from results
             orders = results.get('orders', [])
-            new_products = results.get('new_products', [])
             skipped_products = results.get('skipped_products', [])
             zombie_products = results.get('zombie_products', [])
             order_skipped_products = results.get('order_skipped_products', [])
@@ -1301,38 +1243,35 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                             continue
                     
                     # Enrich all product lists
-                    enriched_new = self._enrich_product_list(service, new_products, include_pricing=True)
                     enriched_skipped = self._enrich_product_list(service, skipped_products)
                     enriched_zombie = self._enrich_product_list(service, zombie_products)
                     enriched_order_skipped = self._enrich_product_list(service, order_skipped_products)
-                    
+
                     sorted_clusters = dict(sorted(clusters.items(), key=lambda x: x[0]))
-                    
+
                     # Calculate summary
                     summary = {
                         'total_items': len(enriched_orders),
                         'total_packages': sum(int(o.get('qty', 0) or 0) for o in enriched_orders),
                         'total_clusters': len(sorted_clusters),
                         'total_cost': sum(float(o.get('total_cost', 0) or 0) for o in enriched_orders),
-                        'total_new': len(enriched_new),
                         'total_skipped': len(enriched_skipped),
                         'total_zombie': len(enriched_zombie),
                         'total_order_skipped': len(enriched_order_skipped),
                     }
-                    
+
                     context['enriched_orders'] = enriched_orders
                     context['clusters'] = sorted_clusters
                     context['summary'] = summary
-                    
+
                     # Add all lists to context
-                    context['enriched_new'] = enriched_new
                     context['enriched_skipped'] = enriched_skipped
                     context['enriched_zombie'] = enriched_zombie
                     context['enriched_order_skipped'] = enriched_order_skipped
-                    
+
                     logger.info(
                         f"Context prepared: {len(enriched_orders)} orders, "
-                        f"{len(enriched_new)} new, {len(enriched_skipped)} skipped, "
+                        f"{len(enriched_skipped)} skipped, "
                         f"{len(enriched_zombie)} zombie, {len(enriched_order_skipped)} order-skipped"
                     )
             except Exception as e:
@@ -2685,6 +2624,10 @@ def inventory_search_view(request):
                     return redirect(f'/inventory/results/settore_cluster/?supermarket_id={supermarket_id}&settore={settore}&cluster={cluster}')
                 else:
                     return redirect(f'/inventory/results/settore_cluster/?supermarket_id={supermarket_id}&settore={settore}')
+
+            elif search_type == 'ean':
+                ean_code = form.cleaned_data['ean_code'].strip()
+                return redirect(f'/inventory/results/ean/?ean={ean_code}')
         else:
             # Form has errors - re-render with errors
             return render(request, 'inventory/search.html', {
@@ -2750,6 +2693,53 @@ def inventory_results_view(request, search_type):
 
             if not found:
                 return redirect('inventory-product-not-found', cod=cod, var=var)
+
+        elif search_type == 'ean':
+            ean_raw = request.GET.get('ean', '').strip()
+            if not ean_raw:
+                messages.error(request, "EAN mancante")
+                return redirect('inventory-search')
+            try:
+                ean = int(ean_raw)
+            except ValueError:
+                messages.error(request, "EAN non valido")
+                return redirect('inventory-search')
+
+            search_description = f"EAN: {ean_raw}"
+            found = False
+            for sm in Supermarket.objects.filter(owner=request.user):
+                storage = sm.storages.first()
+                if not storage:
+                    continue
+                with RestockService(storage) as service:
+                    try:
+                        cur = service.db.cursor()
+                        cur.execute("""
+                            SELECT
+                                p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
+                                p.settore, p.cluster,
+                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
+                            FROM products p
+                            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                            WHERE p.ean = %s AND ps.verified = TRUE
+                        """, (ean,))
+                        row = cur.fetchone()
+                        if row:
+                            found = True
+                            result = dict(row)
+                            result['supermarket_name'] = sm.name
+                            product_storage = sm.storages.filter(settore=row['settore']).first()
+                            result['storage_id'] = product_storage.id if product_storage else storage.id
+                            result['minimum_stock'] = row['minimum_stock']
+                            effective_storage = product_storage or storage
+                            result['storage_minimum_stock'] = effective_storage.minimum_stock
+                            results.append(result)
+                    except Exception:
+                        logger.exception(f"Error searching EAN in {sm.name}")
+
+            if not found:
+                messages.warning(request, f"Nessun prodotto trovato per EAN: {ean_raw}")
+                return redirect('inventory-search')
 
         elif search_type == 'settore_cluster':
             supermarket_id = request.GET.get('supermarket_id')

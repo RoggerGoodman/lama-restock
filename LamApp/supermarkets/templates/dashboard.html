@@ -230,14 +230,11 @@
                                             {% if notifs.negative %}
                                             <span class="badge rounded-pill bg-danger ms-1" title="Giacenza anomala" style="font-size: 0.65rem;">{{ notifs.negative }}</span>
                                             {% endif %}
-                                            {% if notifs.unverified_sales %}
-                                            <span class="badge rounded-pill bg-primary ms-1" title="Da verificare (con vendite)" style="font-size: 0.65rem;">{{ notifs.unverified_sales }}</span>
-                                            {% endif %}
-                                            {% if notifs.newly_added %}
-                                            <span class="badge rounded-pill bg-success ms-1" title="Articoli nuovi" style="font-size: 0.65rem;">{{ notifs.newly_added }}</span>
-                                            {% endif %}
                                             {% if notifs.out_of_stock %}
                                             <span class="badge rounded-pill bg-warning ms-1" title="Esauriti" style="font-size: 0.65rem;">{{ notifs.out_of_stock }}</span>
+                                            {% endif %}
+                                            {% if notifs.new_available %}
+                                            <span class="badge rounded-pill bg-info ms-1" title="Articoli disponibili (nuovi ultimi 7 giorni)" style="font-size: 0.65rem;">{{ notifs.new_available }} <i class="bi bi-star-fill" style="font-size: 0.55rem;"></i></span>
                                             {% endif %}
                                         {% endif %}
                                         {% endwith %}

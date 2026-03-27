@@ -102,7 +102,7 @@ class Orderer:
             EC.presence_of_element_located((By.ID, "Ordini"))
         )
 
-        time.sleep(1) 
+        time.sleep(0.2) 
 
         orders_menu1 = self.driver.find_element(By.ID, "Ordini")
         orders_menu1.click()
@@ -121,12 +121,12 @@ class Orderer:
             EC.presence_of_element_located((By.XPATH, "//button[text()='Chiudi']"))
         )
 
-        time.sleep(1)
+        time.sleep(0.2)
 
         close_button = self.driver.find_element(By.XPATH, "//button[text()='Chiudi']")
         close_button.click()
 
-        time.sleep(1)
+        time.sleep(0.2)
 
     def make_orders(self, storage: str, order_list: tuple):
         """
@@ -146,7 +146,7 @@ class Orderer:
         order_button = self.driver.find_element(By.ID, "newRowButtonMenuSopra")
         order_button.click()
 
-        time.sleep(2)
+        time.sleep(1)
 
         # Step 1: Wait for the modal to appear
         modal_container = self.wait.until(
@@ -168,7 +168,7 @@ class Orderer:
 
         element.click()
 
-        time.sleep(1)
+        time.sleep(0.2)
 
         button_inside_modal2 = self.wait.until(
             EC.element_to_be_clickable((By.XPATH, "//*[@id='magazziniInsert']/div[1]/div/div[1]/span[2]"))
@@ -176,7 +176,7 @@ class Orderer:
 
         button_inside_modal2.click()
 
-        time.sleep(1)
+        time.sleep(0.2)
 
         combo_box_element = self.driver.find_element(By.ID, "magazziniInsert")
         self.actions.send_keys(Keys.ARROW_DOWN)
@@ -202,7 +202,7 @@ class Orderer:
             self.actions.perform()
             time.sleep(0.5)
             
-        time.sleep(1)
+        time.sleep(0.2)
 
         confirm_button = self.driver.find_element(By.XPATH, '//*[@id="confermaInsertTestata"]')
         confirm_button.click()
@@ -216,7 +216,7 @@ class Orderer:
         new_order_button = self.driver.find_element(By.ID, "addButtonT")
         new_order_button.click()
 
-        time.sleep(1)
+        time.sleep(0.2)
 
         parent_div1 = self.driver.find_element(By.ID, "codArt")
         parent_div2 = self.driver.find_element(By.ID, "varArt")
@@ -244,11 +244,11 @@ class Orderer:
             cod_art_field.send_keys(cod_part)
             var_art_field.send_keys(var_part)
 
-            time.sleep(0.4)
+            time.sleep(0.2)
 
             search_button.click()
             
-            time.sleep(0.4)
+            time.sleep(0.3)
             
             # Check if product doesn't accept orders (disabled by system)
             is_off = self.driver.find_elements(
@@ -269,7 +269,7 @@ class Orderer:
             stock_size.clear()
             stock_size.send_keys(qty_part)
 
-            time.sleep(0.5)
+            time.sleep(0.2)
 
             confirm_button_order = self.driver.find_element(By.ID, "okModificaRiga")
             confirm_button_order.click()

@@ -82,69 +82,6 @@
     </div>
     {% endif %}
 
-    <!-- ✅ NEW: Unverified Products with Sales Section -->
-    {% if unverified_sales_products %}
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="stat-card border-warning">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="mb-0">
-                        <i class="bi bi-exclamation-circle text-warning"></i> I seguenti articoli necessitano di essere verificati
-                    </h5>
-                    <span class="badge bg-warning">{{ unverified_sales_products|length }} articoli</span>
-                </div>
-
-                <div class="alert alert-warning">
-                    <i class="bi bi-info-circle"></i>
-                    Questi articoli non sono verificati ma hanno vendite recenti. Puoi verificarli o eliminarli dal sistema.
-                </div>
-
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th>Codice</th>
-                                <th>Variante</th>
-                                <th>Descrizione</th>
-                                <th>Giacenza</th>
-                                <th>Pz x Collo</th>
-                                <th>Azioni</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for product in unverified_sales_products %}
-                            <tr id="unverified-row-{{ product.cod }}-{{ product.var }}">
-                                <td><code>{{ product.cod }}</code></td>
-                                <td><code>{{ product.var }}</code></td>
-                                <td>{{ product.description|truncatewords:8 }}</td>
-                                <td>
-                                    <span class="badge bg-info">{{ product.stock|default:"0" }}</span>
-                                </td>
-                                <td>
-                                    <span class="badge bg-secondary">{{ product.package_size }}</span>
-                                </td>
-                                <td>
-                                    <div class="btn-group btn-group-sm">
-                                        <button class="btn btn-sm btn-success"
-                                                onclick="verifyProduct({{ product.cod }}, {{ product.var }}, {{ product.package_size }}, 'unverified-row')">
-                                            <i class="bi bi-check-circle"></i> Verifica
-                                        </button>
-                                        <button class="btn btn-sm btn-danger"
-                                                onclick="purgeProduct({{ product.cod }}, {{ product.var }}, 'unverified-row')">
-                                            <i class="bi bi-trash"></i> Elimina
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-
     <!-- Out of Stock Products Section -->
     {% if out_of_stock_products %}
     <div class="row mb-4">
@@ -195,21 +132,21 @@
     </div>
     {% endif %}
 
-    <!-- ✅ NEW: Newly Added Products Section (if any exist) -->
-    {% if newly_added_products %}
+    <!-- Articoli Disponibili (brand-new, never in system) -->
+    {% if available_products %}
     <div class="row mb-4">
         <div class="col-12">
-            <div class="stat-card">
+            <div class="stat-card border-success">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0">
-                        <i class="bi bi-exclamation-circle text-warning"></i> Articoli aggiunti di recente che necessitano di verifica
+                        <i class="bi bi-star text-success"></i> Articoli Disponibili
                     </h5>
-                    <span class="badge bg-warning">{{ newly_added_products|length }} articoli</span>
+                    <span class="badge bg-success">{{ available_products|length }} articoli</span>
                 </div>
 
-                <div class="alert alert-info">
+                <div class="alert alert-success">
                     <i class="bi bi-info-circle"></i>
-                    Questi articoli sono stati ordinati ma non sono ancora stati venduti.
+                    Si tratta di articoli mai stati nel sistema.
                 </div>
 
                 <div class="table-responsive">
@@ -217,24 +154,39 @@
                         <thead>
                             <tr>
                                 <th>Codice</th>
-                                <th>Variante</th>
                                 <th>Descrizione</th>
-                                <th>Pz x Collo</th>
-                                <th>Azioni</th>
+                                <th>Imballo</th>
+                                <th>Costo unitario</th>
+                                <th>Prezzo unitario</th>
+                                <th>Margine</th>
+                                <th>Azione</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for product in newly_added_products %}
-                            <tr id="row-{{ product.cod }}-{{ product.var }}">
-                                <td><code>{{ product.cod }}</code></td>
-                                <td><code>{{ product.var }}</code></td>
-                                <td>{{ product.name|truncatewords:6 }}</td>
+                            {% for item in available_products %}
+                            <tr id="avail-row-{{ item.cod }}-{{ item.var }}">
+                                <td><code>{{ item.cod }}.{{ item.var }}</code></td>
+                                <td>{{ item.name|truncatewords:6 }}</td>
                                 <td>
-                                    <span class="badge bg-secondary">{{ product.package_size }}</span>
+                                    <span class="badge bg-info">{{ item.package_size }} unità</span>
                                 </td>
                                 <td>
-                                    <button class="btn btn-sm btn-success"
-                                            onclick="verifyProduct({{ product.cod }}, {{ product.var }}, {{ product.package_size }}, 'row')">
+                                    <strong>€{{ item.unit_cost|floatformat:2 }}</strong>
+                                    <br><small class="text-muted">Collo: €{{ item.package_cost|floatformat:2 }}</small>
+                                </td>
+                                <td>
+                                    <strong>€{{ item.unit_price|floatformat:2 }}</strong>
+                                </td>
+                                <td>
+                                    {% if item.margin_pct > 0 %}
+                                        <span class="badge bg-success">{{ item.margin_pct|floatformat:1 }}%</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">{{ item.margin_pct|floatformat:1 }}%</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-success"
+                                            onclick="openVerifyAvailModal({{ item.cod }}, {{ item.var }}, '{{ item.name|truncatewords:6 }}', this)">
                                         <i class="bi bi-check-circle"></i> Verifica
                                     </button>
                                 </td>
@@ -370,12 +322,6 @@
                         <span class="text-muted">Blacklists attive</span>
                         <strong>{{ blacklists|length }}</strong>
                     </div>
-                    {% if newly_added_products %}
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="text-muted">Necessita di verifica</span>
-                        <strong class="text-warning">{{ newly_added_products|length }}</strong>
-                    </div>
-                    {% endif %}
                     {% if recent_logs %}
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="text-muted">Ultima esecuzione</span>
@@ -774,6 +720,82 @@ function adjustNegativeStock(cod, var_, currentStock) {
     });
 }
 
+// ---- Verify Available Product Modal ----
+let verifyAvailModal = null;
+let verifyAvailCod = null;
+let verifyAvailVar = null;
+let verifyAvailTriggerBtn = null;
+
+function openVerifyAvailModal(cod, var_, name, triggerBtn) {
+    verifyAvailCod = cod;
+    verifyAvailVar = var_;
+    verifyAvailTriggerBtn = triggerBtn;
+    document.getElementById('verifyAvailProductLabel').textContent = name + ' (' + cod + '.' + var_ + ')';
+    document.getElementById('verifyAvailCluster').value = '';
+    document.getElementById('verifyAvailFeedback').textContent = '';
+
+    const smId = {{ storage.supermarket.id }};
+    const settore = encodeURIComponent('{{ storage.settore }}');
+    fetch(`/inventory/api/clusters/${smId}/${settore}/`)
+        .then(r => r.json())
+        .then(data => {
+            const list = document.getElementById('verifyAvailClusterList');
+            list.innerHTML = '';
+            (data.clusters || []).forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                list.appendChild(opt);
+            });
+        });
+
+    if (!verifyAvailModal) {
+        verifyAvailModal = new bootstrap.Modal(document.getElementById('verifyAvailModal'));
+    }
+    verifyAvailModal.show();
+}
+
+function submitVerifyAvail() {
+    const cluster = document.getElementById('verifyAvailCluster').value.trim().toUpperCase();
+    const feedback = document.getElementById('verifyAvailFeedback');
+    const btn = document.getElementById('verifyAvailSubmitBtn');
+
+    btn.disabled = true;
+    btn.textContent = 'Salvataggio...';
+
+    fetch('/inventory/verify-product/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            storage_id: {{ storage.id }},
+            cod: verifyAvailCod,
+            var: verifyAvailVar,
+            cluster: cluster || null
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.textContent = 'Verifica';
+        if (data.success) {
+            verifyAvailModal.hide();
+            if (verifyAvailTriggerBtn) {
+                const clusterLabel = document.getElementById('verifyAvailCluster').value.trim().toUpperCase();
+                verifyAvailTriggerBtn.outerHTML = '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Verificato' + (clusterLabel ? ' · ' + clusterLabel : '') + '</span>';
+            }
+        } else {
+            feedback.textContent = data.message || 'Errore sconosciuto';
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.textContent = 'Verifica';
+        feedback.textContent = 'Errore: ' + err;
+    });
+}
+
 // Generic purge product function
 function purgeProduct(cod, var_, rowIdPrefix) {
     if (!confirm(`Sei sicuro di voler eliminare il prodotto ${cod}.${var_}?`)) {
@@ -812,4 +834,32 @@ function purgeProduct(cod, var_, rowIdPrefix) {
     });
 }
 </script>
+
+<!-- Verify Available Product Modal -->
+<div class="modal fade" id="verifyAvailModal" tabindex="-1" aria-labelledby="verifyAvailProductLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="verifyAvailProductLabel">Verifica articolo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="verifyAvailCluster" class="form-label">Cluster <small class="text-muted">(opzionale)</small></label>
+                    <input type="text" class="form-control" id="verifyAvailCluster"
+                           list="verifyAvailClusterList" placeholder="Seleziona o crea nuovo cluster"
+                           style="text-transform: uppercase;">
+                    <datalist id="verifyAvailClusterList"></datalist>
+                </div>
+                <div class="text-danger small" id="verifyAvailFeedback"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-success" id="verifyAvailSubmitBtn" onclick="submitVerifyAvail()">
+                    <i class="bi bi-check-circle"></i> Verifica
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

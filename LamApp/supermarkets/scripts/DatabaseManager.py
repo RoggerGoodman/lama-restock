@@ -68,6 +68,7 @@ class DatabaseManager:
                 purge_flag BOOLEAN DEFAULT FALSE,
                 ean BIGINT,
                 id_articolo BIGINT,
+                first_added_at DATE DEFAULT CURRENT_DATE,
                 PRIMARY KEY (cod, v)
             )
         """)
@@ -246,12 +247,14 @@ class DatabaseManager:
             if last_update_month == current_month:
                 old_current = sold_array[0] if sold_array else 0
                 sold_delta = cur_sold_val - old_current
+                logger.info(f"[DELTA] {cod}.{v} same_month cur={cur_sold_val} old={old_current} delta={sold_delta} days_since={days_since} last_update={last_update_date}")
             else:
                 old_previous_stored = sold_array[0] if sold_array else 0
                 # prev_sold_val is None when PAC2000A returned only 1 month of data
                 # (e.g. brand-new product with no history). Treat as no correction needed.
                 prev_sold_safe = prev_sold_val if prev_sold_val is not None else old_previous_stored
                 sold_delta = cur_sold_val + (prev_sold_safe - old_previous_stored)
+                logger.info(f"[DELTA] {cod}.{v} new_month cur={cur_sold_val} prev_safe={prev_sold_safe} old_prev={old_previous_stored} delta={sold_delta} days_since={days_since} last_update={last_update_date}")
 
             if days_since > 0:
                 value = int(sold_delta)
@@ -742,7 +745,12 @@ class DatabaseManager:
                 descrizione = excluded.descrizione,
                 rapp = excluded.rapp,
                 pz_x_collo = excluded.pz_x_collo,
-                disponibilita = excluded.disponibilita
+                disponibilita = excluded.disponibilita,
+                first_added_at = CASE
+                    WHEN products.disponibilita = 'No' AND excluded.disponibilita = 'Si'
+                    THEN CURRENT_DATE
+                    ELSE products.first_added_at
+                END
         """, prod_rows)
 
         cur.executemany("""
@@ -888,41 +896,41 @@ class DatabaseManager:
         
     def purge_product(self, cod: int, v: int):
         """
-        Permanently delete a product from all tables.
+        Remove a product's operational data and flag it as purged.
+        The products row is kept to preserve first_added_at; child tables are cleared.
+        When the product reappears in a list update the row is restored automatically.
         Returns dict with deletion details.
         """
         cur = self.cursor()
-        
+
         deleted_from = []
-        
+
         # Delete from product_stats
         cur.execute("DELETE FROM product_stats WHERE cod = %s AND v = %s", (cod, v))
         if cur.rowcount > 0:
             deleted_from.append('product_stats')
-        
+
         # Delete from economics
         cur.execute("DELETE FROM economics WHERE cod = %s AND v = %s", (cod, v))
         if cur.rowcount > 0:
             deleted_from.append('economics')
-        
+
         # Delete from extra_losses
         cur.execute("DELETE FROM extra_losses WHERE cod = %s AND v = %s", (cod, v))
         if cur.rowcount > 0:
             deleted_from.append('extra_losses')
-        
-        # Delete from products (main table)
-        cur.execute("DELETE FROM products WHERE cod = %s AND v = %s", (cod, v))
-        if cur.rowcount > 0:
-            deleted_from.append('products')
-        
+
+        # Keep the products row to preserve first_added_at; reset flag since data is already cleared
+        cur.execute("UPDATE products SET purge_flag = FALSE WHERE cod = %s AND v = %s", (cod, v))
+
         self.conn.commit()
-        
+
         return {
             'action': 'purged',
             'cod': cod,
             'v': v,
             'deleted_from': deleted_from,
-            'message': f'Product {cod}.{v} permanently deleted from: {", ".join(deleted_from)}'
+            'message': f'Product {cod}.{v} data cleared from: {", ".join(deleted_from)}'
         }
     
     def check_and_purge_flagged(self):

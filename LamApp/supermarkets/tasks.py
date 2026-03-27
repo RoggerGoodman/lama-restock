@@ -579,7 +579,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             id_articolo=id_articolo
                         )
                         
-                        products_for_scrapper.append((cod, var, False, package or 12, id_articolo))
+                        products_for_scrapper.append((cod, var, False, package or 12, id_articolo, multiplier or 1))
                         
                         # Add economics data
                         if price and cost:
@@ -942,7 +942,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 id_articolo=id_articolo
                             )
                             
-                            products_for_scrapper.append((cod, var, True, package or 12, id_articolo))
+                            products_for_scrapper.append((cod, var, True, package or 12, id_articolo, multiplier or 1))
                             
                             # Add economics data
                             if price and cost:
