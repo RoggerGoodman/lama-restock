@@ -1148,7 +1148,6 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         if operation_type in ['full_restock', 'order_execution', 'verification']:
             # Get all lists from results
             orders = results.get('orders', [])
-            skipped_products = results.get('skipped_products', [])
             zombie_products = results.get('zombie_products', [])
             order_skipped_products = results.get('order_skipped_products', [])
             
@@ -1250,7 +1249,6 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                             continue
                     
                     # Enrich all product lists
-                    enriched_skipped = self._enrich_product_list(service, skipped_products)
                     enriched_zombie = self._enrich_product_list(service, zombie_products)
                     enriched_order_skipped = self._enrich_product_list(service, order_skipped_products)
 
@@ -1262,7 +1260,6 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         'total_packages': sum(int(o.get('qty', 0) or 0) for o in enriched_orders),
                         'total_clusters': len(sorted_clusters),
                         'total_cost': sum(float(o.get('total_cost', 0) or 0) for o in enriched_orders),
-                        'total_skipped': len(enriched_skipped),
                         'total_zombie': len(enriched_zombie),
                         'total_order_skipped': len(enriched_order_skipped),
                     }
@@ -1272,13 +1269,11 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     context['summary'] = summary
 
                     # Add all lists to context
-                    context['enriched_skipped'] = enriched_skipped
                     context['enriched_zombie'] = enriched_zombie
                     context['enriched_order_skipped'] = enriched_order_skipped
 
                     logger.info(
                         f"Context prepared: {len(enriched_orders)} orders, "
-                        f"{len(enriched_skipped)} skipped, "
                         f"{len(enriched_zombie)} zombie, {len(enriched_order_skipped)} order-skipped"
                     )
             except Exception as e:

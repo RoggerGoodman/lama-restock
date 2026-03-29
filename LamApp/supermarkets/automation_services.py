@@ -181,7 +181,6 @@ class AutomatedRestockService(RestockService):
                 decision_maker.decide_orders_for_settore(self.settore, coverage, self.storage.minimum_stock)
                 
                 orders_list = decision_maker.orders_list
-                skipped_products = decision_maker.skipped_products
                 zombie_products = decision_maker.zombie_products
                 
                 log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
@@ -206,7 +205,6 @@ class AutomatedRestockService(RestockService):
                         }
                         for order in orders_list
                     ],
-                    'skipped_products': skipped_products,
                     'zombie_products': zombie_products,
                     'settore': self.settore,
                     'coverage': float(coverage)
@@ -223,7 +221,6 @@ class AutomatedRestockService(RestockService):
                 logger.info(
                     f"✅ [CHECKPOINT 1 COMPLETE] Order calculated: "
                     f"{len(orders_list)} products ordered, "
-                    f"{len(skipped_products)} skipped, "
                     f"{len(zombie_products)} zombie"
                 )
                 return orders_list

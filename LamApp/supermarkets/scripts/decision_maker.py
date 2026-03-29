@@ -23,11 +23,10 @@ class DecisionMaker:
         self.skip_sale = skip_sale
         self.orders_list = []
         
-        self.skipped_products = []  # Products skipped for various reasons
         self.zombie_products = []   # Products that are finished/not restockable
-        
-        self.sale_discounts = self.retrive_products_on_sale()
-        self.sale_discounts_ended = self.retrive_products_recently_ended_sale()
+
+        self.sale_discounts = self.retrieve_products_on_sale()
+        self.sale_discounts_ended = self.retrieve_products_recently_ended_sale()
         
         # Store blacklist - if None, create empty set
         self.blacklist = blacklist_set if blacklist_set is not None else set()
@@ -48,7 +47,7 @@ class DecisionMaker:
         self.cursor.execute(query, (settore,))
         return self.cursor.fetchall()
     
-    def get_internal_use_losess(self):
+    def get_internal_use_losses(self):
         """Return list of (cod, v, internal) from extra_losses
         where internal is valid JSON."""
 
@@ -91,7 +90,7 @@ class DecisionMaker:
 
         return summed
     
-    def retrive_products_on_sale(self):
+    def retrieve_products_on_sale(self):
         today = date.today()
 
         self.cursor.execute("""
@@ -133,7 +132,7 @@ class DecisionMaker:
     def get_discount_for(self, cod, v):
         return self.sale_discounts.get((cod, v))
     
-    def retrive_products_recently_ended_sale(self):
+    def retrieve_products_recently_ended_sale(self):
         today = date.today()
 
         self.cursor.execute("""
@@ -181,7 +180,7 @@ class DecisionMaker:
     def decide_orders_for_settore(self, settore, coverage, minimum_stock_base=None):
         """
         Main method — iterate over all products in a settore and decide what to order.
-        Now tracks TWO lists: skipped_products, zombie_products
+        Now tracks zombie_products.
         """
         logger.info(f"Processing settore: {settore} with coverage: {coverage} days")
         logger.info(f"Active blacklist has {len(self.blacklist)} products")
@@ -189,11 +188,10 @@ class DecisionMaker:
         products = self.get_products_by_settore(settore)
         logger.info(f"Found {len(products)} products in settore '{settore}'")
         
-        extra_losses_list = self.get_internal_use_losess()
+        extra_losses_list = self.get_internal_use_losses()
         extra_losses_lookup = {(item["cod"], item["v"]) for item in extra_losses_list}
 
         order_list = []
-        skipped_products = []
         zombie_products = []
 
         for row in products:
@@ -208,7 +206,7 @@ class DecisionMaker:
             product_flag = row["purge_flag"]
 
             # CHECK Purge
-            if product_flag == True:
+            if product_flag:
                 logger.info(f"Skipping purging product: {product_cod}.{product_var}")
                 continue
             
@@ -225,11 +223,11 @@ class DecisionMaker:
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
             
-            if verified == False and disponibilita == "No":
+            if not verified and disponibilita == "No":
                 logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not verified and not available")
                 continue
 
-            if stock == 0 and verified == True and (disponibilita == "No" or settore == "DEPERIBILI"):
+            if stock == 0 and verified and (disponibilita == "No" or settore == "DEPERIBILI"):
                 logger.info(f"{product_cod}.{product_var} - {descrizione} marked as zombie because is not available and has verified stock of 0")
                 zombie_products.append({
                     'cod': product_cod,
@@ -240,17 +238,16 @@ class DecisionMaker:
                         
             package_size *= package_multi
 
-            if stock == None:
+            if stock is None:
                 logger.info(f"Skipping Article: {product_cod}.{product_var}. Because has no registered stock")
                 continue
             
-            if stock < 0 and verified == True:
+            if stock < 0 and verified:
                 analyzer.anomalous_stock_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
             
             if bought_array[0] == 0 and sold_array[0] == 0:
-                if verified == False and (disponibilita == "Si" or settore == "DEPERIBILI"):
+                if not verified and (disponibilita == "Si" or settore == "DEPERIBILI"):
                     reason = "Never been in system (brand new product)"
-                    analyzer.brand_new_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     continue
                 elif disponibilita == "No":
@@ -286,7 +283,7 @@ class DecisionMaker:
             logger.info(f"Package consumption = {package_consumption:.2f}")
 
             if sale_info is not None:
-                if self.skip_sale == True:
+                if self.skip_sale:
                     reason = "Skip products on sale mode is active for this order"
                     self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     continue
@@ -308,7 +305,7 @@ class DecisionMaker:
             else : 
                 discount = None
 
-            if verified == True:
+            if verified:
                 category = "N"
                 result, check, status, returned_discount = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales,
@@ -332,12 +329,10 @@ class DecisionMaker:
         
         # Store lists
         self.orders_list = order_list
-        self.skipped_products = skipped_products
         self.zombie_products = zombie_products
 
         logger.info(f"Finished settore '{settore}':")
         logger.info(f"  - Orders: {len(order_list)}")
-        logger.info(f"  - Skipped products: {len(skipped_products)}")
         logger.info(f"  - Zombie products: {len(zombie_products)}")
 
     def close(self):

@@ -22,9 +22,6 @@ class Analyzer:
     def low_sale_recorder(self, product_name: str, product_cod: int, product_var: int):
         self.low_list.append((product_name, product_cod, product_var))
 
-    def brand_new_recorder(self, note: str):
-        self.brand_new_list.append(note)
-
     def anomalous_stock_recorder(self, note: str):
         self.anomalous_stock_list.append(note)
 
@@ -52,12 +49,6 @@ class Analyzer:
         logger.info(f"Total packages : {self.number_of_packages}")
         logger.info(f"Total product types ordered : {self.success}")
 
-        if self.brand_new_list:
-            logger.info(
-                "The following products are brand new or made available once more:\n"
-                + "\n".join(self.brand_new_list)
-            )
-
         if self.low_list:
             logger.info(
                 "Very low daily sales products order list:\n"
@@ -78,7 +69,6 @@ class Analyzer:
     # ----------------------------
     def reset_statistics(self):
         self.low_list = []
-        self.brand_new_list = []
         self.anomalous_stock_list = []
 
         self.number_of_packages = 0

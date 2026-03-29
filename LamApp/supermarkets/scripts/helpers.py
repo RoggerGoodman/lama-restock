@@ -27,49 +27,7 @@ class Helper:
             prev_year = self.current_year
 
         self.days_previous_month = monthrange(prev_year, prev_month)[1]
-         
-        # Calculate how many months until December
-        if self.current_month < 12:
-            self.months_to_discard = 12 - self.current_month
-        else:
-            self.months_to_discard = 0
 
-    def clean_convert_reverse(self, values):
-        cleaned_values = []
-        for value in values:
-            # If the value contains a decimal different from ',00', skip the entire row (outer loop iteration)
-            if ',' in value and not value.endswith(',00'):
-                return None  # This signals that the article must be skipped
-
-            # Clean and convert
-            cleaned_value = int(value.replace(',00', '').replace(
-                '.', ''))  # Remove commas, convert to int
-            cleaned_values.append(cleaned_value)
-
-        cleaned_values.reverse()
-        return cleaned_values
-
-    def prepare_array(self, final_array_bought:list, final_array_sold:list):
-        # Remove the first elements based on current month
-        i = 0
-        while len(final_array_bought) > 1 and i < self.months_to_discard:
-            final_array_sold.pop(0)
-            final_array_bought.pop(0)
-            i += 1
-
-        # Remove the last elements from both lists if the bought-list and the sold-list both have a zero as last element
-        while len(final_array_bought) > 0 and final_array_bought[-1] == 0 and final_array_sold[-1] == 0:
-            final_array_bought.pop()
-            final_array_sold.pop()
-
-        # If a list is empty, return [0] instead
-        if not final_array_bought:
-            final_array_bought = [0]
-        if not final_array_sold:
-            final_array_sold = [0]
-
-        return final_array_bought, final_array_sold
-    
     def calculate_weighted_avg_sales_new(self, final_array_sold: list, alpha: float = 3.0, silent: bool = False):
         """
         Returns (avg_daily_sales, avg_sales_last_year)
@@ -230,16 +188,6 @@ class Helper:
         deviation = ((median_recent - median_baseline) / median_baseline) * 100
         deviation = round(deviation, 2)
         return max(-50, min(deviation, 50))
-
-    def calculate_stock(self, final_array_sold, final_array_bought):
-        tot_sold = sum(final_array_sold)
-        tot_bought = sum(final_array_bought)
-        true_stock = tot_bought - tot_sold
-        period = len(final_array_sold)
-        if true_stock > 5 :
-            true_stock = true_stock - math.floor(period/5)
-        logger.info(f"True Stock = {true_stock}")
-        return true_stock
 
     def next_article(self, product_cod, product_var, package_size, product_name, reason):
         logger.info(f"Will NOT order {product_name}: {product_cod}.{product_var}.{package_size}!")

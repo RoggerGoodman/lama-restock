@@ -230,13 +230,7 @@ class Orderer:
         successful_orders = []
         
         for order_item in order_list:
-            # Unpack - handle both old 3-element and new 4-element formats
-            if len(order_item) == 4:
-                cod_part, var_part, qty_part, discount = order_item
-            else:
-                # Backward compatibility with old 3-element format
-                cod_part, var_part, qty_part = order_item
-                discount = None
+            cod_part, var_part, qty_part, discount = order_item
             
             cod_art_field.clear()
             var_art_field.clear()

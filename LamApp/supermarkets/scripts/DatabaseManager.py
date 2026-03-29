@@ -867,13 +867,6 @@ class DatabaseManager:
 
         if stock > 0:
             # Has stock - flag for purging
-            # First, check if purge_flag column exists, add if not
-            try:
-                cur.execute("ALTER TABLE products ADD COLUMN purge_flag BOOLEAN DEFAULT FALSE")
-                self.conn.commit()
-            except:
-                pass  # Column already exists
-
             # Set purge flag
             cur.execute("""
                 UPDATE products
@@ -941,18 +934,13 @@ class DatabaseManager:
         """
         cur = self.cursor()
         
-        # Check if purge_flag column exists
-        try:
-            cur.execute("""
-                SELECT p.cod, p.v, ps.stock
-                FROM products p
-                JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                WHERE p.purge_flag = TRUE AND ps.stock = 0
-            """)
-        except:
-            # purge_flag column doesn't exist yet
-            return []
-        
+        cur.execute("""
+            SELECT p.cod, p.v, ps.stock
+            FROM products p
+            JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+            WHERE p.purge_flag = TRUE AND ps.stock = 0
+        """)
+
         flagged_products = cur.fetchall()
         purged = []
         
