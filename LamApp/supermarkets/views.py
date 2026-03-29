@@ -25,7 +25,8 @@ from .models import (
     Supermarket, Storage, RestockSchedule, ScheduleException,
     Blacklist, BlacklistEntry, RestockLog,
     Recipe, RecipeProductItem, RecipeExternalItem, RecipeCostAlert,
-    StockValueSnapshot
+    StockValueSnapshot,
+    RecurringClosure, OneTimeClosure, RecurringClosureOverride,
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
@@ -421,6 +422,125 @@ class SupermarketDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView)
         messages.success(request, f"Supermarket '{self.get_object().name}' deleted successfully!")
         return super().delete(request, *args, **kwargs)
 
+
+
+@login_required
+def closure_calendar_view(request, pk):
+    """Calendar UI for managing closure days for a supermarket."""
+    supermarket = get_object_or_404(Supermarket, pk=pk, owner=request.user)
+    return render(request, 'supermarkets/closures.html', {'supermarket': supermarket})
+
+
+@login_required
+def closure_api_view(request, pk):
+    """JSON API for reading and modifying closure days."""
+    from .models import RecurringClosure, OneTimeClosure, RecurringClosureOverride
+    import datetime
+
+    supermarket = get_object_or_404(Supermarket, pk=pk, owner=request.user)
+
+    if request.method == 'GET':
+        year = int(request.GET.get('year', date.today().year))
+
+        recurring = list(
+            supermarket.recurring_closures.values('month', 'day', 'label')
+        )
+        onetime = list(
+            supermarket.onetime_closures.filter(
+                date__year=year
+            ).values('date', 'label')
+        )
+        overrides = list(
+            supermarket.closure_overrides.filter(
+                year=year
+            ).values('month', 'day', 'year')
+        )
+
+        # Serialize dates
+        for entry in onetime:
+            entry['date'] = entry['date'].isoformat()
+
+        return JsonResponse({
+            'recurring': recurring,
+            'onetime': onetime,
+            'overrides': overrides,
+        })
+
+    if request.method == 'POST':
+        try:
+            body = json.loads(request.body)
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+        action = body.get('action')
+
+        if action == 'add_recurring':
+            month, day, label = body.get('month'), body.get('day'), body.get('label', '')
+            obj, _ = RecurringClosure.objects.get_or_create(
+                supermarket=supermarket, month=month, day=day,
+                defaults={'label': label}
+            )
+            if obj.label != label:
+                obj.label = label
+                obj.save()
+            return JsonResponse({'ok': True})
+
+        elif action == 'remove_recurring':
+            RecurringClosure.objects.filter(
+                supermarket=supermarket, month=body.get('month'), day=body.get('day')
+            ).delete()
+            # Also remove any overrides for this month/day
+            RecurringClosureOverride.objects.filter(
+                supermarket=supermarket, month=body.get('month'), day=body.get('day')
+            ).delete()
+            return JsonResponse({'ok': True})
+
+        elif action == 'add_onetime':
+            date_str = body.get('date')
+            label = body.get('label', '')
+            try:
+                d = datetime.date.fromisoformat(date_str)
+            except (ValueError, TypeError):
+                return JsonResponse({'error': 'Invalid date'}, status=400)
+            obj, _ = OneTimeClosure.objects.get_or_create(
+                supermarket=supermarket, date=d,
+                defaults={'label': label}
+            )
+            if obj.label != label:
+                obj.label = label
+                obj.save()
+            return JsonResponse({'ok': True})
+
+        elif action == 'remove_onetime':
+            date_str = body.get('date')
+            try:
+                d = datetime.date.fromisoformat(date_str)
+            except (ValueError, TypeError):
+                return JsonResponse({'error': 'Invalid date'}, status=400)
+            OneTimeClosure.objects.filter(supermarket=supermarket, date=d).delete()
+            return JsonResponse({'ok': True})
+
+        elif action == 'add_override':
+            RecurringClosureOverride.objects.get_or_create(
+                supermarket=supermarket,
+                month=body.get('month'),
+                day=body.get('day'),
+                year=body.get('year'),
+            )
+            return JsonResponse({'ok': True})
+
+        elif action == 'remove_override':
+            RecurringClosureOverride.objects.filter(
+                supermarket=supermarket,
+                month=body.get('month'),
+                day=body.get('day'),
+                year=body.get('year'),
+            ).delete()
+            return JsonResponse({'ok': True})
+
+        return JsonResponse({'error': 'Unknown action'}, status=400)
+
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
 
 
 @login_required

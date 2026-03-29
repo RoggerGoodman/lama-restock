@@ -57,6 +57,77 @@ class Supermarket(models.Model):
         }
 
 
+class RecurringClosure(models.Model):
+    """A day (month+day) that is closed every year for a supermarket."""
+    supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='recurring_closures')
+    month = models.IntegerField()
+    day = models.IntegerField()
+    label = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        unique_together = ('supermarket', 'month', 'day')
+
+    def __str__(self):
+        return f"{self.supermarket.name} — {self.day:02d}/{self.month:02d} (annuale)"
+
+
+class OneTimeClosure(models.Model):
+    """A specific date that is closed for a supermarket (one year only)."""
+    supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='onetime_closures')
+    date = models.DateField()
+    label = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        unique_together = ('supermarket', 'date')
+
+    def __str__(self):
+        return f"{self.supermarket.name} — {self.date} (singola)"
+
+
+class RecurringClosureOverride(models.Model):
+    """Marks a recurring closure day as OPEN for a specific year."""
+    supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='closure_overrides')
+    month = models.IntegerField()
+    day = models.IntegerField()
+    year = models.IntegerField()
+
+    class Meta:
+        unique_together = ('supermarket', 'month', 'day', 'year')
+
+    def __str__(self):
+        return f"{self.supermarket.name} — {self.day:02d}/{self.month:02d}/{self.year} (aperto)"
+
+
+def is_closure_day(supermarket, target_date=None):
+    """
+    Returns True if the given date is a closure day for the supermarket.
+    Checks one-time closures first, then recurring closures (unless overridden as open).
+    """
+    from datetime import date as date_type
+    if target_date is None:
+        target_date = date_type.today()
+
+    if OneTimeClosure.objects.filter(supermarket=supermarket, date=target_date).exists():
+        return True
+
+    is_recurring = RecurringClosure.objects.filter(
+        supermarket=supermarket,
+        month=target_date.month,
+        day=target_date.day,
+    ).exists()
+
+    if is_recurring:
+        is_overridden = RecurringClosureOverride.objects.filter(
+            supermarket=supermarket,
+            month=target_date.month,
+            day=target_date.day,
+            year=target_date.year,
+        ).exists()
+        return not is_overridden
+
+    return False
+
+
 class Storage(models.Model):
     """Storage/warehouse within a supermarket"""
     supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='storages')

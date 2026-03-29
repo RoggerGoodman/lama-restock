@@ -239,7 +239,17 @@
                                         {% endif %}
                                         {% endwith %}
                                     </td>
-                                    <td>{{ sm.name }}</td>
+                                    <td>
+                                        {{ sm.name }}
+                                        {% if forloop.first %}
+                                        <a href="{% url 'closure-calendar' pk=sm.id %}"
+                                           class="btn btn-outline-secondary btn-sm ms-2 py-0"
+                                           title="Imposta chiusura"
+                                           style="font-size:.75rem;">
+                                            <i class="bi bi-calendar-x"></i> Imposta chiusura
+                                        </a>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         {% if storage.schedule %}
                                             <span class="badge bg-success">

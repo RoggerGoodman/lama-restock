@@ -42,6 +42,11 @@ def record_losses_all_supermarkets(self):
         
         for supermarket in supermarkets:
             try:
+                from .models import is_closure_day
+                if is_closure_day(supermarket):
+                    logger.info(f"[CELERY] Skipping loss recording for {supermarket.name} — closure day")
+                    continue
+
                 logger.info(f"[CELERY] Recording losses for: {supermarket.name}")
                 
                 first_storage = supermarket.storages.first()
@@ -117,6 +122,11 @@ def update_stats_all_scheduled_storages(self):
         # Each subtask will trigger orders ONLY if stats succeed
         for storage in storages:
             try:
+                from .models import is_closure_day
+                if is_closure_day(storage.supermarket):
+                    logger.info(f"[CELERY] Skipping stats update for {storage.name} — closure day")
+                    continue
+
                 # Check product count in external DB
                 with RestockService(storage) as service:
                     cur = service.db.cursor()
@@ -369,6 +379,11 @@ def run_scheduled_list_updates(self):
         error_count = 0
 
         for storage in storages:
+            from .models import is_closure_day
+            if is_closure_day(storage.supermarket):
+                logger.info(f"[CELERY] Skipping list update for {storage.name} — closure day")
+                continue
+
             # Create a log entry for this scheduled update
             log = RestockLog.objects.create(
                 storage=storage,

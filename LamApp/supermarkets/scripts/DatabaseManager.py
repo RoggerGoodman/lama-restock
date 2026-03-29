@@ -256,14 +256,6 @@ class DatabaseManager:
                 sold_delta = cur_sold_val + (prev_sold_safe - old_previous_stored)
                 logger.info(f"[DELTA] {cod}.{v} new_month cur={cur_sold_val} prev_safe={prev_sold_safe} old_prev={old_previous_stored} delta={sold_delta} days_since={days_since} last_update={last_update_date}")
 
-            if days_since > 0:
-                value = int(sold_delta)
-                sales_sets.insert(0, value)
-                # Keep most recent 30 days
-                sales_sets = sales_sets[:30]
-
-
-
         if bought_pkt is not None:
             cur_bought_val, prev_bought_val = bought_pkt
             if last_update_month == current_month:
@@ -275,6 +267,18 @@ class DatabaseManager:
                 # (e.g. brand-new product with no history). Treat as no correction needed.
                 prev_bought_safe = prev_bought_val if prev_bought_val is not None else old_previous_stored
                 bought_delta = cur_bought_val + (prev_bought_safe - old_previous_stored)
+
+        # --- Update sales_sets (needs both deltas to be computed first) ---
+        if sold_pkt is not None and days_since > 0:
+            # If stock was already depleted before this update and no restock happened,
+            # the product was out of stock — sold_delta reflects availability, not demand.
+            # Insert None so downstream calculations ignore this censored day.
+            prev_stock = stock  # stock before this update (bought/sold not yet applied)
+            out_of_stock = prev_stock <= 0 and int(bought_delta) == 0
+            value = None if out_of_stock else int(sold_delta)
+            sales_sets.insert(0, value)
+            # Keep most recent 30 days
+            sales_sets = sales_sets[:30]
 
         # --- Apply array modifications using your existing helper ---
         if sold_pkt is not None:

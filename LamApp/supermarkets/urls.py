@@ -21,6 +21,8 @@ urlpatterns = [
     path('supermarkets/<int:pk>/', views.SupermarketDetailView.as_view(), name='supermarket-detail'),
     path('supermarkets/<int:pk>/edit/', views.SupermarketUpdateView.as_view(), name='supermarket-edit'),
     path('supermarkets/<int:pk>/delete/', views.SupermarketDeleteView.as_view(), name='supermarket-delete'),
+    path('supermarkets/<int:pk>/closures/', views.closure_calendar_view, name='closure-calendar'),
+    path('supermarkets/<int:pk>/closures/api/', views.closure_api_view, name='closure-api'),
     path('supermarkets/discover-storages/', views.discover_storages_ajax, name='discover-storages'),
     path('supermarkets/<int:supermarket_id>/upload-promos/', views.upload_promos_view, name='upload-promos'),
     

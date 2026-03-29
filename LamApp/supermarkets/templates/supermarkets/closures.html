@@ -1,0 +1,347 @@
+{% extends 'base.html' %}
+{% block title %}Chiusure — {{ supermarket.name }}{% endblock %}
+{% block page_title %}Chiusure — {{ supermarket.name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+  <!-- Header -->
+  <div class="row mb-3">
+    <div class="col-12">
+      <div class="d-flex justify-content-between align-items-center">
+        <a href="{% url 'dashboard' %}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-arrow-left"></i> Dashboard
+        </a>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <!-- Legend -->
+          <span class="badge" style="background:#dc3545; font-size:.85rem;">
+            <i class="bi bi-circle-fill"></i> Chiusura annuale
+          </span>
+          <span class="badge" style="background:#ffc107; color:#000; font-size:.85rem;">
+            <i class="bi bi-circle-fill"></i> Chiusura singola
+          </span>
+          <span class="badge" style="background:#198754; font-size:.85rem;">
+            <i class="bi bi-circle-fill"></i> Aperto (eccezione annuale)
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Year navigation -->
+  <div class="row mb-4">
+    <div class="col-12 text-center">
+      <div class="d-inline-flex align-items-center gap-3">
+        <button class="btn btn-outline-secondary btn-sm" id="prevYear"><i class="bi bi-chevron-left"></i></button>
+        <h4 class="mb-0" id="yearLabel"></h4>
+        <button class="btn btn-outline-secondary btn-sm" id="nextYear"><i class="bi bi-chevron-right"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Calendar grid (12 months) -->
+  <div class="row g-3" id="calendarGrid"></div>
+
+</div>
+
+<!-- Day action modal -->
+<div class="modal fade" id="dayModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="dayModalTitle"></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-2">
+        <div class="mb-2">
+          <label class="form-label small fw-bold">Etichetta (opzionale)</label>
+          <input type="text" class="form-control form-control-sm" id="dayLabel" placeholder="es. Pasqua, Ristrutturazione…">
+        </div>
+        <div class="d-grid gap-2" id="dayActions"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.cal-month { }
+.cal-month-title { font-weight: 600; text-align: center; margin-bottom: .4rem; }
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.cal-dow {
+  text-align: center;
+  font-size: .7rem;
+  color: #6c757d;
+  padding: 2px 0;
+  font-weight: 600;
+}
+.cal-day {
+  text-align: center;
+  font-size: .78rem;
+  padding: 4px 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  min-height: 28px;
+  line-height: 1.2;
+  transition: filter .15s;
+}
+.cal-day:hover { filter: brightness(0.88); }
+.cal-day.empty { cursor: default; }
+.cal-day.empty:hover { filter: none; }
+.cal-day.day-open { background: #f8f9fa; color: #212529; }
+.cal-day.day-recurring { background: #dc3545; color: #fff; }
+.cal-day.day-onetime { background: #ffc107; color: #000; }
+.cal-day.day-override { background: #198754; color: #fff; }
+</style>
+
+<script>
+const API_URL = "{% url 'closure-api' pk=supermarket.pk %}";
+const CSRF = "{{ csrf_token }}";
+
+const MONTHS_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno',
+                   'Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+const DAYS_IT = ['Lu','Ma','Me','Gi','Ve','Sa','Do'];
+
+let currentYear = new Date().getFullYear();
+let data = { recurring: [], onetime: [], overrides: [] };
+
+// ---- Data helpers ----
+
+function isRecurring(month, day) {
+  return data.recurring.some(r => r.month === month && r.day === day);
+}
+function isOnetime(year, month, day) {
+  const iso = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  return data.onetime.some(o => o.date === iso);
+}
+function isOverride(year, month, day) {
+  return data.overrides.some(o => o.year === year && o.month === month && o.day === day);
+}
+function recurringLabel(month, day) {
+  const r = data.recurring.find(r => r.month === month && r.day === day);
+  return r ? r.label : '';
+}
+function onetimeLabel(year, month, day) {
+  const iso = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  const o = data.onetime.find(o => o.date === iso);
+  return o ? o.label : '';
+}
+
+function classForDay(year, month, day) {
+  if (isRecurring(month, day)) {
+    return isOverride(year, month, day) ? 'day-override' : 'day-recurring';
+  }
+  if (isOnetime(year, month, day)) return 'day-onetime';
+  return 'day-open';
+}
+
+// ---- API ----
+
+async function apiPost(body) {
+  const resp = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify(body),
+  });
+  return resp.json();
+}
+
+async function loadData(year) {
+  const resp = await fetch(`${API_URL}?year=${year}`);
+  data = await resp.json();
+  renderCalendar();
+}
+
+// ---- Render ----
+
+function renderCalendar() {
+  const grid = document.getElementById('calendarGrid');
+  grid.innerHTML = '';
+  document.getElementById('yearLabel').textContent = currentYear;
+
+  for (let m = 1; m <= 12; m++) {
+    const col = document.createElement('div');
+    col.className = 'col-12 col-sm-6 col-md-4 col-xl-3';
+
+    const card = document.createElement('div');
+    card.className = 'card h-100';
+
+    const cardBody = document.createElement('div');
+    cardBody.className = 'card-body p-2';
+
+    const title = document.createElement('div');
+    title.className = 'cal-month-title';
+    title.textContent = MONTHS_IT[m - 1];
+    cardBody.appendChild(title);
+
+    const calGrid = document.createElement('div');
+    calGrid.className = 'cal-grid';
+
+    // Day-of-week headers (Monday first)
+    DAYS_IT.forEach(d => {
+      const dow = document.createElement('div');
+      dow.className = 'cal-dow';
+      dow.textContent = d;
+      calGrid.appendChild(dow);
+    });
+
+    // First day of month (0=Sun…6=Sat → convert to Mon-based 0-6)
+    const firstDate = new Date(currentYear, m - 1, 1);
+    let startOffset = firstDate.getDay(); // 0=Sun
+    startOffset = (startOffset + 6) % 7;  // convert to Mon=0
+
+    for (let i = 0; i < startOffset; i++) {
+      const empty = document.createElement('div');
+      empty.className = 'cal-day empty';
+      calGrid.appendChild(empty);
+    }
+
+    const daysInMonth = new Date(currentYear, m, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const cell = document.createElement('div');
+      cell.className = `cal-day ${classForDay(currentYear, m, d)}`;
+      cell.textContent = d;
+
+      // Tooltip
+      let tip = '';
+      if (isRecurring(m, d) && isOverride(currentYear, m, d)) {
+        tip = 'Aperto (eccezione)';
+        const lbl = recurringLabel(m, d);
+        if (lbl) tip += ` — ${lbl}`;
+      } else if (isRecurring(m, d)) {
+        tip = 'Chiusura annuale';
+        const lbl = recurringLabel(m, d);
+        if (lbl) tip += ` — ${lbl}`;
+      } else if (isOnetime(currentYear, m, d)) {
+        tip = 'Chiusura singola';
+        const lbl = onetimeLabel(currentYear, m, d);
+        if (lbl) tip += ` — ${lbl}`;
+      }
+      if (tip) cell.title = tip;
+
+      cell.addEventListener('click', () => openModal(currentYear, m, d));
+      calGrid.appendChild(cell);
+    }
+
+    cardBody.appendChild(calGrid);
+    card.appendChild(cardBody);
+    col.appendChild(card);
+    grid.appendChild(col);
+  }
+}
+
+// ---- Modal ----
+
+let modalInstance = null;
+
+function openModal(year, month, day) {
+  const iso = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  const monthName = MONTHS_IT[month - 1];
+
+  document.getElementById('dayModalTitle').textContent = `${day} ${monthName} ${year}`;
+
+  const labelInput = document.getElementById('dayLabel');
+  const actionsDiv = document.getElementById('dayActions');
+  actionsDiv.innerHTML = '';
+
+  const rec = isRecurring(month, day);
+  const ot = isOnetime(year, month, day);
+  const ov = isOverride(year, month, day);
+
+  // Pre-fill label
+  if (rec) labelInput.value = recurringLabel(month, day);
+  else if (ot) labelInput.value = onetimeLabel(year, month, day);
+  else labelInput.value = '';
+
+  const makeBtn = (text, cls, handler) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `btn btn-sm ${cls}`;
+    btn.innerHTML = text;
+    btn.onclick = async () => {
+      btn.disabled = true;
+      await handler();
+      modalInstance.hide();
+      await loadData(currentYear);
+    };
+    return btn;
+  };
+
+  if (!rec && !ot) {
+    // Open day — offer both closure types
+    actionsDiv.appendChild(makeBtn(
+      '<i class="bi bi-circle-fill text-danger me-1"></i> Imposta chiusura annuale',
+      'btn-outline-danger',
+      () => apiPost({ action: 'add_recurring', month, day, label: labelInput.value.trim() })
+    ));
+    actionsDiv.appendChild(makeBtn(
+      '<i class="bi bi-circle-fill text-warning me-1"></i> Imposta chiusura singola',
+      'btn-outline-warning',
+      () => apiPost({ action: 'add_onetime', date: iso, label: labelInput.value.trim() })
+    ));
+
+  } else if (rec && !ov) {
+    // Recurring closure — offer remove or one-year override
+    actionsDiv.appendChild(makeBtn(
+      '<i class="bi bi-check-circle me-1"></i> Segna come aperto per ' + year,
+      'btn-outline-success',
+      () => apiPost({ action: 'add_override', month, day, year })
+    ));
+    actionsDiv.appendChild(makeBtn(
+      '<i class="bi bi-x-circle me-1"></i> Rimuovi chiusura annuale',
+      'btn-outline-secondary',
+      () => apiPost({ action: 'remove_recurring', month, day })
+    ));
+    // Allow label update
+    actionsDiv.appendChild(makeBtn(
+      '<i class="bi bi-pencil me-1"></i> Aggiorna etichetta',
+      'btn-outline-primary',
+      () => apiPost({ action: 'add_recurring', month, day, label: labelInput.value.trim() })
+    ));
+
+  } else if (rec && ov) {
+    // Recurring but overridden as open this year
+    actionsDiv.appendChild(makeBtn(
+      '<i class="bi bi-x-circle me-1"></i> Ripristina chiusura per ' + year,
+      'btn-outline-danger',
+      () => apiPost({ action: 'remove_override', month, day, year })
+    ));
+    actionsDiv.appendChild(makeBtn(
+      '<i class="bi bi-trash me-1"></i> Rimuovi chiusura annuale del tutto',
+      'btn-outline-secondary',
+      () => apiPost({ action: 'remove_recurring', month, day })
+    ));
+
+  } else if (ot) {
+    // One-time closure
+    actionsDiv.appendChild(makeBtn(
+      '<i class="bi bi-x-circle me-1"></i> Rimuovi chiusura singola',
+      'btn-outline-secondary',
+      () => apiPost({ action: 'remove_onetime', date: iso })
+    ));
+    actionsDiv.appendChild(makeBtn(
+      '<i class="bi bi-pencil me-1"></i> Aggiorna etichetta',
+      'btn-outline-primary',
+      () => apiPost({ action: 'add_onetime', date: iso, label: labelInput.value.trim() })
+    ));
+  }
+
+  if (!modalInstance) {
+    modalInstance = new bootstrap.Modal(document.getElementById('dayModal'));
+  }
+  modalInstance.show();
+}
+
+// ---- Navigation ----
+
+document.getElementById('prevYear').onclick = () => { currentYear--; loadData(currentYear); };
+document.getElementById('nextYear').onclick = () => { currentYear++; loadData(currentYear); };
+
+// ---- Init ----
+loadData(currentYear);
+</script>
+{% endblock %}

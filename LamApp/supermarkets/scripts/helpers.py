@@ -110,6 +110,9 @@ class Helper:
         if not daily_sales:
             return None
 
+        # Filter out None entries (out-of-stock days where demand was censored)
+        daily_sales = [v for v in daily_sales if v is not None]
+
         min_days = 14
         half_life = 14
         outlier_k = 10
@@ -172,6 +175,9 @@ class Helper:
         """
         min_days = 14
         recent_window = 8
+
+        # Filter out None entries (out-of-stock days where demand was censored)
+        sales_sets = [v for v in sales_sets if v is not None]
 
         if not sales_sets or len(sales_sets) < min_days:
             return 0
