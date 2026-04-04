@@ -196,46 +196,80 @@ class RestockSchedule(models.Model):
         offset = self.get_delivery_offset(order_day_index)
         return (order_day_index + offset) % 7
 
-    def calculate_coverage_for_day(self, order_day_index):
+    def calculate_coverage_for_day(self, order_day_index, reference_date=None):
         """
         Calculate weighted coverage (sum of day weights from order day to next delivery).
 
         Uses supermarket's day weights instead of just counting days.
-        Example: If covering Mon→Thu with weights [0.9, 1.0, 1.0, 1.2] = 4.1 weighted days
+        Accounts for ScheduleException overrides on upcoming days:
+          - 'skip' exceptions are excluded (coverage extends past them)
+          - 'add' exceptions are included (coverage may shorten if the extra order is sooner)
 
         Args:
             order_day_index: 0=Monday, 6=Sunday
+            reference_date: The actual date of this order (datetime.date). Required to
+                            resolve ScheduleException entries on upcoming dates.
 
         Returns:
             float: Weighted number of days to cover
         """
+        from datetime import timedelta
+
         order_days = self.get_order_days()
 
-        if not order_days:
+        if not order_days and reference_date is None:
             return 0
 
-        if len(order_days) == 1:
-            # Only one order per week - default to 9 days weighted
+        # Build candidates as (days_ahead, weekday_index, delivery_offset_override)
+        # from static schedule, looking up to 3 weeks ahead.
+        candidates = []
+        for week_offset in (0, 7, 14):
+            for day in order_days:
+                days_ahead = day - order_day_index + week_offset
+                if days_ahead <= 0:
+                    continue
+                candidates.append((days_ahead, day % 7, None))
+
+        # If reference_date is provided, inject upcoming 'add' exceptions as extra candidates
+        if reference_date is not None:
+            add_exceptions = ScheduleException.objects.filter(
+                schedule=self,
+                date__gt=reference_date,
+                date__lte=reference_date + timedelta(days=21),
+                exception_type='add'
+            )
+            for exc in add_exceptions:
+                days_ahead = (exc.date - reference_date).days
+                weekday = exc.date.weekday()
+                candidates.append((days_ahead, weekday, exc.delivery_offset))
+
+        # Sort by proximity
+        candidates.sort(key=lambda x: x[0])
+
+        # Find the first candidate that is NOT skipped
+        next_days_ahead = None
+        next_delivery_offset = None
+        for days_ahead, weekday, offset_override in candidates:
+            if reference_date is not None:
+                future_date = reference_date + timedelta(days=days_ahead)
+                has_skip = ScheduleException.objects.filter(
+                    schedule=self,
+                    date=future_date,
+                    exception_type='skip'
+                ).exists()
+                if has_skip:
+                    continue
+            next_days_ahead = days_ahead
+            next_delivery_offset = offset_override if offset_override is not None else self.get_delivery_offset(weekday)
+            break
+
+        # Fallback: no schedule and no exceptions, or everything skipped
+        if next_days_ahead is None:
             return self._calculate_weighted_days(order_day_index, 9)
 
-        # Find the next order day after current order_day_index
-        next_order_day = None
-        for day in order_days:
-            if day > order_day_index:
-                next_order_day = day
-                break
+        # num_days: from order day (inclusive) through delivery day (inclusive)
+        num_days = next_days_ahead + next_delivery_offset + 1
 
-        # If no order day found after current, wrap around to first day of next week
-        if next_order_day is None:
-            next_order_day = order_days[0] + 7
-
-        # Get delivery offset for the next order
-        next_delivery_offset = self.get_delivery_offset(next_order_day % 7)
-
-        # Number of days to cover (unweighted)
-        num_days = (next_order_day + next_delivery_offset) - order_day_index + 1
-
-        # Calculate weighted coverage
         return self._calculate_weighted_days(order_day_index, num_days)
 
     def _calculate_weighted_days(self, start_day_index, num_days):

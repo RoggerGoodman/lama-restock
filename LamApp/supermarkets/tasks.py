@@ -141,9 +141,21 @@ def update_stats_all_scheduled_storages(self):
                     logger.info(f"[CELERY] Skipping {storage.name} - no products listed")
                     continue
 
-                # Check if this storage has orders scheduled for today
+                # Check if this storage has orders scheduled for today,
+                # accounting for ScheduleException overrides (add/skip)
                 try:
+                    from .models import ScheduleException
                     is_order_day = getattr(storage.schedule, today_field, False)
+                    today_date = datetime.date.today()
+                    exception = ScheduleException.objects.filter(
+                        schedule=storage.schedule,
+                        date=today_date
+                    ).first()
+                    if exception:
+                        if exception.exception_type == 'skip':
+                            is_order_day = False
+                        elif exception.exception_type == 'add':
+                            is_order_day = True
                 except storage.__class__.schedule.RelatedObjectDoesNotExist:
                     is_order_day = False
 
@@ -594,7 +606,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             id_articolo=id_articolo
                         )
                         
-                        products_for_scrapper.append((cod, var, False, package or 12, id_articolo, multiplier or 1))
+                        products_for_scrapper.append((cod, var, id_articolo, multiplier or 1))
                         
                         # Add economics data
                         if price and cost:
@@ -957,7 +969,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 id_articolo=id_articolo
                             )
                             
-                            products_for_scrapper.append((cod, var, True, package or 12, id_articolo, multiplier or 1))
+                            products_for_scrapper.append((cod, var, id_articolo, multiplier or 1))
                             
                             # Add economics data
                             if price and cost:

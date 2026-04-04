@@ -41,6 +41,7 @@ urlpatterns = [
     path('storages/<int:storage_id>/delivery-check/lookup-ean/', views.delivery_check_lookup_ean_ajax, name='delivery-check-lookup-ean'),
     path('storages/<int:storage_id>/delivery-check/parse-ddt/', views.delivery_check_parse_ddt_ajax, name='delivery-check-parse-ddt'),
     path('storages/<int:storage_id>/delivery-check/fetch-ean/', views.delivery_check_fetch_ean_ajax, name='delivery-check-fetch-ean'),
+    path('storages/<int:storage_id>/delivery-check/sync-scan/', views.delivery_check_sync_scan_ajax, name='delivery-check-sync-scan'),
 
     # ============ List Updates ============
     path('storages/<int:storage_id>/update-list/', views.manual_list_update_view, name='manual-list-update'),

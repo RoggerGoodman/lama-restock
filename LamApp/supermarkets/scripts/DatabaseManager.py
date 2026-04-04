@@ -150,7 +150,9 @@ class DatabaseManager:
         """
         Initialize with variable-length arrays (empty if not provided).
         """
-        today = date.today() 
+        sold = sold if sold else [0]
+        bought = bought if bought else [0]
+        today = date.today()
         cur = self.cursor()
         cur.execute("""
             INSERT INTO product_stats (
@@ -638,7 +640,8 @@ class DatabaseManager:
         if new_stock != None:
             cur.execute("UPDATE product_stats SET stock=%s, verified=TRUE WHERE cod=%s AND v=%s", (new_stock, cod, v))
             if cur.rowcount == 0:
-                logger.warning(f"No product_stats found for {cod}.{v}")
+                logger.warning(f"No product_stats found for {cod}.{v}, initializing row")
+                self.init_product_stats(cod, v, sold=[0], bought=[0], stock=new_stock, verified=True)
         
         if cluster != None:
             cur.execute("UPDATE products SET cluster = %s WHERE cod=%s AND v=%s", (cluster, cod, v))

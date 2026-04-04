@@ -11,6 +11,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib import messages
 from django.http import JsonResponse
+from django.core.cache import cache
 from django.views.decorators.http import require_POST
 from pathlib import Path
 from django.conf import settings
@@ -4589,6 +4590,37 @@ def delivery_check_fetch_ean_ajax(request, storage_id):
     from .tasks import fetch_single_ean
     result = fetch_single_ean.apply_async(args=[storage.id, cod, var])
     return JsonResponse({'task_id': result.id})
+
+
+@login_required
+def delivery_check_sync_scan_ajax(request, storage_id):
+    """
+    Server-side persistence for the delivery scan list (cross-device sync).
+    GET  → return stored scan data for this storage
+    POST → save scan data  (body: {scanList, notFoundList})
+    DELETE → clear stored scan data
+    Cache key: delivery_scan_{storage_id}  (24h TTL)
+    """
+    get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+    cache_key = f'delivery_scan_{storage_id}'
+
+    if request.method == 'GET':
+        data = cache.get(cache_key) or {}
+        return JsonResponse({'scanList': data.get('scanList', {}), 'notFoundList': data.get('notFoundList', [])})
+
+    if request.method == 'POST':
+        try:
+            body = json.loads(request.body)
+            cache.set(cache_key, {'scanList': body.get('scanList', {}), 'notFoundList': body.get('notFoundList', [])}, timeout=86400)
+            return JsonResponse({'ok': True})
+        except Exception:
+            return JsonResponse({'error': 'Dati non validi'}, status=400)
+
+    if request.method == 'DELETE':
+        cache.delete(cache_key)
+        return JsonResponse({'ok': True})
+
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
 
 
 @login_required

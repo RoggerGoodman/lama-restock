@@ -151,13 +151,11 @@ class AutomatedRestockService(RestockService):
         
         try:
             # Calculate coverage if not provided
+            today_date = timezone.now().date()
             if coverage is None:
                 schedule = self.storage.schedule
-                today = timezone.now().weekday()
-                coverage = schedule.calculate_coverage_for_day(today)
-
-            # Check if today has a skip_sale exception
-            today_date = timezone.now().date()
+                today = today_date.weekday()
+                coverage = schedule.calculate_coverage_for_day(today, reference_date=today_date)
             skip_sale = ScheduleException.objects.filter(
                 schedule=self.storage.schedule,
                 date=today_date,

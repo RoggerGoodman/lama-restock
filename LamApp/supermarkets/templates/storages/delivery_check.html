@@ -219,6 +219,7 @@
     const LOOKUP_URL    = "{% url 'delivery-check-lookup-ean'  storage_id=storage.id %}";
     const PARSE_DDT_URL = "{% url 'delivery-check-parse-ddt'  storage_id=storage.id %}";
     const FETCH_EAN_URL = "{% url 'delivery-check-fetch-ean'  storage_id=storage.id %}";
+    const SYNC_URL      = "{% url 'delivery-check-sync-scan'  storage_id=storage.id %}";
     const CSRF_TOKEN   = "{{ csrf_token }}";
     const LS_KEY       = `delivery_check_${STORAGE_ID}`;
 
@@ -231,23 +232,59 @@
 
     // ---- Persistence ----
     function load() {
-        try {
-            const raw = localStorage.getItem(LS_KEY);
-            if (raw) {
-                const data = JSON.parse(raw);
+        // Try server first (cross-device), fall back to localStorage
+        fetch(SYNC_URL)
+        .then(r => r.json())
+        .then(data => {
+            const serverHasData = Object.keys(data.scanList || {}).length > 0 || (data.notFoundList || []).length > 0;
+            if (serverHasData) {
                 scanList     = data.scanList     || {};
-                ddtList      = data.ddtList      || {};
                 notFoundList = data.notFoundList  || [];
+            } else {
+                // Fall back to localStorage
+                try {
+                    const raw = localStorage.getItem(LS_KEY);
+                    if (raw) {
+                        const local = JSON.parse(raw);
+                        scanList     = local.scanList     || {};
+                        notFoundList = local.notFoundList  || [];
+                    }
+                } catch (e) { /* ignore */ }
             }
-        } catch (e) { /* ignore */ }
-        render();
-        updateDdtUI();
+            // DDT stays localStorage-only (it's uploaded per-session)
+            try {
+                const raw = localStorage.getItem(LS_KEY);
+                if (raw) ddtList = JSON.parse(raw).ddtList || {};
+            } catch (e) { /* ignore */ }
+        })
+        .catch(() => {
+            // Network error — fall back to localStorage entirely
+            try {
+                const raw = localStorage.getItem(LS_KEY);
+                if (raw) {
+                    const data = JSON.parse(raw);
+                    scanList     = data.scanList     || {};
+                    ddtList      = data.ddtList      || {};
+                    notFoundList = data.notFoundList  || [];
+                }
+            } catch (e) { /* ignore */ }
+        })
+        .finally(() => {
+            render();
+            updateDdtUI();
+        });
     }
 
     function save() {
         try {
             localStorage.setItem(LS_KEY, JSON.stringify({ scanList, ddtList, notFoundList }));
         } catch (e) { /* ignore */ }
+        // Sync scan data to server (fire-and-forget)
+        fetch(SYNC_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body: JSON.stringify({ scanList, notFoundList }),
+        }).catch(() => { /* ignore */ });
     }
 
     // ---- Refocus logic ----
@@ -451,8 +488,10 @@
         const scanByCodVar = buildScanByCodVar();
         const allKeys = new Set([...Object.keys(ddtList), ...Object.keys(scanByCodVar)]);
 
-        let okCount = 0, qtyCount = 0, missCount = 0, extraCount = 0;
-        const rows = [];
+        let okCount = 0, parzCount = 0, nonConsCount = 0, extraCount = 0;
+
+        // category order: 0=non consegnato, 1=consegnato parziale, 2=consegnato extra
+        const buckets = [[], [], []];
 
         for (const key of [...allKeys].sort()) {
             const ddt  = ddtList[key];
@@ -462,37 +501,24 @@
             const diff    = scanQty - ddtQty;
             const desc    = (ddt || scan).descrizione;
 
-            let rowClass, statLabel, statBadge;
-
             if (ddt && scan && ddtQty === scanQty) {
                 okCount++;
                 continue; // don't render OK rows
-            } else if (ddt && scan) {
-                rowClass = 'row-qty';
-                statLabel = '<i class="bi bi-exclamation-circle-fill text-warning"></i>';
-                statBadge = 'warning';
-                qtyCount++;
-            } else if (ddt && !scan) {
-                rowClass = 'row-miss';
-                statLabel = '<i class="bi bi-x-circle-fill text-danger"></i> Mancante';
-                statBadge = 'danger';
-                missCount++;
-            } else {
-                rowClass = 'row-extra';
-                statLabel = '<i class="bi bi-plus-circle-fill text-primary"></i> Extra';
-                statBadge = 'primary';
-                extraCount++;
             }
 
-            let fetchBtn = '';
+            let rowClass, statLabel, bucketIdx, fetchBtn = '';
+
             if (ddt && !scan) {
+                // In DDT, nothing scanned → non consegnato
+                rowClass  = 'row-miss';
+                statLabel = '<i class="bi bi-x-circle-fill text-danger"></i> Non consegnato';
+                bucketIdx = 0;
+                nonConsCount++;
                 if (ddt.ean != null) {
-                    // EAN is in DB: product was definitively not scanned → not delivered
                     fetchBtn = `<span class="badge bg-danger">
                         <i class="bi bi-x-circle-fill"></i> Non consegnato
                     </span>`;
                 } else {
-                    // EAN missing from DB: can't confirm via scan → offer to fetch it
                     fetchBtn = `<button class="btn btn-outline-secondary btn-sm"
                            data-action="fetch-ean" data-cod="${escHtml(String(ddt.cod))}" data-var="${escHtml(String(ddt.var))}"
                            title="EAN non nel DB — Recupera da PAC2000A, poi riscansiona">
@@ -500,9 +526,21 @@
                        </button>
                        <div class="text-muted" style="font-size:0.7rem;">EAN mancante</div>`;
                 }
+            } else if (ddt && scan && scanQty < ddtQty) {
+                // In DDT, scanned less than expected → consegnato parziale
+                rowClass  = 'row-qty';
+                statLabel = '<i class="bi bi-exclamation-circle-fill text-warning"></i> Consegnato parziale';
+                bucketIdx = 1;
+                parzCount++;
+            } else {
+                // Either not in DDT at all, or scanned more than DDT → consegnato extra
+                rowClass  = 'row-extra';
+                statLabel = '<i class="bi bi-plus-circle-fill text-primary"></i> Consegnato extra';
+                bucketIdx = 2;
+                extraCount++;
             }
 
-            rows.push(`
+            buckets[bucketIdx].push(`
                 <tr class="${rowClass}">
                     <td>${statLabel}</td>
                     <td class="text-nowrap"><code>${escHtml(key)}</code></td>
@@ -517,6 +555,7 @@
             `);
         }
 
+        const rows = [...buckets[0], ...buckets[1], ...buckets[2]];
         const emptyRow = rows.length === 0
             ? `<tr><td colspan="7" class="text-center text-success py-3">
                    <i class="bi bi-check-circle-fill"></i> Nessuna discrepanza — consegna conforme al DDT
@@ -524,8 +563,8 @@
             : '';
         document.getElementById('compare-tbody').innerHTML = emptyRow + rows.join('');
         document.getElementById('cmp-ok-count').textContent    = `${okCount} OK`;
-        document.getElementById('cmp-qty-count').textContent   = `${qtyCount} qty diversa`;
-        document.getElementById('cmp-miss-count').textContent  = `${missCount} mancanti`;
+        document.getElementById('cmp-qty-count').textContent   = `${parzCount} cons. parziale`;
+        document.getElementById('cmp-miss-count').textContent  = `${nonConsCount} non cons.`;
         document.getElementById('cmp-extra-count').textContent = `${extraCount} extra`;
 
         // Hint: if there are unresolved scans, they might correspond to mancanti
@@ -700,6 +739,7 @@
         scanList = {};
         notFoundList = [];
         save();
+        fetch(SYNC_URL, { method: 'DELETE', headers: { 'X-CSRFToken': CSRF_TOKEN } }).catch(() => {});
         render();
         setStatus('<i class="bi bi-circle"></i> In attesa', 'secondary');
         refocus();

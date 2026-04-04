@@ -624,7 +624,7 @@ class WebLister:
         Fetch and store monthly stats for a list of products via API.
         Replaces Scrapper.process_products().
 
-        product_tuples: iterable of (cod, v, is_verified, package_size, id_articolo, rapp)
+        product_tuples: iterable of (cod, v, id_articolo, rapp)
         db: DatabaseManager instance
         Returns: same report dict structure as Scrapper.process_products()
         """
@@ -639,7 +639,7 @@ class WebLister:
             "errors": 0,
         }
 
-        for cod, v, is_verified, package_size, id_articolo, rapp in product_tuples:
+        for cod, v, id_articolo, rapp in product_tuples:
             report["processed"] += 1
 
             if not id_articolo:
@@ -689,7 +689,7 @@ class WebLister:
         """
         cur = db.cursor()
         cur.execute("""
-            SELECT ps.cod, ps.v, ps.verified, p.pz_x_collo, p.id_articolo, p.rapp
+            SELECT ps.cod, ps.v, p.id_articolo, p.rapp
             FROM product_stats ps
             JOIN products p ON ps.cod = p.cod AND ps.v = p.v
             WHERE p.settore = %s AND ps.verified = TRUE
@@ -697,8 +697,7 @@ class WebLister:
 
         rows = cur.fetchall()
         product_tuples = [
-            (row["cod"], row["v"], row.get("verified", False),
-             row.get("pz_x_collo", 12), row.get("id_articolo"), row.get("rapp", 1))
+            (row["cod"], row["v"], row.get("id_articolo"), row.get("rapp", 1))
             for row in rows
         ]
         return self.process_products_stats(product_tuples, db)
