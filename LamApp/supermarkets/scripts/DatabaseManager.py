@@ -67,7 +67,6 @@ class DatabaseManager:
                 cluster TEXT,
                 purge_flag BOOLEAN DEFAULT FALSE,
                 ean BIGINT,
-                id_articolo BIGINT,
                 first_added_at DATE DEFAULT CURRENT_DATE,
                 PRIMARY KEY (cod, v)
             )
@@ -137,13 +136,13 @@ class DatabaseManager:
 
     # ---------- PRODUCT MANAGEMENT ----------
 
-    def add_product(self, cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita="Si", ean=None, id_articolo=None):
+    def add_product(self, cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita="Si", ean=None):
         cur = self.cursor()
         cur.execute("""
-            INSERT INTO products (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita, ean, id_articolo)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO products (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita, ean)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (cod, v) DO NOTHING
-        """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita, ean, id_articolo))
+        """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita, ean))
         self.conn.commit()
 
     def init_product_stats(self, cod:int, v:int, sold:list, bought:list, stock:int=0, verified:bool=False):

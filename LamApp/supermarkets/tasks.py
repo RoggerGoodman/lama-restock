@@ -578,7 +578,6 @@ def add_products_unified_task(self, storage_id, products_list, settore):
 
                 added = []
                 failed = []
-                products_for_scrapper = []  # ← NEW: Collect for scrapper
 
                 for cod, var in products_list:
                     try:
@@ -591,7 +590,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             failed.append((cod, var, "Not found in PAC2000A"))
                             continue
                         
-                        description, package, multiplier, availability, cost, price, category, ean, id_articolo = product_data
+                        description, package, multiplier, availability, cost, price, category, ean = product_data
 
                         # Add to products table
                         service.db.add_product(
@@ -603,10 +602,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                             settore=settore,
                             disponibilita=availability or "Si",
                             ean=ean,
-                            id_articolo=id_articolo
                         )
-                        
-                        products_for_scrapper.append((cod, var, id_articolo, multiplier or 1))
                         
                         # Add economics data
                         if price and cost:
@@ -627,11 +623,6 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                         logger.exception(f"[ADD PRODUCTS] Error adding {cod}.{var}")
                         failed.append((cod, var, str(e)))
                 
-                if products_for_scrapper:
-                    logger.info(f"[ADD PRODUCTS] Initializing stats for {len(products_for_scrapper)} products via API...")
-                    scrapper_report = lister.process_products_stats(products_for_scrapper, service.db)
-                    logger.info(f"[ADD PRODUCTS] Stats initialized {scrapper_report['initialized']} products")
-
                 # Update log
                 log.status = 'completed'
                 log.completed_at = timezone.now()
@@ -903,7 +894,6 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
             # Step 4: Auto-add missing products
             added_products = []
             failed_additions = []
-            products_for_scrapper = []
             
             if missing_products:
                 self.update_state(
@@ -954,7 +944,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 })
                                 continue
                             
-                            description, package, multiplier, availability, cost, price, category, ean, id_articolo = product_data
+                            description, package, multiplier, availability, cost, price, category, ean = product_data
 
                             # Add to products table
                             service.db.add_product(
@@ -966,10 +956,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 settore=storage.settore,
                                 disponibilita=availability or "Si",
                                 ean=ean,
-                                id_articolo=id_articolo
                             )
-                            
-                            products_for_scrapper.append((cod, var, id_articolo, multiplier or 1))
                             
                             # Add economics data
                             if price and cost:
@@ -1003,20 +990,9 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 'reason': str(e)
                             })
                     
-                    # Initialize stats via API (no separate Selenium session needed)
-                    if products_for_scrapper:
-                        self.update_state(
-                            state='PROGRESS',
-                            meta={'progress': 65, 'status': f'Initializing stats for {len(products_for_scrapper)} products...'}
-                        )
-                        logger.info(f"[VERIFY+AUTO-ADD] Initializing stats for {len(products_for_scrapper)} products via API...")
-
-                        scrapper_report = lister.process_products_stats(products_for_scrapper, service.db)
-                        logger.info(f"[VERIFY+AUTO-ADD] Stats initialized {scrapper_report['initialized']} products")
-
-                        # Verify stock for newly added products
-                        for cod, var, qty in [(p[0], p[1], next((m[2] for m in missing_products if m[0]==p[0] and m[1]==p[1]), 0)) for p in products_for_scrapper]:
-                            service.db.verify_stock(cod, var, qty, cluster)
+                    # Verify stock for newly added products
+                    for p in added_products:
+                        service.db.verify_stock(p['cod'], p['var'], p['qty'], cluster)
 
                 finally:
                     lister.driver.quit()
@@ -1536,7 +1512,7 @@ def backfill_ean_and_id_for_verified_products(self):
                     SELECT p.cod, p.v
                     FROM products p
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                    WHERE ps.verified = TRUE AND (p.ean IS NULL OR p.id_articolo IS NULL) AND p.settore = %s
+                    WHERE ps.verified = TRUE AND p.ean IS NULL AND p.settore = %s
                 """, (storage.settore,))
                 missing = cur.fetchall()
 
@@ -1578,21 +1554,20 @@ def backfill_ean_and_id_for_verified_products(self):
                                 continue
 
                             ean = product_data[7]
-                            id_articolo = product_data[8]
 
-                            if ean is None and id_articolo is None:
-                                logger.debug(f"[EAN BACKFILL] No EAN or id_articolo found for {cod}.{v}")
+                            if ean is None:
+                                logger.debug(f"[EAN BACKFILL] No EAN found for {cod}.{v}")
                                 total_failed += 1
                                 continue
 
                             cur = service.db.cursor()
                             cur.execute(
-                                "UPDATE products SET ean = %s, id_articolo = %s WHERE cod = %s AND v = %s",
-                                (ean, id_articolo, cod, v)
+                                "UPDATE products SET ean = %s WHERE cod = %s AND v = %s",
+                                (ean, cod, v)
                             )
                             service.db.conn.commit()
                             total_updated += 1
-                            logger.info(f"[EAN BACKFILL] {cod}.{v} -> EAN {ean}, id_articolo {id_articolo}")
+                            logger.info(f"[EAN BACKFILL] {cod}.{v} -> EAN {ean}")
 
                         except Exception as e:
                             logger.warning(f"[EAN BACKFILL] Failed for {cod}.{v}: {e}")

@@ -16,7 +16,7 @@ import shutil
 from .scripts.decision_maker import DecisionMaker
 from .scripts.inventory_scrapper import Inventory_Scrapper
 from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
-from .scripts.web_lister import WebLister
+from .scripts.scrapper import Scrapper
 from .scripts.orderer import Orderer
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ class AutomatedRestockService(RestockService):
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
-    def update_product_stats_checkpoint(self, log: RestockLog, progress_callback=None):
+    def update_product_stats_checkpoint(self, log: RestockLog, full: bool = True, progress_callback=None):
         """
         CHECKPOINT 1 (NIGHTLY ONLY): Update product statistics from PAC2000A.
         This should ONLY be called during nightly automated runs.
@@ -81,36 +81,29 @@ class AutomatedRestockService(RestockService):
         
         try:
             if progress_callback:
-                progress_callback(15, 'Fetching product statistics via API...')
+                progress_callback(15, 'Downloading product statistics (5-10 min)...')
 
-            lister = WebLister(
+            scrapper = Scrapper(
                 username=self.supermarket.username,
                 password=self.supermarket.password,
-                storage_name=self.storage.name,
-                download_dir='/tmp',
-                id_cod_mag=self.storage.id_cod_mag,
-                id_cliente=self.supermarket.id_cliente,
-                id_azienda=self.supermarket.id_azienda,
-                id_marchio=self.supermarket.id_marchio,
-                id_clienti_canale=self.supermarket.id_clienti_canale,
-                id_clienti_area=self.supermarket.id_clienti_area,
-                headless=True
+                helper=self.helper,
+                db=self.db
             )
 
             try:
-                lister.login()
+                scrapper.navigate()
 
                 if progress_callback:
                     progress_callback(30, 'Processing product data...')
 
-                lister.init_stats_for_settore(self.settore, self.db)
+                scrapper.init_product_stats_for_settore(self.settore, full)
 
                 if progress_callback:
                     progress_callback(50, 'Finalizing statistics update...')
 
                 purged_products = self.db.check_and_purge_flagged()
                 if purged_products:
-                    logger.info(f"[AUTO-PURGE] ✅ Purged {len(purged_products)} products")
+                    logger.info(f"[AUTO-PURGE] Purged {len(purged_products)} products")
 
                 with transaction.atomic():
                     log = RestockLog.objects.select_for_update().get(id=log.id)
@@ -118,12 +111,11 @@ class AutomatedRestockService(RestockService):
                     log.stats_updated_at = timezone.now()
                     log.save()
 
-                logger.info(f"✅ [CHECKPOINT 1 COMPLETE] Stats updated")
+                logger.info(f"[CHECKPOINT 1 COMPLETE] Stats updated")
                 return True
 
             finally:
-                lister.driver.quit()
-                shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+                scrapper.driver.quit()
                     
         except Exception as e:
             with transaction.atomic():
