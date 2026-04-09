@@ -429,7 +429,7 @@ class RestockLog(models.Model):
     # NEW: Operation type tracking
     OPERATION_TYPE_CHOICES = [
         ('full_restock', 'Full Restock Order'),
-        ('ddt_import', 'DDT Import'),
+        ('stats_update', 'Statistics Update Only'),
         ('list_update', 'Product List Update'),
         ('order_execution', 'Order Execution Only'),
         ('verification', 'Stock Verification'),
@@ -479,7 +479,7 @@ class RestockLog(models.Model):
         """Return Bootstrap icon class for operation type"""
         icons = {
             'full_restock': 'bi-box-seam',
-            'ddt_import': 'bi-truck',
+            'stats_update': 'bi-arrow-repeat',
             'list_update': 'bi-download',
             'order_execution': 'bi-send',
             'verification': 'bi-clipboard-check',
@@ -492,7 +492,7 @@ class RestockLog(models.Model):
         """Return Bootstrap color class for operation type"""
         colors = {
             'full_restock': 'primary',
-            'ddt_import': 'info',
+            'stats_update': 'info',
             'list_update': 'warning',
             'order_execution': 'success',
             'verification': 'secondary',

@@ -88,48 +88,107 @@ def record_losses_all_supermarkets(self):
 @shared_task(
     bind=True,
     max_retries=3,
-    default_retry_delay=900,
+    default_retry_delay=900  # 15 minutes
 )
 def update_stats_all_scheduled_storages(self):
     """
-    Nightly DDT import — one Celery task per supermarket.
-    Fetches invoices once per supermarket and fans out DB writes per storage.
+    Update product stats for all storages with active schedules at 6:00 AM.
+
+    CRITICAL: Each storage is processed in its own subtask. When stats update succeeds
+    for a storage, that subtask will trigger orders for that specific storage (if scheduled).
+    This ensures orders NEVER run for a storage whose stats update failed.
     """
-    from .models import Supermarket, is_closure_day
+    from .models import Storage
+    from .services import RestockService
 
     try:
-        logger.info("[CELERY] Starting nightly DDT import for all supermarkets")
+        logger.info("[CELERY] Starting morning stats update for all scheduled storages")
 
-        supermarkets = Supermarket.objects.prefetch_related('storages').all()
+        storages = Storage.objects.select_related('schedule', 'supermarket').all()
+
+        if not storages.exists():
+            logger.info("[CELERY] No storages found")
+            return "No storages to process"
+
+        # Determine which day it is for order scheduling
+        now = datetime.datetime.now()
+        current_weekday = now.weekday()  # 0=Monday, 6=Sunday
+        weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        today_field = weekday_fields[current_weekday]
+
         queued_count = 0
 
-        for supermarket in supermarkets:
+        # Update stats for each storage that has at least 1 product in the external DB
+        # Each subtask will trigger orders ONLY if stats succeed
+        for storage in storages:
             try:
-                if is_closure_day(supermarket):
-                    logger.info(f"[CELERY] Skipping {supermarket.name} — closure day")
+                from .models import is_closure_day
+                if is_closure_day(storage.supermarket):
+                    logger.info(f"[CELERY] Skipping stats update for {storage.name} — closure day")
                     continue
 
-                import_ddt_for_supermarket.apply_async(
-                    args=[supermarket.id],
+                # Check product count in external DB
+                with RestockService(storage) as service:
+                    cur = service.db.cursor()
+                    cur.execute(
+                        "SELECT COUNT(*) AS cnt FROM products WHERE settore = %s",
+                        (storage.settore,)
+                    )
+                    row = cur.fetchone()
+                    product_count = row['cnt'] if row else 0
+
+                if product_count == 0:
+                    logger.info(f"[CELERY] Skipping {storage.name} - no products listed")
+                    continue
+
+                # Check if this storage has orders scheduled for today,
+                # accounting for ScheduleException overrides (add/skip)
+                try:
+                    from .models import ScheduleException
+                    is_order_day = getattr(storage.schedule, today_field, False)
+                    today_date = datetime.date.today()
+                    exception = ScheduleException.objects.filter(
+                        schedule=storage.schedule,
+                        date=today_date
+                    ).first()
+                    if exception:
+                        if exception.exception_type == 'skip':
+                            is_order_day = False
+                        elif exception.exception_type == 'add':
+                            is_order_day = True
+                except storage.__class__.schedule.RelatedObjectDoesNotExist:
+                    is_order_day = False
+
+                logger.info(
+                    f"[CELERY] Queueing stats update for {storage.name} "
+                    f"({product_count} products, order day: {is_order_day})"
+                )
+
+                # Call subtask to update stats
+                # Pass is_order_day so the subtask knows whether to trigger orders on success
+                update_stats_for_storage.apply_async(
+                    args=[storage.id, is_order_day],
                     retry=True,
                     retry_policy={
                         'max_retries': 3,
-                        'interval_start': 900,
+                        'interval_start': 900,  # 15 min
                         'interval_step': 0,
                         'interval_max': 900,
                     }
                 )
+
                 queued_count += 1
 
-            except Exception:
-                logger.exception(f"[CELERY] Error queuing DDT import for {supermarket.name}")
+            except Exception as e:
+                logger.exception(f"[CELERY] Error queuing stats update for {storage.name}")
                 continue
 
-        logger.info(f"[CELERY] DDT import queued for {queued_count} supermarkets")
-        return f"DDT import queued for {queued_count} supermarkets"
+        logger.info(f"[CELERY] All stats update tasks queued successfully ({queued_count} storages)")
+
+        return f"Stats update queued for {queued_count} storages"
 
     except Exception as exc:
-        logger.exception("[CELERY] Fatal error in nightly DDT import")
+        logger.exception("[CELERY] Fatal error in stats update task")
         raise self.retry(exc=exc)
 
 
@@ -141,107 +200,70 @@ def update_stats_all_scheduled_storages(self):
     acks_late=True,
     reject_on_worker_lost=True
 )
-def import_ddt_for_supermarket(self, supermarket_id):
+def update_stats_for_storage(self, storage_id, trigger_order_on_success=False):
     """
-    Login once, fetch all invoices for the supermarket, then apply deliveries
-    per storage — one RestockLog per storage.
+    Update product stats for a single storage.
+
+    CRITICAL: If trigger_order_on_success=True and stats update succeeds,
+    this task will trigger run_restock_for_storage for this specific storage.
+    This ensures orders ONLY run after successful stats update.
+
+    Args:
+        storage_id: The storage ID to update stats for
+        trigger_order_on_success: If True, queue restock order after successful stats update
     """
-    import shutil
-    from .models import Supermarket, RestockLog
-    from .scripts.web_lister import WebLister
+    from .models import Storage
 
     try:
-        supermarket = Supermarket.objects.prefetch_related('storages').get(id=supermarket_id)
-        storages = list(supermarket.storages.all())
+        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
 
-        if not storages:
-            logger.info(f"[DDT] No storages for {supermarket.name}, skipping")
-            return
-
-        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y%m%d")
-
-        lister = WebLister(
-            username=supermarket.username,
-            password=supermarket.password,
-            storage_name='',
-            download_dir='/tmp',
-            id_user=supermarket.id_user,
-            x5cper=supermarket.x5cper,
-            headless=True,
+        logger.info(
+            f"[CELERY-SUBTASK] Updating stats for {storage.name} "
+            f"(will trigger order: {trigger_order_on_success})"
         )
 
-        try:
-            lister.login()
-
-            rows = lister.fetch_scorporo(date_from=yesterday, date_to=yesterday)
-
-            if not rows:
-                logger.info(f"[DDT] No DDT rows for {supermarket.name} on {yesterday}")
-                return
-
-            # Fetch righe once per distinct invoice number.
-            # Track desc_mag → [invoice_numbers] using the first DescMag seen per invoice.
-            seen = set()
-            all_righe = []
-            desc_mag_to_invoices = {}  # desc_mag → [nrcc_stripped, ...]
-            for row in rows:
-                nrcc = row["X5NRCC"]
-                if nrcc in seen:
-                    continue
-                seen.add(nrcc)
-                nrcc_stripped = str(int(nrcc))
-                righe = lister.fetch_righe(row)
-                # Derive desc_mag for this invoice from its first riga
-                if righe:
-                    dm = righe[1].get("DescMag", "").strip() if len(righe) > 1 else righe[0].get("DescMag", "").strip()
-                    desc_mag_to_invoices.setdefault(dm, []).append(nrcc_stripped)
-                all_righe.extend(righe)
-
-            # Group by DescMag — one group per storage
-            grouped = lister.process_righe(all_righe)
-
-        finally:
-            lister.driver.quit()
-            shutil.rmtree(lister.user_data_dir, ignore_errors=True)
-
-        # Fan out: one DB write + RestockLog per matched storage
-        for desc_mag, ean_qty in grouped.items():
-            matched_storage = None
-            for s in storages:
-                if desc_mag.upper() in s.name.upper():
-                    matched_storage = s
-                    break
-
-            if matched_storage is None:
-                logger.info(f"[DDT] DescMag '{desc_mag}' matched no storage in {supermarket.name}")
-                continue
-
+        with AutomatedRestockService(storage) as service:
+            from .models import RestockLog
             log = RestockLog.objects.create(
-                storage=matched_storage,
+                storage=storage,
                 status='processing',
                 current_stage='updating_stats',
-                operation_type='ddt_import',
+                operation_type='stats_update'
             )
 
-            try:
-                storage_invoices = desc_mag_to_invoices.get(desc_mag, [])
-                with AutomatedRestockService(matched_storage) as service:
-                    service.apply_ddt_for_storage(log, ean_qty, storage_invoices)
+            service.update_product_stats_checkpoint(log)
 
-                log.status = 'completed'
-                log.completed_at = timezone.now()
-                log.save()
-                logger.info(f"[DDT] Completed for {matched_storage.name}")
+            log.status = 'completed'
+            log.completed_at = timezone.now()
+            log.save()
 
-            except Exception as e:
-                log.status = 'failed'
-                log.current_stage = 'failed'
-                log.error_message = str(e)
-                log.save()
-                logger.exception(f"[DDT] Failed for {matched_storage.name}")
+            logger.info(f"✓ [CELERY-SUBTASK] Stats updated for {storage.name}")
+
+        # CRITICAL: Only trigger order if stats succeeded AND it's an order day
+        if trigger_order_on_success:
+            logger.info(
+                f"[CELERY-SUBTASK] Stats succeeded for {storage.name}, "
+                f"now triggering restock order"
+            )
+            run_restock_for_storage.apply_async(
+                args=[storage_id],
+                retry=True,
+                retry_policy={
+                    'max_retries': 3,
+                    'interval_start': 900,
+                    'interval_step': 0,
+                    'interval_max': 900,
+                }
+            )
+
+        return f"Stats updated for {storage.name}"
 
     except Exception as exc:
-        logger.exception(f"[DDT] Fatal error for supermarket {supermarket_id}")
+        # Stats failed - DO NOT trigger order
+        logger.exception(
+            f"[CELERY-SUBTASK] Error updating stats for storage {storage_id}. "
+            f"Order will NOT be triggered."
+        )
         raise self.retry(exc=exc)
 
 
@@ -446,8 +468,64 @@ def run_scheduled_list_updates(self):
         logger.exception("[CELERY] Fatal error in list update task")
         raise self.retry(exc=exc)
     
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=900,
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
+)
+def manual_stats_update_task(self, storage_id):
+    """Update stats without ordering - WITH PROGRESS"""
+    from .models import Storage, RestockLog
+    from django.utils import timezone
+    
+    try:
+        storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+        
+        logger.info(f"[MANUAL STATS] Starting for {storage.name}")
+        
+        # ✅ Report progress
+        self.update_state(
+            state='PROGRESS',
+            meta={'progress': 10, 'status': 'Connecting to PAC2000A...'}
+        )
+        
+        log = RestockLog.objects.create(
+            storage=storage,
+            status='processing',
+            current_stage='updating_stats',
+            operation_type='stats_update'
+        )
+        
+        def report_progress(progress, message):
+            self.update_state(
+                state='PROGRESS',
+                meta={'progress': progress, 'status': message}
+            )
+        
+        with AutomatedRestockService(storage) as service:
+            service.update_product_stats_checkpoint(log, progress_callback=report_progress)
+            
+            log.status = 'completed'
+            log.completed_at = timezone.now()
+            log.save()
 
+            logger.info(f"✅ [MANUAL STATS] Completed for {storage.name}")
 
+            # Return result - Celery automatically sets state to SUCCESS when task returns
+            return {
+                'success': True,
+                'log_id': log.id,
+                'storage_name': storage.name,
+                'storage_id': storage_id,
+                'redirect_url': f'/storages/{storage_id}/'
+            }      
+    except Exception as exc:
+        logger.exception(f"[MANUAL STATS] Error for storage {storage_id}")
+        raise self.retry(exc=exc)
+    
 @shared_task(
     bind=True,
     max_retries=3,

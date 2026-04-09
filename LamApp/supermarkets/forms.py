@@ -465,18 +465,7 @@ class InventorySearchForm(forms.Form):
     
 class DDTUploadForm(forms.Form):
     """Form for uploading DDT (delivery document) PDF"""
-
-    invoice_number = forms.CharField(
-        label="Numero fattura / DDT",
-        max_length=30,
-        required=True,
-        widget=forms.TextInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'es. 12716'
-        }),
-        help_text="Inserisci il numero della fattura per verificare che non sia già stata importata automaticamente."
-    )
-
+    
     pdf_file = forms.FileField(
         label="DDT PDF File",
         help_text="Upload the delivery document (DDT) from your supplier",

@@ -16,6 +16,7 @@ import shutil
 from .scripts.decision_maker import DecisionMaker
 from .scripts.inventory_scrapper import Inventory_Scrapper
 from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
+from .scripts.scrapper import Scrapper
 from .scripts.orderer import Orderer
 
 logger = logging.getLogger(__name__)
@@ -57,56 +58,75 @@ class AutomatedRestockService(RestockService):
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
-    def apply_ddt_for_storage(self, log: RestockLog, ean_qty: dict, invoice_numbers: list):
+    def update_product_stats_checkpoint(self, log: RestockLog, full: bool = True, progress_callback=None):
         """
-        DB-only: apply already-fetched DDT data for this specific storage.
-        Called by import_ddt_for_supermarket after the API work is done once.
+        CHECKPOINT 1 (NIGHTLY ONLY): Update product statistics from PAC2000A.
+        This should ONLY be called during nightly automated runs.
+        Manual orders and retries should SKIP this step.
         """
-        logger.info(f"Applying DDT deliveries for {self.storage.name}")
-
-        report = {'updated': 0, 'not_found_eans': [], 'errors': [], 'unverified_products': []}
-
-        # Guard: require at least 1 verified product among delivered EANs in THIS settore
-        cur = self.db.cursor()
-        cur.execute("""
-            SELECT 1 FROM products p
-            JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-            WHERE p.ean = ANY(%s)
-              AND p.settore = %s
-              AND ps.verified = TRUE
-            LIMIT 1
-        """, ([int(e) for e in ean_qty.keys()], self.storage.settore))
-        has_verified = cur.fetchone() is not None
-
-        if not has_verified:
-            logger.warning(
-                f"No verified products in settore '{self.storage.settore}' "
-                f"among delivered EANs for '{self.storage.name}'. Skipping."
-            )
-        else:
-            report = self.db.apply_invoice_deliveries(ean_qty)
-            logger.info(f"Deliveries applied for '{self.storage.name}': {report}")
-
-        purged_products = self.db.check_and_purge_flagged()
-        if purged_products:
-            logger.info(f"[AUTO-PURGE] Purged {len(purged_products)} products for {self.storage.name}")
-
+        logger.info(f"[CHECKPOINT 1 - NIGHTLY] Updating product stats for {self.storage.name}")
+        
+        if progress_callback:
+            progress_callback(10, 'Connecting to PAC2000A...')
+        
         with transaction.atomic():
             log = RestockLog.objects.select_for_update().get(id=log.id)
-            log.current_stage = 'stats_updated'
-            log.stats_updated_at = timezone.now()
-            log.total_products = report.get('updated', 0)
-            log.set_results({
-                'invoices': invoice_numbers,
-                'updated': report.get('updated', 0),
-                'not_found_eans': report.get('not_found_eans', []),
-                'errors': report.get('errors', []),
-                'unverified_products': report.get('unverified_products', []),
-            })
+            
+            if log.stats_updated_at:
+                logger.warning(f"Stats already updated, skipping (race condition prevented)")
+                return
+            
+            log.current_stage = 'updating_stats'
             log.save()
+        
+        try:
+            if progress_callback:
+                progress_callback(15, 'Downloading product statistics (5-10 min)...')
 
-        logger.info(f"DDT import complete for {self.storage.name}: invoices={invoice_numbers}")
-        return True
+            scrapper = Scrapper(
+                username=self.supermarket.username,
+                password=self.supermarket.password,
+                helper=self.helper,
+                db=self.db
+            )
+
+            try:
+                scrapper.navigate()
+
+                if progress_callback:
+                    progress_callback(30, 'Processing product data...')
+
+                scrapper.init_product_stats_for_settore(self.settore, full)
+
+                if progress_callback:
+                    progress_callback(50, 'Finalizing statistics update...')
+
+                purged_products = self.db.check_and_purge_flagged()
+                if purged_products:
+                    logger.info(f"[AUTO-PURGE] Purged {len(purged_products)} products")
+
+                with transaction.atomic():
+                    log = RestockLog.objects.select_for_update().get(id=log.id)
+                    log.current_stage = 'stats_updated'
+                    log.stats_updated_at = timezone.now()
+                    log.save()
+
+                logger.info(f"[CHECKPOINT 1 COMPLETE] Stats updated")
+                return True
+
+            finally:
+                scrapper.driver.quit()
+                    
+        except Exception as e:
+            with transaction.atomic():
+                log = RestockLog.objects.select_for_update().get(id=log.id)
+                log.current_stage = 'failed'
+                log.status = 'failed'
+                log.error_message = f"Stats update failed: {str(e)}"
+                log.save()
+            
+            logger.exception(f"[CHECKPOINT 1 FAILED]")
+            raise
     
     def calculate_order_checkpoint(self, log: RestockLog, coverage=None, progress_callback=None):
         """
@@ -320,7 +340,7 @@ class AutomatedRestockService(RestockService):
                         logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated")
                     else:
                         logger.info(f"[CHECKPOINT 1 START] Updating stats...")
-                        self.import_ddt_deliveries(log)
+                        self.update_product_stats_checkpoint(log)
             
             # CHECKPOINT 1 (RETRY): Calculate order
             if progress_callback:

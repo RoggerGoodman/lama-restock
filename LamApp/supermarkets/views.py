@@ -1259,7 +1259,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         }
         
         # ✅ Operations WITHOUT orders (show simple info)
-        if operation_type in ['ddt_import', 'list_update', 'cluster_assignment', 'product_addition']:
+        if operation_type in ['stats_update', 'list_update', 'cluster_assignment', 'product_addition']:
             # These operations don't have order details
             # Just show the basic log info
             logger.info(f"Displaying {operation_type} log #{self.object.id} - no order enrichment needed")
@@ -3222,6 +3222,37 @@ def inventory_flag_for_purge_ajax_view(request):
         return JsonResponse({'success': False, 'message': str(e)}, status=500)
 
 
+@login_required
+def update_stats_only_view(request, storage_id):
+    """
+    REFACTORED: Async stats update.
+    Before: 5-10 minute Selenium operation killed by Gunicorn
+    After: Dispatches to Celery, returns immediately
+    """
+    storage = get_object_or_404(
+        Storage, 
+        id=storage_id, 
+        supermarket__owner=request.user
+    )
+    
+    if request.method == 'POST':
+        # ✅ DISPATCH TO CELERY
+        from .tasks import manual_stats_update_task
+        
+        result = manual_stats_update_task.apply_async(
+            args=[storage_id],
+            retry=True
+        )
+        
+        messages.info(
+            request,
+            f"Stats update started for {storage.name}. "
+            f"This will take 5-10 minutes. Check progress on the next page."
+        )
+        
+        return redirect('task-progress', task_id=result.id, storage_id=storage_id)
+    
+    return render(request, 'storages/update_stats_only.html', {'storage': storage})
 
 # ============ NEW: Unified Inventory Operations ============
     
@@ -4374,80 +4405,49 @@ def upload_ddt_view(request, storage_id):
         supermarket__owner=request.user
     )
     
-    duplicate_warning = None
-
     if request.method == 'POST':
         form = DDTUploadForm(request.POST, request.FILES)
-
+        
         if form.is_valid():
             pdf_file = request.FILES['pdf_file']
-            invoice_number = form.cleaned_data.get('invoice_number', '').strip()
-
-            # Check if this invoice was already automatically imported
-            if invoice_number:
-                normalized_input = invoice_number.lstrip('0') or '0'
-                recent_ddt_logs = RestockLog.objects.filter(
-                    storage=storage,
-                    operation_type='ddt_import',
-                    status='completed'
-                ).order_by('-started_at')[:50]
-
-                for log in recent_ddt_logs:
-                    results = log.get_results()
-                    stored_invoices = results.get('invoices', [])
-                    normalized_stored = [str(inv).lstrip('0') or '0' for inv in stored_invoices]
-                    if normalized_input in normalized_stored:
-                        duplicate_warning = log
-                        break
-
-            # If duplicate found and user hasn't confirmed, show warning
-            if duplicate_warning and 'confirm_duplicate' not in request.POST:
-                return render(request, 'storages/upload_ddt.html', {
-                    'storage': storage,
-                    'form': form,
-                    'duplicate_warning': duplicate_warning,
-                    'duplicate_invoice': invoice_number,
-                })
-
+            
             try:
                 # Save file temporarily
                 temp_dir = Path(settings.BASE_DIR) / 'temp_ddt'
                 temp_dir.mkdir(exist_ok=True)
-
+                
                 timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
                 file_path = temp_dir / f"ddt_{timestamp}_{pdf_file.name}"
-
+                
                 with open(file_path, 'wb+') as destination:
                     for chunk in pdf_file.chunks():
                         destination.write(chunk)
-
+                
                 # ✅ DISPATCH TO CELERY
                 from .tasks import process_ddt_task
-
+                
                 result = process_ddt_task.apply_async(
                     args=[storage_id, str(file_path)],
                     retry=True
                 )
-
+                
                 messages.info(
                     request,
                     f"Processing DDT for {storage.name}. This may take a few minutes."
                 )
-
+                
                 return redirect('task-progress', task_id=result.id, storage_id=storage_id)
-
+                
             except Exception as e:
                 logger.exception("Error saving DDT file")
                 messages.error(request, f"Error: {str(e)}")
                 return redirect('upload-ddt', storage_id=storage_id)
     else:
         form = DDTUploadForm()
-
+    
     return render(request, 'storages/upload_ddt.html', {
         'storage': storage,
-        'form': form,
-        'duplicate_warning': None,
-        'duplicate_invoice': None,
+        'form': form
     })
 
 @login_required
