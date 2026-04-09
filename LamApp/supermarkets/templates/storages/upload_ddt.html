@@ -45,9 +45,42 @@
                     </ul>
                 </div>
 
+                {% if duplicate_warning %}
+                <div class="alert alert-danger border border-danger border-3" role="alert">
+                    <h5 class="alert-heading">
+                        <i class="bi bi-exclamation-octagon-fill"></i>
+                        ATTENZIONE: Fattura già importata automaticamente!
+                    </h5>
+                    <p class="mb-2">
+                        La fattura <strong>{{ duplicate_invoice }}</strong> è già stata elaborata automaticamente dal sistema
+                        il <strong>{{ duplicate_warning.started_at|date:"d/m/Y \a\l\l\e H:i" }}</strong>.
+                    </p>
+                    <p class="mb-3">
+                        Caricare di nuovo questa fattura aggiornerà lo stock <strong>una seconda volta</strong>,
+                        risultando in un raddoppio delle quantità ricevute.
+                    </p>
+                    <hr>
+                    <p class="mb-0">
+                        Se sei sicuro di voler procedere comunque, usa il pulsante qui sotto.
+                        Altrimenti, annulla.
+                    </p>
+                </div>
+                {% endif %}
+
                 <form method="post" enctype="multipart/form-data">
                     {% csrf_token %}
-                    
+
+                    <div class="mb-3">
+                        {{ form.invoice_number.label_tag }}
+                        {{ form.invoice_number }}
+                        {% if form.invoice_number.help_text %}
+                        <div class="form-text">{{ form.invoice_number.help_text }}</div>
+                        {% endif %}
+                        {% if form.invoice_number.errors %}
+                        <div class="text-danger">{{ form.invoice_number.errors }}</div>
+                        {% endif %}
+                    </div>
+
                     <div class="mb-4">
                         {{ form.pdf_file.label_tag }}
                         {{ form.pdf_file }}
@@ -59,6 +92,17 @@
                         {% endif %}
                     </div>
 
+                    {% if duplicate_warning %}
+                    <input type="hidden" name="confirm_duplicate" value="1">
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Annulla
+                        </a>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-exclamation-triangle"></i> Carica comunque (doppio rischio!)
+                        </button>
+                    </div>
+                    {% else %}
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
                             <i class="bi bi-x-circle"></i> Annulla
@@ -67,6 +111,7 @@
                             <i class="bi bi-upload"></i> Carica ed elabora
                         </button>
                     </div>
+                    {% endif %}
                 </form>
             </div>
 

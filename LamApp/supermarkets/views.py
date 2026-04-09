@@ -4374,49 +4374,80 @@ def upload_ddt_view(request, storage_id):
         supermarket__owner=request.user
     )
     
+    duplicate_warning = None
+
     if request.method == 'POST':
         form = DDTUploadForm(request.POST, request.FILES)
-        
+
         if form.is_valid():
             pdf_file = request.FILES['pdf_file']
-            
+            invoice_number = form.cleaned_data.get('invoice_number', '').strip()
+
+            # Check if this invoice was already automatically imported
+            if invoice_number:
+                normalized_input = invoice_number.lstrip('0') or '0'
+                recent_ddt_logs = RestockLog.objects.filter(
+                    storage=storage,
+                    operation_type='ddt_import',
+                    status='completed'
+                ).order_by('-started_at')[:50]
+
+                for log in recent_ddt_logs:
+                    results = log.get_results()
+                    stored_invoices = results.get('invoices', [])
+                    normalized_stored = [str(inv).lstrip('0') or '0' for inv in stored_invoices]
+                    if normalized_input in normalized_stored:
+                        duplicate_warning = log
+                        break
+
+            # If duplicate found and user hasn't confirmed, show warning
+            if duplicate_warning and 'confirm_duplicate' not in request.POST:
+                return render(request, 'storages/upload_ddt.html', {
+                    'storage': storage,
+                    'form': form,
+                    'duplicate_warning': duplicate_warning,
+                    'duplicate_invoice': invoice_number,
+                })
+
             try:
                 # Save file temporarily
                 temp_dir = Path(settings.BASE_DIR) / 'temp_ddt'
                 temp_dir.mkdir(exist_ok=True)
-                
+
                 timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
                 file_path = temp_dir / f"ddt_{timestamp}_{pdf_file.name}"
-                
+
                 with open(file_path, 'wb+') as destination:
                     for chunk in pdf_file.chunks():
                         destination.write(chunk)
-                
+
                 # ✅ DISPATCH TO CELERY
                 from .tasks import process_ddt_task
-                
+
                 result = process_ddt_task.apply_async(
                     args=[storage_id, str(file_path)],
                     retry=True
                 )
-                
+
                 messages.info(
                     request,
                     f"Processing DDT for {storage.name}. This may take a few minutes."
                 )
-                
+
                 return redirect('task-progress', task_id=result.id, storage_id=storage_id)
-                
+
             except Exception as e:
                 logger.exception("Error saving DDT file")
                 messages.error(request, f"Error: {str(e)}")
                 return redirect('upload-ddt', storage_id=storage_id)
     else:
         form = DDTUploadForm()
-    
+
     return render(request, 'storages/upload_ddt.html', {
         'storage': storage,
-        'form': form
+        'form': form,
+        'duplicate_warning': None,
+        'duplicate_invoice': None,
     })
 
 @login_required
