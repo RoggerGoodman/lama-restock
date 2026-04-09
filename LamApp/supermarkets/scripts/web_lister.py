@@ -47,7 +47,8 @@ class WebLister:
                  download_dir: str, id_cod_mag: int = None,
                  id_cliente: int = None, id_azienda: int = None,
                  id_marchio: int = None, id_clienti_canale: int = None,
-                 id_clienti_area: int = None, headless: bool = True):
+                 id_clienti_area: int = None, id_user: int = None,
+                 x5cper: int = None, headless: bool = True):
         """
         Initialize the lister.
 
@@ -75,6 +76,8 @@ class WebLister:
         self.IDMarchio = id_marchio
         self.IDClientiCanale = id_clienti_canale
         self.IDClientiArea = id_clienti_area
+        self.id_user = id_user
+        self.x5cper = x5cper
 
         self.dataIntercettaPrezzi = date.today().strftime("%Y-%m-%d")
         
@@ -520,6 +523,103 @@ class WebLister:
             category,
             ean,
         )
+
+    def fetch_scorporo(self, date_from: str, date_to: str, x5trec: str = "02") -> list:
+        """
+        Fetch DDT/invoice headers from ScorporoAmministrativo_call.php.
+        date_from / date_to: "YYYYMMDD"
+        Requires self.x5cper to be set.
+        """
+        url = "https://dropzone.pac2000a.it/fteweb/ScorporoAmministrativo_call.php"
+        payload = {
+            "funzione":    "lista",
+            "X5TREC":      x5trec,
+            "IDAziendaIn": 0,
+            "X5CPERIn":    self.x5cper,
+            "X5CPEC":      "",
+            "X5CNATIn":    "",
+            "X5DDOCda":    date_from,
+            "X5DDOCa":     date_to,
+            "tipoDate":    1,
+        }
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://dropzone.pac2000a.it/",
+            "User-Agent": self.driver.execute_script("return navigator.userAgent;"),
+        }
+        session = requests.Session()
+        for c in self.driver.get_cookies():
+            session.cookies.set(c["name"], c["value"])
+
+        response = session.post(url, data=payload, headers=headers, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        logger.info(f"fetch_scorporo: {len(data)} DDT rows for {date_from}→{date_to}")
+        return data
+
+    def fetch_righe(self, scorporo_row: dict) -> list:
+        """
+        Fetch line items for a single DDT from fatture_righe_data.php.
+        Requires self.id_user to be set.
+        """
+        url = "https://dropzone.pac2000a.it/fteweb/fatture_righe_data.php"
+        payload = {
+            "iduser":                      self.id_user,
+            "uacazn":                      scorporo_row["X5CAZN"],
+            "uactda":                      scorporo_row["X5CNAT"],
+            "uanbaa":                      scorporo_row["X5NBAA"],
+            "uactag":                      scorporo_row["X5CTAG"],
+            "uanrct":                      scorporo_row["X5NRCT"],
+            "uanrcc":                      str(int(scorporo_row["X5NRCC"])),
+            "uanrcd":                      scorporo_row["X5NRCD"],
+            "uanfaa":                      "",
+            "uactdf":                      "",
+            "uanrrt":                      "",
+            "uanrrc":                      "",
+            "uanrrd":                      "",
+            "ubdgen":                      scorporo_row["X5DDOC"],
+            "rifatturazioneValorizzazione": "",
+            "type":                        "view",
+        }
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://dropzone.pac2000a.it/",
+            "User-Agent": self.driver.execute_script("return navigator.userAgent;"),
+        }
+        session = requests.Session()
+        for c in self.driver.get_cookies():
+            session.cookies.set(c["name"], c["value"])
+
+        response = session.post(url, data=payload, headers=headers, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        logger.info(f"fetch_righe: {len(data)} items for X5NRCC={scorporo_row['X5NRCC']}")
+        return data
+
+    def process_righe(self, righe: list) -> dict:
+        """
+        Group all line items by DescMag, then aggregate EANs within each group.
+        Invoices for different storages are kept separate.
+        Returns {desc_mag: {ean_str: total_qty}}.
+        """
+        result = {}
+        for row in righe:
+            ean = row.get("EAN", "").strip()
+            if not ean:
+                continue
+            desc_mag = row.get("DescMag", "").strip()
+            qty = int(row.get("UAQESP", 0))
+            if desc_mag not in result:
+                result[desc_mag] = {}
+            result[desc_mag][ean] = result[desc_mag].get(ean, 0) + qty
+
+        for dm, eans in result.items():
+            logger.info(f"process_righe: DescMag='{dm}' → {len(eans)} distinct EANs")
+        return result
 
 
 def download_product_list(username: str, password: str, storage_name: str,

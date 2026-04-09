@@ -1259,7 +1259,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         }
         
         # ✅ Operations WITHOUT orders (show simple info)
-        if operation_type in ['stats_update', 'list_update', 'cluster_assignment', 'product_addition']:
+        if operation_type in ['ddt_import', 'list_update', 'cluster_assignment', 'product_addition']:
             # These operations don't have order details
             # Just show the basic log info
             logger.info(f"Displaying {operation_type} log #{self.object.id} - no order enrichment needed")
@@ -3222,37 +3222,6 @@ def inventory_flag_for_purge_ajax_view(request):
         return JsonResponse({'success': False, 'message': str(e)}, status=500)
 
 
-@login_required
-def update_stats_only_view(request, storage_id):
-    """
-    REFACTORED: Async stats update.
-    Before: 5-10 minute Selenium operation killed by Gunicorn
-    After: Dispatches to Celery, returns immediately
-    """
-    storage = get_object_or_404(
-        Storage, 
-        id=storage_id, 
-        supermarket__owner=request.user
-    )
-    
-    if request.method == 'POST':
-        # ✅ DISPATCH TO CELERY
-        from .tasks import manual_stats_update_task
-        
-        result = manual_stats_update_task.apply_async(
-            args=[storage_id],
-            retry=True
-        )
-        
-        messages.info(
-            request,
-            f"Stats update started for {storage.name}. "
-            f"This will take 5-10 minutes. Check progress on the next page."
-        )
-        
-        return redirect('task-progress', task_id=result.id, storage_id=storage_id)
-    
-    return render(request, 'storages/update_stats_only.html', {'storage': storage})
 
 # ============ NEW: Unified Inventory Operations ============
     

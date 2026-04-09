@@ -271,10 +271,7 @@
                 <!-- Data Management Actions -->
                 <h6 class="mb-2 mt-4"><i class="bi bi-database"></i> Gestione dei dati</h6>
                 <div class="d-flex gap-2 mb-3 flex-wrap">
-                    <a href="{% url 'update-stats-only' storage_id=storage.id %}" class="btn btn-info">
-                        <i class="bi bi-arrow-repeat"></i> Aggiorna dati
-                    </a>
-                    <a href="{% url 'manual-list-update' storage_id=storage.id %}" class="btn btn-outline-info">
+<a href="{% url 'manual-list-update' storage_id=storage.id %}" class="btn btn-outline-info">
                         <i class="bi bi-download"></i> Aggiorna listino articoli
                     </a>
                     <a href="{% url 'upload-ddt' storage_id=storage.id %}" class="btn btn-outline-success">
@@ -476,8 +473,11 @@
                                             {% endif %}
                                             <strong>{{ log.products_ordered }}</strong> articoli / 
                                             <strong>{{ log.total_packages }}</strong> colli
-                                        {% elif log.operation_type == 'stats_update' %}
-                                            <small class="text-muted">Statistiche articoli aggiornate</small>
+                                        {% elif log.operation_type == 'ddt_import' %}
+                                            {% with results=log.get_results %}
+                                            <small class="text-muted">DDT: {% if results.invoices %}{{ results.invoices|join:", " }}{% else %}—{% endif %}</small><br>
+                                            <strong>{{ results.updated|default:0 }}</strong> agg. / <strong>{{ results.not_found|default:0 }}</strong> n.t.
+                                            {% endwith %}
                                         {% elif log.operation_type == 'list_update' %}
                                             <small class="text-muted">Listino articoli aggiornato</small>
                                         {% elif log.operation_type == 'verification' %}
@@ -498,17 +498,23 @@
                                     </td>
                                     <td>
                                         <div class="btn-group btn-group-sm">
-                                            {% if log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
-                                                <a href="{% url 'restock-log-detail' pk=log.id %}"
-                                                class="btn btn-sm btn-outline-primary"
-                                                title="View Order Details">
-                                                    <i class="bi bi-eye"></i> Visiona
-                                                </a>
-                                            {% elif log.status == 'failed' %}
+                                            {% if log.status == 'failed' %}
                                                 <a href="{% url 'restock-log-detail' pk=log.id %}"
                                                 class="btn btn-sm btn-outline-danger"
-                                                title="View Error Details">
+                                                title="Dettagli errore">
                                                     <i class="bi bi-exclamation-triangle"></i> Errore
+                                                </a>
+                                            {% elif log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
+                                                <a href="{% url 'restock-log-detail' pk=log.id %}"
+                                                class="btn btn-sm btn-outline-primary"
+                                                title="Dettagli ordine">
+                                                    <i class="bi bi-eye"></i> Visiona
+                                                </a>
+                                            {% elif log.operation_type == 'ddt_import' %}
+                                                <a href="{% url 'restock-log-detail' pk=log.id %}"
+                                                class="btn btn-sm btn-outline-info"
+                                                title="Dettagli DDT">
+                                                    <i class="bi bi-truck"></i> Dettagli
                                                 </a>
                                             {% else %}
                                                 <span class="badge bg-secondary">
