@@ -57,6 +57,19 @@
                     <i class="bi bi-info-circle"></i>
                     <strong>Nota bene:</strong> I file promozionali vengono elaborati a livello di Punto vendita poiché contengono prodotti provenienti da più magazzini.
                 </div>
+
+                <!-- Sync VENSETAR -->
+                <h6 class="mb-2 mt-4"><i class="bi bi-plug"></i> Sync VENSETAR</h6>
+                <div class="d-flex gap-2 flex-wrap mb-1">
+                    <a href="{% url 'sync-setup' pk=supermarket.pk %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-gear"></i> Configura Sync
+                        {% if supermarket.sync_api_token %}
+                        <span class="badge bg-success ms-1">Attivo</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark ms-1">Non configurato</span>
+                        {% endif %}
+                    </a>
+                </div>
             </div>
         </div>
     </div>

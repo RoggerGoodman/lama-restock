@@ -4,6 +4,7 @@ from django.contrib.auth import views as auth_views
 from django.contrib.auth.views import LogoutView
 from django.urls import path
 from . import views
+from . import sync_views
 
 urlpatterns = [
     # ============ Home & Dashboard ============
@@ -107,6 +108,14 @@ urlpatterns = [
     path('inventory/api/search-products/', views.recipe_product_search_view, name='inventory-search-products'),
     path('inventory/adjust-stock/', views.inventory_adjust_stock_ajax_view, name='inventory-adjust-stock'),
     path('inventory/flag-for-purge/', views.inventory_flag_for_purge_ajax_view, name='inventory-flag-purge'),
+
+    # ============ Sync API (supermarket PC → server) ============
+    path('api/sync/vensetar-sales/', sync_views.vensetar_sales_sync_view, name='vensetar-sales-sync'),
+    path('api/sync/setup/<str:token>/bootstrap/', sync_views.sync_bootstrap_view, name='sync-bootstrap'),
+
+    # ============ Sync Setup UI (admin) ============
+    path('supermarkets/<int:pk>/sync-setup/', sync_views.sync_setup_view, name='sync-setup'),
+    path('supermarkets/<int:pk>/generate-sync-token/', sync_views.generate_sync_token_view, name='generate-sync-token'),
 
     # ============ Task Progress Endpoints (NEW) ============
     path('tasks/<str:task_id>/progress/', views.task_progress_view, name='task-progress'),

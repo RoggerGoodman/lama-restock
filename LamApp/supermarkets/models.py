@@ -18,6 +18,10 @@ class Supermarket(models.Model):
     id_clienti_area = models.IntegerField(null=True, blank=True, help_text="IDClientiArea from PAC2000A")
     id_user = models.IntegerField(null=True, blank=True, help_text="IDUser from PAC2000A (used for fatture_righe_data)")
     x5cper = models.IntegerField(null=True, blank=True, help_text="N1CPER from PAC2000A (counterpart code for ScorporoAmministrativo)")
+    sync_api_token = models.CharField(
+        max_length=64, unique=True, null=True, blank=True,
+        help_text="API token for VENSETAR sales sync (PowerShell script on supermarket PC)"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

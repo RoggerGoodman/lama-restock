@@ -313,6 +313,91 @@ class DatabaseManager:
 
         self.conn.commit()
 
+    def apply_daily_vensetar_sales(self, daily_sales, sync_date):
+        """
+        Apply one day's sold quantities coming from the VENSETAR sync (runs at 06:00,
+        data = yesterday).
+
+        Args:
+            daily_sales : list of (cod, var, sold_qty)
+            sync_date   : datetime.date — the date the quantities refer to (yesterday)
+
+        Behaviour:
+        - Skips products not present in product_stats (unknown to this supermarket).
+        - Idempotent: if last_update already equals sync_date the product is skipped
+          (prevents double-counting on retries).
+        - Same-month: adds sold_qty to sold_last_24[0].
+        - New month  : prepends sold_qty, trims array to 24.
+        - sales_sets : inserts sold_qty at front, trims to 30.
+        - stock      : decremented by sold_qty (can go negative — consistent with
+                       existing behaviour in update_product_stats).
+        - Does NOT touch bought_last_24 (handled by invoice scraping).
+        """
+        cur = self.cursor()
+        updated = 0
+        skipped_already = 0
+        skipped_not_found = 0
+
+        for cod, var, sold_qty in daily_sales:
+            cur.execute("""
+                SELECT sold_last_24, sales_sets, stock, last_update
+                FROM product_stats
+                WHERE cod=%s AND v=%s
+            """, (cod, var))
+            row = cur.fetchone()
+
+            if not row:
+                skipped_not_found += 1
+                continue
+
+            last_update = row["last_update"]
+
+            # Idempotency guard
+            if last_update == sync_date:
+                skipped_already += 1
+                continue
+
+            sold_array = row["sold_last_24"]
+            sales_sets = row["sales_sets"] or []
+            stock = row["stock"] or 0
+
+            if not isinstance(sold_array, list):
+                sold_array = [0]
+
+            # --- sold_last_24 ---
+            same_month = (
+                last_update is not None
+                and last_update.month == sync_date.month
+                and last_update.year == sync_date.year
+            )
+            if same_month:
+                sold_array[0] = (sold_array[0] or 0) + sold_qty
+            else:
+                sold_array.insert(0, sold_qty)
+                sold_array = sold_array[:24]
+
+            # --- sales_sets ---
+            sales_sets.insert(0, sold_qty)
+            sales_sets = sales_sets[:30]
+
+            # --- stock ---
+            stock = stock - sold_qty
+
+            cur.execute("""
+                UPDATE product_stats
+                SET sold_last_24=%s, sales_sets=%s, stock=%s, last_update=%s
+                WHERE cod=%s AND v=%s
+            """, (Json(sold_array), Json(sales_sets), stock, sync_date, cod, var))
+
+            updated += 1
+
+        self.conn.commit()
+        logger.info(
+            f"[VENSETAR SYNC] schema={self.schema} "
+            f"applied={updated} already_synced={skipped_already} not_in_db={skipped_not_found}"
+        )
+        return updated
+
     def apply_invoice_deliveries(self, ean_qty_dict: dict) -> dict:
         """
         For each EAN in ean_qty_dict, add the delivered quantity to:
