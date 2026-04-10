@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+{% block title %}Sync Setup — {{ supermarket.name }}{% endblock %}
+{% block page_title %}Sync Setup — {{ supermarket.name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Punti vendita</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=supermarket.pk %}">{{ supermarket.name }}</a></li>
+                    <li class="breadcrumb-item active">Sync Setup</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+
+            <!-- Intro -->
+            <div class="stat-card mb-4">
+                <h4 class="mb-1">
+                    <i class="bi bi-plug text-primary"></i>
+                    Configurazione Sincronizzazione Vendite
+                </h4>
+                <p class="text-muted mb-0">
+                    Questa procedura collega il PC del punto vendita a LamApp.
+                    Una volta completata, ogni mattina alle <strong>06:00</strong> le vendite del giorno
+                    precedente verranno inviate automaticamente al server — senza che nessuno debba fare nulla.
+                </p>
+            </div>
+
+            {% if not supermarket.sync_api_token %}
+            <!-- ═══════════════════════════════════════════════
+                 STEP 1 — Generate token (not yet done)
+                 ═══════════════════════════════════════════════ -->
+            <div class="stat-card mb-4 border-start border-primary border-4">
+                <h5 class="mb-3">
+                    <span class="badge bg-primary me-2">Passo 1</span>
+                    Genera il codice di accesso
+                </h5>
+                <p>
+                    Prima di tutto devi creare un <strong>codice segreto</strong> che identifica
+                    questo punto vendita. Clicca il pulsante qui sotto — il codice viene generato
+                    automaticamente, non devi inventarti nulla.
+                </p>
+                <form method="post" action="{% url 'generate-sync-token' pk=supermarket.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-key-fill"></i> Genera Codice
+                    </button>
+                </form>
+            </div>
+
+            <div class="stat-card mb-4 border-start border-secondary border-4 opacity-50">
+                <h5 class="mb-3">
+                    <span class="badge bg-secondary me-2">Passo 2</span>
+                    Copia il comando
+                </h5>
+                <p class="text-muted">Disponibile dopo aver generato il codice.</p>
+            </div>
+
+            <div class="stat-card mb-4 border-start border-secondary border-4 opacity-50">
+                <h5 class="mb-3">
+                    <span class="badge bg-secondary me-2">Passo 3</span>
+                    Esegui il comando sul PC del punto vendita
+                </h5>
+                <p class="text-muted">Disponibile dopo aver generato il codice.</p>
+            </div>
+
+            {% else %}
+            <!-- ═══════════════════════════════════════════════
+                 STEP 1 — Done
+                 ═══════════════════════════════════════════════ -->
+            <div class="stat-card mb-4 border-start border-success border-4">
+                <h5 class="mb-2">
+                    <span class="badge bg-success me-2"><i class="bi bi-check-lg"></i></span>
+                    Passo 1 — Codice di accesso generato
+                </h5>
+                <p class="text-muted mb-0">
+                    Il codice segreto per questo punto vendita e' attivo.
+                </p>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════
+                 STEP 2 — Copy the one-liner
+                 ═══════════════════════════════════════════════ -->
+            <div class="stat-card mb-4 border-start border-primary border-4">
+                <h5 class="mb-3">
+                    <span class="badge bg-primary me-2">Passo 2</span>
+                    Copia il comando di installazione
+                </h5>
+                <p>
+                    Qui sotto c'e' un comando da copiare e portare sul PC del punto vendita.
+                    Clicca il pulsante <i class="bi bi-clipboard"></i> per copiarlo negli appunti.
+                </p>
+                <div class="input-group mb-2">
+                    <input type="text" id="oneliner" class="form-control font-monospace small"
+                           value="{{ oneliner }}" readonly>
+                    <button class="btn btn-outline-secondary" type="button" onclick="copyOneliner()" title="Copia">
+                        <i class="bi bi-clipboard" id="copy-icon"></i>
+                    </button>
+                </div>
+                <p class="text-muted small mb-0">
+                    <i class="bi bi-info-circle"></i>
+                    Puoi anche inviare questo comando via email o WhatsApp al tecnico o al responsabile
+                    del punto vendita — lo incolleranno loro al Passo 3.
+                </p>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════
+                 STEP 3 — Run on the store PC
+                 ═══════════════════════════════════════════════ -->
+            <div class="stat-card mb-4 border-start border-primary border-4">
+                <h5 class="mb-3">
+                    <span class="badge bg-primary me-2">Passo 3</span>
+                    Esegui il comando sul PC del punto vendita
+                </h5>
+                <p>
+                    Sul PC del punto vendita, bisogna aprire <strong>PowerShell come Amministratore</strong>
+                    e incollare il comando copiato al Passo 2. Segui le istruzioni qui sotto.
+                </p>
+
+                <div class="accordion" id="tutorialAccordion">
+
+                    <!-- 3a — How to open PowerShell as Admin -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#step3a">
+                                <i class="bi bi-terminal me-2 text-dark"></i>
+                                <strong>Come aprire PowerShell come Amministratore</strong>
+                            </button>
+                        </h2>
+                        <div id="step3a" class="accordion-collapse collapse show"
+                             data-bs-parent="#tutorialAccordion">
+                            <div class="accordion-body">
+                                <p class="mb-3">
+                                    Ci sono due modi — usa quello che funziona sul tuo PC:
+                                </p>
+
+                                <p class="mb-1"><strong>Metodo A (piu' semplice):</strong></p>
+                                <ol class="mb-3">
+                                    <li>Tieni premuto <kbd>Windows</kbd> e premi <kbd>X</kbd> (tenendolo premuto).</li>
+                                    <li>Si apre un menu. Cerca la voce <strong>"Windows PowerShell (amministratore)"</strong>
+                                        oppure <strong>"Terminale (amministratore)"</strong> e cliccaci sopra.</li>
+                                    <li>Se compare una finestra che chiede <em>"Vuoi consentire a questa app di apportare modifiche?"</em>,
+                                        clicca <strong>Si</strong>.</li>
+                                </ol>
+
+                                <p class="mb-1"><strong>Metodo B (se il Metodo A non funziona):</strong></p>
+                                <ol class="mb-0">
+                                    <li>Clicca sul pulsante <strong>Start</strong> (la bandierina di Windows in basso a sinistra).</li>
+                                    <li>Scrivi <kbd>powershell</kbd> con la tastiera.</li>
+                                    <li>Vedrai apparire <strong>"Windows PowerShell"</strong>. Clicca con il
+                                        <strong>tasto destro</strong> del mouse e scegli
+                                        <strong>"Esegui come amministratore"</strong>.</li>
+                                    <li>Se compare la richiesta di conferma, clicca <strong>Si</strong>.</li>
+                                </ol>
+
+                                <div class="alert alert-warning mt-3 mb-0">
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    <strong>Attenzione:</strong> la finestra di PowerShell deve avere scritto
+                                    <em>"Amministratore"</em> nella barra del titolo in alto.
+                                    Se non c'e' scritto, chiudila e riprova scegliendo "Esegui come amministratore".
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3b — How to paste and run -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#step3b">
+                                <i class="bi bi-clipboard-check me-2 text-dark"></i>
+                                <strong>Come incollare ed eseguire il comando</strong>
+                            </button>
+                        </h2>
+                        <div id="step3b" class="accordion-collapse collapse"
+                             data-bs-parent="#tutorialAccordion">
+                            <div class="accordion-body">
+                                <ol class="mb-3">
+                                    <li>Nella finestra di PowerShell, clicca con il <strong>tasto destro</strong>
+                                        in un punto qualsiasi — il comando verra' incollato automaticamente.</li>
+                                    <li>Premi <kbd>Invio</kbd>.</li>
+                                    <li>Aspetta qualche secondo. Vedrai alcune righe di testo scorrere.</li>
+                                    <li>Se alla fine compare <strong>"Setup complete"</strong> oppure
+                                        <strong>"Sync OK"</strong>, l'installazione e' riuscita.</li>
+                                </ol>
+
+                                <div class="alert alert-danger mb-0">
+                                    <i class="bi bi-x-circle"></i>
+                                    <strong>Se compare un errore in rosso:</strong> fai uno screenshot e mandalo
+                                    all'assistenza. Non toccare nient'altro.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3c — How to verify it works -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#step3c">
+                                <i class="bi bi-patch-check me-2 text-dark"></i>
+                                <strong>Come verificare che funzioni (opzionale)</strong>
+                            </button>
+                        </h2>
+                        <div id="step3c" class="accordion-collapse collapse"
+                             data-bs-parent="#tutorialAccordion">
+                            <div class="accordion-body">
+                                <p>
+                                    Il giorno dopo l'installazione, controlla qui su LamApp se i dati di vendita
+                                    si sono aggiornati. Se tutto e' andato bene, non dovrai fare piu' nulla —
+                                    il sistema lavora da solo ogni mattina alle 06:00.
+                                </p>
+                                <p class="mb-0 text-muted small">
+                                    In alternativa, puoi chiedere all'assistenza di verificare i log del server.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════
+                 Danger zone — regenerate token
+                 ═══════════════════════════════════════════════ -->
+            <div class="stat-card mb-4">
+                <h6 class="text-danger mb-2">
+                    <i class="bi bi-exclamation-triangle"></i> Zona pericolosa
+                </h6>
+                <p class="text-muted small mb-3">
+                    Se rigeneri il codice, il PC del punto vendita smettera' di inviare i dati
+                    finche' non ripeti il Passo 2 e il Passo 3 con il nuovo comando.
+                    Fallo solo se hai un buon motivo (es. cambio PC, codice compromesso).
+                </p>
+                <form method="post" action="{% url 'generate-sync-token' pk=supermarket.pk %}"
+                      onsubmit="return confirm('Sei sicuro? Il client esistente smettera di sincronizzare fino alla reinstallazione.');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                        <i class="bi bi-arrow-repeat"></i> Rigenera Codice
+                    </button>
+                </form>
+            </div>
+
+            {% endif %}
+
+        </div>
+    </div>
+</div>
+
+<script>
+function copyOneliner() {
+    const input = document.getElementById('oneliner');
+    navigator.clipboard.writeText(input.value).then(() => {
+        const icon = document.getElementById('copy-icon');
+        icon.className = 'bi bi-clipboard-check text-success';
+        setTimeout(() => { icon.className = 'bi bi-clipboard'; }, 2000);
+    });
+}
+</script>
+{% endblock %}
