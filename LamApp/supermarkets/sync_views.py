@@ -123,7 +123,8 @@ def sync_setup_view(request, pk):
         )
         oneliner = (
             f'powershell -ExecutionPolicy Bypass -Command '
-            f'"irm \'{bootstrap_url}\' | iex"'
+            f'"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; '
+            f'irm \'{bootstrap_url}\' | iex"'
         )
 
     return render(request, 'supermarkets/sync_setup.html', {
@@ -201,6 +202,8 @@ def _build_sync_script(token: str, server_url: str) -> str:
     """Returns the daily sync_sales.ps1 content with credentials substituted."""
     return f"""# sync_sales.ps1 — LamApp daily sales sync
 # Auto-generated. Do not edit manually.
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $ServerUrl = '{server_url}'
 $Token     = '{token}'
