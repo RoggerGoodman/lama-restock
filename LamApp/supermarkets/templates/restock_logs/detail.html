@@ -302,16 +302,46 @@
     </div>
 
     <!-- ✅ CHECK OPERATION TYPE - Show different content based on type -->
-    {% if log.operation_type == 'stats_update' %}
-        <!-- Simple stats update view -->
-        <div class="row">
+    {% if log.operation_type == 'ddt_import' %}
+        {% with results=log.get_results %}
+        <!-- DDT import summary -->
+        <div class="row mb-3">
             <div class="col-12">
                 <div class="stat-card">
-                    <div class="alert alert-success">
-                        <h6><i class="bi bi-check-circle"></i> Aggiornamento delle statistiche completato</h6>
-                        <p class="mb-0">Le statistiche del articolo sono state aggiornate correttamente da PAC2000A.</p>
+                    <div class="alert alert-success mb-3">
+                        <h6><i class="bi bi-truck"></i> Importazione DDT completata</h6>
+                        {% if results.invoices %}
+                        <p class="mb-1">Fatture: <strong>{{ results.invoices|join:", " }}</strong></p>
+                        {% endif %}
+                        <p class="mb-0">
+                            <strong>{{ results.updated|default:0 }}</strong> prodotti caricati correttamente
+                        </p>
                     </div>
-                    
+
+                    <!-- Not found EANs -->
+                    {% if results.not_found_eans %}
+                    <div class="mb-3">
+                        <h6 class="text-warning"><i class="bi bi-question-circle"></i> EAN non trovati nel DB ({{ results.not_found_eans|length }})</h6>
+                        <div class="d-flex flex-wrap gap-1">
+                            {% for ean in results.not_found_eans %}
+                            <span class="badge bg-warning text-dark font-monospace">{{ ean }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Errors -->
+                    {% if results.errors %}
+                    <div class="mb-3">
+                        <h6 class="text-danger"><i class="bi bi-x-circle"></i> Errori ({{ results.errors|length }})</h6>
+                        <ul class="list-unstyled mb-0">
+                            {% for err in results.errors %}
+                            <li><span class="font-monospace text-muted">{{ err.ean }}</span> — {{ err.error }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
                     <div class="d-flex gap-2">
                         <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-primary">
                             <i class="bi bi-arrow-left"></i> Torna al Magazzino
@@ -320,6 +350,93 @@
                 </div>
             </div>
         </div>
+
+        <!-- Unverified products delivered today -->
+        {% if results.unverified_products %}
+        <div class="row">
+            <div class="col-12">
+                <div class="stat-card">
+                    <h6 class="mb-3"><i class="bi bi-clipboard-check text-warning"></i> Prodotti consegnati non verificati ({{ results.unverified_products|length }})</h6>
+                    <p class="text-muted small mb-3">Il numero di stock suggerito è quello del DDT. Modificalo se c'era già della merce in magazzino.</p>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Prodotto</th>
+                                    <th>EAN</th>
+                                    <th style="width:130px">Stock</th>
+                                    <th style="width:100px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="unverified-ddt-table">
+                                {% for p in results.unverified_products %}
+                                <tr id="unverified-row-{{ p.cod }}-{{ p.v }}">
+                                    <td>
+                                        <small class="text-muted">{{ p.cod }}.{{ p.v }}</small><br>
+                                        {{ p.descrizione }}
+                                    </td>
+                                    <td><span class="font-monospace small">{{ p.ean }}</span></td>
+                                    <td>
+                                        <input type="number" class="form-control form-control-sm"
+                                               id="stock-{{ p.cod }}-{{ p.v }}"
+                                               value="{{ p.qty }}" min="0">
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-success verify-ddt-btn"
+                                                data-cod="{{ p.cod }}"
+                                                data-v="{{ p.v }}"
+                                                data-storage="{{ log.storage.id }}">
+                                            <i class="bi bi-check-lg"></i> Verifica
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        document.querySelectorAll('.verify-ddt-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const cod = this.dataset.cod;
+                const v = this.dataset.v;
+                const storageId = this.dataset.storage;
+                const stock = parseInt(document.getElementById(`stock-${cod}-${v}`).value);
+                const row = document.getElementById(`unverified-row-${cod}-${v}`);
+
+                this.disabled = true;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+                fetch('{% url "verify-product" %}', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+                    body: JSON.stringify({cod: parseInt(cod), var: parseInt(v), stock: stock, storage_id: parseInt(storageId)})
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        row.classList.add('table-success');
+                        row.querySelector('td:last-child').innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill"></i> Verificato</span>';
+                    } else {
+                        this.disabled = false;
+                        this.innerHTML = '<i class="bi bi-check-lg"></i> Verifica';
+                        alert('Errore: ' + (data.message || 'Sconosciuto'));
+                    }
+                })
+                .catch(() => {
+                    this.disabled = false;
+                    this.innerHTML = '<i class="bi bi-check-lg"></i> Verifica';
+                    alert('Errore di rete');
+                });
+            });
+        });
+        </script>
+        {% endif %}
+
+        {% endwith %}
 
     {% elif log.operation_type == 'list_update' %}
         <!-- Simple list update view -->

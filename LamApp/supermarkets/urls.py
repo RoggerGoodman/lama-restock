@@ -32,7 +32,6 @@ urlpatterns = [
     path('storages/<int:pk>/set-minimum-stock/', views.storage_set_minimum_stock_view, name='storage-set-minimum-stock'),
     path('storages/<int:pk>/valutazione-ordine/', views.storage_valutazione_ordine_view, name='storage-valutazione-ordine'),
     path('storages/<int:storage_id>/restock/', views.run_restock_view, name='run-restock'),
-    path('storages/<int:storage_id>/update-stats/', views.update_stats_only_view, name='update-stats-only'),
     path('storages/<int:storage_id>/add-products/', views.add_products_view, name='add-products'),
     path('storages/<int:storage_id>/purge/', views.purge_products_view, name='purge-products'),
     path('storages/<int:storage_id>/check-purge/', views.check_purge_flagged_view, name='check-purge-flagged'),
