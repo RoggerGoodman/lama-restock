@@ -74,6 +74,54 @@
         </div>
     </div>
 
+    <!-- Recent Sync Logs -->
+    {% if recent_sync_logs %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-arrow-repeat text-primary"></i>
+                    Ultime sincronizzazioni vendite
+                </h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Data vendite</th>
+                                <th>Aggiornati</th>
+                                <th>Non nel catalogo</th>
+                                <th>Non verificati</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in recent_sync_logs %}
+                            <tr>
+                                <td>{{ log.sync_date }}</td>
+                                <td class="text-success fw-bold">{{ log.applied }}</td>
+                                <td class="text-secondary">{{ log.not_in_db }}</td>
+                                <td>
+                                    {% if log.unverified_count > 0 %}
+                                    <span class="badge bg-warning text-dark">{{ log.unverified_count }}</span>
+                                    {% else %}
+                                    <span class="text-success"><i class="bi bi-check-lg"></i></span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <a href="{% url 'sales-sync-log-detail' pk=log.pk %}" class="btn btn-sm btn-outline-secondary">
+                                        Visiona
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Storages List -->
     <div class="row">
         <div class="col-12">

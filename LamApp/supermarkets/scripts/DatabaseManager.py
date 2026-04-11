@@ -337,12 +337,16 @@ class DatabaseManager:
         updated = 0
         skipped_already = 0
         skipped_not_found = 0
+        unverified_updated = 0
+        unverified_products = []
 
         for cod, var, sold_qty in daily_sales:
             cur.execute("""
-                SELECT sold_last_24, sales_sets, stock, last_update
-                FROM product_stats
-                WHERE cod=%s AND v=%s
+                SELECT ps.sold_last_24, ps.sales_sets, ps.stock, ps.last_update, ps.verified,
+                       p.descrizione, p.settore
+                FROM product_stats ps
+                JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+                WHERE ps.cod=%s AND ps.v=%s
             """, (cod, var))
             row = cur.fetchone()
 
@@ -360,6 +364,7 @@ class DatabaseManager:
             sold_array = row["sold_last_24"]
             sales_sets = row["sales_sets"] or []
             stock = row["stock"] or 0
+            verified = bool(row["verified"])
 
             if not isinstance(sold_array, list):
                 sold_array = [0]
@@ -390,13 +395,27 @@ class DatabaseManager:
             """, (Json(sold_array), Json(sales_sets), stock, sync_date, cod, var))
 
             updated += 1
+            if not verified:
+                unverified_updated += 1
+                unverified_products.append({
+                    'cod': cod,
+                    'v': var,
+                    'descrizione': row['descrizione'],
+                    'settore': row['settore'],
+                })
 
         self.conn.commit()
         logger.info(
             f"[VENSETAR SYNC] schema={self.schema} "
-            f"applied={updated} already_synced={skipped_already} not_in_db={skipped_not_found}"
+            f"applied={updated} already_synced={skipped_already} not_in_db={skipped_not_found} "
+            f"sold_but_unverified={unverified_updated}"
         )
-        return updated
+        return {
+            'applied': updated,
+            'already_synced': skipped_already,
+            'not_in_db': skipped_not_found,
+            'unverified_products': unverified_products,
+        }
 
     def apply_invoice_deliveries(self, ean_qty_dict: dict) -> dict:
         """

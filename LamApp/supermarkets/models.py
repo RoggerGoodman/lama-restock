@@ -727,6 +727,36 @@ class RecipeCostAlert(models.Model):
         return self.new_cost > self.old_cost
 
 
+class SalesSyncLog(models.Model):
+    """Log of one daily VENSETAR sync run for a supermarket."""
+    supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='sales_sync_logs')
+    sync_date = models.DateField(help_text="The date the sold quantities refer to (yesterday)")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Counts from apply_daily_vensetar_sales
+    received = models.IntegerField(default=0, help_text="Total products received from PowerShell")
+    applied = models.IntegerField(default=0, help_text="Products actually updated in DB")
+    already_synced = models.IntegerField(default=0, help_text="Skipped — already synced for this date")
+    not_in_db = models.IntegerField(default=0, help_text="Skipped — not in managed catalog")
+
+    # Products sold but not yet verified (blacklisted already excluded)
+    # [{cod, v, descrizione, settore}, ...]
+    unverified_products = models.JSONField(default=list)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['supermarket', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.supermarket.name} — sync {self.sync_date} ({self.applied} applied)"
+
+    @property
+    def unverified_count(self):
+        return len(self.unverified_products)
+
+
 class StockValueSnapshot(models.Model):
     """
     Snapshot of total stock value for a supermarket.

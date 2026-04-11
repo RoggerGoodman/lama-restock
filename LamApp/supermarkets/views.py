@@ -322,7 +322,7 @@ class SupermarketDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
             'restock_logs',         # Reverse FK
             'blacklists__entries'   # Nested prefetch
         ).order_by('name')
-        
+        context['recent_sync_logs'] = self.object.sales_sync_logs.order_by('-created_at')[:5]
         return context
 
 

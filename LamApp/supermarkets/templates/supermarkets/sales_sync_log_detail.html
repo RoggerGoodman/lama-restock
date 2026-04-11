@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% block title %}Sync {{ log.sync_date }} — {{ log.supermarket.name }}{% endblock %}
+{% block page_title %}Dettaglio Sincronizzazione{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-list' %}">Punti vendita</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=log.supermarket.pk %}">{{ log.supermarket.name }}</a></li>
+                    <li class="breadcrumb-item active">Sync {{ log.sync_date }}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="row mb-4 g-3">
+        <div class="col-6 col-md-3">
+            <div class="stat-card text-center">
+                <div class="fs-2 fw-bold text-primary">{{ log.received }}</div>
+                <div class="text-muted small">Ricevuti dal PC</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card text-center">
+                <div class="fs-2 fw-bold text-success">{{ log.applied }}</div>
+                <div class="text-muted small">Aggiornati</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card text-center">
+                <div class="fs-2 fw-bold text-secondary">{{ log.not_in_db }}</div>
+                <div class="text-muted small">Non nel catalogo</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card text-center">
+                <div class="fs-2 fw-bold {% if log.unverified_count > 0 %}text-warning{% else %}text-success{% endif %}">
+                    {{ log.unverified_count }}
+                </div>
+                <div class="text-muted small">Venduti non verificati</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Unverified products -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-1">
+                    <i class="bi bi-exclamation-triangle text-warning"></i>
+                    Prodotti venduti ma non verificati
+                </h5>
+                <p class="text-muted small mb-3">
+                    Questi prodotti risultano venduti nel punto vendita ma non sono ancora stati verificati in LamApp.
+                    Verificali per includerli nel riordino automatico, oppure aggiungili a "Non gestiti" per ignorarli.
+                </p>
+
+                {% if not log.unverified_products %}
+                <div class="alert alert-success mb-0">
+                    <i class="bi bi-check-circle"></i> Nessun prodotto non verificato in questa sincronizzazione.
+                </div>
+                {% else %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Codice</th>
+                                <th>Descrizione</th>
+                                <th>Settore</th>
+                                <th class="text-end">Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody id="unverified-table">
+                            {% for p in log.unverified_products %}
+                            <tr id="row-{{ p.cod }}-{{ p.v }}">
+                                <td class="font-monospace">{{ p.cod }}.{{ p.v }}</td>
+                                <td>{{ p.descrizione }}</td>
+                                <td><span class="badge bg-secondary">{{ p.settore }}</span></td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-outline-success me-1"
+                                            onclick="verifyProduct({{ p.cod }}, {{ p.v }}, '{{ p.settore }}', {{ log.supermarket.pk }})">
+                                        <i class="bi bi-clipboard-check"></i> Verifica
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger"
+                                            onclick="addToNonGestiti({{ log.pk }}, {{ p.cod }}, {{ p.v }}, '{{ p.settore }}')">
+                                        <i class="bi bi-slash-circle"></i> Non gestiti
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+function removeRow(cod, v) {
+    const row = document.getElementById(`row-${cod}-${v}`);
+    if (row) row.remove();
+    // If table is now empty, show the success alert
+    const tbody = document.getElementById('unverified-table');
+    if (tbody && tbody.querySelectorAll('tr').length === 0) {
+        tbody.closest('.table-responsive').innerHTML =
+            '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> Tutti i prodotti sono stati gestiti.</div>';
+    }
+}
+
+function verifyProduct(cod, v, settore, supermarketId) {
+    fetch("{% url 'verify-product' %}", {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+        body: JSON.stringify({cod, var: v, supermarket_id: supermarketId, settore})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            removeRow(cod, v);
+        } else {
+            alert('Errore: ' + data.message);
+        }
+    })
+    .catch(() => alert('Errore di rete.'));
+}
+
+function addToNonGestiti(syncLogId, cod, v, settore) {
+    fetch("{% url 'add-to-non-gestiti' %}", {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+        body: JSON.stringify({sync_log_id: syncLogId, cod, var: v, settore})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            removeRow(cod, v);
+        } else {
+            alert('Errore: ' + data.message);
+        }
+    })
+    .catch(() => alert('Errore di rete.'));
+}
+</script>
+{% endblock %}

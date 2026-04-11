@@ -18,7 +18,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from .models import Supermarket
+from django.http import JsonResponse
+from .models import Blacklist, BlacklistEntry, SalesSyncLog, Storage, Supermarket
 from .scripts.DatabaseManager import DatabaseManager
 from .scripts.helpers import Helper
 
@@ -70,11 +71,21 @@ def vensetar_sales_sync_view(request):
         return HttpResponse('Invalid sync_date, expected YYYY-MM-DD', status=400)
 
     daily_sales = []
+    skipped_float = 0
     for entry in products_raw:
         try:
-            daily_sales.append((int(entry['cod']), int(entry['var']), int(entry['sold'])))
+            cod = int(entry['cod'])
+            var = int(entry['var'])
+            sold_raw = entry['sold']
+            # Skip kg-based articles (fractional quantities — system only handles whole units)
+            if isinstance(sold_raw, float) and sold_raw != int(sold_raw):
+                skipped_float += 1
+                continue
+            daily_sales.append((cod, var, int(sold_raw)))
         except (KeyError, ValueError, TypeError):
             continue
+    if skipped_float:
+        logger.info(f"[VENSETAR SYNC] skipped {skipped_float} float-qty products (kg-based, not supported)")
 
     if not daily_sales:
         return HttpResponse('No valid product entries found', status=400)
@@ -82,18 +93,90 @@ def vensetar_sales_sync_view(request):
     helper = Helper()
     db = DatabaseManager(helper, supermarket_name=supermarket.name)
     try:
-        updated = db.apply_daily_vensetar_sales(daily_sales, sync_date)
+        result = db.apply_daily_vensetar_sales(daily_sales, sync_date)
     except Exception:
         logger.exception(f"[VENSETAR SYNC] DB error for supermarket '{supermarket.name}'")
         return HttpResponse('Internal server error', status=500)
     finally:
         db.close()
 
+    # Filter out products already in any blacklist for this supermarket
+    blacklisted = set(
+        BlacklistEntry.objects.filter(
+            blacklist__storage__supermarket=supermarket
+        ).values_list('product_code', 'product_var')
+    )
+    unverified_filtered = [
+        p for p in result['unverified_products']
+        if (p['cod'], p['v']) not in blacklisted
+    ]
+
+    SalesSyncLog.objects.create(
+        supermarket=supermarket,
+        sync_date=sync_date,
+        received=len(daily_sales),
+        applied=result['applied'],
+        already_synced=result['already_synced'],
+        not_in_db=result['not_in_db'],
+        unverified_products=unverified_filtered,
+    )
+
     logger.info(
         f"[VENSETAR SYNC] supermarket='{supermarket.name}' "
-        f"sync_date={sync_date_str} received={len(daily_sales)} updated={updated}"
+        f"sync_date={sync_date_str} received={len(daily_sales)} "
+        f"applied={result['applied']} unverified={len(unverified_filtered)}"
     )
     return HttpResponse('OK', status=200)
+
+
+# ---------------------------------------------------------------------------
+# Sync log — detail view + actions
+# ---------------------------------------------------------------------------
+
+@login_required
+def sales_sync_log_detail_view(request, pk):
+    """Detail page for a SalesSyncLog — shows stats and unverified products."""
+    log = get_object_or_404(SalesSyncLog, pk=pk, supermarket__owner=request.user)
+    return render(request, 'supermarkets/sales_sync_log_detail.html', {'log': log})
+
+
+@login_required
+@require_POST
+def add_to_non_gestiti_view(request):
+    """
+    AJAX: add a product to the 'Non gestiti' blacklist for its storage.
+    Creates the blacklist if it doesn't exist yet.
+
+    Body: { sync_log_id, cod, var, settore }
+    """
+    try:
+        data = json.loads(request.body)
+        sync_log_id = int(data['sync_log_id'])
+        cod = int(data['cod'])
+        var = int(data['var'])
+        settore = data['settore']
+    except (KeyError, ValueError, TypeError):
+        return JsonResponse({'success': False, 'message': 'Missing or invalid fields'}, status=400)
+
+    log = get_object_or_404(SalesSyncLog, pk=sync_log_id, supermarket__owner=request.user)
+    storage = get_object_or_404(Storage, supermarket=log.supermarket, settore=settore)
+
+    blacklist, _ = Blacklist.objects.get_or_create(
+        storage=storage,
+        name='Non gestiti',
+        defaults={'description': 'Prodotti venduti ma non gestiti nel sistema di riordino'}
+    )
+    _, created = BlacklistEntry.objects.get_or_create(
+        blacklist=blacklist,
+        product_code=cod,
+        product_var=var,
+    )
+
+    logger.info(
+        f"[SYNC LOG] {'Added' if created else 'Already in'} Non gestiti blacklist: "
+        f"{log.supermarket.name} {cod}.{var} (settore={settore})"
+    )
+    return JsonResponse({'success': True, 'already_existed': not created})
 
 
 # ---------------------------------------------------------------------------

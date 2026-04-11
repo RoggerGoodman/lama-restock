@@ -112,10 +112,14 @@ urlpatterns = [
     # ============ Sync API (supermarket PC → server) ============
     path('api/sync/vensetar-sales/', sync_views.vensetar_sales_sync_view, name='vensetar-sales-sync'),
     path('api/sync/setup/<str:token>/bootstrap/', sync_views.sync_bootstrap_view, name='sync-bootstrap'),
+    path('api/sync/add-to-non-gestiti/', sync_views.add_to_non_gestiti_view, name='add-to-non-gestiti'),
 
     # ============ Sync Setup UI (admin) ============
     path('supermarkets/<int:pk>/sync-setup/', sync_views.sync_setup_view, name='sync-setup'),
     path('supermarkets/<int:pk>/generate-sync-token/', sync_views.generate_sync_token_view, name='generate-sync-token'),
+
+    # ============ Sales Sync Logs ============
+    path('sync-logs/<int:pk>/', sync_views.sales_sync_log_detail_view, name='sales-sync-log-detail'),
 
     # ============ Task Progress Endpoints (NEW) ============
     path('tasks/<str:task_id>/progress/', views.task_progress_view, name='task-progress'),
