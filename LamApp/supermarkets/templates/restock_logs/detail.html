@@ -316,22 +316,33 @@
                     <div class="alert alert-success mb-3">
                         <h6><i class="bi bi-truck"></i> Importazione DDT completata</h6>
                         {% if results.invoices %}
-                        <p class="mb-1">Fatture: <strong>{{ results.invoices|join:", " }}</strong></p>
+                        <p class="mb-1">ID Fattura: <strong>{{ results.invoices|join:", " }}</strong></p>
                         {% endif %}
                         <p class="mb-0">
                             <strong>{{ results.updated|default:0 }}</strong> prodotti caricati correttamente
                         </p>
                     </div>
 
-                    <!-- Not found EANs -->
-                    {% if results.not_found_eans %}
+                    <!-- Not found products — fetch from PAC2000A -->
+                    {% if results.not_found %}
                     <div class="mb-3">
-                        <h6 class="text-warning"><i class="bi bi-question-circle"></i> EAN non trovati nel DB ({{ results.not_found_eans|length }})</h6>
-                        <div class="d-flex flex-wrap gap-1">
-                            {% for ean in results.not_found_eans %}
-                            <span class="badge bg-warning text-dark font-monospace">{{ ean }}</span>
-                            {% endfor %}
-                        </div>
+                        <h6 class="text-warning"><i class="bi bi-question-circle"></i> Prodotti consegnati non presenti nel catalogo ({{ results.not_found|length }})</h6>
+                        <p class="text-muted small mb-2">Questi prodotti erano nella fattura ma non esistono nel database. Aggiungili al catalogo per includerli nei prossimi riordini.</p>
+                        <table class="table table-sm align-middle mb-0" id="not-found-table">
+                            <tbody>
+                                {% for product in results.not_found %}
+                                <tr id="nf-row-{{ product.cod }}-{{ product.v }}">
+                                    <td class="font-monospace">{{ product.cod }}.{{ product.v }}</td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-success"
+                                                onclick="fetchProduct({{ product.cod }}, {{ product.v }}, this)">
+                                            <i class="bi bi-magic"></i> Aggiungi al catalogo
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
                     {% endif %}
 
@@ -341,7 +352,7 @@
                         <h6 class="text-danger"><i class="bi bi-x-circle"></i> Errori ({{ results.errors|length }})</h6>
                         <ul class="list-unstyled mb-0">
                             {% for err in results.errors %}
-                            <li><span class="font-monospace text-muted">{{ err.ean }}</span> — {{ err.error }}</li>
+                            <li><span class="font-monospace text-muted">{{ err.cod }}.{{ err.v }}</span> — {{ err.error }}</li>
                             {% endfor %}
                         </ul>
                     </div>
@@ -1072,6 +1083,62 @@ function flagAllZombiesForPurge() {
     if (!confirm(`Flag all ${all.length} zombie products for purging?`)) return;
 
     flagProductsForPurge(all);
+}
+
+// ============ DDT NOT-FOUND: FETCH FROM PAC2000A ============
+const DDT_SUPERMARKET_ID = {{ log.storage.supermarket.pk }};
+const DDT_STORAGE_ID = {{ log.storage.pk }};
+
+function fetchProduct(cod, v, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Caricamento...';
+
+    fetch("{% url 'inventory-auto-add' %}", {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+        body: JSON.stringify({cod, var: v, supermarket_id: DDT_SUPERMARKET_ID, storage_id: DDT_STORAGE_ID})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.task_id) {
+            pollFetchTask(data.task_id, cod, v, btn);
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-magic"></i> Aggiungi al catalogo';
+            alert('Errore: ' + (data.message || 'Impossibile avviare il task'));
+        }
+    })
+    .catch(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-magic"></i> Aggiungi al catalogo';
+        alert('Errore di rete.');
+    });
+}
+
+function pollFetchTask(taskId, cod, v, btn) {
+    const interval = setInterval(() => {
+        fetch(`/tasks/${taskId}/status/`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.ready) {
+                    clearInterval(interval);
+                    if (data.success) {
+                        const row = document.getElementById(`nf-row-${cod}-${v}`);
+                        if (row) row.remove();
+                        const tbody = document.querySelector('#not-found-table tbody');
+                        if (tbody && tbody.querySelectorAll('tr').length === 0) {
+                            tbody.closest('.mb-3').innerHTML =
+                                '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> Tutti i prodotti sono stati aggiunti al catalogo.</div>';
+                        }
+                    } else {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="bi bi-magic"></i> Aggiungi al catalogo';
+                        alert('Errore: ' + (data.error || 'Task fallito'));
+                    }
+                }
+            })
+            .catch(() => clearInterval(interval));
+    }, 3000);
 }
 
 </script>

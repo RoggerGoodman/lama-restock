@@ -417,60 +417,52 @@ class DatabaseManager:
             'unverified_products': unverified_products,
         }
 
-    def apply_invoice_deliveries(self, ean_qty_dict: dict) -> dict:
+    def apply_invoice_deliveries(self, cod_v_dict: dict) -> dict:
         """
-        For each EAN in ean_qty_dict, add the delivered quantity to:
+        For each (cod, v) in cod_v_dict, add the delivered quantity to:
         - bought_last_24[0] (current month total, incremented daily)
         - stock (incremented)
         Does NOT touch sold_last_24, sales_sets, or last_update.
         Returns {
             "updated": N,
-            "not_found_eans": [ean_str, ...],
-            "errors": [{"ean": ean_str, "error": msg}, ...],
-            "unverified_products": [{"cod": ..., "v": ..., "ean": ..., "descrizione": ..., "qty": ...}, ...]
+            "not_found": ["cod.v", ...],
+            "errors": [{"product": "cod.v", "error": msg}, ...],
+            "unverified_products": [{"cod": ..., "v": ..., "descrizione": ..., "qty": ...}, ...]
         }
         """
         today = date.today()
         current_month = today.month
         updated = 0
-        not_found_eans = []
+        not_found = []
         errors = []
         unverified_products = []
 
-        for ean_str, qty in ean_qty_dict.items():
+        for (cod, v), qty in cod_v_dict.items():
+            product_key = f"{cod}.{v}"
             try:
-                ean = int(ean_str)
                 cur = self.cursor()
 
                 cur.execute(
-                    "SELECT p.cod, p.v, p.descrizione FROM products p WHERE p.ean = %s",
-                    (ean,)
-                )
-                product = cur.fetchone()
-                if not product:
-                    logger.debug(f"apply_invoice_deliveries: EAN {ean} not in products table")
-                    not_found_eans.append(ean_str)
-                    continue
-
-                cod, v, descrizione = product["cod"], product["v"], product["descrizione"]
-
-                cur.execute(
-                    "SELECT bought_last_24, stock, last_update, verified FROM product_stats WHERE cod=%s AND v=%s",
+                    "SELECT ps.bought_last_24, ps.stock, ps.last_update, ps.verified, p.descrizione "
+                    "FROM product_stats ps "
+                    "JOIN products p ON p.cod = ps.cod AND p.v = ps.v "
+                    "WHERE ps.cod=%s AND ps.v=%s",
                     (cod, v)
                 )
-                stats = cur.fetchone()
-                if not stats:
-                    logger.warning(f"apply_invoice_deliveries: no stats row for {cod}.{v}")
-                    not_found_eans.append(ean_str)
+                row = cur.fetchone()
+                if not row:
+                    logger.debug(f"apply_invoice_deliveries: {product_key} not in DB")
+                    not_found.append({"cod": cod, "v": v})
                     continue
 
-                bought_array = stats["bought_last_24"] or [0]
+                bought_array = row["bought_last_24"] or [0]
                 if not isinstance(bought_array, list):
                     bought_array = [0]
-                stock = int(stats["stock"] or 0)
-                last_update = stats["last_update"]
+                stock = int(row["stock"] or 0)
+                last_update = row["last_update"]
                 last_month = last_update.month if last_update else None
-                verified = bool(stats["verified"])
+                verified = bool(row["verified"])
+                descrizione = row["descrizione"]
 
                 if last_month == current_month:
                     bought_array[0] = (bought_array[0] or 0) + qty
@@ -484,29 +476,28 @@ class DatabaseManager:
                 )
                 self.conn.commit()
                 updated += 1
-                logger.info(f"apply_invoice_deliveries: {cod}.{v} EAN={ean} +{qty} → stock={stock+qty}")
+                logger.info(f"apply_invoice_deliveries: {product_key} +{qty} → stock={stock+qty}")
 
                 if not verified:
                     unverified_products.append({
                         "cod": cod,
                         "v": v,
-                        "ean": ean_str,
                         "descrizione": descrizione,
-                        "qty": stock + qty,  # suggested stock = existing + delivered
+                        "qty": qty,
                     })
 
             except Exception as e:
-                logger.error(f"apply_invoice_deliveries: failed for EAN {ean_str}: {e}")
-                errors.append({"ean": ean_str, "error": str(e)})
+                logger.error(f"apply_invoice_deliveries: failed for {product_key}: {e}")
+                errors.append({"cod": cod, "v": v, "error": str(e)})
 
         logger.info(
             f"apply_invoice_deliveries: updated={updated} "
-            f"not_found={len(not_found_eans)} errors={len(errors)} "
+            f"not_found={len(not_found)} errors={len(errors)} "
             f"unverified={len(unverified_products)}"
         )
         return {
             "updated": updated,
-            "not_found_eans": not_found_eans,
+            "not_found": not_found,
             "errors": errors,
             "unverified_products": unverified_products,
         }

@@ -602,23 +602,29 @@ class WebLister:
 
     def process_righe(self, righe: list) -> dict:
         """
-        Group all line items by DescMag, then aggregate EANs within each group.
+        Group all line items by DescMag, then aggregate by (cod, v) within each group.
         Invoices for different storages are kept separate.
-        Returns {desc_mag: {ean_str: total_qty}}.
+        Returns {desc_mag: {(cod, v): total_qty}}.
         """
         result = {}
         for row in righe:
-            ean = row.get("EAN", "").strip()
-            if not ean:
+            cod_raw = row.get("UACART", "").strip()
+            v_raw = row.get("UACDAR", "").strip()
+            if not cod_raw or not v_raw:
+                continue
+            try:
+                cod = int(cod_raw)
+                v = int(v_raw)
+            except ValueError:
                 continue
             desc_mag = row.get("DescMag", "").strip()
             qty = int(row.get("UAQESP", 0))
             if desc_mag not in result:
                 result[desc_mag] = {}
-            result[desc_mag][ean] = result[desc_mag].get(ean, 0) + qty
+            result[desc_mag][(cod, v)] = result[desc_mag].get((cod, v), 0) + qty
 
-        for dm, eans in result.items():
-            logger.info(f"process_righe: DescMag='{dm}' → {len(eans)} distinct EANs")
+        for dm, products in result.items():
+            logger.info(f"process_righe: DescMag='{dm}' → {len(products)} distinct cod.v")
         return result
 
 

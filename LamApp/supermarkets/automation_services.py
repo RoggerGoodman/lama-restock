@@ -57,34 +57,38 @@ class AutomatedRestockService(RestockService):
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
-    def apply_ddt_for_storage(self, log: RestockLog, ean_qty: dict, invoice_numbers: list):
+    def apply_ddt_for_storage(self, log: RestockLog, cod_v_qty: dict, invoice_numbers: list):
         """
         DB-only: apply already-fetched DDT data for this specific storage.
         Called by import_ddt_for_supermarket after the API work is done once.
+        cod_v_qty: {(cod, v): qty}
         """
         logger.info(f"Applying DDT deliveries for {self.storage.name}")
 
-        report = {'updated': 0, 'not_found_eans': [], 'errors': [], 'unverified_products': []}
+        report = {'updated': 0, 'not_found': [], 'errors': [], 'unverified_products': []}
 
-        # Guard: require at least 1 verified product among delivered EANs in THIS settore
+        # Guard: require at least 1 verified product among delivered (cod, v) in THIS settore
         cur = self.db.cursor()
-        cur.execute("""
-            SELECT 1 FROM products p
-            JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-            WHERE p.ean = ANY(%s)
+        pairs = list(cod_v_qty.keys())
+        placeholders = ','.join(['(%s,%s)'] * len(pairs))
+        flat = [x for pair in pairs for x in pair]
+        cur.execute(f"""
+            SELECT 1 FROM product_stats ps
+            JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+            WHERE (ps.cod, ps.v) IN ({placeholders})
               AND p.settore = %s
               AND ps.verified = TRUE
             LIMIT 1
-        """, ([int(e) for e in ean_qty.keys()], self.storage.settore))
+        """, flat + [self.storage.settore])
         has_verified = cur.fetchone() is not None
 
         if not has_verified:
             logger.warning(
                 f"No verified products in settore '{self.storage.settore}' "
-                f"among delivered EANs for '{self.storage.name}'. Skipping."
+                f"among delivered cod.v for '{self.storage.name}'. Skipping."
             )
         else:
-            report = self.db.apply_invoice_deliveries(ean_qty)
+            report = self.db.apply_invoice_deliveries(cod_v_qty)
             logger.info(f"Deliveries applied for '{self.storage.name}': {report}")
 
         purged_products = self.db.check_and_purge_flagged()
@@ -99,7 +103,7 @@ class AutomatedRestockService(RestockService):
             log.set_results({
                 'invoices': invoice_numbers,
                 'updated': report.get('updated', 0),
-                'not_found_eans': report.get('not_found_eans', []),
+                'not_found': report.get('not_found', []),
                 'errors': report.get('errors', []),
                 'unverified_products': report.get('unverified_products', []),
             })
