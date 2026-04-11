@@ -264,6 +264,26 @@
         <div class="col-lg-4">
             <div class="stat-card">
                 <h6 class="mb-3">Statistiche</h6>
+                {% if log.operation_type == 'ddt_import' %}
+                    {% with results=log.get_results %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Prodotti aggiornati</span>
+                        <strong class="text-success">{{ results.updated|default:0 }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Non nel catalogo</span>
+                        <strong class="{% if results.not_found %}text-warning{% else %}text-success{% endif %}">{{ results.not_found|length }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Errori</span>
+                        <strong class="{% if results.errors %}text-danger{% endif %}">{{ results.errors|length }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-muted">Fatture</span>
+                        <strong>{% if results.invoices %}{{ results.invoices|join:", " }}{% else %}—{% endif %}</strong>
+                    </div>
+                    {% endwith %}
+                {% else %}
                 <div class="mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <span class="text-muted">Copertura usata</span>
@@ -288,7 +308,6 @@
                         <strong class="text-success">{{ log.total_packages }}</strong>
                     </div>
                 </div>
-                
                 {% if summary %}
                 <hr>
                 <div class="mb-2">
@@ -301,6 +320,7 @@
                         <strong class="text-info">€{{ summary.total_cost|floatformat:2 }}</strong>
                     </div>
                 </div>
+                {% endif %}
                 {% endif %}
             </div>
         </div>
@@ -391,31 +411,35 @@
                             <thead>
                                 <tr>
                                     <th>Prodotto</th>
-                                    <th>EAN</th>
                                     <th style="width:130px">Stock</th>
-                                    <th style="width:100px"></th>
+                                    <th style="width:180px"></th>
                                 </tr>
                             </thead>
                             <tbody id="unverified-ddt-table">
                                 {% for p in results.unverified_products %}
                                 <tr id="unverified-row-{{ p.cod }}-{{ p.v }}">
                                     <td>
-                                        <small class="text-muted">{{ p.cod }}.{{ p.v }}</small><br>
+                                        <small class="text-muted font-monospace">{{ p.cod }}.{{ p.v }}</small><br>
                                         {{ p.descrizione }}
                                     </td>
-                                    <td><span class="font-monospace small">{{ p.ean }}</span></td>
                                     <td>
                                         <input type="number" class="form-control form-control-sm"
                                                id="stock-{{ p.cod }}-{{ p.v }}"
                                                value="{{ p.qty }}" min="0">
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-success verify-ddt-btn"
-                                                data-cod="{{ p.cod }}"
-                                                data-v="{{ p.v }}"
-                                                data-storage="{{ log.storage.id }}">
-                                            <i class="bi bi-check-lg"></i> Verifica
-                                        </button>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-success verify-ddt-btn"
+                                                    data-cod="{{ p.cod }}"
+                                                    data-v="{{ p.v }}"
+                                                    data-storage="{{ log.storage.id }}">
+                                                <i class="bi bi-check-lg"></i> Verifica
+                                            </button>
+                                            <button class="btn btn-outline-danger"
+                                                    onclick="addUnverifiedToNonGestiti({{ p.cod }}, {{ p.v }}, this)">
+                                                <i class="bi bi-slash-circle"></i> Non gestiti
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -1127,7 +1151,7 @@ function fetchProduct(cod, v, btn) {
     });
 }
 
-function addNotFoundToNonGestiti(cod, v, btn) {
+function addToNonGestiti(cod, v, btn, rowPrefix, tableId) {
     btn.disabled = true;
     fetch("{% url 'add-to-non-gestiti' %}", {
         method: 'POST',
@@ -1137,11 +1161,11 @@ function addNotFoundToNonGestiti(cod, v, btn) {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            const row = document.getElementById(`nf-row-${cod}-${v}`);
+            const row = document.getElementById(`${rowPrefix}-${cod}-${v}`);
             if (row) row.remove();
-            const tbody = document.querySelector('#not-found-table tbody');
+            const tbody = document.querySelector(`#${tableId} tbody`);
             if (tbody && tbody.querySelectorAll('tr').length === 0) {
-                tbody.closest('.mb-3').innerHTML =
+                tbody.closest('.mb-3, .table-responsive').innerHTML =
                     '<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> Tutti i prodotti sono stati gestiti.</div>';
             }
         } else {
@@ -1153,6 +1177,14 @@ function addNotFoundToNonGestiti(cod, v, btn) {
         btn.disabled = false;
         alert('Errore di rete.');
     });
+}
+
+function addNotFoundToNonGestiti(cod, v, btn) {
+    addToNonGestiti(cod, v, btn, 'nf-row', 'not-found-table');
+}
+
+function addUnverifiedToNonGestiti(cod, v, btn) {
+    addToNonGestiti(cod, v, btn, 'unverified-row', 'unverified-ddt-table');
 }
 
 function pollFetchTask(taskId, cod, v, btn) {

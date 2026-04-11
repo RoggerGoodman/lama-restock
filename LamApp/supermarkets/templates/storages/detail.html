@@ -853,6 +853,7 @@ function submitVerifyAvail() {
             storage_id: {{ storage.id }},
             cod: verifyAvailCod,
             var: verifyAvailVar,
+            stock: 0,
             cluster: cluster || null
         })
     })
@@ -925,6 +926,9 @@ function purgeProduct(cod, var_, rowIdPrefix) {
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
+                <div class="alert alert-info py-2 mb-3">
+                    <i class="bi bi-info-circle"></i> La giacenza verrà impostata a <strong>0</strong>.
+                </div>
                 <div class="mb-3">
                     <label for="verifyAvailCluster" class="form-label">Cluster <small class="text-muted">(opzionale)</small></label>
                     <input type="text" class="form-control" id="verifyAvailCluster"
