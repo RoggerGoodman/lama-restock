@@ -83,7 +83,8 @@ class DatabaseManager:
                 stock INTEGER DEFAULT 0,
                 verified BOOLEAN DEFAULT FALSE,
                 minimum_stock INTEGER DEFAULT 6,
-                last_update DATE,
+                last_update_sold DATE,
+                last_update_bought DATE,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)
             )
@@ -155,7 +156,7 @@ class DatabaseManager:
         cur = self.cursor()
         cur.execute("""
             INSERT INTO product_stats (
-                cod, v, sold_last_24, bought_last_24, stock, verified, last_update
+                cod, v, sold_last_24, bought_last_24, stock, verified, last_update_sold
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (cod, v) DO NOTHING
@@ -187,132 +188,6 @@ class DatabaseManager:
 
         return array_data
 
-    def update_product_stats(self, cod, v, sold_update=None, bought_update=None):
-        """
-        Minimal, robust updater.
-
-        - sold_update / bought_update: list/tuple with length 1 or 2:
-            [current_value]  OR  [current_value, previous_value]
-        - last_update is always 'today' (DATE).
-        - If product_stats row does not exist, it will be initialized using the provided arrays.
-        - Delta logic and array-shift use the existing behavior (no full recompute).
-        """
-
-        if sold_update is None and bought_update is None:
-            raise ValueError("At least one of sold_update or bought_update must be provided.")
-
-        # --- Prepare helpers ---
-        def _prepare_packet(pkt):
-            cur_val = pkt[0]
-            prev_val = pkt[1] if len(pkt) >= 2 else None
-            return (cur_val, prev_val)
-
-        sold_pkt = _prepare_packet(sold_update)
-        bought_pkt = _prepare_packet(bought_update)
-
-        cur = self.cursor()
-        cur.execute("""
-            SELECT sold_last_24, bought_last_24, stock, last_update, sales_sets
-            FROM product_stats
-            WHERE cod=%s AND v=%s
-        """, (cod, v))
-        row = cur.fetchone()
-
-        # --- Load arrays and previous metadata ---
-        sold_array = row["sold_last_24"]
-        bought_array = row["bought_last_24"]
-
-        # Guard against JSONB object {} (data corruption). Arrays must always be lists.
-        if not isinstance(sold_array, list):
-            logger.warning(f"update_product_stats {cod}.{v}: sold_last_24 is not an array (type={type(sold_array).__name__}, value={sold_array!r}). Resetting to [0].")
-            sold_array = [0]
-        if not isinstance(bought_array, list):
-            logger.warning(f"update_product_stats {cod}.{v}: bought_last_24 is not an array (type={type(bought_array).__name__}, value={bought_array!r}). Resetting to [0].")
-            bought_array = [0]
-        stock = int(row["stock"]) if row["stock"] is not None else 0
-        sales_sets = row["sales_sets"] or []
-        last_update_date = row["last_update"]
-        current_date = date.today()
-
-        # Use month numbers for continuity in your delta logic
-        last_update_month = last_update_date.month
-        current_month = current_date.month
-
-        # --- Compute deltas using old arrays ---
-        sold_delta = 0
-        bought_delta = 0
-
-        if sold_pkt is not None:
-            days_since = (current_date - last_update_date).days if last_update_date else 0
-            cur_sold_val, prev_sold_val = sold_pkt
-            if last_update_month == current_month:
-                old_current = sold_array[0] if sold_array else 0
-                sold_delta = cur_sold_val - old_current
-                logger.info(f"[DELTA] {cod}.{v} same_month cur={cur_sold_val} old={old_current} delta={sold_delta} days_since={days_since} last_update={last_update_date}")
-            else:
-                old_previous_stored = sold_array[0] if sold_array else 0
-                # prev_sold_val is None when PAC2000A returned only 1 month of data
-                # (e.g. brand-new product with no history). Treat as no correction needed.
-                prev_sold_safe = prev_sold_val if prev_sold_val is not None else old_previous_stored
-                sold_delta = cur_sold_val + (prev_sold_safe - old_previous_stored)
-                logger.info(f"[DELTA] {cod}.{v} new_month cur={cur_sold_val} prev_safe={prev_sold_safe} old_prev={old_previous_stored} delta={sold_delta} days_since={days_since} last_update={last_update_date}")
-
-        if bought_pkt is not None:
-            cur_bought_val, prev_bought_val = bought_pkt
-            if last_update_month == current_month:
-                old_current = bought_array[0] if bought_array else 0
-                bought_delta = cur_bought_val - old_current
-            else:
-                old_previous_stored = bought_array[0] if bought_array else 0
-                # prev_bought_val is None when PAC2000A returned only 1 month of data
-                # (e.g. brand-new product with no history). Treat as no correction needed.
-                prev_bought_safe = prev_bought_val if prev_bought_val is not None else old_previous_stored
-                bought_delta = cur_bought_val + (prev_bought_safe - old_previous_stored)
-
-        # --- Update sales_sets (needs both deltas to be computed first) ---
-        if sold_pkt is not None and days_since > 0:
-            # If stock was already depleted before this update and no restock happened,
-            # the product was out of stock — sold_delta reflects availability, not demand.
-            # Insert None so downstream calculations ignore this censored day.
-            prev_stock = stock  # stock before this update (bought/sold not yet applied)
-            out_of_stock = prev_stock <= 0 and int(bought_delta) == 0
-            value = None if out_of_stock else int(sold_delta)
-            sales_sets.insert(0, value)
-            # Keep most recent 30 days
-            sales_sets = sales_sets[:30]
-
-        # --- Apply array modifications using your existing helper ---
-        if sold_pkt is not None:
-            cur_sold_val, prev_sold_val = sold_pkt
-            sold_array = self._update_array_variable_length(
-                sold_array, cur_sold_val, prev_sold_val, current_month, last_update_month
-            )
-
-        if bought_pkt is not None:
-            cur_bought_val, prev_bought_val = bought_pkt
-            bought_array = self._update_array_variable_length(
-                bought_array, cur_bought_val, prev_bought_val, current_month, last_update_month
-            )
-
-        # --- Adjust stock incrementally ---
-        stock = stock + int(bought_delta) - int(sold_delta)
-
-        # --- Persist changes ---
-        cur.execute("""
-            UPDATE product_stats
-            SET sold_last_24=%s, bought_last_24=%s, stock=%s, last_update=%s, sales_sets=%s
-            WHERE cod=%s AND v=%s
-        """, (
-            Json(sold_array),
-            Json(bought_array),
-            stock,
-            current_date,
-            Json(sales_sets),
-            cod, v
-        ))
-
-        self.conn.commit()
-
     def apply_daily_vensetar_sales(self, daily_sales, sync_date):
         """
         Apply one day's sold quantities coming from the VENSETAR sync (runs at 06:00,
@@ -324,7 +199,7 @@ class DatabaseManager:
 
         Behaviour:
         - Skips products not present in product_stats (unknown to this supermarket).
-        - Idempotent: if last_update already equals sync_date the product is skipped
+        - Idempotent: if last_update_sold already equals sync_date the product is skipped
           (prevents double-counting on retries).
         - Same-month: adds sold_qty to sold_last_24[0].
         - New month  : prepends sold_qty, trims array to 24.
@@ -342,7 +217,7 @@ class DatabaseManager:
 
         for cod, var, sold_qty in daily_sales:
             cur.execute("""
-                SELECT ps.sold_last_24, ps.sales_sets, ps.stock, ps.last_update, ps.verified,
+                SELECT ps.sold_last_24, ps.sales_sets, ps.stock, ps.last_update_sold, ps.verified,
                        p.descrizione, p.settore
                 FROM product_stats ps
                 JOIN products p ON p.cod = ps.cod AND p.v = ps.v
@@ -354,10 +229,10 @@ class DatabaseManager:
                 skipped_not_found += 1
                 continue
 
-            last_update = row["last_update"]
+            last_update_sold = row["last_update_sold"]
 
             # Idempotency guard
-            if last_update == sync_date:
+            if last_update_sold == sync_date:
                 skipped_already += 1
                 continue
 
@@ -371,9 +246,9 @@ class DatabaseManager:
 
             # --- sold_last_24 ---
             same_month = (
-                last_update is not None
-                and last_update.month == sync_date.month
-                and last_update.year == sync_date.year
+                last_update_sold is not None
+                and last_update_sold.month == sync_date.month
+                and last_update_sold.year == sync_date.year
             )
             if same_month:
                 sold_array[0] = (sold_array[0] or 0) + sold_qty
@@ -390,7 +265,7 @@ class DatabaseManager:
 
             cur.execute("""
                 UPDATE product_stats
-                SET sold_last_24=%s, sales_sets=%s, stock=%s, last_update=%s
+                SET sold_last_24=%s, sales_sets=%s, stock=%s, last_update_sold=%s
                 WHERE cod=%s AND v=%s
             """, (Json(sold_array), Json(sales_sets), stock, sync_date, cod, var))
 
@@ -422,7 +297,7 @@ class DatabaseManager:
         For each (cod, v) in cod_v_dict, add the delivered quantity to:
         - bought_last_24[0] (current month total, incremented daily)
         - stock (incremented)
-        Does NOT touch sold_last_24, sales_sets, or last_update.
+        Does NOT touch sold_last_24 or sales_sets.
         Returns {
             "updated": N,
             "not_found": ["cod.v", ...],
@@ -445,7 +320,7 @@ class DatabaseManager:
                 cur = self.cursor()
 
                 cur.execute(
-                    "SELECT ps.bought_last_24, ps.stock, ps.last_update, ps.verified, p.descrizione "
+                    "SELECT ps.bought_last_24, ps.stock, ps.last_update_bought, ps.verified, p.descrizione "
                     "FROM product_stats ps "
                     "JOIN products p ON p.cod = ps.cod AND p.v = ps.v "
                     "WHERE ps.cod=%s AND ps.v=%s",
@@ -461,8 +336,8 @@ class DatabaseManager:
                 if not isinstance(bought_array, list):
                     bought_array = [0]
                 stock = int(row["stock"] or 0)
-                last_update = row["last_update"]
-                last_month = last_update.month if last_update else None
+                last_update_bought = row["last_update_bought"]
+                last_month = last_update_bought.month if last_update_bought else None
                 verified = bool(row["verified"])
                 descrizione = row["descrizione"]
 
@@ -473,8 +348,8 @@ class DatabaseManager:
                     bought_array = bought_array[:24]
 
                 cur.execute(
-                    "UPDATE product_stats SET bought_last_24=%s, stock=%s WHERE cod=%s AND v=%s",
-                    (Json(bought_array), stock + qty, cod, v)
+                    "UPDATE product_stats SET bought_last_24=%s, stock=%s, last_update_bought=%s WHERE cod=%s AND v=%s",
+                    (Json(bought_array), stock + qty, today, cod, v)
                 )
                 self.conn.commit()
                 updated += 1
@@ -522,9 +397,9 @@ class DatabaseManager:
             "bought": row["bought_last_24"] or [],
             "stock": row["stock"] or 0,
             "verified": bool(row["verified"]),
-            "last_update": row["last_update"],
+            "last_update": row["last_update_sold"],
         }
-    
+
     def get_stock(self, cod, v):
         cur = self.cursor()
         cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
@@ -576,7 +451,7 @@ class DatabaseManager:
                 ps.bought_last_24,
                 ps.stock,
                 ps.verified,
-                ps.last_update
+                ps.last_update_sold AS last_update
             FROM products AS p
             LEFT JOIN product_stats AS ps
                 ON p.cod = ps.cod AND p.v = ps.v

@@ -251,8 +251,6 @@ def _build_bootstrap_script(token: str, server_url: str) -> str:
     with token and server_url already substituted.
     """
     sync_script_content = _build_sync_script(token=token, server_url=server_url)
-    # Escape single quotes inside the here-string for PowerShell safety
-    sync_script_escaped = sync_script_content.replace("'", "''")
 
     return f"""# LamApp Sales Sync — Bootstrap Installer
 # Run as Administrator in PowerShell.
@@ -272,7 +270,7 @@ if (-not (Test-Path $ScriptDir)) {{
 
 # 2. Write sync script (token and server URL already embedded)
 @'
-{sync_script_escaped}
+{sync_script_content}
 '@ | Out-File -FilePath $ScriptPath -Encoding UTF8 -Force
 Write-Host "  Wrote $ScriptPath"
 

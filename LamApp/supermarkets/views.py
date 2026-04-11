@@ -2793,7 +2793,7 @@ def inventory_results_view(request, search_type):
                             SELECT 
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita, 
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold AS last_update, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.cod = %s AND p.v = %s AND ps.verified = TRUE
@@ -2841,7 +2841,7 @@ def inventory_results_view(request, search_type):
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold AS last_update, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.ean = %s AND ps.verified = TRUE
@@ -2904,7 +2904,7 @@ def inventory_results_view(request, search_type):
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold AS last_update, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.settore = %s AND p.cluster IN ({placeholders}) AND ps.verified = TRUE
@@ -2915,7 +2915,7 @@ def inventory_results_view(request, search_type):
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold AS last_update, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.settore = %s AND ps.verified = TRUE
@@ -4657,7 +4657,7 @@ def pending_verifications_view(request):
                     SELECT 
                         p.cod, p.v, p.descrizione, p.pz_x_collo, p.settore,
                         ps.stock, ps.bought_last_24,
-                        ps.last_update
+                        ps.last_update_bought AS last_update
                     FROM product_stats ps
                     JOIN products p ON ps.cod = p.cod AND ps.v = p.v
                     WHERE ps.verified = FALSE
@@ -4669,7 +4669,7 @@ def pending_verifications_view(request):
                         FROM jsonb_array_elements(ps.bought_last_24)
                     )
                     AND p.settore IN ({settore_placeholders})
-                    ORDER BY ps.last_update DESC
+                    ORDER BY ps.last_update_bought DESC
                     LIMIT 20
                 """
                 
