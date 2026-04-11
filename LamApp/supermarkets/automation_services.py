@@ -95,6 +95,24 @@ class AutomatedRestockService(RestockService):
         if purged_products:
             logger.info(f"[AUTO-PURGE] Purged {len(purged_products)} products for {self.storage.name}")
 
+        # Filter not_found against the 'Non gestiti' blacklist for this storage
+        from .models import BlacklistEntry
+        blacklisted = set(
+            BlacklistEntry.objects.filter(
+                blacklist__storage=self.storage,
+                blacklist__name='Non gestiti',
+            ).values_list('product_code', 'product_var')
+        )
+        not_found_filtered = [
+            p for p in report.get('not_found', [])
+            if (p['cod'], p['v']) not in blacklisted
+        ]
+        if len(not_found_filtered) < len(report.get('not_found', [])):
+            logger.info(
+                f"[DDT] Filtered {len(report.get('not_found', [])) - len(not_found_filtered)} "
+                f"blacklisted products from not_found for '{self.storage.name}'"
+            )
+
         with transaction.atomic():
             log = RestockLog.objects.select_for_update().get(id=log.id)
             log.current_stage = 'stats_updated'
@@ -103,7 +121,7 @@ class AutomatedRestockService(RestockService):
             log.set_results({
                 'invoices': invoice_numbers,
                 'updated': report.get('updated', 0),
-                'not_found': report.get('not_found', []),
+                'not_found': not_found_filtered,
                 'errors': report.get('errors', []),
                 'unverified_products': report.get('unverified_products', []),
             })

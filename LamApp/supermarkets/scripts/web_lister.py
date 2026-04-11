@@ -604,7 +604,7 @@ class WebLister:
         """
         Group all line items by DescMag, then aggregate by (cod, v) within each group.
         Invoices for different storages are kept separate.
-        Returns {desc_mag: {(cod, v): total_qty}}.
+        Returns {desc_mag: {(cod, v): {"qty": total_qty, "descrizione": str}}}.
         """
         result = {}
         for row in righe:
@@ -619,9 +619,13 @@ class WebLister:
                 continue
             desc_mag = row.get("DescMag", "").strip()
             qty = int(row.get("UAQESP", 0))
+            descrizione = row.get("UAXART", "").strip()
             if desc_mag not in result:
                 result[desc_mag] = {}
-            result[desc_mag][(cod, v)] = result[desc_mag].get((cod, v), 0) + qty
+            if (cod, v) in result[desc_mag]:
+                result[desc_mag][(cod, v)]["qty"] += qty
+            else:
+                result[desc_mag][(cod, v)] = {"qty": qty, "descrizione": descrizione}
 
         for dm, products in result.items():
             logger.info(f"process_righe: DescMag='{dm}' → {len(products)} distinct cod.v")

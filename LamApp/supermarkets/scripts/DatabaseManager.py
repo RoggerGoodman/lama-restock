@@ -437,7 +437,9 @@ class DatabaseManager:
         errors = []
         unverified_products = []
 
-        for (cod, v), qty in cod_v_dict.items():
+        for (cod, v), item in cod_v_dict.items():
+            qty = item["qty"] if isinstance(item, dict) else item
+            descrizione_invoice = item.get("descrizione", "") if isinstance(item, dict) else ""
             product_key = f"{cod}.{v}"
             try:
                 cur = self.cursor()
@@ -452,7 +454,7 @@ class DatabaseManager:
                 row = cur.fetchone()
                 if not row:
                     logger.debug(f"apply_invoice_deliveries: {product_key} not in DB")
-                    not_found.append({"cod": cod, "v": v})
+                    not_found.append({"cod": cod, "v": v, "descrizione": descrizione_invoice})
                     continue
 
                 bought_array = row["bought_last_24"] or [0]

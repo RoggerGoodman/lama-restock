@@ -147,19 +147,28 @@ def add_to_non_gestiti_view(request):
     AJAX: add a product to the 'Non gestiti' blacklist for its storage.
     Creates the blacklist if it doesn't exist yet.
 
-    Body: { sync_log_id, cod, var, settore }
+    Body (from SalesSyncLog detail): { sync_log_id, cod, var, settore }
+    Body (from RestockLog/DDT detail): { storage_id, cod, var }
     """
     try:
         data = json.loads(request.body)
-        sync_log_id = int(data['sync_log_id'])
         cod = int(data['cod'])
         var = int(data['var'])
-        settore = data['settore']
     except (KeyError, ValueError, TypeError):
         return JsonResponse({'success': False, 'message': 'Missing or invalid fields'}, status=400)
 
-    log = get_object_or_404(SalesSyncLog, pk=sync_log_id, supermarket__owner=request.user)
-    storage = get_object_or_404(Storage, supermarket=log.supermarket, settore=settore)
+    if 'storage_id' in data:
+        storage = get_object_or_404(Storage, pk=int(data['storage_id']), supermarket__owner=request.user)
+        log_label = f"{storage.supermarket.name} {cod}.{var} (storage_id={storage.pk})"
+    else:
+        try:
+            sync_log_id = int(data['sync_log_id'])
+            settore = data['settore']
+        except (KeyError, ValueError, TypeError):
+            return JsonResponse({'success': False, 'message': 'Missing or invalid fields'}, status=400)
+        sync_log = get_object_or_404(SalesSyncLog, pk=sync_log_id, supermarket__owner=request.user)
+        storage = get_object_or_404(Storage, supermarket=sync_log.supermarket, settore=settore)
+        log_label = f"{sync_log.supermarket.name} {cod}.{var} (settore={settore})"
 
     blacklist, _ = Blacklist.objects.get_or_create(
         storage=storage,
@@ -172,10 +181,7 @@ def add_to_non_gestiti_view(request):
         product_var=var,
     )
 
-    logger.info(
-        f"[SYNC LOG] {'Added' if created else 'Already in'} Non gestiti blacklist: "
-        f"{log.supermarket.name} {cod}.{var} (settore={settore})"
-    )
+    logger.info(f"[NON GESTITI] {'Added' if created else 'Already in'} blacklist: {log_label}")
     return JsonResponse({'success': True, 'already_existed': not created})
 
 
