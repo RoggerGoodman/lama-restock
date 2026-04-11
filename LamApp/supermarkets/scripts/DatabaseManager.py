@@ -4,7 +4,7 @@ import psycopg2
 import psycopg2.extras
 import os
 from psycopg2.extras import Json
-from datetime import date
+from datetime import date, timedelta
 from .helpers import Helper
 import logging
 
@@ -349,7 +349,7 @@ class DatabaseManager:
 
                 cur.execute(
                     "UPDATE product_stats SET bought_last_24=%s, stock=%s, last_update_bought=%s WHERE cod=%s AND v=%s",
-                    (Json(bought_array), stock + qty, today, cod, v)
+                    (Json(bought_array), stock + qty, today - timedelta(days=1), cod, v)
                 )
                 self.conn.commit()
                 updated += 1
