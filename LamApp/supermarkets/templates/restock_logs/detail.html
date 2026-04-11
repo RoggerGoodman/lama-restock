@@ -1,8 +1,8 @@
 <!-- LamApp/supermarkets/templates/restock_logs/detail.html - Enhanced version -->
 {% extends 'base.html' %}
 
-{% block title %}Riepilogo ordine - {{ log.storage.name }}{% endblock %}
-{% block page_title %}Dettagli riepilogo ordine{% endblock %}
+{% block title %}{% if log.operation_type == 'ddt_import' %}DDT Import{% else %}Riepilogo ordine{% endif %} - {{ log.storage.name }}{% endblock %}
+{% block page_title %}{% if log.operation_type == 'ddt_import' %}Dettagli Importazione DDT{% else %}Dettagli riepilogo ordine{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -146,8 +146,13 @@
                 <div class="d-flex justify-content-between align-items-start mb-4">
                     <div>
                         <h4 class="mb-1">
+                            {% if log.operation_type == 'ddt_import' %}
+                            <i class="bi bi-truck text-info"></i>
+                            Importazione DDT #{{ log.id }}
+                            {% else %}
                             <i class="bi bi-file-text text-primary"></i>
                             Riepilogo ordine #{{ log.id }}
+                            {% endif %}
                         </h4>
                         <p class="text-muted mb-0">
                             {{ log.storage.supermarket.name }} - {{ log.storage.name }}

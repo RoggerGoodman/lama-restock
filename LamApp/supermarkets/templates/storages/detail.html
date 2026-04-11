@@ -476,7 +476,7 @@
                                         {% elif log.operation_type == 'ddt_import' %}
                                             {% with results=log.get_results %}
                                             <small class="text-muted">DDT: {% if results.invoices %}{{ results.invoices|join:", " }}{% else %}—{% endif %}</small><br>
-                                            <strong>{{ results.updated|default:0 }}</strong> agg. / <strong>{{ results.not_found|default:0 }}</strong> n.t.
+                                            <strong>{{ results.updated|default:0 }}</strong> agg. / <strong>{{ results.not_found_eans|length }}</strong> n.t.
                                             {% endwith %}
                                         {% elif log.operation_type == 'list_update' %}
                                             <small class="text-muted">Listino articoli aggiornato</small>

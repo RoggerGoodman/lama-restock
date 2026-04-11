@@ -228,16 +228,19 @@ def import_ddt_for_supermarket(self, supermarket_id):
                 with AutomatedRestockService(matched_storage) as service:
                     service.apply_ddt_for_storage(log, ean_qty, storage_invoices)
 
-                log.status = 'completed'
-                log.completed_at = timezone.now()
-                log.save()
+                RestockLog.objects.filter(id=log.id).update(
+                    status='completed',
+                    current_stage='completed',
+                    completed_at=timezone.now(),
+                )
                 logger.info(f"[DDT] Completed for {matched_storage.name}")
 
             except Exception as e:
-                log.status = 'failed'
-                log.current_stage = 'failed'
-                log.error_message = str(e)
-                log.save()
+                RestockLog.objects.filter(id=log.id).update(
+                    status='failed',
+                    current_stage='failed',
+                    error_message=str(e),
+                )
                 logger.exception(f"[DDT] Failed for {matched_storage.name}")
 
     except Exception as exc:

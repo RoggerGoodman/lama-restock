@@ -558,15 +558,19 @@ class RestockLog(models.Model):
     
     def get_stage_display_info(self):
         """Get human-readable stage info with progress"""
+        if self.status == 'completed':
+            return {'label': 'Completato', 'progress': 100, 'icon': 'check-circle-fill'}
+        if self.status == 'failed':
+            return {'label': 'Fallito', 'progress': 0, 'icon': 'x-circle'}
         stage_info = {
-            'pending': {'label': 'Pending', 'progress': 0, 'icon': 'clock'},
-            'updating_stats': {'label': 'Updating Stats...', 'progress': 10, 'icon': 'download'},
-            'stats_updated': {'label': 'Stats Updated', 'progress': 50, 'icon': 'check-circle'},
-            'calculating_order': {'label': 'Calculating Order...', 'progress': 60, 'icon': 'calculator'},
-            'order_calculated': {'label': 'Order Calculated', 'progress': 70, 'icon': 'check-circle'},
-            'executing_order': {'label': 'Placing Order...', 'progress': 80, 'icon': 'send'},
-            'completed': {'label': 'Completed', 'progress': 100, 'icon': 'check-circle-fill'},
-            'failed': {'label': 'Failed', 'progress': 0, 'icon': 'x-circle'},
+            'pending': {'label': 'In coda', 'progress': 0, 'icon': 'clock'},
+            'updating_stats': {'label': 'Aggiornamento statistiche...', 'progress': 10, 'icon': 'download'},
+            'stats_updated': {'label': 'Statistiche aggiornate', 'progress': 50, 'icon': 'check-circle'},
+            'calculating_order': {'label': 'Calcolo ordine...', 'progress': 60, 'icon': 'calculator'},
+            'order_calculated': {'label': 'Ordine calcolato', 'progress': 70, 'icon': 'check-circle'},
+            'executing_order': {'label': 'Invio ordine...', 'progress': 80, 'icon': 'send'},
+            'completed': {'label': 'Completato', 'progress': 100, 'icon': 'check-circle-fill'},
+            'failed': {'label': 'Fallito', 'progress': 0, 'icon': 'x-circle'},
         }
         return stage_info.get(self.current_stage, stage_info['pending'])
     
