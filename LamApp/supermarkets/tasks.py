@@ -1563,3 +1563,59 @@ def fetch_single_ean(storage_id, cod, v):
     finally:
         lister.driver.quit()
         shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=300,
+)
+def run_scheduled_orders(self):
+    """
+    Fan-out task: queue run_restock_for_storage for every storage whose
+    schedule includes today as an order day.  Fires at 06:00 daily via
+    Celery Beat (after stats are updated at 05:00).
+    """
+    from .models import Storage, is_closure_day
+    import datetime
+
+    try:
+        today_index = datetime.date.today().weekday()  # 0=Monday … 6=Sunday
+
+        storages = Storage.objects.filter(
+            schedule__isnull=False
+        ).select_related('supermarket', 'schedule')
+
+        if not storages.exists():
+            logger.info("[CELERY-SCHED] No storages with schedules found")
+            return "No storages to check"
+
+        queued = 0
+        skipped = 0
+
+        for storage in storages:
+            if is_closure_day(storage.supermarket):
+                logger.info(f"[CELERY-SCHED] Skipping {storage.name} — closure day")
+                skipped += 1
+                continue
+
+            order_days = storage.schedule.get_order_days()
+            if today_index not in order_days:
+                logger.info(f"[CELERY-SCHED] {storage.name} — no order today (day {today_index})")
+                skipped += 1
+                continue
+
+            run_restock_for_storage.apply_async(
+                args=[storage.id],
+                kwargs={'skip_stats_update': True},
+            )
+            logger.info(f"[CELERY-SCHED] Queued restock for {storage.name}")
+            queued += 1
+
+        msg = f"Scheduled orders: {queued} queued, {skipped} skipped"
+        logger.info(f"[CELERY-SCHED] {msg}")
+        return msg
+
+    except Exception as exc:
+        logger.exception("[CELERY-SCHED] Fatal error in run_scheduled_orders")
+        raise self.retry(exc=exc)

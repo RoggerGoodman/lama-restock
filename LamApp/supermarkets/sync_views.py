@@ -274,11 +274,19 @@ if (-not (Test-Path $ScriptDir)) {{
 '@ | Out-File -FilePath $ScriptPath -Encoding UTF8 -Force
 Write-Host "  Wrote $ScriptPath"
 
-# 3. Register Scheduled Task (daily at 06:00, runs as SYSTEM)
-$TaskCmd = "powershell.exe"
+# 3. Register Scheduled Task (daily at 06:00, runs as current user)
+$TaskCmd  = "powershell.exe"
 $TaskArgs = "-ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File `"$ScriptPath`""
-schtasks /create /tn "$TaskName" /tr "$TaskCmd $TaskArgs" /sc daily /st 06:00 /ru SYSTEM /f | Out-Null
-Write-Host "  Scheduled task '$TaskName' registered (daily 06:00)"
+$action   = New-ScheduledTaskAction -Execute $TaskCmd -Argument $TaskArgs
+$trigger  = New-ScheduledTaskTrigger -Daily -At "05:30"
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
+                -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 10)
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {{
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false | Out-Null
+}}
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
+Write-Host "  Scheduled task '$TaskName' registered (daily 06:00, user: $env:USERNAME)"
 
 Write-Host ""
 Write-Host "Setup complete. The sync will run every morning at 06:00."
