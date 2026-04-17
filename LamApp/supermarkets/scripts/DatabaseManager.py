@@ -162,7 +162,7 @@ class DatabaseManager:
             "bought": row["bought_last_24"] or [],
             "stock": row["stock"] or 0,
             "verified": bool(row["verified"]),
-            "last_update": row["last_update_sold"],
+            "last_update_sold": row["last_update_sold"],
         }
 
     def get_stock(self, cod, v):
@@ -197,7 +197,7 @@ class DatabaseManager:
                 ps.bought_last_24,
                 ps.stock,
                 ps.verified,
-                ps.last_update_sold AS last_update
+                ps.last_update_sold
             FROM products AS p
             LEFT JOIN product_stats AS ps ON p.cod = ps.cod AND p.v = ps.v
             WHERE p.settore = %s
@@ -216,7 +216,7 @@ class DatabaseManager:
                 "bought": row["bought_last_24"] or [],
                 "stock": row["stock"] if row["stock"] is not None else 0,
                 "verified": bool(row["verified"]) if row["verified"] is not None else False,
-                "last_update": row["last_update"],
+                "last_update_sold": row["last_update_sold"],
             })
         return results
 
@@ -275,7 +275,7 @@ class DatabaseManager:
     def verify_stock(self, cod: int, v: int, new_stock: int, cluster: str = None):
         """
         Called when a human inspects and corrects stock.
-        Sets verified=TRUE. Does not change last_update.
+        Sets verified=TRUE. Does not change last_update_sold.
         """
         cur = self.cursor()
         if new_stock is not None:

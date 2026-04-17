@@ -102,8 +102,8 @@
                                     </td>
                                     <td>
                                         <small class="text-muted">
-                                            {% if product.last_update %}
-                                                {{ product.last_update|timesince }} fa
+                                            {% if product.last_update_bought %}
+                                                {{ product.last_update_bought|timesince }} fa
                                             {% else %}
                                                 —
                                             {% endif %}

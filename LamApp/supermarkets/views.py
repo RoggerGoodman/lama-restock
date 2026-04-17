@@ -2793,7 +2793,7 @@ def inventory_results_view(request, search_type):
                             SELECT 
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita, 
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update_sold AS last_update, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.cod = %s AND p.v = %s AND ps.verified = TRUE
@@ -2841,7 +2841,7 @@ def inventory_results_view(request, search_type):
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update_sold AS last_update, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.ean = %s AND ps.verified = TRUE
@@ -2904,7 +2904,7 @@ def inventory_results_view(request, search_type):
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update_sold AS last_update, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.settore = %s AND p.cluster IN ({placeholders}) AND ps.verified = TRUE
@@ -2915,7 +2915,7 @@ def inventory_results_view(request, search_type):
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update_sold AS last_update, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.settore = %s AND ps.verified = TRUE
@@ -4718,7 +4718,7 @@ def pending_verifications_view(request):
                     SELECT 
                         p.cod, p.v, p.descrizione, p.pz_x_collo, p.settore,
                         ps.stock, ps.bought_last_24,
-                        ps.last_update_bought AS last_update
+                        ps.last_update_bought
                     FROM product_stats ps
                     JOIN products p ON ps.cod = p.cod AND ps.v = p.v
                     WHERE ps.verified = FALSE
@@ -4751,14 +4751,14 @@ def pending_verifications_view(request):
                             'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
                             'package_size': row['pz_x_collo'] or 12,
                             'stock': row['stock'] or 0,
-                            'last_update': row['last_update']
+                            'last_update_bought': row['last_update_bought']
                         })
         except Exception as e:
             logger.exception(f"Error loading pending verifications for {sm.name}")
             continue
     
-    # Sort by last_update (most recent first)
-    all_pending.sort(key=lambda x: x['last_update'] if x['last_update'] else timezone.now(), reverse=True)
+    # Sort by last_update_bought (most recent first)
+    all_pending.sort(key=lambda x: x['last_update_bought'] if x['last_update_bought'] else timezone.now(), reverse=True)
     
     context = {
         'pending_products': all_pending,

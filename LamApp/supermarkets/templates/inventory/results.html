@@ -278,8 +278,8 @@
                                     {% endif %}
                                 </td>
                                 <td class="no-print">
-                                    {% if product.last_update %}
-                                        {{ product.last_update|date:"M d, Y" }}
+                                    {% if product.last_update_sold %}
+                                        {{ product.last_update_sold|date:"M d, Y" }}
                                     {% else %}
                                         <span class="text-muted">Mai</span>
                                     {% endif %}
