@@ -142,19 +142,20 @@
                     
                     <div class="mb-3">
                         <label class="form-label">Magazzino (Settore)</label>
-                        <select id="verify_storage" class="form-select" required disabled>
+                        <select id="verify_storage" class="form-select" required disabled onchange="loadClustersForVerify()">
                             <option value="">-- Seleziona prima Punto vendita --</option>
                         </select>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label class="form-label">Giacenza</label>
                         <input type="number" id="verify_stock" class="form-control" required min="0">
                     </div>
-                    
+
                     <div class="mb-3">
                         <label class="form-label">Cluster (Opzionale)</label>
-                        <input type="text" id="verify_cluster" class="form-control" placeholder="Leave empty to skip">
+                        <input type="text" id="verify_cluster" class="form-control" placeholder="Lascia vuoto per saltare" list="verify_cluster_suggestions" autocomplete="off">
+                        <datalist id="verify_cluster_suggestions"></datalist>
                     </div>
                 </form>
             </div>
@@ -185,13 +186,15 @@ function showVerifyModal() {
 function loadStoragesForVerify() {
     const supermarketId = document.getElementById('verify_supermarket').value;
     const storageSelect = document.getElementById('verify_storage');
-    
+    const clusterDatalist = document.getElementById('verify_cluster_suggestions');
+
     if (!supermarketId) {
         storageSelect.disabled = true;
         storageSelect.innerHTML = '<option value="">-- Seleziona prima Punto vendita --</option>';
+        clusterDatalist.innerHTML = '';
         return;
     }
-    
+
     fetch(`/inventory/api/storages/${supermarketId}/`)
         .then(response => response.json())
         .then(data => {
@@ -204,11 +207,32 @@ function loadStoragesForVerify() {
                 storageSelect.appendChild(option);
             });
             storageSelect.disabled = false;
+            clusterDatalist.innerHTML = '';
         })
         .catch(error => {
             console.error('Error loading storages:', error);
             alert('Error loading storages');
         });
+}
+
+function loadClustersForVerify() {
+    const supermarketId = document.getElementById('verify_supermarket').value;
+    const settore = document.getElementById('verify_storage').value;
+    const clusterDatalist = document.getElementById('verify_cluster_suggestions');
+
+    clusterDatalist.innerHTML = '';
+    if (!supermarketId || !settore) return;
+
+    fetch(`/inventory/api/clusters/${supermarketId}/${encodeURIComponent(settore)}/`)
+        .then(response => response.json())
+        .then(data => {
+            data.clusters.forEach(cluster => {
+                const option = document.createElement('option');
+                option.value = cluster;
+                clusterDatalist.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading clusters:', error));
 }
 
 function submitVerifySingle() {

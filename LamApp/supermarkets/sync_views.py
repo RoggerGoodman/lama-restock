@@ -281,7 +281,7 @@ $action   = New-ScheduledTaskAction -Execute $TaskCmd -Argument $TaskArgs
 $trigger  = New-ScheduledTaskTrigger -Daily -At "05:30"
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
                 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 10)
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Highest
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {{
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false | Out-Null
 }}
@@ -306,18 +306,19 @@ $Token     = '{token}'
 $Yesterday   = (Get-Date).AddDays(-1).Date
 $DotNetDow   = [int]$Yesterday.DayOfWeek   # 0=Sun, 1=Mon ... 6=Sat
 $VensDay     = if ($DotNetDow -eq 0) {{ 7 }} else {{ $DotNetDow }}
+$VensCol     = if ($VensDay -eq 1) {{ "Quantita_vendita" }} else {{ "Quantita_vendita_$VensDay" }}
 
 $WeekMonday    = $Yesterday.AddDays(-($VensDay - 1))
 $WeekMondayStr = $WeekMonday.ToString("yyyyMMdd")
 $YesterdayStr  = $Yesterday.ToString("yyyy-MM-dd")
 
-Write-Host "Syncing sales for $YesterdayStr (day $VensDay, week $WeekMondayStr)"
+Write-Host "Syncing sales for $YesterdayStr (day $VensDay, col $VensCol, week $WeekMondayStr)"
 
 $Query = @"
 SELECT
     Cod_Articolo      AS cod,
     Variante_Articolo AS var,
-    SUM(Quantita_vendita_$VensDay) AS sold
+    SUM($VensCol) AS sold
 FROM VENSETAR
 WHERE Data_vendita_dal_ = '$WeekMondayStr'
 GROUP BY Cod_Articolo, Variante_Articolo

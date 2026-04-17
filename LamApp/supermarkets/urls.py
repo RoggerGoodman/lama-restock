@@ -104,6 +104,7 @@ urlpatterns = [
     # Inventory AJAX endpoints
     path('inventory/api/settores/<int:supermarket_id>/', views.get_settores_for_supermarket_view, name='api-settores'),
     path('inventory/api/clusters/<int:supermarket_id>/<str:settore>/', views.get_clusters_for_settore_view, name='api-clusters'),
+    path('inventory/api/create-blacklist-from-cluster/', views.create_blacklist_from_cluster_view, name='api-create-blacklist-from-cluster'),
     path('inventory/api/storages/<int:supermarket_id>/', views.get_storages_for_supermarket_ajax_view, name='api-storages'),
     path('inventory/api/search-products/', views.recipe_product_search_view, name='inventory-search-products'),
     path('inventory/adjust-stock/', views.inventory_adjust_stock_ajax_view, name='inventory-adjust-stock'),

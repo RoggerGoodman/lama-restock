@@ -3135,6 +3135,67 @@ def get_clusters_for_settore_view(request, supermarket_id, settore):
         logger.exception("Error loading clusters")
         return JsonResponse({'error': str(e)}, status=500)
 
+
+@login_required
+@require_POST
+def create_blacklist_from_cluster_view(request):
+    """AJAX endpoint to create a blacklist containing all products from a given cluster."""
+    try:
+        data = json.loads(request.body)
+        storage_id = data.get('storage_id')
+        cluster_name = data.get('cluster')
+
+        if not storage_id or not cluster_name:
+            return JsonResponse({'error': 'Missing storage_id or cluster'}, status=400)
+
+        storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+
+        blacklist_name = f"Cluster {cluster_name} bloccato"
+
+        # Fetch all cod.v from the cluster
+        with RestockService(storage) as service:
+            cur = service.db.cursor()
+            cur.execute("""
+                SELECT cod, v
+                FROM products
+                WHERE settore = %s AND cluster = %s
+                ORDER BY cod, v
+            """, (storage.settore, cluster_name))
+            products = cur.fetchall()
+
+        if not products:
+            return JsonResponse({'error': f'Nessun prodotto trovato nel cluster {cluster_name}'}, status=400)
+
+        blacklist, created = Blacklist.objects.get_or_create(
+            storage=storage,
+            name=blacklist_name,
+            defaults={'description': f'Prodotti del cluster {cluster_name}'},
+        )
+
+        added = 0
+        for row in products:
+            _, entry_created = BlacklistEntry.objects.get_or_create(
+                blacklist=blacklist,
+                product_code=row['cod'],
+                product_var=row['v'],
+            )
+            if entry_created:
+                added += 1
+
+        return JsonResponse({
+            'success': True,
+            'blacklist_id': blacklist.id,
+            'blacklist_name': blacklist_name,
+            'created': created,
+            'added': added,
+            'total': blacklist.entries.count(),
+        })
+
+    except Exception as e:
+        logger.exception("Error creating blacklist from cluster")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
 @login_required
 @require_POST
 def inventory_flag_for_purge_ajax_view(request):

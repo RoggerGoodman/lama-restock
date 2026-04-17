@@ -8,26 +8,21 @@ from datetime import date, timedelta
 from .helpers import Helper
 import logging
 
-# Use Django's logging system
 logger = logging.getLogger(__name__)
 
+
 class DatabaseManager:
+
+    # --- Connection & Cursor ---
+
     def __init__(self, helper: Helper, supermarket_name=None):
-        """
-        Initialize DatabaseManager with PostgreSQL.
-        
-        Args:
-            helper: Helper instance
-            supermarket_name: Name of supermarket (determines schema)
-        """
         self.helper = helper
-        
-        # Determine schema name
+
         if supermarket_name:
             self.schema = self._sanitize_schema_name(supermarket_name)
         else:
             self.schema = "public"
-        
+
         self.conn = psycopg2.connect(
             host=os.environ.get('PG_HOST'),
             database=os.environ.get('PG_DATABASE'),
@@ -35,26 +30,25 @@ class DatabaseManager:
             password=os.environ.get('PG_PASSWORD'),
             options=f'-c search_path={self.schema},public'
         )
-        
         self.conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
 
     def cursor(self):
-        """Get a RealDictCursor for dict-like row access"""
         return self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     def _sanitize_schema_name(self, name):
-        """Convert name to valid PostgreSQL schema name."""
         clean = re.sub(r'[^\w\s-]', '', name.lower())
         clean = re.sub(r'[-\s]+', '_', clean)
         return clean
 
-    # ---------- TABLE CREATION ----------
+    def close(self):
+        self.conn.close()
+
+    # --- Schema / DDL ---
 
     def create_tables(self):
         cur = self.cursor()
         cur.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
-        
-        # Main product table
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 cod INTEGER NOT NULL,
@@ -72,7 +66,6 @@ class DatabaseManager:
             )
         """)
 
-        # Stats table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS product_stats (
                 cod INTEGER NOT NULL,
@@ -124,18 +117,14 @@ class DatabaseManager:
                 PRIMARY KEY (cod, v)
             )
         """)
-        # Indexes
+
         cur.execute("CREATE INDEX IF NOT EXISTS idx_products_settore ON products(settore)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_products_cluster ON products(cluster)")
 
         self.conn.commit()
         print(f"Tables created/verified in schema: {self.schema}")
 
-
-    def close(self):
-        self.conn.close()
-
-    # ---------- PRODUCT MANAGEMENT ----------
+    # --- Product CRUD ---
 
     def add_product(self, cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita="Si", ean=None):
         cur = self.cursor()
@@ -146,10 +135,7 @@ class DatabaseManager:
         """, (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita, ean))
         self.conn.commit()
 
-    def init_product_stats(self, cod:int, v:int, sold:list, bought:list, stock:int=0, verified:bool=False):
-        """
-        Initialize with variable-length arrays (empty if not provided).
-        """
+    def init_product_stats(self, cod: int, v: int, sold: list, bought: list, stock: int = 0, verified: bool = False):
         sold = sold if sold else [0]
         bought = bought if bought else [0]
         today = date.today()
@@ -161,52 +147,166 @@ class DatabaseManager:
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (cod, v) DO NOTHING
         """, (cod, v, Json(sold), Json(bought), stock, bool(verified), today))
+        self.conn.commit()
+
+    # --- Queries ---
+
+    def get_product_stats(self, cod, v):
+        cur = self.cursor()
+        cur.execute("SELECT * FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "sold": row["sold_last_24"] or [],
+            "bought": row["bought_last_24"] or [],
+            "stock": row["stock"] or 0,
+            "verified": bool(row["verified"]),
+            "last_update": row["last_update_sold"],
+        }
+
+    def get_stock(self, cod, v):
+        cur = self.cursor()
+        cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"No product_stats found for {cod}.{v}")
+        return row["stock"]
+
+    def get_product_by_ean(self, ean):
+        cur = self.cursor()
+        cur.execute("""
+            SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.settore
+            FROM products p
+            WHERE p.ean = %s
+            LIMIT 1
+        """, (ean,))
+        return cur.fetchone()
+
+    def get_all_stats_by_settore(self, settore):
+        cur = self.cursor()
+        cur.execute("""
+            SELECT
+                p.cod,
+                p.v,
+                p.descrizione,
+                p.rapp,
+                p.pz_x_collo,
+                p.disponibilita,
+                ps.sold_last_24,
+                ps.bought_last_24,
+                ps.stock,
+                ps.verified,
+                ps.last_update_sold AS last_update
+            FROM products AS p
+            LEFT JOIN product_stats AS ps ON p.cod = ps.cod AND p.v = ps.v
+            WHERE p.settore = %s
+        """, (settore,))
+
+        results = []
+        for row in cur.fetchall():
+            results.append({
+                "cod": row["cod"],
+                "v": row["v"],
+                "descrizione": row["descrizione"],
+                "rapp": row["rapp"],
+                "pz_x_collo": row["pz_x_collo"],
+                "disponibilita": row["disponibilita"],
+                "sold": row["sold_last_24"] or [],
+                "bought": row["bought_last_24"] or [],
+                "stock": row["stock"] if row["stock"] is not None else 0,
+                "verified": bool(row["verified"]) if row["verified"] is not None else False,
+                "last_update": row["last_update"],
+            })
+        return results
+
+    def get_category_stock_value(self, category: str):
+        cur = self.cursor()
+        cur.execute("""
+            SELECT e.cod, e.v, e.cost_std, ps.stock
+            FROM economics e
+            JOIN product_stats ps ON e.cod = ps.cod AND e.v = ps.v
+            WHERE e.category = %s
+        """, (category,))
+
+        total_value = 0.0
+        for cod, v, cost_std, stock in cur.fetchall():
+            if cost_std is None or stock is None:
+                continue
+            total_value += float(cost_std) * int(stock)
+        return round(total_value, 2)
+
+    def get_purge_pending(self):
+        """Get all products flagged for purging with stock > 0."""
+        cur = self.cursor()
+        try:
+            cur.execute("""
+                SELECT p.cod, p.v, p.descrizione, ps.stock
+                FROM products p
+                JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                WHERE p.purge_flag = TRUE AND ps.stock > 0
+                ORDER BY ps.stock DESC
+            """)
+            return [
+                {'cod': row['cod'], 'v': row['v'], 'name': row['descrizione'], 'stock': row['stock']}
+                for row in cur.fetchall()
+            ]
+        except Exception:
+            return []
+
+    # --- Stock Operations ---
+
+    def adjust_stock(self, cod: int, v: int, delta: int):
+        """Increment or decrement stock by delta (can be negative)."""
+        cur = self.cursor()
+        cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
+        row = cur.fetchone()
+        if not row:
+            logger.warning(f"No product_stats found for {cod}.{v}")
+            return
+
+        new_stock = (int(row["stock"]) if row["stock"] is not None else 0) + delta
+        cur.execute(
+            "UPDATE product_stats SET stock=%s WHERE cod=%s AND v=%s",
+            (new_stock, cod, v)
+        )
+        self.conn.commit()
+
+    def verify_stock(self, cod: int, v: int, new_stock: int, cluster: str = None):
+        """
+        Called when a human inspects and corrects stock.
+        Sets verified=TRUE. Does not change last_update.
+        """
+        cur = self.cursor()
+        if new_stock is not None:
+            cur.execute(
+                "UPDATE product_stats SET stock=%s, verified=TRUE WHERE cod=%s AND v=%s",
+                (new_stock, cod, v)
+            )
+            if cur.rowcount == 0:
+                logger.warning(f"No product_stats found for {cod}.{v}, initializing row")
+                self.init_product_stats(cod, v, sold=[0], bought=[0], stock=new_stock, verified=True)
+
+        if cluster is not None:
+            cur.execute("UPDATE products SET cluster=%s WHERE cod=%s AND v=%s", (cluster, cod, v))
+            if cur.rowcount == 0:
+                logger.warning(f"No products found for {cod}.{v}")
 
         self.conn.commit()
 
-    # ---------- ARRAY UPDATE LOGIC ----------
-
-    def _update_array_variable_length(self, array_data:list, current_value, previous_value, current_month, last_update_month):
-        """
-        Updates a variable-length monthly array (max 24 elements).
-        """
-        if last_update_month == current_month:
-            # Same month → update only first value
-            if array_data:
-                array_data[0] = current_value
-            else:
-                array_data = [current_value]
-        else:
-            # New month → prepend and trim
-            array_data.insert(0, current_value)
-            array_data = array_data[:24]
-
-            # Update previous month if different (skip if previous_value is None —
-            # it means PAC2000A returned only 1 month of data; don't overwrite with None)
-            if len(array_data) > 1 and previous_value is not None and array_data[1] != previous_value:
-                array_data[1] = previous_value
-
-        return array_data
+    # --- Data Sync ---
 
     def apply_daily_vensetar_sales(self, daily_sales, sync_date):
         """
-        Apply one day's sold quantities coming from the VENSETAR sync (runs at 06:00,
-        data = yesterday).
+        Apply one day's sold quantities from the VENSETAR sync (runs at 06:00, data = yesterday).
 
-        Args:
-            daily_sales : list of (cod, var, sold_qty)
-            sync_date   : datetime.date — the date the quantities refer to (yesterday)
-
-        Behaviour:
-        - Skips products not present in product_stats (unknown to this supermarket).
-        - Idempotent: if last_update_sold already equals sync_date the product is skipped
-          (prevents double-counting on retries).
-        - Same-month: adds sold_qty to sold_last_24[0].
-        - New month  : prepends sold_qty, trims array to 24.
-        - sales_sets : inserts sold_qty at front, trims to 30.
-        - stock      : decremented by sold_qty (can go negative — consistent with
-                       existing behaviour in update_product_stats).
-        - Does NOT touch bought_last_24 (handled by invoice scraping).
+        - Skips products not present in product_stats.
+        - Idempotent: skips if last_update_sold already equals sync_date.
+        - Same month: adds sold_qty to sold_last_24[0].
+        - New month: prepends sold_qty, trims to 24.
+        - sales_sets: inserts sold_qty at front, trims to 30.
+        - stock: decremented by sold_qty.
+        - Does NOT touch bought_last_24.
         """
         cur = self.cursor()
         updated = 0
@@ -231,7 +331,6 @@ class DatabaseManager:
 
             last_update_sold = row["last_update_sold"]
 
-            # Idempotency guard
             if last_update_sold == sync_date:
                 skipped_already += 1
                 continue
@@ -244,7 +343,6 @@ class DatabaseManager:
             if not isinstance(sold_array, list):
                 sold_array = [0]
 
-            # --- sold_last_24 ---
             same_month = (
                 last_update_sold is not None
                 and last_update_sold.month == sync_date.month
@@ -256,18 +354,14 @@ class DatabaseManager:
                 sold_array.insert(0, sold_qty)
                 sold_array = sold_array[:24]
 
-            # --- sales_sets ---
             sales_sets.insert(0, sold_qty)
             sales_sets = sales_sets[:30]
-
-            # --- stock ---
-            stock = stock - sold_qty
 
             cur.execute("""
                 UPDATE product_stats
                 SET sold_last_24=%s, sales_sets=%s, stock=%s, last_update_sold=%s
                 WHERE cod=%s AND v=%s
-            """, (Json(sold_array), Json(sales_sets), stock, sync_date, cod, var))
+            """, (Json(sold_array), Json(sales_sets), stock - sold_qty, sync_date, cod, var))
 
             updated += 1
             if not verified:
@@ -295,15 +389,10 @@ class DatabaseManager:
     def apply_invoice_deliveries(self, cod_v_dict: dict) -> dict:
         """
         For each (cod, v) in cod_v_dict, add the delivered quantity to:
-        - bought_last_24[0] (current month total, incremented daily)
-        - stock (incremented)
+        - bought_last_24[0] (current month total)
+        - stock
+
         Does NOT touch sold_last_24 or sales_sets.
-        Returns {
-            "updated": N,
-            "not_found": ["cod.v", ...],
-            "errors": [{"product": "cod.v", "error": msg}, ...],
-            "unverified_products": [{"cod": ..., "v": ..., "descrizione": ..., "qty": ...}, ...]
-        }
         """
         today = date.today()
         current_month = today.month
@@ -318,9 +407,8 @@ class DatabaseManager:
             product_key = f"{cod}.{v}"
             try:
                 cur = self.cursor()
-
                 cur.execute(
-                    "SELECT ps.bought_last_24, ps.stock, ps.last_update_bought, ps.verified, p.descrizione "
+                    "SELECT ps.bought_last_24, ps.stock, ps.last_update_bought, ps.verified, p.descrizione, p.rapp "
                     "FROM product_stats ps "
                     "JOIN products p ON p.cod = ps.cod AND p.v = ps.v "
                     "WHERE ps.cod=%s AND ps.v=%s",
@@ -340,28 +428,25 @@ class DatabaseManager:
                 last_month = last_update_bought.month if last_update_bought else None
                 verified = bool(row["verified"])
                 descrizione = row["descrizione"]
+                rapp = int(row["rapp"] or 1)
+                actual_qty = qty * rapp
 
                 if last_month == current_month:
-                    bought_array[0] = (bought_array[0] or 0) + qty
+                    bought_array[0] = (bought_array[0] or 0) + actual_qty
                 else:
-                    bought_array.insert(0, qty)
+                    bought_array.insert(0, actual_qty)
                     bought_array = bought_array[:24]
 
                 cur.execute(
                     "UPDATE product_stats SET bought_last_24=%s, stock=%s, last_update_bought=%s WHERE cod=%s AND v=%s",
-                    (Json(bought_array), stock + qty, today - timedelta(days=1), cod, v)
+                    (Json(bought_array), stock + actual_qty, today - timedelta(days=1), cod, v)
                 )
                 self.conn.commit()
                 updated += 1
-                logger.info(f"apply_invoice_deliveries: {product_key} +{qty} → stock={stock+qty}")
+                logger.info(f"apply_invoice_deliveries: {product_key} +{qty}×{rapp}={actual_qty} → stock={stock+actual_qty}")
 
                 if not verified:
-                    unverified_products.append({
-                        "cod": cod,
-                        "v": v,
-                        "descrizione": descrizione,
-                        "qty": qty,
-                    })
+                    unverified_products.append({"cod": cod, "v": v, "descrizione": descrizione, "qty": actual_qty})
 
             except Exception as e:
                 logger.error(f"apply_invoice_deliveries: failed for {product_key}: {e}")
@@ -379,155 +464,13 @@ class DatabaseManager:
             "unverified_products": unverified_products,
         }
 
-    # ---------- GETTERS ----------
-
-    def get_product_stats(self, cod, v):
-        cur = self.cursor()
-        cur.execute("""
-            SELECT *
-            FROM product_stats
-            WHERE cod=%s AND v=%s
-        """, (cod, v))
-        row = cur.fetchone()
-        if not row:
-            return None
-
-        return {
-            "sold": row["sold_last_24"] or [],
-            "bought": row["bought_last_24"] or [],
-            "stock": row["stock"] or 0,
-            "verified": bool(row["verified"]),
-            "last_update": row["last_update_sold"],
-        }
-
-    def get_stock(self, cod, v):
-        cur = self.cursor()
-        cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
-        row = cur.fetchone()
-        if not row:
-            raise ValueError(f"No product_stats found for {cod}.{v}")
-        return row["stock"]
-
-    def get_product_by_ean(self, ean):
-        """
-        Look up a product by its EAN barcode.
-
-        Args:
-            ean (int): EAN barcode value.
-
-        Returns:
-            dict or None: Product row with cod, v, descrizione, pz_x_collo, settore, or None if not found.
-        """
-        cur = self.cursor()
-        cur.execute("""
-            SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.settore
-            FROM products p
-            WHERE p.ean = %s
-            LIMIT 1
-        """, (ean,))
-        return cur.fetchone()
-      
-    def get_all_stats_by_settore(self, settore):
-        """
-        Returns all product stats for a given 'settore'.
-        Joins 'products' and 'product_stats' tables to include product details.
-
-        Args:
-            settore (str): The sector/category name.
-
-        Returns:
-            list[dict]: Each entry contains product details and corresponding stats.
-        """
-        cur = self.cursor()
-        cur.execute("""
-            SELECT 
-                p.cod,
-                p.v,
-                p.descrizione,
-                p.rapp,
-                p.pz_x_collo,
-                p.disponibilita,
-                ps.sold_last_24,
-                ps.bought_last_24,
-                ps.stock,
-                ps.verified,
-                ps.last_update_sold AS last_update
-            FROM products AS p
-            LEFT JOIN product_stats AS ps
-                ON p.cod = ps.cod AND p.v = ps.v
-            WHERE p.settore = %s
-        """, (settore,))
-
-        rows = cur.fetchall()
-        results = []
-
-        for row in rows:
-            results.append({
-                "cod": row["cod"],
-                "v": row["v"],
-                "descrizione": row["descrizione"],
-                "rapp": row["rapp"],
-                "pz_x_collo": row["pz_x_collo"],
-                "disponibilita": row["disponibilita"],
-                "sold": row["sold_last_24"] or [],
-                "bought": row["bought_last_24"] or [],
-                "stock": row["stock"] if row["stock"] is not None else 0,
-                "verified": bool(row["verified"]) if row["verified"] is not None else False,
-                "last_update": row["last_update"],
-            })
-
-        return results
-    
-    def get_category_stock_value(self, category: str):
-        cur = self.cursor()
-        cur.execute("""
-            SELECT e.cod, e.v, e.cost_std, ps.stock
-            FROM economics e
-            JOIN product_stats ps
-            ON e.cod = ps.cod AND e.v = ps.v
-            WHERE e.category = %s;
-        """, (category,))
-        
-        rows = cur.fetchall()
-
-        total_value = 0.0
-        for cod, v, cost_std, stock in rows:
-            if cost_std is None or stock is None:
-                continue
-
-            total_value += float(cost_std) * int(stock)
-
-        return round(total_value, 2)
-
-        
-    # ---------- SETTERS ----------
-
-    def set_stock(self, cod:int, v:int, new_stock:int):
-        """
-        Update the stock quantity without changing the 'verified' flag.
-        Use verify_stock() if this is a human-confirmed correction.
-        """
-        cur = self.cursor()
-        cur.execute("UPDATE product_stats SET stock=%s WHERE cod=%s AND v=%s", new_stock, cod, v)
-        if cur.rowcount == 0:
-            raise ValueError(f"No product_stats found for {cod}.{v}")
-        self.conn.commit()
-
-    def set_verified_false(self, cod:int, v:int):
-        """
-        Update the 'verified' flag to false.
-        """
-        cur = self.cursor()
-        cur.execute("UPDATE product_stats SET verified=FALSE WHERE cod=%s AND v=%s", (cod, v))
-        if cur.rowcount == 0:
-            raise ValueError(f"No product_stats found for {cod}.{v}")
-        self.conn.commit()
+    # --- Losses ---
 
     def register_losses(self, cod: int, v: int, delta: int, type: str):
         """
-        Registers a type of loss (broken, expired, internal, stolen).
-        NOW STORES COST SNAPSHOT: [[qty, cost], [qty, cost], ...]
-        AUTO-CREATES extra_losses entry if missing.
+        Register a loss event (broken, expired, internal, stolen, shrinkage).
+        Stores [[qty, cost], ...] arrays in extra_losses, max 24 months.
+        Auto-creates the extra_losses row if missing.
         """
         allowed = ("broken", "expired", "internal", "stolen", "shrinkage")
         delta = int(delta)
@@ -537,555 +480,102 @@ class DatabaseManager:
         cur = self.cursor()
 
         if type == "internal":
-            cur.execute("""
-                SELECT sales_sets FROM product_stats WHERE cod=%s AND v=%s
-            """, (cod, v))
+            cur.execute("SELECT sales_sets FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
             ss_row = cur.fetchone()
             if ss_row:
                 sales_sets = ss_row["sales_sets"] or [0]
                 if not sales_sets:
                     sales_sets = [0]
                 sales_sets[0] += delta
-                cur.execute("""
-                    UPDATE product_stats SET sales_sets=%s WHERE cod=%s AND v=%s
-                """, (Json(sales_sets), cod, v))
+                cur.execute(
+                    "UPDATE product_stats SET sales_sets=%s WHERE cod=%s AND v=%s",
+                    (Json(sales_sets), cod, v)
+                )
 
-        # 1) Check product exists
         cur.execute("SELECT 1 FROM products WHERE cod=%s AND v=%s", (cod, v))
         if cur.fetchone() is None:
             raise ValueError(f"Product {cod}.{v} not found in products table")
 
-        # 2) Get current cost from economics table
-        cur.execute("""
-            SELECT cost_std FROM economics WHERE cod=%s AND v=%s
-        """, (cod, v))
+        cur.execute("SELECT cost_std FROM economics WHERE cod=%s AND v=%s", (cod, v))
         cost_row = cur.fetchone()
         current_cost = float(cost_row['cost_std']) if cost_row and cost_row['cost_std'] else 0.0
 
-        # 3) Get or create extra_losses entry
         cur.execute(
             f"SELECT {type}, {type}_updated FROM extra_losses WHERE cod=%s AND v=%s",
             (cod, v)
         )
         row = cur.fetchone()
-
         today = date.today()
 
-        # If no entry exists, create it
         if row is None:
-            json_array = Json([[delta, current_cost]])
             cur.execute(
-                f"""
-                INSERT INTO extra_losses (cod, v, {type}, {type}_updated)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (cod, v, json_array, today)
+                f"INSERT INTO extra_losses (cod, v, {type}, {type}_updated) VALUES (%s, %s, %s, %s)",
+                (cod, v, Json([[delta, current_cost]]), today)
             )
             self.conn.commit()
             self.adjust_stock(cod, v, -delta)
             return {"action": "new_entry", "cod": cod, "v": v, "delta": delta, "cost": current_cost}
 
-        # 4) Entry exists - get current data
         existing_json = row[type]
         existing_updated: date = row[f"{type}_updated"]
 
-        # Handle NULL column
         if existing_json is None:
-            json_array = Json([[delta, current_cost]])
             cur.execute(
-                f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
-                (json_array, today, cod, v)
+                f"UPDATE extra_losses SET {type}=%s, {type}_updated=%s WHERE cod=%s AND v=%s",
+                (Json([[delta, current_cost]]), today, cod, v)
             )
             self.conn.commit()
             self.adjust_stock(cod, v, -delta)
             return {"action": "initialized_null", "cod": cod, "v": v, "delta": delta, "cost": current_cost}
 
-        # Parse existing JSON
         arr = existing_json
         if not isinstance(arr, list):
             raise ValueError(f"extra_losses.{type} for {cod}.{v} is not a JSON array")
 
-        # Parse last update date
-        if isinstance(existing_updated, date):
-            last_update = existing_updated
-        else:
+        if not isinstance(existing_updated, date):
             raise ValueError(f"extra_losses.{type}_updated for {cod}.{v} has unexpected type")
 
-        # Calculate months passed
-        months_passed = (today.year - last_update.year) * 12 + (today.month - last_update.month)
+        months_passed = (today.year - existing_updated.year) * 12 + (today.month - existing_updated.month)
 
-        # SAME MONTH: Add to the first element
         if months_passed == 0:
-            if arr and isinstance(arr[0], list):
-                old_qty = arr[0][0]
-                arr[0] = [arr[0][0] + delta, current_cost]
-            else:
-                old_qty = arr[0]
-                arr[0] = [arr[0] + delta, current_cost]
-            
+            old_qty = arr[0][0] if arr and isinstance(arr[0], list) else arr[0]
+            arr[0] = [(arr[0][0] if isinstance(arr[0], list) else arr[0]) + delta, current_cost]
             self.adjust_stock(cod, v, -int(delta))
-            json_out = Json(arr[:24])
             cur.execute(
-                f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
-                (json_out, today, cod, v)
+                f"UPDATE extra_losses SET {type}=%s, {type}_updated=%s WHERE cod=%s AND v=%s",
+                (Json(arr[:24]), today, cod, v)
             )
             self.conn.commit()
-            
-            return {
-                "action": "same_month_update",
-                "cod": cod,
-                "v": v,
-                "old_qty": old_qty,
-                "change": delta,
-                "cost": current_cost
-            }
-        
-        # NEW MONTH(S): Insert new month(s)
-        else:
-            new_entry = [delta, current_cost]
-            zeros = [[0, current_cost] for _ in range(max(0, months_passed - 1))]
-            
-            # Convert old format entries to new format if needed
-            converted_arr = []
-            for item in arr:
-                if isinstance(item, list) and len(item) == 2:
-                    converted_arr.append(item)
-                else:
-                    converted_arr.append([item, current_cost])
-            
-            new_arr = [new_entry] + zeros + converted_arr
-            new_arr = new_arr[:24]
-            
-            json_out = Json(new_arr)
-            cur.execute(
-                f"UPDATE extra_losses SET {type} = %s, {type}_updated = %s WHERE cod = %s AND v = %s",
-                (json_out, today, cod, v)
-            )
-            self.conn.commit()
-            
-            self.adjust_stock(cod, v, -delta)
-            
-            return {
-                "action": "months_passed_insert",
-                "cod": cod,
-                "v": v,
-                "months_passed": months_passed,
-                "new_arr_length": len(new_arr),
-                "cost": current_cost
-            }
+            return {"action": "same_month_update", "cod": cod, "v": v, "old_qty": old_qty, "change": delta, "cost": current_cost}
 
-    def adjust_stock(self, cod:int, v:int, delta:int):
-        """
-        Increment or decrement the stock by 'delta' (can be negative).
-        """
-        cur = self.cursor()
-        # Fetch current stock
-        cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
-        row = cur.fetchone()
-        if not row:
-            print(f"No product_stats found for {cod}.{v}")
-            return
+        # New month(s): convert old format entries, prepend zeros for skipped months
+        converted_arr = [
+            item if (isinstance(item, list) and len(item) == 2) else [item, current_cost]
+            for item in arr
+        ]
+        zeros = [[0, current_cost] for _ in range(max(0, months_passed - 1))]
+        new_arr = [[delta, current_cost]] + zeros + converted_arr
+        new_arr = new_arr[:24]
 
-        current_stock = int(row["stock"]) if row["stock"] is not None else 0
-        new_stock = current_stock + delta
-
-        # Update stock and mark as verified
         cur.execute(
-            "UPDATE product_stats SET stock=%s WHERE cod=%s AND v=%s",
-            (new_stock, cod, v)
+            f"UPDATE extra_losses SET {type}=%s, {type}_updated=%s WHERE cod=%s AND v=%s",
+            (Json(new_arr), today, cod, v)
         )
         self.conn.commit()
-
-    def verify_stock(self, cod:int, v:int, new_stock:int, cluster:str = None):
-        """
-        Called when a human inspects and corrects stock. Optionally set a new stock value.
-        This sets verified = True. (Does not change last_update.)
-        """
-        cur = self.cursor()
-        if new_stock != None:
-            cur.execute("UPDATE product_stats SET stock=%s, verified=TRUE WHERE cod=%s AND v=%s", (new_stock, cod, v))
-            if cur.rowcount == 0:
-                logger.warning(f"No product_stats found for {cod}.{v}, initializing row")
-                self.init_product_stats(cod, v, sold=[0], bought=[0], stock=new_stock, verified=True)
-        
-        if cluster != None:
-            cur.execute("UPDATE products SET cluster = %s WHERE cod=%s AND v=%s", (cluster, cod, v))
-            if cur.rowcount == 0:
-                logger.warning(f"No products found for {cod}.{v}")
-        
-        self.conn.commit()
-
-    def register_internal_sales(self, delta, cod, v):
-        
-        cur = self.cursor()
-        cur.execute("""
-            SELECT sold_last_24
-            FROM product_stats
-            WHERE cod=%s AND v=%s
-        """, (cod, v))
-        row = cur.fetchone()
-
-        if row:
-            sold_json = row['sold_last_24']
-            if sold_json:
-                sold_arr = sold_json
-            else:
-                sold_arr = []
-
-            # Ensure list has at least one entry
-            if not sold_arr:
-                sold_arr = [0]
-
-            # Add delta to the first element (most recent month)
-            sold_arr[0] += delta
-
-            # Update database
-            cur.execute("""
-                UPDATE product_stats
-                SET sold_last_24 = %s
-                WHERE cod=%s AND v=%s
-            """, (Json(sold_arr), cod, v))
-
-    def import_from_CSV(self, file_path: str, settore: str):
-        """
-        Imports products from an CSV file into the database for the given settore.
-        Updates existing entries or inserts new ones.
-        """
-        print(f"Importing from '{file_path}' into settore '{settore}'...")
-
-        df = pd.read_csv(file_path, sep=";", encoding="utf-8")
-
-        # Expected column names (first occurrence if duplicates exist)
-        COD_COLS = "Code"
-        V_COLS = "Variant"
-        DESC_COLS = "Description"
-        RAPP_COLS = "Multiplier"
-        PZ_COLS = "Package"
-        DISP_COLS = "Availability"
-        COST_COLS = "Cost"
-        PRICE_COLS = "Price"
-        REP_COLS = "Category"
-
-
-    # Skip rows without a numeric Cod.
-        df = df[pd.to_numeric(df[COD_COLS], errors="coerce").notna()]
-
-        # Convert Cod. and V. to integers
-        df[COD_COLS] = df[COD_COLS].astype(int)
-        df[V_COLS] = df[V_COLS].fillna(0).astype(int)
-
-        # Drop duplicates
-        df = df.drop_duplicates(subset=[COD_COLS, V_COLS], keep="first")
-
-        # Step 4: Prepare rows for bulk insert
-        prod_rows = []
-        econ_rows = []
-        for _, row in df.iterrows():
-            cod = int(row[COD_COLS])
-            v = int(row[V_COLS]) if not pd.isna(row[V_COLS]) else 0
-            descrizione = str(row[DESC_COLS]).strip() if DESC_COLS in df.columns else ""
-            pz_x_collo = int(row[PZ_COLS]) if PZ_COLS in df.columns and not pd.isna(row[PZ_COLS]) else None
-            disponibilita = str(row[DISP_COLS]).strip() if DISP_COLS in df.columns else "Si"
-            cost = float(row[COST_COLS]) if COST_COLS in df.columns else None
-            price = float(row[PRICE_COLS]) if PRICE_COLS in df.columns else None
-            category = str(row[REP_COLS]).strip() if REP_COLS in df.columns else ""
-
-            rapp = None
-            if RAPP_COLS in df.columns and not pd.isna(row[RAPP_COLS]):
-                val = row[RAPP_COLS]
-                try:
-                    num = float(val)
-                    if not num.is_integer():
-                        print(f"️ Warning: Float value {val} found in RAPP_COLS for code {cod}. Skipping row.")
-                        continue
-                    rapp = int(num)
-                except ValueError:
-                    print(f"️ Warning: Invalid RAPP_COLS value '{val}' for code {cod}. Skipping row.")
-                    continue
-
-            prod_rows.append((cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
-            econ_rows.append((cod, v, price, cost, None, None, None, None, category))
-
-
-        # Step 5: Insert or update all at once
-        cur = self.cursor()
-        cur.executemany("""
-            INSERT INTO products 
-            (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT(cod, v) DO UPDATE SET
-                descrizione = excluded.descrizione,
-                rapp = excluded.rapp,
-                pz_x_collo = excluded.pz_x_collo,
-                disponibilita = excluded.disponibilita,
-                first_added_at = CASE
-                    WHEN products.disponibilita = 'No' AND excluded.disponibilita = 'Si'
-                    THEN CURRENT_DATE
-                    ELSE products.first_added_at
-                END
-        """, prod_rows)
-
-        cur.executemany("""
-            INSERT INTO economics
-            (cod, v, price_std, cost_std, price_s, cost_s, sale_start, sale_end, category)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT(cod, v) DO UPDATE SET
-                price_std = CASE
-                    WHEN economics.sale_start IS NOT NULL
-                    AND economics.sale_end IS NOT NULL
-                    AND CURRENT_DATE <= economics.sale_end
-                    THEN economics.price_std    -- keep existing (active or upcoming sale)
-                    ELSE excluded.price_std     -- update
-                END,
-                cost_std = CASE
-                    WHEN economics.sale_start IS NOT NULL
-                    AND economics.sale_end IS NOT NULL
-                    AND CURRENT_DATE <= economics.sale_end
-                    THEN economics.cost_std
-                    ELSE excluded.cost_std
-                END,
-                category = excluded.category
-        """, econ_rows)
-
-        self.conn.commit()
-        print(f"Imported {len(prod_rows)} products into settore '{settore}'.")
-    
-    def update_promos(self, promo_list):
-        """
-        promo_list: list of tuples in the form
-        (cod, v, price_s, cost_s, sale_start, sale_end)
-        """
-
-        if not promo_list:
-            logger.warning("[PROMOS] Empty promo_list received")
-            return  # nothing to do
-
-        logger.info(f"[PROMOS] Received {len(promo_list)} items. First 3: {promo_list[:3]}")
-
-        cur = self.cursor()
-
-        # Step 1: get all existing (cod, v) combinations in the DB
-        cur.execute("SELECT cod, v FROM economics")
-        rows = cur.fetchall()
-        existing = set((int(row["cod"]), int(row["v"])) for row in rows)
-        logger.info(f"[PROMOS] Found {len(existing)} products in economics table")
-
-        # Filter promo_list using same type normalization
-        filtered_list = [
-            row for row in promo_list
-            if (int(row[0]), int(row[1])) in existing
-        ]
-
-        logger.info(f"[PROMOS] After filtering: {len(filtered_list)} items match")
-
-        if not filtered_list:
-            # Debug: show what didn't match
-            sample_parsed = [(row[0], row[1]) for row in promo_list[:5]]
-            sample_existing = list(existing)[:5] if existing else []
-            logger.warning(f"[PROMOS] No matches! Parsed sample: {sample_parsed}, DB sample: {sample_existing}")
-            return  # nothing to update
-
-        # Step 3: perform the upsert on the filtered list
-        cur.executemany("""
-            INSERT INTO economics (cod, v, cost_s, price_s, sale_start, sale_end, price_std, cost_std, category)
-            VALUES (%s, %s, %s, %s, %s, %s, 0, 0, 0)
-            ON CONFLICT (cod, v) DO UPDATE SET
-                price_s = EXCLUDED.price_s,
-                cost_s  = EXCLUDED.cost_s,
-
-                sale_start = CASE
-                    -- If promo is currently active, keep the old start date
-                    WHEN CURRENT_DATE BETWEEN economics.sale_start AND economics.sale_end
-                    THEN economics.sale_start
-                    ELSE EXCLUDED.sale_start
-                END,
-
-                sale_end = CASE
-                    -- If promo is active, extend it
-                    WHEN CURRENT_DATE BETWEEN economics.sale_start AND economics.sale_end
-                    THEN GREATEST(economics.sale_end, EXCLUDED.sale_end)
-                    ELSE EXCLUDED.sale_end
-                END
-        """, filtered_list)
-
-        self.conn.commit()
-
-    # ---------- Cleaners ----------
-
-    def flag_for_purge(self, cod: int, v: int):
-        """
-        Mark a product for purging.
-        - If stock > 0: Set purge_flag (blacklist is handled by Django view)
-        - If stock = 0: Delete immediately
-
-        Note: The Django view (inventory_flag_for_purge_ajax_view) handles
-        adding to the "In fase di eliminazione" blacklist.
-        """
-        cur = self.cursor()
-
-        # Check if product exists and get stock
-        cur.execute("""
-            SELECT ps.stock
-            FROM product_stats ps
-            WHERE ps.cod = %s AND ps.v = %s
-        """, (cod, v))
-
-        row = cur.fetchone()
-
-        if not row:
-            raise ValueError(f"Product {cod}.{v} not found in database")
-
-        stock = row['stock'] if row['stock'] is not None else 0
-
-        if stock > 0:
-            # Has stock - flag for purging
-            # Set purge flag
-            cur.execute("""
-                UPDATE products
-                SET purge_flag = TRUE
-                WHERE cod = %s AND v = %s
-            """, (cod, v))
-
-            self.conn.commit()
-
-            return {
-                'action': 'flagged',
-                'cod': cod,
-                'v': v,
-                'stock': stock,
-                'message': f'Product {cod}.{v} flagged for purging (current stock: {stock})'
-            }
-        else:
-            # No stock - delete immediately
-            return self.purge_product(cod, v)
-        
-    def purge_product(self, cod: int, v: int):
-        """
-        Remove a product's operational data and flag it as purged.
-        The products row is kept to preserve first_added_at; child tables are cleared.
-        When the product reappears in a list update the row is restored automatically.
-        Returns dict with deletion details.
-        """
-        cur = self.cursor()
-
-        deleted_from = []
-
-        # Delete from product_stats
-        cur.execute("DELETE FROM product_stats WHERE cod = %s AND v = %s", (cod, v))
-        if cur.rowcount > 0:
-            deleted_from.append('product_stats')
-
-        # Delete from economics
-        cur.execute("DELETE FROM economics WHERE cod = %s AND v = %s", (cod, v))
-        if cur.rowcount > 0:
-            deleted_from.append('economics')
-
-        # Delete from extra_losses
-        cur.execute("DELETE FROM extra_losses WHERE cod = %s AND v = %s", (cod, v))
-        if cur.rowcount > 0:
-            deleted_from.append('extra_losses')
-
-        # Keep the products row to preserve first_added_at; reset flag since data is already cleared
-        cur.execute("UPDATE products SET purge_flag = FALSE WHERE cod = %s AND v = %s", (cod, v))
-
-        self.conn.commit()
-
+        self.adjust_stock(cod, v, -delta)
         return {
-            'action': 'purged',
-            'cod': cod,
-            'v': v,
-            'deleted_from': deleted_from,
-            'message': f'Product {cod}.{v} data cleared from: {", ".join(deleted_from)}'
+            "action": "months_passed_insert",
+            "cod": cod,
+            "v": v,
+            "months_passed": months_passed,
+            "new_arr_length": len(new_arr),
+            "cost": current_cost,
         }
-    
-    def check_and_purge_flagged(self):
-        """
-        Check all flagged products and purge those with stock = 0.
-        Call this periodically or after stock adjustments.
-        Returns list of purged products.
-        """
-        cur = self.cursor()
-        
-        cur.execute("""
-            SELECT p.cod, p.v, ps.stock
-            FROM products p
-            JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-            WHERE p.purge_flag = TRUE AND ps.stock = 0
-        """)
-
-        flagged_products = cur.fetchall()
-        purged = []
-        
-        for row in flagged_products:
-            cod = row['cod']
-            v = row['v']
-            
-            result = self.purge_product(cod, v)
-            purged.append(result)
-        
-        return purged
-    
-    def purge_obsolete_products(self):
-        """
-        Delete products that are confirmed gone from all tables:
-          - verified = FALSE  (never confirmed in stock)
-          - disponibilita = 'No'  (marked unavailable by the supplier)
-          - stock = 0  (nothing physically on shelf)
-
-        Called after all list updates complete so that disponibilita is fresh.
-        Returns list of purge result dicts.
-        """
-        cur = self.cursor()
-
-        cur.execute("""
-            SELECT p.cod, p.v
-            FROM products p
-            JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-            WHERE ps.verified = FALSE
-              AND p.disponibilita = 'No'
-              AND ps.stock = 0
-        """)
-
-        candidates = cur.fetchall()
-        purged = []
-
-        for row in candidates:
-            result = self.purge_product(row['cod'], row['v'])
-            purged.append(result)
-
-        return purged
-
-    def get_purge_pending(self):
-        """Get all products flagged for purging (with stock > 0)"""
-        cur = self.cursor()
-        
-        try:
-            cur.execute("""
-                SELECT p.cod, p.v, p.descrizione, ps.stock
-                FROM products p
-                JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                WHERE p.purge_flag = TRUE AND ps.stock > 0
-                ORDER BY ps.stock DESC
-            """)
-            
-            results = []
-            for row in cur.fetchall():
-                results.append({
-                    'cod': row['cod'],
-                    'v': row['v'],
-                    'name': row['descrizione'],
-                    'stock': row['stock']
-                })
-            
-            return results
-        except:
-            return []
 
     def prepend_monthly_loss_zeros(self):
         """
         Prepend [0, 0] to every non-null loss array in extra_losses and update the
-        corresponding _updated date. This keeps arr[0] always meaning "current month".
-        Called on the 1st of every month at 00:30 via Celery Beat.
+        corresponding _updated date. Called on the 1st of every month at 00:30 via Celery Beat.
         """
         cur = self.cursor()
         today = date.today()
@@ -1094,26 +584,19 @@ class DatabaseManager:
 
         for loss_type in loss_types:
             try:
-                cur.execute(f"""
-                    SELECT cod, v, {loss_type}
-                    FROM extra_losses
-                    WHERE {loss_type} IS NOT NULL
-                """)
+                cur.execute(f"SELECT cod, v, {loss_type} FROM extra_losses WHERE {loss_type} IS NOT NULL")
                 rows = cur.fetchall()
 
                 for row in rows:
                     arr = row[loss_type]
                     if not isinstance(arr, list):
                         continue
-
                     new_arr = [[0, 0]] + arr
                     new_arr = new_arr[:24]
-
-                    cur.execute(f"""
-                        UPDATE extra_losses
-                        SET {loss_type} = %s, {loss_type}_updated = %s
-                        WHERE cod = %s AND v = %s
-                    """, (Json(new_arr), today, row['cod'], row['v']))
+                    cur.execute(
+                        f"UPDATE extra_losses SET {loss_type}=%s, {loss_type}_updated=%s WHERE cod=%s AND v=%s",
+                        (Json(new_arr), today, row['cod'], row['v'])
+                    )
 
                 total_updated += len(rows)
                 self.conn.commit()
@@ -1124,3 +607,227 @@ class DatabaseManager:
                 continue
 
         return total_updated
+
+    # --- Catalogue Updates ---
+
+    def import_from_CSV(self, file_path: str, settore: str):
+        """
+        Import products from a CSV file into the given settore.
+        Updates existing entries or inserts new ones.
+        """
+        print(f"Importing from '{file_path}' into settore '{settore}'...")
+
+        df = pd.read_csv(file_path, sep=";", encoding="utf-8")
+
+        COD_COLS  = "Code"
+        V_COLS    = "Variant"
+        DESC_COLS = "Description"
+        RAPP_COLS = "Multiplier"
+        PZ_COLS   = "Package"
+        DISP_COLS = "Availability"
+        COST_COLS = "Cost"
+        PRICE_COLS = "Price"
+        REP_COLS  = "Category"
+
+        df = df[pd.to_numeric(df[COD_COLS], errors="coerce").notna()]
+        df[COD_COLS] = df[COD_COLS].astype(int)
+        df[V_COLS]   = df[V_COLS].fillna(0).astype(int)
+        df = df.drop_duplicates(subset=[COD_COLS, V_COLS], keep="first")
+
+        prod_rows = []
+        econ_rows = []
+        for _, row in df.iterrows():
+            cod         = int(row[COD_COLS])
+            v           = int(row[V_COLS]) if not pd.isna(row[V_COLS]) else 0
+            descrizione = str(row[DESC_COLS]).strip() if DESC_COLS in df.columns else ""
+            pz_x_collo  = int(row[PZ_COLS]) if PZ_COLS in df.columns and not pd.isna(row[PZ_COLS]) else None
+            disponibilita = str(row[DISP_COLS]).strip() if DISP_COLS in df.columns else "Si"
+            cost        = float(row[COST_COLS]) if COST_COLS in df.columns else None
+            price       = float(row[PRICE_COLS]) if PRICE_COLS in df.columns else None
+            category    = str(row[REP_COLS]).strip() if REP_COLS in df.columns else ""
+
+            rapp = None
+            if RAPP_COLS in df.columns and not pd.isna(row[RAPP_COLS]):
+                val = row[RAPP_COLS]
+                try:
+                    num = float(val)
+                    if not num.is_integer():
+                        print(f"Warning: float value {val} in RAPP_COLS for code {cod}. Skipping.")
+                        continue
+                    rapp = int(num)
+                except ValueError:
+                    print(f"Warning: invalid RAPP_COLS value '{val}' for code {cod}. Skipping.")
+                    continue
+
+            prod_rows.append((cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
+            econ_rows.append((cod, v, price, cost, None, None, None, None, category))
+
+        cur = self.cursor()
+        cur.executemany("""
+            INSERT INTO products (cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT(cod, v) DO UPDATE SET
+                descrizione   = excluded.descrizione,
+                rapp          = excluded.rapp,
+                pz_x_collo    = excluded.pz_x_collo,
+                disponibilita = excluded.disponibilita,
+                first_added_at = CASE
+                    WHEN products.disponibilita = 'No' AND excluded.disponibilita = 'Si'
+                    THEN CURRENT_DATE
+                    ELSE products.first_added_at
+                END
+        """, prod_rows)
+
+        cur.executemany("""
+            INSERT INTO economics
+                (cod, v, price_std, cost_std, price_s, cost_s, sale_start, sale_end, category)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT(cod, v) DO UPDATE SET
+                price_std = CASE
+                    WHEN economics.sale_start IS NOT NULL
+                     AND economics.sale_end   IS NOT NULL
+                     AND CURRENT_DATE <= economics.sale_end
+                    THEN economics.price_std
+                    ELSE excluded.price_std
+                END,
+                cost_std = CASE
+                    WHEN economics.sale_start IS NOT NULL
+                     AND economics.sale_end   IS NOT NULL
+                     AND CURRENT_DATE <= economics.sale_end
+                    THEN economics.cost_std
+                    ELSE excluded.cost_std
+                END,
+                category = excluded.category
+        """, econ_rows)
+
+        self.conn.commit()
+        print(f"Imported {len(prod_rows)} products into settore '{settore}'.")
+
+    def update_promos(self, promo_list):
+        """
+        promo_list: list of tuples (cod, v, price_s, cost_s, sale_start, sale_end)
+        """
+        if not promo_list:
+            logger.warning("[PROMOS] Empty promo_list received")
+            return
+
+        logger.info(f"[PROMOS] Received {len(promo_list)} items. First 3: {promo_list[:3]}")
+
+        cur = self.cursor()
+        cur.execute("SELECT cod, v FROM economics")
+        existing = set((int(r["cod"]), int(r["v"])) for r in cur.fetchall())
+        logger.info(f"[PROMOS] Found {len(existing)} products in economics table")
+
+        filtered_list = [r for r in promo_list if (int(r[0]), int(r[1])) in existing]
+        logger.info(f"[PROMOS] After filtering: {len(filtered_list)} items match")
+
+        if not filtered_list:
+            sample_parsed = [(r[0], r[1]) for r in promo_list[:5]]
+            sample_existing = list(existing)[:5] if existing else []
+            logger.warning(f"[PROMOS] No matches! Parsed sample: {sample_parsed}, DB sample: {sample_existing}")
+            return
+
+        cur.executemany("""
+            INSERT INTO economics (cod, v, cost_s, price_s, sale_start, sale_end, price_std, cost_std, category)
+            VALUES (%s, %s, %s, %s, %s, %s, 0, 0, 0)
+            ON CONFLICT (cod, v) DO UPDATE SET
+                price_s = EXCLUDED.price_s,
+                cost_s  = EXCLUDED.cost_s,
+                sale_start = CASE
+                    WHEN CURRENT_DATE BETWEEN economics.sale_start AND economics.sale_end
+                    THEN economics.sale_start
+                    ELSE EXCLUDED.sale_start
+                END,
+                sale_end = CASE
+                    WHEN CURRENT_DATE BETWEEN economics.sale_start AND economics.sale_end
+                    THEN GREATEST(economics.sale_end, EXCLUDED.sale_end)
+                    ELSE EXCLUDED.sale_end
+                END
+        """, filtered_list)
+
+        self.conn.commit()
+
+    # --- Purge / Cleanup ---
+
+    def flag_for_purge(self, cod: int, v: int):
+        """
+        If stock > 0: set purge_flag=TRUE and wait for stock to reach 0.
+        If stock = 0: delete immediately via purge_product().
+        The Django view handles adding to the "In fase di eliminazione" blacklist.
+        """
+        cur = self.cursor()
+        cur.execute("SELECT ps.stock FROM product_stats ps WHERE ps.cod=%s AND ps.v=%s", (cod, v))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"Product {cod}.{v} not found in database")
+
+        stock = row['stock'] if row['stock'] is not None else 0
+
+        if stock > 0:
+            cur.execute("UPDATE products SET purge_flag=TRUE WHERE cod=%s AND v=%s", (cod, v))
+            self.conn.commit()
+            return {
+                'action': 'flagged',
+                'cod': cod,
+                'v': v,
+                'stock': stock,
+                'message': f'Product {cod}.{v} flagged for purging (current stock: {stock})'
+            }
+        else:
+            return self.purge_product(cod, v)
+
+    def purge_product(self, cod: int, v: int):
+        """
+        Clear a product's operational data (product_stats, economics, extra_losses).
+        The products row is kept to preserve first_added_at; it will be restored on
+        the next list update if the product reappears.
+        """
+        cur = self.cursor()
+        deleted_from = []
+
+        for table in ('product_stats', 'economics', 'extra_losses'):
+            cur.execute(f"DELETE FROM {table} WHERE cod=%s AND v=%s", (cod, v))
+            if cur.rowcount > 0:
+                deleted_from.append(table)
+
+        cur.execute("UPDATE products SET purge_flag=FALSE WHERE cod=%s AND v=%s", (cod, v))
+        self.conn.commit()
+
+        return {
+            'action': 'purged',
+            'cod': cod,
+            'v': v,
+            'deleted_from': deleted_from,
+            'message': f'Product {cod}.{v} data cleared from: {", ".join(deleted_from)}'
+        }
+
+    def check_and_purge_flagged(self):
+        """Purge all flagged products whose stock has reached 0."""
+        cur = self.cursor()
+        cur.execute("""
+            SELECT p.cod, p.v
+            FROM products p
+            JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+            WHERE p.purge_flag = TRUE AND ps.stock = 0
+        """)
+        return [self.purge_product(row['cod'], row['v']) for row in cur.fetchall()]
+
+    def purge_obsolete_products(self):
+        """
+        Delete products that are confirmed gone:
+          - verified=FALSE (never confirmed in stock)
+          - disponibilita='No' (unavailable from supplier)
+          - stock=0
+
+        Called after list updates so that disponibilita is fresh.
+        """
+        cur = self.cursor()
+        cur.execute("""
+            SELECT p.cod, p.v
+            FROM products p
+            JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+            WHERE ps.verified = FALSE
+              AND p.disponibilita = 'No'
+              AND ps.stock = 0
+        """)
+        return [self.purge_product(row['cod'], row['v']) for row in cur.fetchall()]

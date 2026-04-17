@@ -365,9 +365,19 @@
                     <h5 class="mb-0">
                         <i class="bi bi-slash-circle"></i> Blacklists
                     </h5>
-                    <a href="{% url 'blacklist-add' %}" class="btn btn-sm btn-primary">
-                        <i class="bi bi-plus-circle"></i> Nuova Blacklist
-                    </a>
+                    <div class="d-flex gap-2 align-items-center">
+                        <div class="dropdown" id="blocca-cluster-dropdown">
+                            <button class="btn btn-sm btn-outline-danger" type="button" id="bloccaClusterBtn" onclick="loadClustersForBlacklist()">
+                                <i class="bi bi-lock"></i> Blocca cluster
+                            </button>
+                            <ul class="dropdown-menu" id="bloccaClusterMenu" aria-labelledby="bloccaClusterBtn">
+                                <li><span class="dropdown-item text-muted">Caricamento...</span></li>
+                            </ul>
+                        </div>
+                        <a href="{% url 'blacklist-add' %}" class="btn btn-sm btn-primary">
+                            <i class="bi bi-plus-circle"></i> Nuova Blacklist
+                        </a>
+                    </div>
                 </div>
 
                 {% if blacklists %}
@@ -914,6 +924,71 @@ function purgeProduct(cod, var_, rowIdPrefix) {
     .catch(error => {
         alert('Errore: ' + error);
     });
+}
+
+let _bloccaClusterDropdown = null;
+let _clustersLoaded = false;
+
+function loadClustersForBlacklist() {
+    const menu = document.getElementById('bloccaClusterMenu');
+    const btn = document.getElementById('bloccaClusterBtn');
+
+    if (!_bloccaClusterDropdown) {
+        _bloccaClusterDropdown = new bootstrap.Dropdown(btn, {autoClose: true});
+    }
+
+    if (_clustersLoaded) {
+        _bloccaClusterDropdown.show();
+        return;
+    }
+
+    const smId = {{ storage.supermarket.id }};
+    const settore = '{{ storage.settore|escapejs }}';
+
+    fetch(`/inventory/api/clusters/${smId}/${settore}/`)
+        .then(r => r.json())
+        .then(data => {
+            menu.innerHTML = '';
+            const clusters = data.clusters || [];
+            if (clusters.length === 0) {
+                menu.innerHTML = '<li><span class="dropdown-item text-muted">Nessun cluster disponibile</span></li>';
+            } else {
+                clusters.forEach(c => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<button class="dropdown-item" type="button" onclick="blockCluster(this.dataset.cluster)" data-cluster="${c.replace(/"/g, '&quot;')}">${c}</button>`;
+                    menu.appendChild(li);
+                });
+            }
+            _clustersLoaded = true;
+            _bloccaClusterDropdown.show();
+        })
+        .catch(() => {
+            menu.innerHTML = '<li><span class="dropdown-item text-danger">Errore caricamento cluster</span></li>';
+            _bloccaClusterDropdown.show();
+        });
+}
+
+function blockCluster(clusterName) {
+    if (!confirm(`Creare la blacklist "Cluster ${clusterName} bloccato" con tutti i prodotti del cluster?`)) return;
+
+    fetch('/inventory/api/create-blacklist-from-cluster/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+        body: JSON.stringify({storage_id: {{ storage.id }}, cluster: clusterName}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const msg = data.created
+                ? `Blacklist "${data.blacklist_name}" creata con ${data.total} prodotti.`
+                : `Blacklist "${data.blacklist_name}" aggiornata: aggiunti ${data.added} prodotti (totale ${data.total}).`;
+            alert(msg);
+            window.location.reload();
+        } else {
+            alert('Errore: ' + (data.error || 'Sconosciuto'));
+        }
+    })
+    .catch(err => alert('Errore: ' + err));
 }
 </script>
 
