@@ -24,25 +24,18 @@ IS_WINDOWS = sys.platform.startswith('win')
 IS_LINUX = sys.platform.startswith('linux')
 
 CSV_COLUMN_MAP = {
-    "RilevazioniRigheCodiceArticolo": "Code",
-    "RilevazioniRigheVarianteArticolo": "Variant",
+    "RilevazioniRigheCodiceBarre": "EAN",
     "RilevazioniRigheDescrizione": "Description",
     "RilevazioniRigheQuantitaOriginale": "Quantity"
 }
 
 class Inventory_Scrapper:
 
-    def __init__(self, username: str, password: str) -> None:
-        """
-        Initialize inventory scrapper with credentials.
-        
-        Args:
-            username: PAC2000A username
-            password: PAC2000A password
-        """
+    def __init__(self, supermarket, username: str, password: str) -> None:
+        self.supermarket = supermarket
         self.username = username
         self.password = password
-        self.id_cliente = "31659" #TODO must be made dynamic depending on the user, could be problematic for user with multiple supermarket
+        self.id_cliente = self.supermarket.id_cliente
         # Set up the Selenium WebDriver
 
         self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
@@ -91,15 +84,6 @@ class Inventory_Scrapper:
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
         self.wait = WebDriverWait(self.driver, 10)
         self.actions = ActionChains(self.driver)
-        
-    def inventory(self):
-        """Navigate to inventory section"""
-        self.wait.until(
-            EC.presence_of_element_located((By.ID, "carta105"))
-        )
-
-        inventory_menu = self.driver.find_element(By.ID, "carta105")
-        inventory_menu.click()
 
     def login(self):
         """Login to PAC2000A"""
@@ -121,21 +105,14 @@ class Inventory_Scrapper:
         
         logger.info(" Login successful")
     
-    def export_all_testate_from_day(self, days_back: int = 0):
+    def export_all_testate_from_day(self, max_days_back: int = 30):
         """
-        Exports all available testate (ROTTURE, SCADUTO, UTILIZZO INTERNO)
-        for the selected day range.
+        Exports new testate (ROTTURE, SCADUTO, UTILIZZO INTERNO) not yet downloaded.
+        Walks backwards day by day until a testata is found for each type, or max_days_back is reached.
+        Skips any testata whose ID was already processed (stored in LossSyncState).
         """
-        # -------------------------
-        # DATE RANGE
-        # -------------------------
-        today = date.today()
-        dal = (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        al = today.strftime("%Y-%m-%d")
+        from ..models import LossSyncState
 
-        # -------------------------
-        # SESSION (reuse Selenium login)
-        # -------------------------
         session = requests.Session()
         for c in self.driver.get_cookies():
             session.cookies.set(c["name"], c["value"])
@@ -148,52 +125,60 @@ class Inventory_Scrapper:
             "User-Agent": "Mozilla/5.0",
         }
 
-        # -------------------------
-        # STEP 1: FETCH TESTATE
-        # -------------------------
         url_testate = "https://dropzone.pac2000a.it/rilevazioni/RilevazioniTestate_call.php"
-
-        payload_testate = {
-            "funzione": "lista",
-            "IDAzienda": "",
-            "IDCliente": self.id_cliente,
-            "DescRilevazione": "",
-            "Dal": dal,
-            "Al": al,
-            "IsExported": "",
-            "numRecord": 100,
-        }
-
-        resp = session.post(url_testate, headers=headers, data=payload_testate)
-        resp.raise_for_status()
-        testate = resp.json()
-
-        if not testate:
-            print("No testate found in date range.")
-            return
-
-        # -------------------------
-        # GROUP TESTATE
-        # -------------------------
-        grouped = {}
-        for t in testate:
-            desc = t["RilevazioniTestateDescRilevazione"].strip()
-            grouped.setdefault(desc, []).append(t)
-
-        os.makedirs(save_path, exist_ok=True)
-
-        # -------------------------
-        # STEP 2: EXPORT EACH TESTATA
-        # -------------------------
         url_righe = "https://dropzone.pac2000a.it/rilevazioni/RilevazioniRighe_call.php"
         ALLOWED_TYPES = {"ROTTURE", "SCADUTO", "UTILIZZO INTERNO"}
 
+        sync_state, _ = LossSyncState.objects.get_or_create(supermarket=self.supermarket)
+        last_ids = {
+            "ROTTURE": sync_state.last_id_rotture,
+            "SCADUTO": sync_state.last_id_scaduto,
+            "UTILIZZO INTERNO": sync_state.last_id_utilizzo_interno,
+        }
+
+        today = date.today()
+        grouped = {}  # desc -> [testate dicts]
+
+        for days_back in range(max_days_back + 1):
+            target_date = (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
+
+            payload_testate = {
+                "funzione": "lista",
+                "IDAzienda": "",
+                "IDCliente": self.id_cliente,
+                "DescRilevazione": "",
+                "Dal": target_date,
+                "Al": target_date,
+                "IsExported": "",
+                "numRecord": 100,
+            }
+
+            resp = session.post(url_testate, headers=headers, data=payload_testate)
+            resp.raise_for_status()
+            testate = resp.json()
+
+            for t in testate:
+                desc = t["RilevazioniTestateDescRilevazione"].strip()
+                tid = int(t["RilevazioniTestateIDRilevazioniTestata"].strip())
+
+                if desc not in ALLOWED_TYPES:
+                    continue
+                if last_ids.get(desc) is not None and tid <= last_ids[desc]:
+                    continue
+
+                grouped.setdefault(desc, []).append(t)
+
+            if all(t in grouped for t in ALLOWED_TYPES):
+                break
+
+        if not grouped:
+            logger.info("No new testate found.")
+            return
+
+        os.makedirs(save_path, exist_ok=True)
         csv_headers = list(CSV_COLUMN_MAP.values())
 
         for desc, items in grouped.items():
-            if desc not in ALLOWED_TYPES:
-                continue
-
             csv_path = os.path.join(save_path, f"{desc}.csv")
 
             with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -203,8 +188,7 @@ class Inventory_Scrapper:
                 for t in items:
                     id_testata = t["RilevazioniTestateIDRilevazioniTestata"]
                     num_righe = t.get("numRighe", "0")
-
-                    print(f"Exporting {desc} | ID {id_testata} | Rows {num_righe}")
+                    logger.info(f"Exporting {desc} | ID {id_testata} | Rows {num_righe}")
 
                     payload_righe = {
                         "funzione": "lista",
@@ -216,18 +200,23 @@ class Inventory_Scrapper:
                     righe = resp.json()
 
                     if not righe:
-                        print(f"  → No rows for {desc} ({id_testata})")
+                        logger.info(f"No rows for {desc} ({id_testata})")
                         continue
 
                     for r in righe:
-                        row = {}
-                        for src, dst in CSV_COLUMN_MAP.items():
-                            row[dst] = r.get(src)
+                        writer.writerow({dst: r.get(src) for src, dst in CSV_COLUMN_MAP.items()})
 
-                        writer.writerow(row)
+            logger.info(f"Saved {csv_path}")
 
-            print(f"  → Saved {csv_path}")
+            max_id = max(int(t["RilevazioniTestateIDRilevazioniTestata"].strip()) for t in items)
+            if desc == "ROTTURE":
+                sync_state.last_id_rotture = max_id
+            elif desc == "SCADUTO":
+                sync_state.last_id_scaduto = max_id
+            elif desc == "UTILIZZO INTERNO":
+                sync_state.last_id_utilizzo_interno = max_id
 
-        print("All available testate exported.")
+        sync_state.save()
+        logger.info("All available testate exported.")
         self.driver.quit()
         shutil.rmtree(self.user_data_dir, ignore_errors=True)

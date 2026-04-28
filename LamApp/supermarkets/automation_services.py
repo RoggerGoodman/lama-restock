@@ -29,31 +29,59 @@ class AutomatedRestockService(RestockService):
     
     def record_losses(self):
         """Record product losses by downloading and processing inventory files."""
+        from .models import RestockLog
+        from django.utils import timezone
+
         logger.info(f"Starting loss recording for {self.supermarket.name}")
-        
+
+        log = RestockLog.objects.create(
+            storage=self.storage,
+            operation_type='loss_recording',
+            status='processing',
+            current_stage='pending',
+            started_at=timezone.now(),
+        )
+
         try:
             inv_scrapper = Inventory_Scrapper(
+                supermarket=self.supermarket,
                 username=self.supermarket.username,
                 password=self.supermarket.password
             )
-            
+
             try:
                 inv_scrapper.login()
-                inv_scrapper.inventory()
-                
                 logger.info("Downloading loss inventory files...")
                 inv_scrapper.export_all_testate_from_day()
-                
+
                 logger.info("Processing loss files...")
-                verify_lost_stock_from_excel_combined(self.db)
-                
-                logger.info(f"✅ Loss recording completed for {self.supermarket.name}")
+                result = verify_lost_stock_from_excel_combined(self.db)
+
+                log.status = 'completed'
+                log.current_stage = 'completed'
+                log.completed_at = timezone.now()
+                log.total_products = result['total_unique_products']
+                log.total_packages = result['total_losses']
+                log.set_results({
+                    'by_settore': result['by_settore'],
+                    'total_losses': result['total_losses'],
+                    'files_processed': result['files_processed'],
+                    'absent_eans': result['absent_eans'],
+                })
+                log.save()
+
+                logger.info(f"Loss recording completed for {self.supermarket.name}")
                 return True
-                
+
             finally:
                 inv_scrapper.driver.quit()
-                
+
         except Exception as e:
+            log.status = 'failed'
+            log.current_stage = 'failed'
+            log.error_message = str(e)
+            log.completed_at = timezone.now()
+            log.save()
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     

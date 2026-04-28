@@ -43,6 +43,8 @@ urlpatterns = [
     path('storages/<int:storage_id>/delivery-check/fetch-ean/', views.delivery_check_fetch_ean_ajax, name='delivery-check-fetch-ean'),
     path('storages/<int:storage_id>/delivery-check/sync-scan/', views.delivery_check_sync_scan_ajax, name='delivery-check-sync-scan'),
 
+    path('logs/<int:log_id>/fetch-ean/', views.loss_log_fetch_ean_ajax, name='loss-log-fetch-ean'),
+
     # ============ List Updates ============
     path('storages/<int:storage_id>/update-list/', views.manual_list_update_view, name='manual-list-update'),
     

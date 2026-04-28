@@ -507,7 +507,7 @@ class WebLister:
                 barcode_response.raise_for_status()
                 barcode_data = barcode_response.json()
                 if isinstance(barcode_data, list) and barcode_data:
-                    raw_ean = barcode_data[0].get("CodiceBarre")
+                    raw_ean = barcode_data[-1].get("CodiceBarre")
                     if raw_ean:
                         ean = int(raw_ean)
             except Exception as e:
@@ -523,6 +523,78 @@ class WebLister:
             category,
             ean,
         )
+
+    def gather_product_data_by_ean(self, ean):
+        """
+        Reverse lookup: given an EAN barcode, return (cod, var) from PAC2000A.
+        Calls ArticoliDecodifica_call.php with CodiceBarre instead of CodiceArticolo/VarianteArticolo.
+        Returns (cod, var) tuple or None if not found.
+        """
+        url = "https://dropzone.pac2000a.it/anagrafiche/ArticoliDecodifica_call.php"
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Origin": "https://dropzone.pac2000a.it",
+            "Referer": "https://dropzone.pac2000a.it/anagrafiche/articoloDecodificaV2/",
+            "X-Requested-With": "XMLHttpRequest",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/143.0.0.0 Safari/537.36"
+            ),
+        }
+        payload = {
+            "funzione": "decodifica",
+            "CodiceBarre": str(ean),
+            "CodiceArticolo": "",
+            "VarianteArticolo": "",
+            "IDCliente": self.IDCliente,
+            "IDAzienda": self.IDAzienda,
+            "decodificaAnagrafica": "S",
+            "ricercaRepCommle_tipoCons": "S",
+            "ricercaCodRappCommle": "S",
+            "ricercaRapportiCommle": "S",
+            "ricercaListinoCessione": "S",
+            "intercettaCessione": "S",
+            "ricercaListinoVendita": "S",
+            "intercettaVendita": "S",
+            "ricercaDisponibilita": "S",
+            "Acquistato": "S",
+            "Venduto": "S",
+            "Offerta": "S",
+            "ControlloMarchio": "S",
+            "ControlloQtaOrdinata": "S",
+            "FornitorePrevalente": "S",
+            "isInfoArticolo": "S",
+            "intercettaUltimaCessione": "S",
+            "intercettaUltimaVendita": "S",
+            "estrazioneMerceologiaECR": "S",
+            "dataIntercettazione": self.dataIntercettaPrezzi,
+            "dataDecorrenzaCosto": self.dataIntercettaPrezzi,
+            "dataScadenzaCosto": self.dataIntercettaPrezzi,
+        }
+        session = requests.Session()
+        for c in self.driver.get_cookies():
+            session.cookies.set(c["name"], c["value"])
+        try:
+            response = session.post(url, headers=headers, data=payload, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            logger.error(f"EAN reverse lookup failed for {ean}: {e}")
+            return None
+
+        if not isinstance(data, dict):
+            return None
+
+        cod = data.get("CodiceArticolo")
+        var = data.get("VarianteArticolo")
+        if cod and var:
+            try:
+                return (int(cod), int(var))
+            except (ValueError, TypeError):
+                return None
+        return None
 
     def fetch_scorporo(self, date_from: str, date_to: str, x5trec: str = "02") -> list:
         """

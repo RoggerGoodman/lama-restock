@@ -19,10 +19,9 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
     
     UNCHANGED - works correctly as is.
     """
-    COD_COL = "Code"
-    V_COL = "Variant"
+    EAN_COL = "EAN"
     STOCK_COL = "Quantity"
-    
+
     LOSS_FILES = {
         "ROTTURE.csv": "broken",
         "SCADUTO.csv": "expired",
@@ -30,116 +29,129 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
     }
 
     logger.info(f"Starting loss processing. Checking folder: {LOSSES_FOLDER}")
-    
+
     all_files = os.listdir(LOSSES_FOLDER)
     logger.info(f"Files in folder: {all_files}")
-    
+
     files_processed = 0
     total_losses = 0
+    by_settore = {}  # settore -> {loss_type -> [{cod, v, descrizione, qty}]}
+    absent_eans = []  # EANs from CSV not found in products table
 
     for file_name, loss_type in LOSS_FILES.items():
         file_path = os.path.join(LOSSES_FOLDER, file_name)
-        
+
         if not os.path.exists(file_path):
             logger.warning(f"Loss file not found: {file_name} (expected at {file_path})")
             continue
-        
+
         logger.info(f"Processing loss file: {file_name} (type: {loss_type})")
 
         try:
             df = pd.read_csv(file_path, encoding='utf-8')
-            
+
             logger.info(f"File loaded. Shape: {df.shape}, Columns: {df.columns.tolist()}")
 
-            if COD_COL not in df.columns:
-                logger.error(f"Missing column '{COD_COL}' in {file_name}. Available: {df.columns.tolist()}")
+            if EAN_COL not in df.columns:
+                logger.error(f"Missing column '{EAN_COL}' in {file_name}. Available: {df.columns.tolist()}")
                 continue
-            
-            if V_COL not in df.columns:
-                logger.error(f"Missing column '{V_COL}' in {file_name}. Available: {df.columns.tolist()}")
-                continue
-                
+
             if STOCK_COL not in df.columns:
                 logger.error(f"Missing column '{STOCK_COL}' in {file_name}. Available: {df.columns.tolist()}")
                 continue
 
-            logger.info(f"First 3 rows of {file_name}:")
-            logger.info(f"\n{df[[COD_COL, V_COL, STOCK_COL]].head(3).to_string()}")
-
-            for col in [COD_COL, V_COL, STOCK_COL]:
-                df[col] = (
-                    df[col]
-                    .astype(str)
-                    .str.replace(".", "", regex=False)
-                    .str.replace(",", ".", regex=False)
-                )
-
-            df[COD_COL] = pd.to_numeric(df[COD_COL], errors='coerce')
-            df[V_COL] = pd.to_numeric(df[V_COL], errors='coerce')
+            df[EAN_COL] = df[EAN_COL].astype(str).str.strip()
+            df[STOCK_COL] = (
+                df[STOCK_COL]
+                .astype(str)
+                .str.replace(".", "", regex=False)
+                .str.replace(",", ".", regex=False)
+            )
             df[STOCK_COL] = pd.to_numeric(df[STOCK_COL], errors='coerce')
-            
+
             initial_rows = len(df)
-            df = df.dropna(subset=[COD_COL, V_COL, STOCK_COL])
+            df = df.dropna(subset=[EAN_COL, STOCK_COL])
+            df = df[df[EAN_COL] != '']
             dropped_rows = initial_rows - len(df)
-            
             if dropped_rows > 0:
                 logger.warning(f"Dropped {dropped_rows} invalid rows from {file_name}")
 
-            df[COD_COL] = df[COD_COL].astype(int)
-            df[V_COL] = df[V_COL].astype(int)
             df[STOCK_COL] = df[STOCK_COL].astype(float)
 
             combined = (
-                df.groupby([COD_COL, V_COL], as_index=False)[STOCK_COL]
+                df.groupby(EAN_COL, as_index=False)[STOCK_COL]
                 .sum()
-                .astype({COD_COL: int, V_COL: int, STOCK_COL: int})
             )
-            
-            logger.info(f"After combining duplicates: {len(combined)} unique products")
+
+            logger.info(f"After combining duplicates: {len(combined)} unique EANs")
 
             processed_count = 0
             absent_count = 0
             error_count = 0
-            
+
             for _, row in combined.iterrows():
-                cod = int(row[COD_COL])
-                v = int(row[V_COL])
+                ean = row[EAN_COL]
                 delta = int(row[STOCK_COL])
-                
+
                 if delta == 0:
                     continue
+
+                product = db.get_cod_v_by_ean(ean)
+                if product is None:
+                    logger.debug(f"EAN {ean} not found in products table (skipped)")
+                    absent_count += 1
+                    absent_eans.append(ean)
+                    continue
+
+                cod = product['cod']
+                v = product['v']
+                settore = product['settore']
+                descrizione = product['descrizione']
 
                 try:
                     db.register_losses(cod, v, delta, loss_type)
                     processed_count += 1
                     total_losses += delta
-                    logger.debug(f"Registered {loss_type}: {cod}.{v} = {delta}")
+                    logger.debug(f"Registered {loss_type}: EAN {ean} → {cod}.{v} = {delta}")
+
+                    by_settore.setdefault(settore, {}).setdefault(loss_type, []).append({
+                        'cod': cod, 'v': v, 'descrizione': descrizione, 'qty': delta
+                    })
                 except ValueError as e:
-                    logger.debug(f"Product {cod}.{v} not in database (will be skipped)")
+                    logger.debug(f"Product {cod}.{v} not in database (skipped)")
                     absent_count += 1
                 except Exception as e:
-                    logger.warning(f"Error processing {cod}.{v}: {type(e).__name__}: {e}")
+                    logger.warning(f"Error processing EAN {ean} ({cod}.{v}): {type(e).__name__}: {e}")
                     error_count += 1
-            
-            logger.info(f" Processed {file_name}: {processed_count} losses registered, {absent_count} skipped, {error_count} errors")
+
+            logger.info(f"Processed {file_name}: {processed_count} losses registered, {absent_count} skipped, {error_count} errors")
             files_processed += 1
 
             try:
                 os.remove(file_path)
-                logger.info(f" Deleted processed file: {file_path}")
+                logger.info(f"Deleted processed file: {file_path}")
             except Exception as e:
                 logger.error(f"Could not delete file {file_path}: {e}")
 
         except Exception as e:
             logger.exception(f" Error reading or processing file {file_name}")
             continue
-    
+
     logger.info(f"Loss processing complete: {files_processed} files processed, {total_losses} total units of losses registered")
-    
+
+    total_unique_products = sum(
+        len(items)
+        for types in by_settore.values()
+        for items in types.values()
+    )
+
     return {
         'success': True,
         'files_processed': files_processed,
-        'total_losses': total_losses
+        'total_losses': total_losses,
+        'total_unique_products': total_unique_products,
+        'by_settore': by_settore,
+        'absent_eans': absent_eans,
     }
 
 def parse_pdf(pdf_path: str):

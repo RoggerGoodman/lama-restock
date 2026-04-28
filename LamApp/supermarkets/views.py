@@ -1,6 +1,6 @@
 # LamApp/supermarkets/views.py
 from django.utils import timezone
-from datetime import date
+from datetime import date, timedelta
 import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse, reverse_lazy
@@ -323,6 +323,27 @@ class SupermarketDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
             'blacklists__entries'   # Nested prefetch
         ).order_by('name')
         context['recent_sync_logs'] = self.object.sales_sync_logs.order_by('-created_at')[:5]
+        context['recent_loss_logs'] = RestockLog.objects.filter(
+            storage__supermarket=self.object,
+            operation_type='loss_recording',
+        ).order_by('-started_at')[:5]
+
+        if self.object.sync_api_token:
+            from .models import SalesSyncLog, is_closure_day
+            yesterday = date.today() - timedelta(days=1)
+            if is_closure_day(self.object, yesterday):
+                context['sync_stale'] = False
+                context['last_sync_date'] = None
+            else:
+                last_sync = SalesSyncLog.objects.filter(
+                    supermarket=self.object
+                ).order_by('-sync_date').first()
+                context['sync_stale'] = not last_sync or last_sync.sync_date < yesterday
+                context['last_sync_date'] = last_sync.sync_date if last_sync else None
+        else:
+            context['sync_stale'] = False
+            context['last_sync_date'] = None
+
         return context
 
 
@@ -4650,6 +4671,25 @@ def delivery_check_fetch_ean_ajax(request, storage_id):
 
     from .tasks import fetch_single_ean
     result = fetch_single_ean.apply_async(args=[storage.id, cod, var])
+    return JsonResponse({'task_id': result.id})
+
+
+@login_required
+def loss_log_fetch_ean_ajax(request, log_id):
+    """
+    Trigger fetch_product_from_ean for an absent EAN found in a loss_recording log.
+    POST JSON: {"ean": "1234567890123"}
+    Returns JSON: {"task_id": "..."}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    log = get_object_or_404(RestockLog, id=log_id, storage__supermarket__owner=request.user)
+    data = json.loads(request.body)
+    ean = data['ean']
+
+    from .tasks import fetch_product_from_ean
+    result = fetch_product_from_ean.apply_async(args=[log.storage.id, ean])
     return JsonResponse({'task_id': result.id})
 
 

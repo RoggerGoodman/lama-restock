@@ -42,11 +42,6 @@ def record_losses_all_supermarkets(self):
         
         for supermarket in supermarkets:
             try:
-                from .models import is_closure_day
-                if is_closure_day(supermarket):
-                    logger.info(f"[CELERY] Skipping loss recording for {supermarket.name} — closure day")
-                    continue
-
                 logger.info(f"[CELERY] Recording losses for: {supermarket.name}")
                 
                 first_storage = supermarket.storages.first()
@@ -95,7 +90,7 @@ def update_stats_all_scheduled_storages(self):
     Nightly DDT import — one Celery task per supermarket.
     Fetches invoices once per supermarket and fans out DB writes per storage.
     """
-    from .models import Supermarket, is_closure_day
+    from .models import Supermarket
 
     try:
         logger.info("[CELERY] Starting nightly DDT import for all supermarkets")
@@ -105,10 +100,6 @@ def update_stats_all_scheduled_storages(self):
 
         for supermarket in supermarkets:
             try:
-                if is_closure_day(supermarket):
-                    logger.info(f"[CELERY] Skipping {supermarket.name} — closure day")
-                    continue
-
                 import_ddt_for_supermarket.apply_async(
                     args=[supermarket.id],
                     retry=True,
@@ -1565,6 +1556,72 @@ def fetch_single_ean(storage_id, cod, v):
         shutil.rmtree(lister.user_data_dir, ignore_errors=True)
 
 
+@shared_task(queue='selenium', acks_late=True, reject_on_worker_lost=True)
+def fetch_product_from_ean(storage_id, ean):
+    """
+    Given an EAN that was absent from the products table, look up the product
+    in PAC2000A, update products.ean if the product is in our catalog, and
+    return the result so the UI can show what happened.
+    """
+    from .models import Storage
+    from .services import RestockService
+    from .scripts.web_lister import WebLister
+    from pathlib import Path
+    import shutil
+
+    storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+
+    temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
+    temp_dir.mkdir(exist_ok=True)
+
+    lister = WebLister(
+        username=storage.supermarket.username,
+        password=storage.supermarket.password,
+        storage_name=storage.name,
+        download_dir=str(temp_dir),
+        id_cod_mag=storage.id_cod_mag,
+        id_cliente=storage.supermarket.id_cliente,
+        id_azienda=storage.supermarket.id_azienda,
+        id_marchio=storage.supermarket.id_marchio,
+        id_clienti_canale=storage.supermarket.id_clienti_canale,
+        id_clienti_area=storage.supermarket.id_clienti_area,
+        headless=True,
+    )
+
+    try:
+        lister.login()
+        lister.navigate_to_lists()
+        cod_v = lister.gather_product_data_by_ean(ean)
+        if cod_v is None:
+            return {'success': False, 'ean': ean, 'message': f'EAN {ean} not found in PAC2000A'}
+
+        cod, v = cod_v
+
+        with RestockService(storage) as service:
+            cur = service.db.cursor()
+            cur.execute("SELECT 1 FROM products WHERE cod=%s AND v=%s", (cod, v))
+            if cur.fetchone() is None:
+                return {'success': False, 'ean': ean, 'message': f'Product {cod}.{v} not in catalog'}
+
+        # Fetch authoritative latest EAN from PAC2000A (barcode_data[-1])
+        product_data = lister.gather_missing_product_data(cod, v)
+        latest_ean = product_data[7] if product_data else None
+
+        new_ean = latest_ean if latest_ean is not None else ean
+
+        with RestockService(storage) as service:
+            cur = service.db.cursor()
+            cur.execute("UPDATE products SET ean=%s WHERE cod=%s AND v=%s", (new_ean, cod, v))
+            service.db.conn.commit()
+
+        logger.info(f"[EAN FIX] EAN {ean} -> {cod}.{v}, stored EAN={new_ean}")
+        return {'success': True, 'ean': ean, 'cod': cod, 'v': v, 'new_ean': new_ean, 'message': f'EAN aggiornato per {cod}.{v} ({new_ean})'}
+
+    finally:
+        lister.driver.quit()
+        shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -1593,6 +1650,9 @@ def run_scheduled_orders(self):
         queued = 0
         skipped = 0
 
+        from .models import SalesSyncLog
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+
         for storage in storages:
             if is_closure_day(storage.supermarket):
                 logger.info(f"[CELERY-SCHED] Skipping {storage.name} — closure day")
@@ -1604,6 +1664,19 @@ def run_scheduled_orders(self):
                 logger.info(f"[CELERY-SCHED] {storage.name} — no order today (day {today_index})")
                 skipped += 1
                 continue
+
+            if storage.supermarket.sync_api_token and not is_closure_day(storage.supermarket, yesterday):
+                last_sync = SalesSyncLog.objects.filter(
+                    supermarket=storage.supermarket
+                ).order_by('-sync_date').first()
+                if not last_sync or last_sync.sync_date < yesterday:
+                    last_date = last_sync.sync_date if last_sync else 'mai'
+                    logger.warning(
+                        f"[CELERY-SCHED] BLOCCATO {storage.name} — sync VENSETAR non aggiornato "
+                        f"(ultimo: {last_date}, atteso: {yesterday}). Ordine annullato."
+                    )
+                    skipped += 1
+                    continue
 
             run_restock_for_storage.apply_async(
                 args=[storage.id],

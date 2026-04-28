@@ -74,6 +74,26 @@
         </div>
     </div>
 
+    <!-- Stale sync warning -->
+    {% if sync_stale %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-danger d-flex align-items-start gap-2 mb-0">
+                <i class="bi bi-exclamation-triangle-fill fs-5 mt-1 flex-shrink-0"></i>
+                <div>
+                    <strong>Sincronizzazione vendite non aggiornata.</strong>
+                    {% if last_sync_date %}
+                    Ultima data ricevuta: <strong>{{ last_sync_date }}</strong>.
+                    {% else %}
+                    Nessuna sincronizzazione trovata.
+                    {% endif %}
+                    Gli ordini automatici schedulati per oggi sono stati bloccati per evitare riordini errati.
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Recent Sync Logs -->
     {% if recent_sync_logs %}
     <div class="row mb-4">
@@ -109,6 +129,58 @@
                                 </td>
                                 <td class="text-end">
                                     <a href="{% url 'sales-sync-log-detail' pk=log.pk %}" class="btn btn-sm btn-outline-secondary">
+                                        Visiona
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Recent Loss Recording Logs -->
+    {% if recent_loss_logs %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3">
+                    <i class="bi bi-trash text-danger"></i>
+                    Ultime registrazioni perdite
+                </h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Data</th>
+                                <th>ID</th>
+                                <th>Prodotti</th>
+                                <th>Unità totali</th>
+                                <th>Stato</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in recent_loss_logs %}
+                            <tr>
+                                <td>{{ log.started_at|date:"d/m/Y H:i" }}</td>
+                                <td class="text-muted font-monospace">#{{ log.id }}</td>
+                                <td>{{ log.total_products }}</td>
+                                <td>{{ log.total_packages }}</td>
+                                <td>
+                                    {% if log.status == 'completed' %}
+                                        <span class="badge bg-success">Completato</span>
+                                    {% elif log.status == 'failed' %}
+                                        <span class="badge bg-danger">Fallito</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ log.status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <a href="{% url 'restock-log-detail' pk=log.pk %}" class="btn btn-sm btn-outline-secondary">
                                         Visiona
                                     </a>
                                 </td>

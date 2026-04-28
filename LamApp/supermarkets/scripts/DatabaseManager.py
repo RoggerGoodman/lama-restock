@@ -466,6 +466,13 @@ class DatabaseManager:
 
     # --- Losses ---
 
+    def get_cod_v_by_ean(self, ean: str):
+        """Returns dict with cod, v, settore, descrizione for the given EAN, or None if not found."""
+        cur = self.cursor()
+        cur.execute("SELECT cod, v, settore, descrizione FROM products WHERE ean=%s", (ean,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
     def register_losses(self, cod: int, v: int, delta: int, type: str):
         """
         Register a loss event (broken, expired, internal, stolen, shrinkage).

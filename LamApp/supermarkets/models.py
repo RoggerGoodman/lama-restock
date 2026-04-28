@@ -439,6 +439,7 @@ class RestockLog(models.Model):
         ('verification', 'Stock Verification'),
         ('cluster_assignment', 'Cluster Assignment'),
         ('product_addition', 'Product Addition'),
+        ('loss_recording', 'Loss Recording'),
     ]
     
     storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='restock_logs')
@@ -489,6 +490,7 @@ class RestockLog(models.Model):
             'verification': 'bi-clipboard-check',
             'cluster_assignment': 'bi-folder',
             'product_addition': 'bi-plus-circle',
+            'loss_recording': 'bi-trash',
         }
         return icons.get(self.operation_type, 'bi-file-text')
     
@@ -502,6 +504,7 @@ class RestockLog(models.Model):
             'verification': 'secondary',
             'cluster_assignment': 'dark',
             'product_addition': 'success',
+            'loss_recording': 'danger',
         }
         return colors.get(self.operation_type, 'secondary')
     
@@ -759,6 +762,17 @@ class SalesSyncLog(models.Model):
     @property
     def unverified_count(self):
         return len(self.unverified_products)
+
+
+class LossSyncState(models.Model):
+    """Tracks the last processed testata ID per loss type for a supermarket, to avoid re-downloading."""
+    supermarket = models.OneToOneField(Supermarket, on_delete=models.CASCADE, related_name='loss_sync_state')
+    last_id_rotture = models.BigIntegerField(null=True, blank=True)
+    last_id_scaduto = models.BigIntegerField(null=True, blank=True)
+    last_id_utilizzo_interno = models.BigIntegerField(null=True, blank=True)
+
+    def __str__(self):
+        return f"LossSyncState for {self.supermarket.name}"
 
 
 class StockValueSnapshot(models.Model):

@@ -73,10 +73,10 @@ app.conf.beat_schedule = {
     },
 
     # 22:30 — record losses for all supermarkets
-    # 'record-losses-nightly': {
-    #     'task': 'supermarkets.tasks.record_losses_all_supermarkets',
-    #     'schedule': crontab(hour=22, minute=30),
-    # },
+    'record-losses-nightly': {
+        'task': 'supermarkets.tasks.record_losses_all_supermarkets',
+        'schedule': crontab(hour=22, minute=30),
+    },
 }
 
 @app.task(bind=True)
