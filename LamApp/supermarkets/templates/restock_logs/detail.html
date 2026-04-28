@@ -1,8 +1,8 @@
 <!-- LamApp/supermarkets/templates/restock_logs/detail.html - Enhanced version -->
 {% extends 'base.html' %}
 
-{% block title %}{% if log.operation_type == 'ddt_import' %}DDT Import{% else %}Riepilogo ordine{% endif %} - {{ log.storage.name }}{% endblock %}
-{% block page_title %}{% if log.operation_type == 'ddt_import' %}Dettagli Importazione DDT{% else %}Dettagli riepilogo ordine{% endif %}{% endblock %}
+{% block title %}{% if log.operation_type == 'ddt_import' %}DDT Import{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% else %}Riepilogo ordine{% endif %} - {% if log.operation_type == 'loss_recording' %}{{ log.storage.supermarket.name }}{% else %}{{ log.storage.name }}{% endif %}{% endblock %}
+{% block page_title %}{% if log.operation_type == 'ddt_import' %}Dettagli Importazione DDT{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% else %}Dettagli riepilogo ordine{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -132,7 +132,11 @@
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    {% if log.operation_type == 'loss_recording' %}
+                    <li class="breadcrumb-item"><a href="{% url 'supermarket-detail' pk=log.storage.supermarket.id %}">{{ log.storage.supermarket.name }}</a></li>
+                    {% else %}
                     <li class="breadcrumb-item"><a href="{% url 'storage-detail' pk=log.storage.id %}">{{ log.storage.name }}</a></li>
+                    {% endif %}
                     <li class="breadcrumb-item active">Log #{{ log.id }}</li>
                 </ol>
             </nav>
@@ -149,13 +153,20 @@
                             {% if log.operation_type == 'ddt_import' %}
                             <i class="bi bi-truck text-info"></i>
                             Importazione DDT #{{ log.id }}
+                            {% elif log.operation_type == 'loss_recording' %}
+                            <i class="bi bi-trash text-danger"></i>
+                            Registrazione perdite #{{ log.id }}
                             {% else %}
                             <i class="bi bi-file-text text-primary"></i>
                             Riepilogo ordine #{{ log.id }}
                             {% endif %}
                         </h4>
                         <p class="text-muted mb-0">
+                            {% if log.operation_type == 'loss_recording' %}
+                            {{ log.storage.supermarket.name }}
+                            {% else %}
                             {{ log.storage.supermarket.name }} - {{ log.storage.name }}
+                            {% endif %}
                         </p>
                     </div>
                     <div>
@@ -281,6 +292,25 @@
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="text-muted">Fatture</span>
                         <strong>{% if results.invoices %}{{ results.invoices|join:", " }}{% else %}—{% endif %}</strong>
+                    </div>
+                    {% endwith %}
+                {% elif log.operation_type == 'loss_recording' %}
+                    {% with results=log.get_results %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Prodotti con perdite</span>
+                        <strong>{{ log.total_products }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Unità totali</span>
+                        <strong class="text-danger">{{ log.total_packages }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">File elaborati</span>
+                        <strong>{{ results.files_processed|default:0 }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-muted">EAN non trovati</span>
+                        <strong class="{% if results.absent_eans %}text-warning{% else %}text-success{% endif %}">{{ results.absent_eans|length }}</strong>
                     </div>
                     {% endwith %}
                 {% else %}
@@ -515,71 +545,109 @@
             <div class="col-12">
                 <div class="stat-card">
                     {% if log.status == 'completed' %}
-                    <div class="alert alert-success mb-4">
-                        <h6><i class="bi bi-trash"></i> Registrazione perdite completata</h6>
-                        <p class="mb-0">
-                            <strong>{{ results.total_losses|default:0 }}</strong> unità totali su
-                            <strong>{{ results.files_processed|default:0 }}</strong> file elaborati
-                        </p>
-                    </div>
 
                     {% for settore, loss_types in results.by_settore.items %}
-                    <div class="mb-4">
-                        <h6 class="border-bottom pb-2 text-secondary">
-                            <i class="bi bi-shop"></i> {{ settore }}
-                        </h6>
-
-                        {% if loss_types.broken %}
-                        <div class="mb-3">
-                            <p class="mb-1"><strong class="text-danger"><i class="bi bi-x-circle"></i> Rotture</strong></p>
-                            <table class="table table-sm table-hover mb-0">
-                                <tbody>
-                                    {% for p in loss_types.broken %}
-                                    <tr>
-                                        <td class="text-muted font-monospace" style="width:90px">{{ p.cod }}.{{ p.v }}</td>
-                                        <td>{{ p.descrizione }}</td>
-                                        <td class="text-end">{{ p.qty }} pz</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
+                    {% with settore_idx=forloop.counter %}
+                    <div class="collapsible-section mb-3">
+                        <div class="collapsible-header"
+                             data-bs-toggle="collapse"
+                             data-bs-target="#settore-{{ settore_idx }}"
+                             style="cursor:pointer;">
+                            <div>
+                                <h6 class="mb-0"><i class="bi bi-shop me-2"></i>{{ settore }}</h6>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                {% if loss_types.broken %}<span class="badge bg-danger">Rotture {{ loss_types.broken|length }}</span>{% endif %}
+                                {% if loss_types.expired %}<span class="badge bg-warning text-dark">Scaduto {{ loss_types.expired|length }}</span>{% endif %}
+                                {% if loss_types.internal %}<span class="badge bg-info text-dark">Interno {{ loss_types.internal|length }}</span>{% endif %}
+                                <i class="bi bi-chevron-right chevron-icon"></i>
+                            </div>
                         </div>
-                        {% endif %}
+                        <div class="collapse" id="settore-{{ settore_idx }}">
+                            <div class="p-3">
 
-                        {% if loss_types.expired %}
-                        <div class="mb-3">
-                            <p class="mb-1"><strong class="text-warning"><i class="bi bi-calendar-x"></i> Scaduto</strong></p>
-                            <table class="table table-sm table-hover mb-0">
-                                <tbody>
-                                    {% for p in loss_types.expired %}
-                                    <tr>
-                                        <td class="text-muted font-monospace" style="width:90px">{{ p.cod }}.{{ p.v }}</td>
-                                        <td>{{ p.descrizione }}</td>
-                                        <td class="text-end">{{ p.qty }} pz</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                        {% endif %}
+                                {% if loss_types.broken %}
+                                <div class="mb-2">
+                                    <div class="d-flex align-items-center gap-2 mb-1"
+                                         data-bs-toggle="collapse"
+                                         data-bs-target="#broken-{{ settore_idx }}"
+                                         style="cursor:pointer;">
+                                        <strong class="text-danger"><i class="bi bi-x-circle"></i> Rotture</strong>
+                                        <span class="badge bg-danger">{{ loss_types.broken|length }} prodotti</span>
+                                        <i class="bi bi-chevron-right small"></i>
+                                    </div>
+                                    <div class="collapse" id="broken-{{ settore_idx }}">
+                                        <table class="table table-sm table-hover mb-0 ms-3">
+                                            <tbody>
+                                                {% for p in loss_types.broken %}
+                                                <tr>
+                                                    <td class="text-muted font-monospace" style="width:90px">{{ p.cod }}.{{ p.v }}</td>
+                                                    <td>{{ p.descrizione }}</td>
+                                                    <td class="text-end">{{ p.qty }} pz</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                {% endif %}
 
-                        {% if loss_types.internal %}
-                        <div class="mb-3">
-                            <p class="mb-1"><strong class="text-info"><i class="bi bi-arrow-left-right"></i> Utilizzo Interno</strong></p>
-                            <table class="table table-sm table-hover mb-0">
-                                <tbody>
-                                    {% for p in loss_types.internal %}
-                                    <tr>
-                                        <td class="text-muted font-monospace" style="width:90px">{{ p.cod }}.{{ p.v }}</td>
-                                        <td>{{ p.descrizione }}</td>
-                                        <td class="text-end">{{ p.qty }} pz</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
+                                {% if loss_types.expired %}
+                                <div class="mb-2">
+                                    <div class="d-flex align-items-center gap-2 mb-1"
+                                         data-bs-toggle="collapse"
+                                         data-bs-target="#expired-{{ settore_idx }}"
+                                         style="cursor:pointer;">
+                                        <strong class="text-warning"><i class="bi bi-calendar-x"></i> Scaduto</strong>
+                                        <span class="badge bg-warning text-dark">{{ loss_types.expired|length }} prodotti</span>
+                                        <i class="bi bi-chevron-right small"></i>
+                                    </div>
+                                    <div class="collapse" id="expired-{{ settore_idx }}">
+                                        <table class="table table-sm table-hover mb-0 ms-3">
+                                            <tbody>
+                                                {% for p in loss_types.expired %}
+                                                <tr>
+                                                    <td class="text-muted font-monospace" style="width:90px">{{ p.cod }}.{{ p.v }}</td>
+                                                    <td>{{ p.descrizione }}</td>
+                                                    <td class="text-end">{{ p.qty }} pz</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                {% endif %}
+
+                                {% if loss_types.internal %}
+                                <div class="mb-2">
+                                    <div class="d-flex align-items-center gap-2 mb-1"
+                                         data-bs-toggle="collapse"
+                                         data-bs-target="#internal-{{ settore_idx }}"
+                                         style="cursor:pointer;">
+                                        <strong class="text-info"><i class="bi bi-arrow-left-right"></i> Utilizzo Interno</strong>
+                                        <span class="badge bg-info text-dark">{{ loss_types.internal|length }} prodotti</span>
+                                        <i class="bi bi-chevron-right small"></i>
+                                    </div>
+                                    <div class="collapse" id="internal-{{ settore_idx }}">
+                                        <table class="table table-sm table-hover mb-0 ms-3">
+                                            <tbody>
+                                                {% for p in loss_types.internal %}
+                                                <tr>
+                                                    <td class="text-muted font-monospace" style="width:90px">{{ p.cod }}.{{ p.v }}</td>
+                                                    <td>{{ p.descrizione }}</td>
+                                                    <td class="text-end">{{ p.qty }} pz</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                {% endif %}
+
+                            </div>
                         </div>
-                        {% endif %}
                     </div>
+                    {% endwith %}
                     {% empty %}
                     <p class="text-muted">Nessuna perdita registrata.</p>
                     {% endfor %}
@@ -599,16 +667,20 @@
                         <thead class="table-light">
                             <tr>
                                 <th>EAN</th>
+                                <th>Tipo / Quantità</th>
                                 <th class="text-end">Azione</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for ean in results.absent_eans %}
-                            <tr id="ean-row-{{ ean }}">
-                                <td class="font-monospace">{{ ean }}</td>
+                            {% for item in results.absent_eans %}
+                            <tr id="ean-row-{{ item.ean }}">
+                                <td class="font-monospace">{{ item.ean }}</td>
+                                <td>{{ item.loss_type }} — {{ item.qty }} pz</td>
                                 <td class="text-end">
                                     <button class="btn btn-sm btn-outline-primary fetch-ean-btn"
-                                            data-ean="{{ ean }}"
+                                            data-ean="{{ item.ean }}"
+                                            data-qty="{{ item.qty }}"
+                                            data-loss-type="{{ item.loss_type }}"
                                             data-log="{{ log.id }}">
                                         <i class="bi bi-search"></i> Cerca su PAC2000A
                                     </button>
@@ -620,8 +692,8 @@
                     {% endif %}
 
                     <div class="d-flex gap-2 mt-3">
-                        <a href="{% url 'storage-detail' pk=log.storage.id %}" class="btn btn-primary">
-                            <i class="bi bi-arrow-left"></i> Torna al Magazzino
+                        <a href="{% url 'supermarket-detail' pk=log.storage.supermarket.id %}" class="btn btn-primary">
+                            <i class="bi bi-arrow-left"></i> Torna al Punto vendita
                         </a>
                     </div>
                 </div>
@@ -632,6 +704,8 @@
         document.querySelectorAll('.fetch-ean-btn').forEach(btn => {
             btn.addEventListener('click', function () {
                 const ean = this.dataset.ean;
+                const qty = parseInt(this.dataset.qty);
+                const lossType = this.dataset.lossType;
                 const logId = this.dataset.log;
                 const row = document.getElementById(`ean-row-${ean}`);
                 this.disabled = true;
@@ -640,7 +714,7 @@
                 fetch(`/logs/${logId}/fetch-ean/`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
-                    body: JSON.stringify({ean})
+                    body: JSON.stringify({ean, qty, loss_type: lossType})
                 })
                 .then(r => r.json())
                 .then(data => {

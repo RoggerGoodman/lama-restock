@@ -4687,9 +4687,11 @@ def loss_log_fetch_ean_ajax(request, log_id):
     log = get_object_or_404(RestockLog, id=log_id, storage__supermarket__owner=request.user)
     data = json.loads(request.body)
     ean = data['ean']
+    qty = data.get('qty')
+    loss_type = data.get('loss_type')
 
     from .tasks import fetch_product_from_ean
-    result = fetch_product_from_ean.apply_async(args=[log.storage.id, ean])
+    result = fetch_product_from_ean.apply_async(args=[log.storage.id, ean, qty, loss_type])
     return JsonResponse({'task_id': result.id})
 
 

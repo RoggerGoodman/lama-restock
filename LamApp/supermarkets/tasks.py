@@ -1557,7 +1557,7 @@ def fetch_single_ean(storage_id, cod, v):
 
 
 @shared_task(queue='selenium', acks_late=True, reject_on_worker_lost=True)
-def fetch_product_from_ean(storage_id, ean):
+def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
     """
     Given an EAN that was absent from the products table, look up the product
     in PAC2000A, update products.ean if the product is in our catalog, and
@@ -1613,6 +1613,10 @@ def fetch_product_from_ean(storage_id, ean):
             cur = service.db.cursor()
             cur.execute("UPDATE products SET ean=%s WHERE cod=%s AND v=%s", (new_ean, cod, v))
             service.db.conn.commit()
+
+            if qty and loss_type:
+                service.db.register_losses(cod, v, qty, loss_type)
+                logger.info(f"[EAN FIX] Registered {loss_type} loss: {cod}.{v} qty={qty}")
 
         logger.info(f"[EAN FIX] EAN {ean} -> {cod}.{v}, stored EAN={new_ean}")
         return {'success': True, 'ean': ean, 'cod': cod, 'v': v, 'new_ean': new_ean, 'message': f'EAN aggiornato per {cod}.{v} ({new_ean})'}

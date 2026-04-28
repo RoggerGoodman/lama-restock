@@ -100,7 +100,7 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
                 if product is None:
                     logger.debug(f"EAN {ean} not found in products table (skipped)")
                     absent_count += 1
-                    absent_eans.append(ean)
+                    absent_eans.append({'ean': ean, 'qty': delta, 'loss_type': loss_type})
                     continue
 
                 cod = product['cod']
