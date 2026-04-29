@@ -92,7 +92,7 @@ class StorageService:
     @staticmethod
     def sync_storages(supermarket):
         """
-        Sync storages from PAC2000A to Django database.
+        Sync storages from Dropzone to Django database.
         Creates new storages and updates id_cod_mag on existing ones.
         """
         import re

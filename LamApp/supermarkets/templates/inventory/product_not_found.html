@@ -40,14 +40,14 @@
                         Questo articolo non esiste in nessuno dei database dei tuoi Punti vendita.
                     </p>
                     <p class="mb-0">
-                        <strong>Fare clic su "Aggiungi articolo" qui sotto</strong> per recuperare automaticamente i dettagli del articolo da PAC2000A e aggiungerli al tuo database.
+                        <strong>Fare clic su "Aggiungi articolo" qui sotto</strong> per recuperare automaticamente i dettagli del articolo da Dropzone e aggiungerli al tuo database.
                     </p>
                 </div>
 
                 <div class="alert alert-warning">
                     <h6><i class="bi bi-clock"></i> Tempo di elaborazione</h6>
                     <p class="mb-0">
-                        <strong>Si prega di essere pazienti:</strong> il processo si collegherà a PAC2000A per recuperare i dettagli del articolo. L'operazione potrebbe richiedere dai 15 ai 30 secondi.
+                        <strong>Si prega di essere pazienti:</strong> il processo si collegherà a Dropzone per recuperare i dettagli del articolo. L'operazione potrebbe richiedere dai 15 ai 30 secondi.
                     </p>
                 </div>
 
@@ -75,7 +75,7 @@
                     <div class="alert alert-info">
                         <div class="d-flex align-items-center">
                             <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                            <span id="progressText">Connessione a PAC2000A...</span>
+                            <span id="progressText">Connessione a Dropzone...</span>
                         </div>
                     </div>
                 </div>
@@ -342,7 +342,7 @@ function submitAutoAdd() {
     .then(data => {
         if (data.success && data.task_id) {
             // ✅ FIX: Poll task status instead of waiting synchronously
-            document.getElementById('progressText').textContent = 'Fetching product data from PAC2000A...';
+            document.getElementById('progressText').textContent = 'Fetching product data from Dropzone...';
             pollTaskStatus(data.task_id);
         } else {
             showError(data.message || 'Failed to start auto-add');

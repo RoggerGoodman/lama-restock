@@ -373,7 +373,7 @@
                         </p>
                     </div>
 
-                    <!-- Not found products — fetch from PAC2000A -->
+                    <!-- Not found products — fetch from Dropzone -->
                     {% if results.not_found %}
                     <div class="mb-3">
                         <h6 class="text-warning"><i class="bi bi-question-circle"></i> Prodotti consegnati non presenti nel catalogo ({{ results.not_found|length }})</h6>
@@ -527,7 +527,7 @@
                 <div class="stat-card">
                     <div class="alert alert-success">
                         <h6><i class="bi bi-check-circle"></i> Elenco articoli aggiornato</h6>
-                        <p class="mb-0">L'elenco dei articoli è stato scaricato e importato correttamente da PAC2000A.</p>
+                        <p class="mb-0">L'elenco dei articoli è stato scaricato e importato correttamente da Dropzone.</p>
                     </div>
 
                     <div class="d-flex gap-2">
@@ -661,7 +661,7 @@
                     </h6>
                     <p class="text-muted small mb-2">
                         Questi EAN erano nei file perdite ma non corrispondono a nessun prodotto nel database.
-                        Potrebbe essere che il barcode sia cambiato — prova a cercarlo su PAC2000A.
+                        Potrebbe essere che il barcode sia cambiato — prova a cercarlo su Dropzone.
                     </p>
                     <table class="table table-sm align-middle mb-3" id="absent-ean-table">
                         <thead class="table-light">
@@ -682,7 +682,7 @@
                                             data-qty="{{ item.qty }}"
                                             data-loss-type="{{ item.loss_type }}"
                                             data-log="{{ log.id }}">
-                                        <i class="bi bi-search"></i> Cerca su PAC2000A
+                                        <i class="bi bi-search"></i> Cerca su Dropzone
                                     </button>
                                 </td>
                             </tr>
@@ -722,13 +722,13 @@
                         pollFetchEanTask(data.task_id, ean, row, this);
                     } else {
                         this.disabled = false;
-                        this.innerHTML = '<i class="bi bi-search"></i> Cerca su PAC2000A';
+                        this.innerHTML = '<i class="bi bi-search"></i> Cerca su Dropzone';
                         alert('Errore avvio task: ' + (data.error || 'sconosciuto'));
                     }
                 })
                 .catch(() => {
                     this.disabled = false;
-                    this.innerHTML = '<i class="bi bi-search"></i> Cerca su PAC2000A';
+                    this.innerHTML = '<i class="bi bi-search"></i> Cerca su Dropzone';
                     alert('Errore di rete');
                 });
             });
@@ -1132,6 +1132,7 @@
         {% endif %}
     {% endif %}
 
+    {% if log.operation_type != 'loss_recording' %}
     <!-- Actions -->
     <div class="row mt-3">
         <div class="col-12">
@@ -1145,6 +1146,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 </div>
 {% endblock %}
 {% block scripts %}
@@ -1373,7 +1375,7 @@ function flagAllZombiesForPurge() {
     flagProductsForPurge(all);
 }
 
-// ============ DDT NOT-FOUND: FETCH FROM PAC2000A ============
+// ============ DDT NOT-FOUND: FETCH FROM Dropzone ============
 const DDT_SUPERMARKET_ID = {{ log.storage.supermarket.pk }};
 const DDT_STORAGE_ID = {{ log.storage.pk }};
 

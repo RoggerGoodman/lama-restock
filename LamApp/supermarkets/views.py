@@ -352,11 +352,18 @@ class SupermarketCreateView(LoginRequiredMixin, CreateView):
     fields = ['name', 'username', 'password']
     template_name = 'supermarkets/form.html'
 
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        form.fields['name'].label = 'Nome del punto vendita'
+        form.fields['username'].label = 'Username Dropzone'
+        form.fields['password'].label = 'Password Dropzone'
+        return form
+
     def form_valid(self, form):
         form.instance.owner = self.request.user
         response = super().form_valid(form)
 
-        # Store client parameters from PAC2000A
+        # Store client parameters from Dropzone
         client_json = self.request.POST.get('client_data', '')
         if client_json:
             try:
@@ -415,6 +422,13 @@ class SupermarketUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView)
     model = Supermarket
     fields = ['name', 'username', 'password']
     template_name = 'supermarkets/form.html'
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        form.fields['name'].label = 'Nome del punto vendita'
+        form.fields['username'].label = 'Username Dropzone'
+        form.fields['password'].label = 'Password Dropzone'
+        return form
 
     def test_func(self):
         return self.get_object().owner == self.request.user
@@ -569,7 +583,7 @@ def closure_api_view(request, pk):
 @require_POST
 def discover_storages_ajax(request):
     """
-    AJAX endpoint to discover storages and client parameters from PAC2000A.
+    AJAX endpoint to discover storages and client parameters from Dropzone.
     Used by the supermarket creation form to preview storages before saving.
     Two-phase: Finder discovers storages, then WebLister gathers client params.
     """

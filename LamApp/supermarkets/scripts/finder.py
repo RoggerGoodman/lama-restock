@@ -21,8 +21,8 @@ class Finder:
         Initialize finder with credentials.
         
         Args:
-            username: PAC2000A username
-            password: PAC2000A password
+            username: Dropzone username
+            password: Dropzone password
         """
         self.username = username
         self.password = password
@@ -56,7 +56,7 @@ class Finder:
         self.actions = ActionChains(self.driver)
     
     def login(self):
-        """Login to PAC2000A"""
+        """Login to Dropzone"""
         self.driver.get('https://dropzone.pac2000a.it/')
         
         self.wait.until(

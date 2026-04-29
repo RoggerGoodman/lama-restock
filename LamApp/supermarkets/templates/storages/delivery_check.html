@@ -521,7 +521,7 @@
                 } else {
                     fetchBtn = `<button class="btn btn-outline-secondary btn-sm"
                            data-action="fetch-ean" data-cod="${escHtml(String(ddt.cod))}" data-var="${escHtml(String(ddt.var))}"
-                           title="EAN non nel DB — Recupera da PAC2000A, poi riscansiona">
+                           title="EAN non nel DB — Recupera da Dropzone, poi riscansiona">
                            <i class="bi bi-cloud-download"></i>
                        </button>
                        <div class="text-muted" style="font-size:0.7rem;">EAN mancante</div>`;
@@ -726,7 +726,7 @@
                 } else {
                     btn.disabled = false;
                     btn.innerHTML = '<i class="bi bi-cloud-download"></i>';
-                    btn.title = result.message || 'EAN non trovato su PAC2000A';
+                    btn.title = result.message || 'EAN non trovato su Dropzone';
                 }
             })
             .catch(() => clearInterval(interval));

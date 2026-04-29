@@ -27,25 +27,6 @@
                     {{ supermarket.name }}
                 </h4>
                 
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <p class="mb-1"><strong>Nome utente:</strong></p>
-                        <p class="text-muted">{{ supermarket.username }}</p>
-                    </div>
-                    <div class="col-md-6">
-                        <p class="mb-1"><strong>Proprietario:</strong></p>
-                        <p class="text-muted">{{ supermarket.owner.username }}</p>
-                    </div>
-                </div>
-
-                <!-- Actions -->
-                <h6 class="mb-2 mt-4"><i class="bi bi-lightning-charge"></i> Azioni di gestione</h6>
-                <div class="d-flex gap-2 flex-wrap mb-3">
-                    <a href="{% url 'supermarket-edit' pk=supermarket.pk %}" class="btn btn-primary">
-                        <i class="bi bi-pencil"></i> Modifica dettagli
-                    </a>
-                </div>
-
                 <!-- NEW: Promo Upload -->
                 <h6 class="mb-2 mt-4"><i class="bi bi-file-pdf"></i> Promozioni</h6>
                 <div class="d-flex gap-2 flex-wrap mb-3">
@@ -68,6 +49,13 @@
                         {% else %}
                         <span class="badge bg-warning text-dark ms-1">Non configurato</span>
                         {% endif %}
+                    </a>
+                </div>
+
+                <hr class="mt-4">
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="{% url 'supermarket-edit' pk=supermarket.pk %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-gear"></i> Correggi credenziali
                     </a>
                 </div>
             </div>
@@ -156,7 +144,6 @@
                         <thead class="table-light">
                             <tr>
                                 <th>Data</th>
-                                <th>ID</th>
                                 <th>Prodotti</th>
                                 <th>Unità totali</th>
                                 <th>Stato</th>
@@ -167,7 +154,6 @@
                             {% for log in recent_loss_logs %}
                             <tr>
                                 <td>{{ log.started_at|date:"d/m/Y H:i" }}</td>
-                                <td class="text-muted font-monospace">#{{ log.id }}</td>
                                 <td>{{ log.total_products }}</td>
                                 <td>{{ log.total_packages }}</td>
                                 <td>
@@ -246,9 +232,9 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% if storage.list_update_schedule and storage.list_update_schedule.enabled %}
+                                        {% if storage.schedule %}
                                             <span class="badge bg-info">
-                                                <i class="bi bi-arrow-repeat"></i> {{ storage.list_update_schedule.get_frequency_display }}
+                                                <i class="bi bi-arrow-repeat"></i> Automatico
                                             </span>
                                         {% else %}
                                             <span class="badge bg-secondary">

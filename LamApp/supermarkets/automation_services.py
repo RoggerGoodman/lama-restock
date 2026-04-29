@@ -260,7 +260,7 @@ class AutomatedRestockService(RestockService):
    
     def execute_order_checkpoint(self, log: RestockLog, orders_list, progress_callback=None):
         """
-        CHECKPOINT 2 (RETRY): Execute the order in PAC2000A.
+        CHECKPOINT 2 (RETRY): Execute the order in Dropzone.
         This is now the SECOND and FINAL checkpoint in retry logic.
         """
         logger.info(f"[CHECKPOINT 2 - RETRY] Executing order for {self.storage.name}")
@@ -392,7 +392,7 @@ class AutomatedRestockService(RestockService):
             
             # CHECKPOINT 2 (RETRY): Execute order
             if progress_callback:
-                progress_callback(70, 'Placing order in PAC2000A...')
+                progress_callback(70, 'Placing order in Dropzone...')
             
             with transaction.atomic():
                 log.refresh_from_db()

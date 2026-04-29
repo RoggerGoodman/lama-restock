@@ -10,14 +10,14 @@ class Supermarket(models.Model):
     name = models.CharField(max_length=255, unique=True)
     username = models.CharField(max_length=255)
     password = models.CharField(max_length=255)
-    # PAC2000A client parameters (discovered via gather_client_data)
-    id_cliente = models.IntegerField(null=True, blank=True, help_text="IDCliente from PAC2000A")
-    id_azienda = models.IntegerField(null=True, blank=True, help_text="IDAzienda from PAC2000A")
-    id_marchio = models.IntegerField(null=True, blank=True, help_text="IDMarchio from PAC2000A")
-    id_clienti_canale = models.IntegerField(null=True, blank=True, help_text="IDClientiCanale from PAC2000A")
-    id_clienti_area = models.IntegerField(null=True, blank=True, help_text="IDClientiArea from PAC2000A")
-    id_user = models.IntegerField(null=True, blank=True, help_text="IDUser from PAC2000A (used for fatture_righe_data)")
-    x5cper = models.IntegerField(null=True, blank=True, help_text="N1CPER from PAC2000A (counterpart code for ScorporoAmministrativo)")
+    # Dropzone client parameters (discovered via gather_client_data)
+    id_cliente = models.IntegerField(null=True, blank=True, help_text="IDCliente from Dropzone")
+    id_azienda = models.IntegerField(null=True, blank=True, help_text="IDAzienda from Dropzone")
+    id_marchio = models.IntegerField(null=True, blank=True, help_text="IDMarchio from Dropzone")
+    id_clienti_canale = models.IntegerField(null=True, blank=True, help_text="IDClientiCanale from Dropzone")
+    id_clienti_area = models.IntegerField(null=True, blank=True, help_text="IDClientiArea from Dropzone")
+    id_user = models.IntegerField(null=True, blank=True, help_text="IDUser from Dropzone (used for fatture_righe_data)")
+    x5cper = models.IntegerField(null=True, blank=True, help_text="N1CPER from Dropzone (counterpart code for ScorporoAmministrativo)")
     sync_api_token = models.CharField(
         max_length=64, unique=True, null=True, blank=True,
         help_text="API token for VENSETAR sales sync (PowerShell script on supermarket PC)"
@@ -137,7 +137,7 @@ class Storage(models.Model):
     supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='storages')
     name = models.CharField(max_length=255)
     settore = models.CharField(max_length=255, help_text="Internal settore name from DB")
-    id_cod_mag = models.IntegerField(null=True, blank=True, help_text="Warehouse code from PAC2000A (IDCodMag)")
+    id_cod_mag = models.IntegerField(null=True, blank=True, help_text="Warehouse code from Dropzone (IDCodMag)")
     last_list_update = models.DateTimeField(null=True, blank=True, help_text="Last time product list was updated")
     minimum_stock = models.IntegerField(default=6, help_text="Base minimum stock for all products in this storage")
     

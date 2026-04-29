@@ -503,7 +503,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                         
                         if not product_data:
                             logger.warning(f"[ADD PRODUCTS] Product {cod}.{var} not found")
-                            failed.append((cod, var, "Not found in PAC2000A"))
+                            failed.append((cod, var, "Not found in Dropzone"))
                             continue
                         
                         description, package, multiplier, availability, cost, price, category, ean = product_data
@@ -856,7 +856,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                                 failed_additions.append({
                                     'cod': cod,
                                     'var': var,
-                                    'reason': 'Not found in PAC2000A system'
+                                    'reason': 'Not found in Dropzone system'
                                 })
                                 continue
                             
@@ -1368,7 +1368,7 @@ def create_monthly_stock_snapshots(self):
     reject_on_worker_lost=True
 )
 def sync_storages_task(self, supermarket_id):
-    """Sync storages from PAC2000A for a supermarket."""
+    """Sync storages from Dropzone for a supermarket."""
     from .models import Supermarket
     from .services import StorageService
 
@@ -1560,7 +1560,7 @@ def fetch_single_ean(storage_id, cod, v):
 def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
     """
     Given an EAN that was absent from the products table, look up the product
-    in PAC2000A, update products.ean if the product is in our catalog, and
+    in Dropzone, update products.ean if the product is in our catalog, and
     return the result so the UI can show what happened.
     """
     from .models import Storage
@@ -1593,7 +1593,7 @@ def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
         lister.navigate_to_lists()
         cod_v = lister.gather_product_data_by_ean(ean)
         if cod_v is None:
-            return {'success': False, 'ean': ean, 'message': f'EAN {ean} not found in PAC2000A'}
+            return {'success': False, 'ean': ean, 'message': f'EAN {ean} not found in Dropzone'}
 
         cod, v = cod_v
 
@@ -1603,7 +1603,7 @@ def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
             if cur.fetchone() is None:
                 return {'success': False, 'ean': ean, 'message': f'Product {cod}.{v} not in catalog'}
 
-        # Fetch authoritative latest EAN from PAC2000A (barcode_data[-1])
+        # Fetch authoritative latest EAN from Dropzone (barcode_data[-1])
         product_data = lister.gather_missing_product_data(cod, v)
         latest_ean = product_data[7] if product_data else None
 

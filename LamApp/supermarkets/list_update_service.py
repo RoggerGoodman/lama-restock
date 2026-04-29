@@ -1,7 +1,7 @@
 # LamApp/supermarkets/list_update_service.py
 """
 Service to handle automatic product list updates.
-Downloads latest product list from PAC2000A and imports to database.
+Downloads latest product list from Dropzone and imports to database.
 Also detects cost changes that affect recipe margins.
 """
 import logging
@@ -47,7 +47,7 @@ class ListUpdateService:
     
     def download_list(self) -> str:
         """
-        Download product list from PAC2000A.
+        Download product list from Dropzone.
         
         Returns:
             str: Path to downloaded CSV file

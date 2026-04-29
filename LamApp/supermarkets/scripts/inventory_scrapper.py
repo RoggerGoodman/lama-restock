@@ -86,8 +86,8 @@ class Inventory_Scrapper:
         self.actions = ActionChains(self.driver)
 
     def login(self):
-        """Login to PAC2000A"""
-        logger.info("Logging in to PAC2000A...")
+        """Login to Dropzone"""
+        logger.info("Logging in to Dropzone...")
         self.driver.get('https://dropzone.pac2000a.it/')
 
         # Wait for login page

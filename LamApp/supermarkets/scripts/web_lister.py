@@ -1,7 +1,7 @@
 # LamApp/supermarkets/scripts/web_lister.py
 """
 Web-integrated version of the Lister script.
-Downloads product list Excel files from PAC2000A automatically.
+Downloads product list Excel files from Dropzone automatically.
 """
 from .DatabaseManager import DatabaseManager
 import re
@@ -39,7 +39,7 @@ CSV_COLUMN_MAP = {
 
 class WebLister:
     """
-    Downloads product list Excel files from PAC2000A.
+    Downloads product list Excel files from Dropzone.
     Adapted for web app usage - no hardcoded values.
     """
     
@@ -53,16 +53,16 @@ class WebLister:
         Initialize the lister.
 
         Args:
-            username: PAC2000A username
-            password: PAC2000A password
+            username: Dropzone username
+            password: Dropzone password
             storage_name: Storage name (e.g., "01 RIANO GENERI VARI")
             download_dir: Directory to save downloaded files
-            id_cod_mag: Warehouse code from PAC2000A (stored on Storage model)
-            id_cliente: Client ID from PAC2000A (stored on Supermarket model)
-            id_azienda: Company ID from PAC2000A (stored on Supermarket model)
-            id_marchio: Brand ID from PAC2000A (stored on Supermarket model)
-            id_clienti_canale: Channel ID from PAC2000A (stored on Supermarket model)
-            id_clienti_area: Area ID from PAC2000A (stored on Supermarket model)
+            id_cod_mag: Warehouse code from Dropzone (stored on Storage model)
+            id_cliente: Client ID from Dropzone (stored on Supermarket model)
+            id_azienda: Company ID from Dropzone (stored on Supermarket model)
+            id_marchio: Brand ID from Dropzone (stored on Supermarket model)
+            id_clienti_canale: Channel ID from Dropzone (stored on Supermarket model)
+            id_clienti_area: Area ID from Dropzone (stored on Supermarket model)
             headless: Run browser in headless mode (no UI)
         """
         self.username = username
@@ -141,8 +141,8 @@ class WebLister:
             raise
 
     def login(self):
-        """Login to PAC2000A and navigate to product list"""
-        logger.info("Logging in to PAC2000A...")
+        """Login to Dropzone and navigate to product list"""
+        logger.info("Logging in to Dropzone...")
         
         self.driver.get('https://dropzone.pac2000a.it/')
         
@@ -200,7 +200,7 @@ class WebLister:
 
     def gather_client_data(self):
         """
-        Gather all client-specific parameters from PAC2000A APIs.
+        Gather all client-specific parameters from Dropzone APIs.
         Must be called after login(). Navigates to the lists section to
         intercept IDUser, then fetches client params and x5cper via API calls.
         Returns a dict with all fields needed to populate the Supermarket model.
@@ -303,7 +303,7 @@ class WebLister:
 
         if self.IDCodMag is None:
             logger.error(f"IDCodMag not set for {self.settore}. "
-                         "Storage may need re-sync from PAC2000A.")
+                         "Storage may need re-sync from Dropzone.")
             raise ValueError(f"IDCodMag not configured for storage '{self.settore}'. "
                              "Please re-sync storages.")
 
@@ -320,7 +320,7 @@ class WebLister:
 
     def fetch_listino(self):
         """
-        Fetch listino products from PAC2000A (Listino_callV2.php)
+        Fetch listino products from Dropzone (Listino_callV2.php)
         Requires an authenticated Selenium driver.
         """
 
@@ -526,7 +526,7 @@ class WebLister:
 
     def gather_product_data_by_ean(self, ean):
         """
-        Reverse lookup: given an EAN barcode, return (cod, var) from PAC2000A.
+        Reverse lookup: given an EAN barcode, return (cod, var) from Dropzone.
         Calls ArticoliDecodifica_call.php with CodiceBarre instead of CodiceArticolo/VarianteArticolo.
         Returns (cod, var) tuple or None if not found.
         """
@@ -714,16 +714,16 @@ def download_product_list(username: str, password: str, storage_name: str,
     Convenience function to download product list.
 
     Args:
-        username: PAC2000A username
-        password: PAC2000A password
+        username: Dropzone username
+        password: Dropzone password
         storage_name: Storage name (e.g., "01 RIANO GENERI VARI")
         download_dir: Directory to save downloaded files
-        id_cod_mag: Warehouse code from PAC2000A
-        id_cliente: Client ID from PAC2000A
-        id_azienda: Company ID from PAC2000A
-        id_marchio: Brand ID from PAC2000A
-        id_clienti_canale: Channel ID from PAC2000A
-        id_clienti_area: Area ID from PAC2000A
+        id_cod_mag: Warehouse code from Dropzone
+        id_cliente: Client ID from Dropzone
+        id_azienda: Company ID from Dropzone
+        id_marchio: Brand ID from Dropzone
+        id_clienti_canale: Channel ID from Dropzone
+        id_clienti_area: Area ID from Dropzone
         headless: Run browser in headless mode
 
     Returns:
