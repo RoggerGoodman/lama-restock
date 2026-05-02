@@ -2,7 +2,7 @@
 {% extends 'base.html' %}
 
 {% block title %}{% if log.operation_type == 'ddt_import' %}DDT Import{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% else %}Riepilogo ordine{% endif %} - {% if log.operation_type == 'loss_recording' %}{{ log.storage.supermarket.name }}{% else %}{{ log.storage.name }}{% endif %}{% endblock %}
-{% block page_title %}{% if log.operation_type == 'ddt_import' %}Dettagli Importazione DDT{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% else %}Dettagli riepilogo ordine{% endif %}{% endblock %}
+{% block page_title %}{% if log.operation_type == 'ddt_import' %}Dettagli Importazione DDT{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% elif log.operation_type == 'verification' %}Dettagli verifica giacenza{% elif log.operation_type == 'cluster_assignment' %}Dettagli assegnazione cluster{% elif log.operation_type == 'product_addition' %}Dettagli aggiunta articoli{% else %}Dettagli riepilogo ordine{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -156,6 +156,15 @@
                             {% elif log.operation_type == 'loss_recording' %}
                             <i class="bi bi-trash text-danger"></i>
                             Registrazione perdite #{{ log.id }}
+                            {% elif log.operation_type == 'verification' %}
+                            <i class="bi bi-clipboard-check text-info"></i>
+                            Verifica giacenza #{{ log.id }}
+                            {% elif log.operation_type == 'cluster_assignment' %}
+                            <i class="bi bi-diagram-3 text-secondary"></i>
+                            Assegnazione cluster #{{ log.id }}
+                            {% elif log.operation_type == 'product_addition' %}
+                            <i class="bi bi-plus-circle text-success"></i>
+                            Aggiunta articoli #{{ log.id }}
                             {% else %}
                             <i class="bi bi-file-text text-primary"></i>
                             Riepilogo ordine #{{ log.id }}
@@ -313,6 +322,21 @@
                         <strong class="{% if results.absent_eans %}text-warning{% else %}text-success{% endif %}">{{ results.absent_eans|length }}</strong>
                     </div>
                     {% endwith %}
+                {% elif log.operation_type == 'verification' %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Articoli verificati</span>
+                        <strong class="text-success">{{ log.products_ordered }}</strong>
+                    </div>
+                {% elif log.operation_type == 'cluster_assignment' %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Articoli assegnati</span>
+                        <strong class="text-success">{{ log.products_ordered|default:0 }}</strong>
+                    </div>
+                {% elif log.operation_type == 'product_addition' %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Articoli aggiunti</span>
+                        <strong class="text-success">{{ log.products_ordered|default:0 }}</strong>
+                    </div>
                 {% else %}
                 <div class="mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">

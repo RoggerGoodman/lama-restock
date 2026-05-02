@@ -77,6 +77,24 @@ app.conf.beat_schedule = {
         'task': 'supermarkets.tasks.record_losses_all_supermarkets',
         'schedule': crontab(hour=22, minute=30),
     },
+
+    # Sunday 01:00 — delete old restock logs (keep last 10 per storage, max 6 months)
+    'cleanup-old-restock-logs': {
+        'task': 'supermarkets.tasks.cleanup_old_restock_logs',
+        'schedule': crontab(hour=1, minute=0, day_of_week='sunday'),
+    },
+
+    # Sunday 01:05 — delete old sales sync logs (keep last 30 per supermarket, max 90 days)
+    'cleanup-old-sales-sync-logs': {
+        'task': 'supermarkets.tasks.cleanup_old_sales_sync_logs',
+        'schedule': crontab(hour=1, minute=5, day_of_week='sunday'),
+    },
+
+    # Sunday 01:10 — delete stale recipe cost alerts (read >30d, unread >90d)
+    'cleanup-old-recipe-cost-alerts': {
+        'task': 'supermarkets.tasks.cleanup_old_recipe_cost_alerts',
+        'schedule': crontab(hour=1, minute=10, day_of_week='sunday'),
+    },
 }
 
 @app.task(bind=True)

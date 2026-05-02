@@ -1123,7 +1123,7 @@ def process_ddt_task(self, storage_id, pdf_file_path):
         log = RestockLog.objects.create(
             storage=storage,
             status='processing',
-            operation_type='verification',  # Reuse this type
+            operation_type='ddt_import',
             current_stage='processing'
         )
         
@@ -1149,19 +1149,20 @@ def process_ddt_task(self, storage_id, pdf_file_path):
             # Update log
             log.status = 'completed'
             log.completed_at = timezone.now()
-            log.products_ordered = result['processed']  # Reuse this field
-            log.total_packages = result['total_qty_added']  # Reuse for total qty
+            log.products_ordered = result['processed']
+            log.total_packages = result['total_qty_added']
             log.set_results({
-                'ddt_entries': [
-                    {'cod': cod, 'var': var, 'qty': qty}
-                    for cod, var, qty in ddt_entries[:100]  # Limit for storage
+                'updated': result['processed'],
+                'not_found': [
+                    {'cod': p['cod'], 'v': p['var'], 'descrizione': ''}
+                    for p in result['skipped_products'][:50]
                 ],
-                'processed': result['processed'],
-                'total_qty_added': result['total_qty_added'],
-                'skipped': result['skipped'],
-                'errors': result['errors'],
-                'skipped_products': result['skipped_products'][:20],
-                'error_products': result['error_products'][:20]
+                'errors': [
+                    {'cod': p['cod'], 'v': p['var'], 'error': p['error']}
+                    for p in result['error_products'][:20]
+                ],
+                'invoices': [],
+                'unverified_products': []
             })
             log.save()
             
@@ -1695,4 +1696,125 @@ def run_scheduled_orders(self):
 
     except Exception as exc:
         logger.exception("[CELERY-SCHED] Fatal error in run_scheduled_orders")
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=300)
+def cleanup_old_restock_logs(self, max_age_days=180, min_keep_per_storage=10):
+    """
+    Delete RestockLog rows older than max_age_days, but always keep the
+    most recent min_keep_per_storage logs per storage so history is never
+    completely wiped.  Runs weekly (Sunday 01:00).
+    """
+    from datetime import timedelta
+    from .models import Storage, RestockLog
+
+    try:
+        cutoff = timezone.now() - timedelta(days=max_age_days)
+
+        # Collect IDs to preserve (newest N per storage)
+        keep_ids = set()
+        for storage_id in Storage.objects.values_list('id', flat=True):
+            ids = list(
+                RestockLog.objects
+                .filter(storage_id=storage_id)
+                .order_by('-started_at')
+                .values_list('id', flat=True)[:min_keep_per_storage]
+            )
+            keep_ids.update(ids)
+
+        deleted, _ = (
+            RestockLog.objects
+            .filter(started_at__lt=cutoff)
+            .exclude(id__in=keep_ids)
+            .delete()
+        )
+
+        msg = (
+            f"Log cleanup complete: {deleted} rows deleted "
+            f"(older than {max_age_days} days, kept last {min_keep_per_storage} per storage)"
+        )
+        logger.info(f"[CELERY-CLEANUP] {msg}")
+        return msg
+
+    except Exception as exc:
+        logger.exception("[CELERY-CLEANUP] Fatal error in cleanup_old_restock_logs")
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=300)
+def cleanup_old_sales_sync_logs(self, max_age_days=90, min_keep_per_supermarket=30):
+    """
+    Delete SalesSyncLog rows older than max_age_days, keeping the most
+    recent min_keep_per_supermarket entries per supermarket.
+    Runs weekly (Sunday 01:05).
+    """
+    from datetime import timedelta
+    from .models import Supermarket, SalesSyncLog
+
+    try:
+        cutoff = timezone.now() - timedelta(days=max_age_days)
+
+        keep_ids = set()
+        for sm_id in Supermarket.objects.values_list('id', flat=True):
+            ids = list(
+                SalesSyncLog.objects
+                .filter(supermarket_id=sm_id)
+                .order_by('-created_at')
+                .values_list('id', flat=True)[:min_keep_per_supermarket]
+            )
+            keep_ids.update(ids)
+
+        deleted, _ = (
+            SalesSyncLog.objects
+            .filter(created_at__lt=cutoff)
+            .exclude(id__in=keep_ids)
+            .delete()
+        )
+
+        msg = (
+            f"SalesSyncLog cleanup complete: {deleted} rows deleted "
+            f"(older than {max_age_days} days, kept last {min_keep_per_supermarket} per supermarket)"
+        )
+        logger.info(f"[CELERY-CLEANUP] {msg}")
+        return msg
+
+    except Exception as exc:
+        logger.exception("[CELERY-CLEANUP] Fatal error in cleanup_old_sales_sync_logs")
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=300)
+def cleanup_old_recipe_cost_alerts(self, read_max_age_days=30, unread_max_age_days=90):
+    """
+    Delete RecipeCostAlert rows that are stale:
+    - Read alerts older than read_max_age_days (default 30)
+    - Unread alerts older than unread_max_age_days (default 90)
+    Runs weekly (Sunday 01:10).
+    """
+    from datetime import timedelta
+    from .models import RecipeCostAlert
+
+    try:
+        now = timezone.now()
+
+        deleted_read, _ = RecipeCostAlert.objects.filter(
+            is_read=True,
+            created_at__lt=now - timedelta(days=read_max_age_days)
+        ).delete()
+
+        deleted_unread, _ = RecipeCostAlert.objects.filter(
+            is_read=False,
+            created_at__lt=now - timedelta(days=unread_max_age_days)
+        ).delete()
+
+        msg = (
+            f"RecipeCostAlert cleanup complete: {deleted_read} read alerts deleted "
+            f"(>{read_max_age_days}d), {deleted_unread} unread alerts deleted (>{unread_max_age_days}d)"
+        )
+        logger.info(f"[CELERY-CLEANUP] {msg}")
+        return msg
+
+    except Exception as exc:
+        logger.exception("[CELERY-CLEANUP] Fatal error in cleanup_old_recipe_cost_alerts")
         raise self.retry(exc=exc)
