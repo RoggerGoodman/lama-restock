@@ -203,7 +203,7 @@
                 <h3 class="mb-1">{{ stats.broken.total_units }}</h3>
                 <p class="text-muted mb-1">Rotture</p>
                 <small class="text-success">€{{ stats.broken.total_value|floatformat:2 }}</small><br>
-                <small class="text-muted">{{ stats.broken.products }} articolo{{ stats.broken.products|pluralize }}</small>
+                <small class="text-muted">{{ stats.broken.products }} articol{{ stats.broken.products|pluralize:"o,i" }}</small>
             </div>
         </div>
         {% endif %}
@@ -217,7 +217,7 @@
                 <h3 class="mb-1">{{ stats.expired.total_units }}</h3>
                 <p class="text-muted mb-1">Scaduto</p>
                 <small class="text-success">€{{ stats.expired.total_value|floatformat:2 }}</small><br>
-                <small class="text-muted">{{ stats.expired.products }} articolo{{ stats.expired.products|pluralize }}</small>
+                <small class="text-muted">{{ stats.expired.products }} articol{{ stats.expired.products|pluralize:"o,i" }}</small>
             </div>
         </div>
         {% endif %}
@@ -231,7 +231,7 @@
                 <h3 class="mb-1">{{ stats.internal.total_units }}</h3>
                 <p class="text-muted mb-1">Utilizzo interno</p>
                 <small class="text-success">€{{ stats.internal.total_value|floatformat:2 }}</small><br>
-                <small class="text-muted">{{ stats.internal.products }} articolo{{ stats.internal.products|pluralize }}</small>
+                <small class="text-muted">{{ stats.internal.products }} articol{{ stats.internal.products|pluralize:"o,i" }}</small>
             </div>
         </div>
         {% endif %}
@@ -245,7 +245,7 @@
                 <h3 class="mb-1">{{ stats.stolen.total_units }}</h3>
                 <p class="text-muted mb-1">Furti</p>
                 <small class="text-success">€{{ stats.stolen.total_value|floatformat:2 }}</small><br>
-                <small class="text-muted">{{ stats.stolen.products }} articolo{{ stats.stolen.products|pluralize }}</small>
+                <small class="text-muted">{{ stats.stolen.products }} articol{{ stats.stolen.products|pluralize:"o,i" }}</small>
             </div>
         </div>
         {% endif %}
@@ -259,7 +259,7 @@
                 <h3 class="mb-1">{{ stats.shrinkage.total_units }}</h3>
                 <p class="text-muted mb-1">Diff. inventariali</p>
                 <small class="text-success">€{{ stats.shrinkage.total_value|floatformat:2 }}</small><br>
-                <small class="text-muted">{{ stats.shrinkage.products }} articolo{{ stats.shrinkage.products|pluralize }}</small>
+                <small class="text-muted">{{ stats.shrinkage.products }} articol{{ stats.shrinkage.products|pluralize:"o,i" }}</small>
             </div>
         </div>
         {% endif %}

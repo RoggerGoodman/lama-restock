@@ -209,7 +209,7 @@
                 </div>
 
                 <div class="alert alert-info no-print">
-                    <strong>{{ results|length }}</strong> trovato articolo verificato{{ results|length|pluralize }} <!--#TODO mi sa che ho tradotto male-->
+                    <strong>{{ results|length }}</strong> articol{{ results|length|pluralize:"o,i" }} verificat{{ results|length|pluralize:"o,i" }} trovat{{ results|length|pluralize:"o,i" }}
                 </div>
 
                 {% if results %}
