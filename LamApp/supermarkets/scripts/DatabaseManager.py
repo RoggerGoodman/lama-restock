@@ -363,7 +363,8 @@ class DatabaseManager:
                 WHERE cod=%s AND v=%s
             """, (Json(sold_array), Json(sales_sets), stock - sold_qty, sync_date, cod, var))
 
-            updated += 1
+            if sold_qty > 0:
+                updated += 1
             if not verified:
                 unverified_updated += 1
                 unverified_products.append({
@@ -372,6 +373,26 @@ class DatabaseManager:
                     'descrizione': row['descrizione'],
                     'settore': row['settore'],
                 })
+
+        # For verified products absent from today's VENSETAR payload, insert 0 into
+        # sales_sets so the weighted-average algorithm sees the non-selling day correctly.
+        payload_keys = {(cod, var) for cod, var, _ in daily_sales}
+        cur.execute("""
+            SELECT cod, v, sales_sets
+            FROM product_stats
+            WHERE verified = TRUE
+              AND (last_update_sold IS NULL OR last_update_sold < %s)
+        """, (sync_date,))
+        for absent in cur.fetchall():
+            if (absent['cod'], absent['v']) in payload_keys:
+                continue
+            ss = absent['sales_sets'] or []
+            ss.insert(0, 0)
+            ss = ss[:30]
+            cur.execute("""
+                UPDATE product_stats SET sales_sets=%s, last_update_sold=%s
+                WHERE cod=%s AND v=%s
+            """, (Json(ss), sync_date, absent['cod'], absent['v']))
 
         self.conn.commit()
         logger.info(
