@@ -15,6 +15,7 @@ urlpatterns = [
     path('login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
     path('signup/', views.signup, name='signup'),
     path('logout/', LogoutView.as_view(next_page='home'), name='logout'),
+    path('account/', views.account_view, name='account'),
     
     # ============ Supermarkets ============
     path('supermarkets/', views.SupermarketListView.as_view(), name='supermarket-list'),

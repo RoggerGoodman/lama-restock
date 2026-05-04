@@ -5,7 +5,10 @@ import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import UserCreationForm, PasswordChangeForm
+from django.contrib.auth import update_session_auth_hash
+from django import forms as django_forms
+from django.contrib.auth.models import User as AuthUser
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
@@ -71,6 +74,38 @@ def signup(request):
 from django.contrib.admin.views.decorators import staff_member_required
 
 @staff_member_required
+class UsernameChangeForm(django_forms.ModelForm):
+    class Meta:
+        model = AuthUser
+        fields = ['username']
+
+
+@login_required
+def account_view(request):
+    username_form = UsernameChangeForm(instance=request.user)
+    password_form = PasswordChangeForm(request.user)
+
+    if request.method == 'POST':
+        if 'change_username' in request.POST:
+            username_form = UsernameChangeForm(request.POST, instance=request.user)
+            if username_form.is_valid():
+                username_form.save()
+                messages.success(request, "Username aggiornato.")
+                return redirect('account')
+        elif 'change_password' in request.POST:
+            password_form = PasswordChangeForm(request.user, request.POST)
+            if password_form.is_valid():
+                password_form.save()
+                update_session_auth_hash(request, password_form.user)
+                messages.success(request, "Password aggiornata.")
+                return redirect('account')
+
+    return render(request, 'registration/account.html', {
+        'username_form': username_form,
+        'password_form': password_form,
+    })
+
+
 def admin_create_user(request):
     """
     Admin-only view to create new users when registration is closed.

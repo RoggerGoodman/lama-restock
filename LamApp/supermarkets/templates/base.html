@@ -247,6 +247,11 @@
                 </a>
             </li>
             <li class="nav-item mt-4">
+                <a class="nav-link {% if request.resolver_match.url_name == 'account' %}active{% endif %}" href="{% url 'account' %}">
+                    <i class="bi bi-person-gear"></i> Account
+                </a>
+            </li>
+            <li class="nav-item">
                 <form method="post" action="{% url 'logout' %}" style="margin: 0;">
                     {% csrf_token %}
                     <button type="submit" class="nav-link" style="background: none; border: none; width: 100%; text-align: left; cursor: pointer; padding: 12px 20px; margin: 4px 12px; border-radius: 6px;">
