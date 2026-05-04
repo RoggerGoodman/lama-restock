@@ -73,7 +73,7 @@ def signup(request):
 
 from django.contrib.admin.views.decorators import staff_member_required
 
-@staff_member_required
+
 class UsernameChangeForm(django_forms.ModelForm):
     class Meta:
         model = AuthUser
@@ -106,6 +106,7 @@ def account_view(request):
     })
 
 
+@staff_member_required
 def admin_create_user(request):
     """
     Admin-only view to create new users when registration is closed.
