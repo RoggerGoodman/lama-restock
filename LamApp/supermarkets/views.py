@@ -397,7 +397,7 @@ class SupermarketCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.owner = self.request.user
-        super().form_valid(form)
+        self.object = form.save()
         from .tasks import sync_storages_task
         result = sync_storages_task.apply_async(args=[self.object.pk])
         return redirect('task-progress', task_id=result.id)
