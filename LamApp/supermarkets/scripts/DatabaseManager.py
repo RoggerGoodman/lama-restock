@@ -357,9 +357,10 @@ class DatabaseManager:
 
             cur.execute("""
                 UPDATE product_stats
-                SET sold_last_24=%s, sales_sets=%s, stock=%s, last_update_sold=%s
+                SET sold_last_24=%s, sales_sets=%s, stock=%s,
+                    last_update_sold = CASE WHEN %s > 0 THEN %s ELSE last_update_sold END
                 WHERE cod=%s AND v=%s
-            """, (Json(sold_array), Json(sales_sets), stock - sold_qty, sync_date, cod, var))
+            """, (Json(sold_array), Json(sales_sets), stock - sold_qty, sold_qty, sync_date, cod, var))
 
             if sold_qty > 0:
                 updated += 1
@@ -383,9 +384,9 @@ class DatabaseManager:
             ss.insert(0, 0)
             ss = ss[:30]
             cur.execute("""
-                UPDATE product_stats SET sales_sets=%s, last_update_sold=%s
+                UPDATE product_stats SET sales_sets=%s
                 WHERE cod=%s AND v=%s
-            """, (Json(ss), sync_date, absent['cod'], absent['v']))
+            """, (Json(ss), absent['cod'], absent['v']))
 
         self.conn.commit()
         logger.info(
