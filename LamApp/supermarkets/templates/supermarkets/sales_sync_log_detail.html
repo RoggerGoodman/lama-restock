@@ -61,7 +61,7 @@
                     Verificali per includerli nel riordino automatico, oppure aggiungili a "Non gestiti" per ignorarli.
                 </p>
 
-                {% if not log.unverified_products %}
+                {% if not unverified_products %}
                 <div class="alert alert-success mb-0">
                     <i class="bi bi-check-circle"></i> Nessun prodotto non verificato in questa sincronizzazione.
                 </div>
@@ -77,7 +77,7 @@
                             </tr>
                         </thead>
                         <tbody id="unverified-table">
-                            {% for p in log.unverified_products %}
+                            {% for p in unverified_products %}
                             <tr id="row-{{ p.cod }}-{{ p.v }}">
                                 <td class="font-monospace">{{ p.cod }}.{{ p.v }}</td>
                                 <td>{{ p.descrizione }}</td>

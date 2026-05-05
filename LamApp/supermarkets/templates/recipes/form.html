@@ -78,12 +78,18 @@
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Punto Vendita *</label>
                             <select class="form-select" name="supermarket" id="supermarket" required {% if is_edit %}disabled{% endif %}>
+                                {% if is_edit %}
+                                {% for sm in supermarkets %}
+                                <option value="{{ sm.id }}" {% if recipe.supermarket_id == sm.id %}selected{% endif %}>{{ sm.name }}</option>
+                                {% endfor %}
+                                {% elif supermarkets|length == 1 %}
+                                <option value="{{ supermarkets.0.id }}" selected>{{ supermarkets.0.name }}</option>
+                                {% else %}
                                 <option value="">Seleziona...</option>
                                 {% for sm in supermarkets %}
-                                <option value="{{ sm.id }}" {% if is_edit and recipe.supermarket_id == sm.id %}selected{% endif %}>
-                                    {{ sm.name }}
-                                </option>
+                                <option value="{{ sm.id }}">{{ sm.name }}</option>
                                 {% endfor %}
+                                {% endif %}
                             </select>
                             {% if is_edit %}
                             <input type="hidden" name="supermarket" value="{{ recipe.supermarket_id }}">

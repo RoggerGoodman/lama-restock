@@ -317,11 +317,9 @@ class DatabaseManager:
 
         for cod, var, sold_qty in daily_sales:
             cur.execute("""
-                SELECT ps.sold_last_24, ps.sales_sets, ps.stock, ps.last_update_sold, ps.verified,
-                       p.descrizione, p.settore
-                FROM product_stats ps
-                JOIN products p ON p.cod = ps.cod AND p.v = ps.v
-                WHERE ps.cod=%s AND ps.v=%s
+                SELECT sold_last_24, sales_sets, stock, last_update_sold, verified
+                FROM product_stats
+                WHERE cod=%s AND v=%s
             """, (cod, var))
             row = cur.fetchone()
 
@@ -367,12 +365,7 @@ class DatabaseManager:
                 updated += 1
             if not verified:
                 unverified_updated += 1
-                unverified_products.append({
-                    'cod': cod,
-                    'v': var,
-                    'descrizione': row['descrizione'],
-                    'settore': row['settore'],
-                })
+                unverified_products.append({'cod': cod, 'v': var})
 
         # For verified products absent from today's VENSETAR payload, insert 0 into
         # sales_sets so the weighted-average algorithm sees the non-selling day correctly.

@@ -137,7 +137,34 @@ def vensetar_sales_sync_view(request):
 def sales_sync_log_detail_view(request, pk):
     """Detail page for a SalesSyncLog — shows stats and unverified products."""
     log = get_object_or_404(SalesSyncLog, pk=pk, supermarket__owner=request.user)
-    return render(request, 'supermarkets/sales_sync_log_detail.html', {'log': log})
+
+    unverified = log.unverified_products or []
+    if unverified:
+        db = DatabaseManager(Helper(), supermarket_name=log.supermarket.name)
+        try:
+            placeholders = ','.join(['(%s,%s)'] * len(unverified))
+            values = [x for p in unverified for x in (p['cod'], p['v'])]
+            cur = db.cursor()
+            cur.execute(
+                f"SELECT cod, v, descrizione, settore FROM products WHERE (cod, v) IN ({placeholders})",
+                values,
+            )
+            info = {(r['cod'], r['v']): r for r in cur.fetchall()}
+        finally:
+            db.close()
+        unverified = [
+            {
+                'cod': p['cod'], 'v': p['v'],
+                'descrizione': info.get((p['cod'], p['v']), {}).get('descrizione', '—'),
+                'settore':     info.get((p['cod'], p['v']), {}).get('settore', '—'),
+            }
+            for p in unverified
+        ]
+
+    return render(request, 'supermarkets/sales_sync_log_detail.html', {
+        'log': log,
+        'unverified_products': unverified,
+    })
 
 
 @login_required

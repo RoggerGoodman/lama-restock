@@ -1369,20 +1369,52 @@ def create_monthly_stock_snapshots(self):
     reject_on_worker_lost=True
 )
 def sync_storages_task(self, supermarket_id):
-    """Sync storages from Dropzone for a supermarket."""
+    """Sync storages and client parameters from Dropzone for a supermarket."""
+    import tempfile
     from .models import Supermarket
     from .services import StorageService
+    from .scripts.web_lister import WebLister
 
     try:
         supermarket = Supermarket.objects.get(id=supermarket_id)
         logger.info(f"[SYNC STORAGES] Starting for {supermarket.name}")
         StorageService.sync_storages(supermarket)
-        logger.info(f"[SYNC STORAGES] Complete for {supermarket.name}")
+        logger.info(f"[SYNC STORAGES] Storages synced for {supermarket.name}")
+
+        first_storage = supermarket.storages.first()
+        if first_storage:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                lister = WebLister(
+                    username=supermarket.username,
+                    password=supermarket.password,
+                    storage_name=first_storage.name,
+                    download_dir=tmp_dir,
+                    headless=True,
+                )
+                try:
+                    lister.login()
+                    client_data = lister.gather_client_data()
+                finally:
+                    lister.driver.quit()
+
+            supermarket.id_cliente = client_data.get('id_cliente')
+            supermarket.id_azienda = client_data.get('id_azienda')
+            supermarket.id_marchio = client_data.get('id_marchio')
+            supermarket.id_clienti_canale = client_data.get('id_clienti_canale')
+            supermarket.id_clienti_area = client_data.get('id_clienti_area')
+            supermarket.id_user = client_data.get('id_user')
+            supermarket.x5cper = client_data.get('x5cper')
+            supermarket.save(update_fields=[
+                'id_cliente', 'id_azienda', 'id_marchio',
+                'id_clienti_canale', 'id_clienti_area', 'id_user', 'x5cper',
+            ])
+            logger.info(f"[SYNC STORAGES] Client data saved for {supermarket.name}")
+
         return {
             'success': True,
             'synced': True,
             'supermarket_id': supermarket_id,
-            'message': 'Magazzini sincronizzati con successo.',
+            'message': 'Magazzini e dati cliente sincronizzati con successo.',
         }
     except Exception as exc:
         logger.exception(f"[SYNC STORAGES] Error for supermarket #{supermarket_id}")

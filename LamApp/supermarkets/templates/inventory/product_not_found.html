@@ -54,12 +54,18 @@
                 <form id="autoAddForm" class="mb-3">
                     <div class="mb-3">
                         <label class="form-label">Punto vendita</label>
+                        {% with all_sms=user.supermarkets.all %}
                         <select id="add_supermarket" class="form-select" required onchange="loadStoragesForAdd()">
+                            {% if all_sms|length == 1 %}
+                            <option value="{{ all_sms.0.id }}" selected>{{ all_sms.0.name }}</option>
+                            {% else %}
                             <option value="">-- Seleziona Punto vendita --</option>
-                            {% for sm in user.supermarkets.all %}
+                            {% for sm in all_sms %}
                             <option value="{{ sm.id }}">{{ sm.name }}</option>
                             {% endfor %}
+                            {% endif %}
                         </select>
+                        {% endwith %}
                     </div>
                     
                     <div class="mb-3">
@@ -132,12 +138,18 @@
                 <form id="verifySingleForm">
                     <div class="mb-3">
                         <label class="form-label">Punto vendita</label>
+                        {% with all_sms=user.supermarkets.all %}
                         <select id="verify_supermarket" class="form-select" required onchange="loadStoragesForVerify()">
+                            {% if all_sms|length == 1 %}
+                            <option value="{{ all_sms.0.id }}" selected>{{ all_sms.0.name }}</option>
+                            {% else %}
                             <option value="">-- Seleziona Punto vendita --</option>
-                            {% for sm in user.supermarkets.all %}
+                            {% for sm in all_sms %}
                             <option value="{{ sm.id }}">{{ sm.name }}</option>
                             {% endfor %}
+                            {% endif %}
                         </select>
+                        {% endwith %}
                     </div>
                     
                     <div class="mb-3">
@@ -173,6 +185,16 @@
 {% block scripts %}
 <script>
 const verifySingleModal = new bootstrap.Modal(document.getElementById('verifySingleModal'));
+
+document.addEventListener('DOMContentLoaded', function() {
+    const addSm = document.getElementById('add_supermarket');
+    if (addSm && addSm.value) loadStoragesForAdd();
+});
+
+document.getElementById('verifySingleModal').addEventListener('show.bs.modal', function() {
+    const verifySm = document.getElementById('verify_supermarket');
+    if (verifySm && verifySm.value) loadStoragesForVerify();
+});
 
 const productCode = {{ cod }};
 const productVar = {{ var }};

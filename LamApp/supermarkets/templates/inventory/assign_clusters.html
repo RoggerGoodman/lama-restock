@@ -48,10 +48,14 @@
                         <div class="col-md-6">
                             <label for="supermarket_id" class="form-label">Punto vendita</label>
                             <select name="supermarket_id" id="supermarket_id" class="form-select" required onchange="loadStorages()">
+                                {% if supermarkets|length == 1 %}
+                                <option value="{{ supermarkets.0.id }}" selected>{{ supermarkets.0.name }}</option>
+                                {% else %}
                                 <option value="">-- Seleziona Punto vendita --</option>
                                 {% for sm in supermarkets %}
                                 <option value="{{ sm.id }}">{{ sm.name }}</option>
                                 {% endfor %}
+                                {% endif %}
                             </select>
                         </div>
                         <div class="col-md-6">
@@ -193,5 +197,9 @@ function loadExistingClusters() {
 document.getElementById('cluster').addEventListener('input', function() {
     this.value = this.value.toUpperCase();
 });
+
+{% if supermarkets|length == 1 %}
+document.addEventListener('DOMContentLoaded', function() { loadStorages(); });
+{% endif %}
 </script>
 {% endblock %}
