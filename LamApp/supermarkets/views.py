@@ -397,61 +397,10 @@ class SupermarketCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.owner = self.request.user
-        response = super().form_valid(form)
-
-        # Store client parameters from Dropzone
-        client_json = self.request.POST.get('client_data', '')
-        if client_json:
-            try:
-                client_data = json.loads(client_json)
-                self.object.id_cliente = client_data.get('id_cliente')
-                self.object.id_azienda = client_data.get('id_azienda')
-                self.object.id_marchio = client_data.get('id_marchio')
-                self.object.id_clienti_canale = client_data.get('id_clienti_canale')
-                self.object.id_clienti_area = client_data.get('id_clienti_area')
-                self.object.id_user = client_data.get('id_user')
-                self.object.x5cper = client_data.get('x5cper')
-                self.object.save(update_fields=[
-                    'id_cliente', 'id_azienda', 'id_marchio',
-                    'id_clienti_canale', 'id_clienti_area', 'id_user', 'x5cper'
-                ])
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Could not parse client data: {e}")
-
-        # Create storages from pre-discovered data (submitted as JSON hidden field)
-        storages_json = self.request.POST.get('discovered_storages', '')
-        if storages_json:
-            try:
-                storages_data = json.loads(storages_json)
-                for s in storages_data:
-                    Storage.objects.get_or_create(
-                        supermarket=self.object,
-                        name=s['name'],
-                        defaults={
-                            'settore': s.get('settore', ''),
-                            'id_cod_mag': s.get('id_cod_mag'),
-                        }
-                    )
-                messages.success(
-                    self.request,
-                    f"Punto vendita '{self.object.name}' creato con {len(storages_data)} magazzini!"
-                )
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.exception("Error parsing discovered storages")
-                messages.warning(
-                    self.request,
-                    f"Punto vendita creato, ma errore nel salvataggio dei magazzini: {str(e)}"
-                )
-        else:
-            messages.success(
-                self.request,
-                f"Punto vendita '{self.object.name}' creato. Nessun magazzino sincronizzato."
-            )
-
-        return response
-
-    def get_success_url(self):
-        return reverse_lazy('supermarket-detail', kwargs={'pk': self.object.pk})
+        super().form_valid(form)
+        from .tasks import sync_storages_task
+        result = sync_storages_task.apply_async(args=[self.object.pk])
+        return redirect('task-progress', task_id=result.id)
 
 
 class SupermarketUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
@@ -613,73 +562,6 @@ def closure_api_view(request, pk):
         return JsonResponse({'error': 'Unknown action'}, status=400)
 
     return JsonResponse({'error': 'Method not allowed'}, status=405)
-
-
-@login_required
-@require_POST
-def discover_storages_ajax(request):
-    """
-    AJAX endpoint to discover storages and client parameters from Dropzone.
-    Used by the supermarket creation form to preview storages before saving.
-    Two-phase: Finder discovers storages, then WebLister gathers client params.
-    """
-    import re
-    from .scripts.finder import Finder
-    from .scripts.web_lister import WebLister
-    import tempfile
-
-    username = request.POST.get('username', '').strip()
-    password = request.POST.get('password', '').strip()
-
-    if not username or not password:
-        return JsonResponse({'error': 'Username e password sono obbligatori.'}, status=400)
-
-    try:
-        # Phase 1: Discover storages via Finder
-        finder = Finder(username=username, password=password)
-        try:
-            finder.login()
-            storage_tuples = finder.find_storages()
-        finally:
-            finder.driver.quit()
-
-        results = []
-        for name, id_cod_mag in storage_tuples:
-            settore = re.sub(r'^[^ ]+\s*-?\s*', '', name)
-            results.append({
-                'name': name,
-                'settore': settore,
-                'id_cod_mag': id_cod_mag,
-            })
-
-        # Phase 2: Gather client parameters via WebLister
-        client_data = {}
-        try:
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                lister = WebLister(
-                    username=username,
-                    password=password,
-                    storage_name=results[0]['name'] if results else '',
-                    download_dir=tmp_dir,
-                    headless=True
-                )
-                try:
-                    lister.login()
-                    client_data = lister.gather_client_data()
-                finally:
-                    lister.driver.quit()
-        except Exception as e:
-            logger.warning(f"Could not gather client data: {e}. "
-                           "Client parameters will need to be set manually or via re-sync.")
-
-        return JsonResponse({
-            'storages': results,
-            'client_data': client_data,
-        })
-
-    except Exception as e:
-        logger.exception("Error discovering storages")
-        return JsonResponse({'error': f'Errore durante la sincronizzazione: {str(e)}'}, status=500)
 
 
 # ============ Storage Views ============
