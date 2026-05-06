@@ -62,18 +62,23 @@
         </div>
     </div>
 
-    <!-- Stale sync warning -->
-    {% if sync_stale %}
+    <!-- Stale / zero-sales sync warning -->
+    {% if sync_stale or sync_zero %}
     <div class="row mb-4">
         <div class="col-12">
             <div class="alert alert-danger d-flex align-items-start gap-2 mb-0">
                 <i class="bi bi-exclamation-triangle-fill fs-5 mt-1 flex-shrink-0"></i>
                 <div>
+                    {% if sync_stale %}
                     <strong>Sincronizzazione vendite non aggiornata.</strong>
                     {% if last_sync_date %}
                     Ultima data ricevuta: <strong>{{ last_sync_date }}</strong>.
                     {% else %}
                     Nessuna sincronizzazione trovata.
+                    {% endif %}
+                    {% else %}
+                    <strong>Sincronizzazione del {{ last_sync_date }} ha aggiornato 0 prodotti.</strong>
+                    Vendite anomale — possibile problema sul PC del punto vendita.
                     {% endif %}
                     Gli ordini automatici schedulati per oggi sono stati bloccati per evitare riordini errati.
                 </div>

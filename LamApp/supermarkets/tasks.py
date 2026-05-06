@@ -1714,6 +1714,13 @@ def run_scheduled_orders(self):
                     )
                     skipped += 1
                     continue
+                if last_sync.applied == 0:
+                    logger.warning(
+                        f"[CELERY-SCHED] BLOCCATO {storage.name} — sync VENSETAR del {yesterday} "
+                        f"ha aggiornato 0 prodotti (vendite anomale). Ordine annullato."
+                    )
+                    skipped += 1
+                    continue
 
             run_restock_for_storage.apply_async(
                 args=[storage.id],

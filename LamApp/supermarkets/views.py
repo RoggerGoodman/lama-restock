@@ -369,15 +369,22 @@ class SupermarketDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
             yesterday = date.today() - timedelta(days=1)
             if is_closure_day(self.object, yesterday):
                 context['sync_stale'] = False
+                context['sync_zero'] = False
                 context['last_sync_date'] = None
             else:
                 last_sync = SalesSyncLog.objects.filter(
                     supermarket=self.object
                 ).order_by('-sync_date').first()
                 context['sync_stale'] = not last_sync or last_sync.sync_date < yesterday
+                context['sync_zero'] = (
+                    last_sync is not None
+                    and last_sync.sync_date >= yesterday
+                    and last_sync.applied == 0
+                )
                 context['last_sync_date'] = last_sync.sync_date if last_sync else None
         else:
             context['sync_stale'] = False
+            context['sync_zero'] = False
             context['last_sync_date'] = None
 
         return context
