@@ -243,11 +243,27 @@ class Orderer:
             search_button.click()
             
             time.sleep(0.3)
-            
-            # Check if product doesn't accept orders (disabled by system)
+
+            # Check if product doesn't accept orders (disabled by system).
+            # Wait for the switch to settle: during the brief animation after a new code is
+            # entered, label-off can flash visible even for enabled products. We wait until
+            # exactly one of the two labels is visible (stable state), then check which one.
+            try:
+                WebDriverWait(self.driver, 3).until(
+                    lambda d: bool(
+                        d.find_elements(By.XPATH, "//div[contains(@class,'jqx-switchbutton-label-on') and contains(@style,'visibility: visible')]")
+                    ) != bool(
+                        d.find_elements(By.XPATH, "//div[contains(@class,'jqx-switchbutton-label-off') and contains(@style,'visibility: visible')]")
+                    )
+                )
+            except Exception:
+                pass  # timeout: fall through and read current state anyway
             is_off = self.driver.find_elements(
                 By.XPATH,
                 "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]"
+            ) and not self.driver.find_elements(
+                By.XPATH,
+                "//div[contains(@class, 'jqx-switchbutton-label-on') and contains(@style, 'visibility: visible')]"
             )
             if is_off:
                 logger.info(f"Article {cod_part}.{var_part} doesn't accept orders (disabled in ordering system)")
