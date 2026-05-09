@@ -129,3 +129,4 @@ LOGGING_GUIDE.md
 DEPLOYMENT_CHANGES.md
 debug_ean_fetch.py
 web_lister_local.py
+debug_orderer.py

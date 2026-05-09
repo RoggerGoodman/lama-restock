@@ -52,7 +52,7 @@ class Orderer:
         # Set a writable directory for Chrome to use
         chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
 
-        service = Service("/usr/local/bin/chromedriver")
+        service = Service()
 
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
         self.wait = WebDriverWait(self.driver, 300)
@@ -232,17 +232,10 @@ class Orderer:
         for order_item in order_list:
             cod_part, var_part, qty_part, discount = order_item
             
-            cod_art_field.clear()
-            var_art_field.clear()
-
-            cod_art_field.send_keys(cod_part)
-            var_art_field.send_keys(var_part)
-
+            cod_art_field.send_keys(Keys.CONTROL + 'a', cod_part)
+            var_art_field.send_keys(Keys.CONTROL + 'a', var_part)
             time.sleep(0.2)
-
             search_button.click()
-            
-            time.sleep(0.3)
 
             # Check if product doesn't accept orders (disabled by system).
             # Wait for the switch to settle: during the brief animation after a new code is
@@ -275,9 +268,7 @@ class Orderer:
                     'reason': 'Product disabled in ordering system (cannot place order)'
                 })
                 continue
-
-            stock_size.clear()
-            stock_size.send_keys(qty_part)
+            stock_size.send_keys(Keys.CONTROL + 'a', qty_part)
 
             time.sleep(0.2)
 
