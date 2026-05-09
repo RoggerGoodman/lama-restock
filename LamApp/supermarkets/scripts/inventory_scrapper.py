@@ -79,7 +79,7 @@ class Inventory_Scrapper:
         # Set a writable directory for Chrome to use
         chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
         
-        service = Service("/usr/local/bin/chromedriver")
+        service = Service()
 
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
         self.wait = WebDriverWait(self.driver, 10)

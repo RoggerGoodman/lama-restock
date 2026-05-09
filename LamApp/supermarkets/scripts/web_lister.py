@@ -122,10 +122,7 @@ class WebLister:
         # ✅ FIX: Use unique log file per instance (or disable logging)
         log_path = f"/tmp/chromedriver-{uuid.uuid4().hex[:8]}.log"
         
-        service = Service(
-            "/usr/bin/chromedriver",
-            log_path=log_path  # ✅ Now unique per instance!
-        )
+        service = Service(log_path=log_path)
         
         try:
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
