@@ -27,6 +27,7 @@ app.autodiscover_tasks()
 #
 # Daily timeline:
 #   00:30  monthly-loss-zero-prepend  (1st of month only)
+#   00:35  monthly-bought-zero-prepend (1st of month only)
 #   03:00  check-list-updates
 #   03:30  backfill-ean
 #   05:00  update-stats-morning       (DDT import)
@@ -40,6 +41,12 @@ app.conf.beat_schedule = {
     'monthly-loss-zero-prepend': {
         'task': 'supermarkets.tasks.prepend_monthly_loss_zeros',
         'schedule': crontab(hour=0, minute=30, day_of_month='1'),
+    },
+
+    # 1st of month — 00:35
+    'monthly-bought-zero-prepend': {
+        'task': 'supermarkets.tasks.prepend_monthly_bought_zeros',
+        'schedule': crontab(hour=0, minute=35, day_of_month='1'),
     },
 
     # 03:00 — refresh product lists for all scheduled storages

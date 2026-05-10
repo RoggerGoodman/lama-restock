@@ -1857,3 +1857,49 @@ def cleanup_old_recipe_cost_alerts(self, read_max_age_days=30, unread_max_age_da
     except Exception as exc:
         logger.exception("[CELERY-CLEANUP] Fatal error in cleanup_old_recipe_cost_alerts")
         raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=300,
+)
+def prepend_monthly_bought_zeros(self):
+    """
+    1st of month — prepend a 0 to bought_last_24 for every product whose
+    last_update_bought is in a previous month, across all supermarkets.
+    Also advances last_update_bought to today so that the first invoice of
+    the new month correctly accumulates into slot [0] rather than inserting
+    a second new-month slot.
+    """
+    from .models import Supermarket
+    from .scripts.DatabaseManager import DatabaseManager
+    from .scripts.helpers import Helper
+
+    try:
+        supermarkets = Supermarket.objects.all()
+        total_updated = 0
+
+        for supermarket in supermarkets:
+            db = DatabaseManager(Helper(), supermarket_name=supermarket.name)
+            try:
+                updated = db.rollover_bought_last_24()
+                total_updated += updated
+                logger.info(
+                    f"[MONTHLY-ROLLOVER] {supermarket.name}: "
+                    f"prepended 0 to {updated} product(s)"
+                )
+            except Exception as e:
+                logger.exception(
+                    f"[MONTHLY-ROLLOVER] Error for {supermarket.name}"
+                )
+            finally:
+                db.close()
+
+        msg = f"Monthly bought_last_24 rollover complete: {total_updated} product(s) updated across all supermarkets"
+        logger.info(f"[MONTHLY-ROLLOVER] {msg}")
+        return msg
+
+    except Exception as exc:
+        logger.exception("[MONTHLY-ROLLOVER] Fatal error")
+        raise self.retry(exc=exc)

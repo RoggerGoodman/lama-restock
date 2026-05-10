@@ -4,7 +4,7 @@ import psycopg2
 import psycopg2.extras
 import os
 from psycopg2.extras import Json
-from datetime import date, timedelta
+from datetime import date
 from .helpers import Helper
 import logging
 
@@ -368,11 +368,12 @@ class DatabaseManager:
                 unverified_updated += 1
                 unverified_products.append({'cod': cod, 'v': var})
 
-        # For verified products absent from today's VENSETAR payload, insert 0 into
-        # sales_sets so the weighted-average algorithm sees the non-selling day correctly.
+        # For verified products absent from today's VENSETAR payload:
+        # - stock >= 1: insert 0 (available but didn't sell)
+        # - stock == 0: insert None (out of stock — demand censored)
         payload_keys = {(cod, var) for cod, var, _ in daily_sales}
         cur.execute("""
-            SELECT cod, v, sales_sets
+            SELECT cod, v, sales_sets, stock
             FROM product_stats
             WHERE verified = TRUE
               AND (last_update_sold IS NULL OR last_update_sold < %s)
@@ -381,7 +382,8 @@ class DatabaseManager:
             if (absent['cod'], absent['v']) in payload_keys:
                 continue
             ss = absent['sales_sets'] or []
-            ss.insert(0, 0)
+            entry = 0 if (absent['stock'] or 0) >= 1 else None
+            ss.insert(0, entry)
             ss = ss[:30]
             cur.execute("""
                 UPDATE product_stats SET sales_sets=%s
@@ -454,7 +456,7 @@ class DatabaseManager:
 
                 cur.execute(
                     "UPDATE product_stats SET bought_last_24=%s, stock=%s, last_update_bought=%s WHERE cod=%s AND v=%s",
-                    (Json(bought_array), stock + actual_qty, today - timedelta(days=1), cod, v)
+                    (Json(bought_array), stock + actual_qty, today, cod, v)
                 )
                 self.conn.commit()
                 updated += 1
@@ -478,6 +480,34 @@ class DatabaseManager:
             "errors": errors,
             "unverified_products": unverified_products,
         }
+
+    def rollover_bought_last_24(self) -> int:
+        """
+        On month rollover: prepend a 0 to bought_last_24 for every product
+        whose last_update_bought is in a previous month, and set
+        last_update_bought = today so subsequent deliveries this month
+        correctly accumulate into slot [0].
+        Returns the number of rows updated.
+        """
+        today = date.today()
+        cur = self.cursor()
+        cur.execute("""
+            UPDATE product_stats
+            SET
+                bought_last_24 = jsonb_build_array(0) || COALESCE(
+                    jsonb_path_query_array(bought_last_24, '$[0 to 22]'),
+                    '[]'::jsonb
+                ),
+                last_update_bought = %s
+            WHERE last_update_bought IS NOT NULL
+              AND EXTRACT(MONTH FROM last_update_bought) != EXTRACT(MONTH FROM CURRENT_DATE)
+              AND bought_last_24 IS NOT NULL
+              AND jsonb_typeof(bought_last_24) = 'array'
+              AND verified = TRUE
+        """, (today,))
+        updated = cur.rowcount
+        self.conn.commit()
+        return updated
 
     # --- Losses ---
 
