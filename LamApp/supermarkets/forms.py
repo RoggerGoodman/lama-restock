@@ -485,3 +485,16 @@ class DDTUploadForm(forms.Form):
             'accept': '.pdf'
         })
     )
+
+
+class OrderComparisonForm(forms.Form):
+    """Upload OrdiniRighe.csv from PAC2000A to compare machine vs human orders."""
+
+    csv_file = forms.FileField(
+        label="OrdiniRighe.csv",
+        help_text="Esporta il file dal PAC2000A e caricalo qui.",
+        widget=forms.FileInput(attrs={
+            'class': 'form-control',
+            'accept': '.csv,.txt',
+        })
+    )

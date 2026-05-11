@@ -35,7 +35,7 @@ from .models import (
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
     BlacklistEntryForm, AddProductsForm, PromoUploadForm,
-    RecordLossesForm, DDTUploadForm, DayWeightsForm,
+    RecordLossesForm, DDTUploadForm, DayWeightsForm, OrderComparisonForm,
 )
 
 from .services import RestockService
@@ -711,6 +711,13 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             context['out_of_stock_products'] = []
             context['available_products'] = []
 
+        from .models import OrderCalibrationReport
+        context['recent_calibration_reports'] = (
+            OrderCalibrationReport.objects
+            .filter(storage=self.object)
+            .order_by('-generated_at')[:5]
+        )
+
         return context
 
 
@@ -730,164 +737,165 @@ def storage_set_minimum_stock_view(request, pk):
         return JsonResponse({'success': False, 'error': 'Valore non valido'}, status=400)
 
 
+
 @login_required
-def storage_valutazione_ordine_view(request, pk):
-    """Render a printable stock calibration report showing understocked and overstocked products.
+def calibration_report_view(request, pk):
+    from .models import OrderCalibrationReport
+    from django.core.exceptions import PermissionDenied
+    report = get_object_or_404(OrderCalibrationReport, pk=pk)
+    if report.storage.supermarket.owner != request.user:
+        raise PermissionDenied
 
-    Mirrors process_N_sales minimum_stock logic so thresholds match what the automated
-    order system actually computes. Coverage is taken from the last completed restock log
-    for this specific storage, falling back to the schedule average, then to 7 days.
-    Discount effects are not factored in — this evaluates structural calibration only.
-    """
-    storage = get_object_or_404(Storage, pk=pk, supermarket__owner=request.user)
+    results = report.get_results()
 
+    understocked = results.get('understocked', [])
+    for p in understocked:
+        p['deficit'] = p.get('floor', 0) - p.get('stock', 0)
+
+    overstocked = results.get('overstocked', [])
+    for p in overstocked:
+        p['excess'] = p.get('stock', 0) - p.get('eff_min', 0) - p.get('package_size', 0)
+
+    context = {
+        'report': report,
+        'storage': report.storage,
+        'critical': results.get('critical', []),
+        'understocked': understocked,
+        'overstocked': overstocked,
+        'products_critical': results.get('products_critical', 0),
+        'products_understocked': report.products_understocked,
+        'products_overstocked': report.products_overstocked,
+        'products_ok': report.products_ok,
+        'products_evaluated': report.products_evaluated,
+    }
+    return render(request, 'storages/valutazione_ordine.html', context)
+
+
+@login_required
+def order_comparison_view(request, storage_id):
+    """Compare machine-generated order vs human-edited order from OrdiniRighe.csv."""
+    import csv
+    import io
+    from .models import OrderCalibrationReport
+
+    storage = get_object_or_404(Storage, pk=storage_id, supermarket__owner=request.user)
+
+    form = OrderComparisonForm(request.POST or None, request.FILES or None)
+
+    if request.method == 'GET' or not form.is_valid():
+        return render(request, 'storages/valutazione_ordine.html', {
+            'storage': storage,
+            'upload_form': form,
+        })
+
+    # --- Parse CSV ---
+    raw = request.FILES['csv_file'].read()
     try:
-        days_in_advance = max(0, int(request.GET.get('days_in_advance', 0) or 0))
-    except (ValueError, TypeError):
-        days_in_advance = 0
+        text = raw.decode('utf-8')
+    except UnicodeDecodeError:
+        text = raw.decode('latin-1')
 
-    # Use coverage from the last completed restock for THIS storage, then schedule avg, then 7
-    coverage_source = 'default'
-    coverage = 7
-    last_log = (
-        RestockLog.objects
-        .filter(storage=storage, operation_type='full_restock', status='completed', coverage_used__isnull=False)
-        .order_by('-started_at')
-        .first()
-    )
-    if last_log:
-        coverage = float(last_log.coverage_used)
-        coverage_source = 'last_order'
-    else:
+    reader = csv.DictReader(io.StringIO(text), delimiter=';')
+
+    def _parse_it_int(val):
+        """Parse Italian-formatted numbers like '8.378,00' -> 8378."""
+        v = val.strip().replace('.', '').split(',')[0]
+        return int(v)
+
+    human_orders = {}  # (cod, var) -> human_qty
+    for row in reader:
+        errore = row.get('Errore', '').strip()
+        if errore == 'Si':
+            continue
         try:
-            schedule = storage.schedule
-            order_days = schedule.get_order_days()
-            if order_days:
-                coverages = [schedule.calculate_coverage_for_day(d) for d in order_days]
-                coverage = round(sum(coverages) / len(coverages))
-                coverage_source = 'schedule'
-        except Exception:
-            pass
+            cod = _parse_it_int(row['Cod.'])
+            var = _parse_it_int(row['Diff.'])
+            human_qty = _parse_it_int(row['N.imb.'])
+        except (KeyError, ValueError):
+            continue
+        human_orders[(cod, var)] = human_qty
 
-    understocked = []
-    overstocked = []
+    # --- Load second-to-last completed full_restock log ---
+    full_restock_logs = RestockLog.objects.filter(
+        storage=storage,
+        operation_type='full_restock',
+        status='completed',
+    ).order_by('-started_at')
 
-    try:
-        with RestockService(storage) as service:
-            cur = service.db.cursor()
-            cur.execute("""
-                SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp, p.cluster,
-                       p.disponibilita, ps.stock, ps.minimum_stock, ps.sold_last_24, ps.sales_sets
-                FROM products p
-                JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                WHERE p.settore = %s
-                  AND ps.verified = TRUE
-                  AND p.purge_flag = FALSE
-                ORDER BY p.cluster, p.descrizione
-            """, (storage.settore,))
-            rows = cur.fetchall()
+    machine_log = None
+    machine_orders = {}  # (cod, var) -> qty
+    if full_restock_logs.count() >= 2:
+        machine_log = full_restock_logs[1]
+        for o in machine_log.get_results().get('orders', []):
+            machine_orders[(o['cod'], o['var'])] = o['qty']
+    elif full_restock_logs.count() == 1:
+        machine_log = full_restock_logs[0]
+        for o in machine_log.get_results().get('orders', []):
+            machine_orders[(o['cod'], o['var'])] = o['qty']
 
-            # Denominator for percentages: all verified, non-purged products in this storage
-            total_verified = len(rows)
+    # --- Merge all product keys ---
+    all_keys = set(human_orders.keys()) | set(machine_orders.keys())
 
-            for row in rows:
-                stock = row['stock'] if row['stock'] is not None else 0
-                pz_x_collo = row['pz_x_collo'] or 1
-                rapp = row['rapp'] or 1
-                effective_package_size = pz_x_collo * rapp
-                minimum_stock_override = row.get('minimum_stock')
-                sold_array = row['sold_last_24'] or []
-                sales_sets = row['sales_sets'] or []
-                disponibilita = row.get('disponibilita') or 'Si'
+    # --- Load product descriptions from DB ---
+    desc_map = {}  # (cod, var) -> descrizione
+    if all_keys:
+        from .scripts.DatabaseManager import DatabaseManager
+        from .scripts.helpers import Helper
+        db = DatabaseManager(Helper(), supermarket_name=storage.supermarket.name)
+        try:
+            cur = db.cursor()
+            cur.execute(
+                "SELECT cod, v, descrizione FROM products WHERE settore = %s",
+                (storage.settore,)
+            )
+            for r in cur.fetchall():
+                key = (r['cod'], r['v'])
+                if key in all_keys:
+                    desc_map[key] = r['descrizione']
+        finally:
+            db.conn.close()
 
-                # Mirror DecisionMaker: prefer sales_sets, fall back to sold_last_24
-                avg_daily_sales = service.helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True)
-                if avg_daily_sales is None:
-                    avg_daily_sales, _ = service.helper.calculate_weighted_avg_sales_new(sold_array, silent=True)
+    # --- Categorise ---
+    agreed = []
+    human_more = []
+    human_less = []
+    human_zeroed = []
+    human_added = []
 
-                deviation_corrected = service.helper.calculate_deviation(sales_sets)
-                req_stock = avg_daily_sales * coverage
+    for key in sorted(all_keys):
+        cod, var = key
+        h = human_orders.get(key, 0)
+        m = machine_orders.get(key, 0)
+        descrizione = desc_map.get(key, f"{cod}.{var}")
+        entry = {'cod': cod, 'v': var, 'descrizione': descrizione, 'machine_qty': m, 'human_qty': h, 'diff': h - m}
 
-                # Mirror process_N_sales minimum_stock computation (no discount factor)
-                if minimum_stock_override is not None:
-                    eff_min = minimum_stock_override
-                    is_override = True
-                else:
-                    eff_min = storage.minimum_stock
-                    is_override = False
+        if key not in machine_orders:
+            human_added.append(entry)
+        elif h == 0 and m > 0:
+            human_zeroed.append(entry)
+        elif h == m:
+            agreed.append(entry)
+        elif h > m:
+            human_more.append(entry)
+        else:
+            human_less.append(entry)
 
-                if avg_daily_sales >= 1:
-                    eff_min += round(avg_daily_sales)
-                    eff_min += math.floor(req_stock * 0.2)
-                elif avg_daily_sales < 0.6:
-                    eff_min -= 1
-                    if avg_daily_sales < 0.3:
-                        eff_min -= 1
-                        if avg_daily_sales < 0.2:
-                            eff_min -= 1
-                            if avg_daily_sales < 0.1:
-                                eff_min -= 1
-
-                if deviation_corrected >= 40:
-                    eff_min = math.floor(eff_min * 1.2)
-                elif deviation_corrected >= 20:
-                    eff_min = math.floor(eff_min * 1.1)
-                elif deviation_corrected <= -40:
-                    eff_min = math.ceil(eff_min * 0.7)
-                elif deviation_corrected <= -20:
-                    eff_min = math.ceil(eff_min * 0.9)
-
-                eff_min = round(eff_min)
-                overstocked_threshold = eff_min + effective_package_size
-
-                # Adjust overstocked threshold for days before delivery:
-                # stock will decrease by burn units before the delivery arrives
-                burn = round(avg_daily_sales * days_in_advance)
-                adjusted_overstocked_threshold = overstocked_threshold + burn
-
-                item = {
-                    'cod': row['cod'],
-                    'var': row['v'],
-                    'descrizione': row['descrizione'],
-                    'cluster': row.get('cluster') or '',
-                    'stock': stock,
-                    'pz_x_collo': pz_x_collo,
-                    'rapp': rapp,
-                    'package_size': effective_package_size,
-                    'minimum_stock': eff_min,
-                    'is_override': is_override,
-                    'overstocked_threshold': adjusted_overstocked_threshold,
-                    'deficit': eff_min - stock,
-                    'excess': stock - adjusted_overstocked_threshold,
-                }
-
-                if stock < eff_min:
-                    # Exclude non-restockable products from understocked (can't order them anyway)
-                    if disponibilita != 'No':
-                        understocked.append(item)
-                elif stock > adjusted_overstocked_threshold:
-                    overstocked.append(item)
-
-    except Exception as e:
-        logger.exception("Error in valutazione ordine")
-        messages.error(request, f"Errore nel calcolo della valutazione: {e}")
-        return redirect('storage-detail', pk=pk)
-
-    understocked_pct = round(len(understocked) / total_verified * 100, 1) if total_verified > 0 else 0
-    overstocked_pct = round(len(overstocked) / total_verified * 100, 1) if total_verified > 0 else 0
+    # --- Most recent calibration report for context ---
+    calibration = storage.calibration_reports.first()
 
     context = {
         'storage': storage,
-        'understocked': understocked,
-        'overstocked': overstocked,
-        'total_verified': total_verified,
-        'understocked_pct': understocked_pct,
-        'overstocked_pct': overstocked_pct,
-        'coverage': coverage,
-        'coverage_source': coverage_source,
-        'last_log': last_log,
-        'days_in_advance': days_in_advance,
-        'generated_at': timezone.now(),
+        'machine_log': machine_log,
+        'calibration': calibration,
+        'comparison': {
+            'agreed': agreed,
+            'human_more': human_more,
+            'human_less': human_less,
+            'human_zeroed': human_zeroed,
+            'human_added': human_added,
+            'total_csv': len(human_orders),
+            'total_machine': len(machine_orders),
+        },
     }
     return render(request, 'storages/valutazione_ordine.html', context)
 

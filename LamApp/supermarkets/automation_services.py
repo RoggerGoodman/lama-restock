@@ -1,4 +1,5 @@
 # automation_services.py - FIXED: No stats in retry, only 2 checkpoints
+import math
 """
 Automated services with checkpoint-based recovery.
 UPDATED: Stats are done nightly, so retry only has 2 steps:
@@ -85,6 +86,118 @@ class AutomatedRestockService(RestockService):
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
+    def compute_calibration_for_storage(self, coverage_days: float = 0.0) -> dict:
+        """
+        Snapshot stock state for every verified+available product before a delivery arrives.
+        Classifies each product as:
+          - critical:      stock == 0
+          - understocked:  0 < stock < storage.minimum_stock (hard floor, non-circular)
+          - overstocked:   stock > eff_min + package_size (mirrors processor_N + deviation)
+          - ok:            everything else
+        """
+        min_floor = self.storage.minimum_stock
+
+        cur = self.db.cursor()
+        cur.execute("""
+            SELECT ps.cod, ps.v, p.descrizione, ps.stock, ps.minimum_stock AS min_override,
+                   ps.sales_sets, p.pz_x_collo, p.rapp,
+                   e.sale_start, e.sale_end
+            FROM product_stats ps
+            JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+            LEFT JOIN economics e ON e.cod = ps.cod AND e.v = ps.v
+            WHERE ps.verified = TRUE
+              AND p.disponibilita IS NOT NULL AND p.disponibilita != 'No'
+              AND p.settore = %s
+        """, (self.storage.settore,))
+        rows = cur.fetchall()
+
+        critical = []
+        understocked = []
+        overstocked = []
+        ok_count = 0
+
+        from datetime import date as _date
+        today = _date.today()
+
+        for row in rows:
+            stock = row['stock'] or 0
+            min_override = row['min_override']
+            sales_sets = row['sales_sets'] or []
+            pz_x_collo = row['pz_x_collo'] or 1
+            rapp = row['rapp'] or 1
+            package_size = pz_x_collo * rapp
+            floor = min_override if min_override is not None else min_floor
+            sale_start = row.get('sale_start')
+            sale_end = row.get('sale_end')
+            on_sale = bool(sale_start and sale_end and sale_start <= today <= sale_end)
+
+            avg_daily_sales = self.helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True)
+            if avg_daily_sales is None:
+                avg_daily_sales = 0.0
+
+            req_stock = round(avg_daily_sales * coverage_days)
+
+            if min_override is not None:
+                eff_min = min_override
+            else:
+                eff_min = min_floor
+
+            if avg_daily_sales >= 0.6:
+                eff_min += round(math.sqrt(max(0, req_stock - 1)))
+            elif avg_daily_sales < 0.6:
+                eff_min -= 1
+                if avg_daily_sales < 0.3:
+                    eff_min -= 1
+                    if avg_daily_sales < 0.2:
+                        eff_min -= 1
+
+            deviation = self.helper.calculate_deviation(sales_sets)
+            if deviation >= 40:
+                eff_min = math.floor(eff_min * 1.2)
+            elif deviation >= 20:
+                eff_min = math.floor(eff_min * 1.1)
+            elif deviation <= -40:
+                eff_min = math.ceil(eff_min * 0.7)
+            elif deviation <= -20:
+                eff_min = math.ceil(eff_min * 0.9)
+
+            eff_min = round(eff_min)
+            if min_override is not None:
+                eff_min = max(min_override, eff_min)
+            else:
+                eff_min = max(1, eff_min)
+
+            entry = {
+                'cod': row['cod'],
+                'v': row['v'],
+                'descrizione': row['descrizione'],
+                'stock': stock,
+                'floor': floor,
+                'eff_min': eff_min,
+                'package_size': package_size,
+                'on_sale': on_sale,
+            }
+
+            if stock == 0:
+                critical.append(entry)
+            elif stock < floor:
+                understocked.append(entry)
+            elif stock > eff_min + package_size:
+                overstocked.append(entry)
+            else:
+                ok_count += 1
+
+        return {
+            'products_evaluated': len(rows),
+            'products_ok': ok_count,
+            'products_understocked': len(understocked),
+            'products_critical': len(critical),
+            'products_overstocked': len(overstocked),
+            'critical': critical,
+            'understocked': understocked,
+            'overstocked': overstocked,
+        }
+
     def apply_ddt_for_storage(self, log: RestockLog, cod_v_qty: dict, invoice_numbers: list):
         """
         DB-only: apply already-fetched DDT data for this specific storage.

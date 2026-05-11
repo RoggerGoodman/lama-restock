@@ -588,6 +588,43 @@ class RestockLog(models.Model):
         return f"{self.get_operation_type_display()} - {self.storage.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"
 
 
+class OrderCalibrationReport(models.Model):
+    """
+    Auto-generated calibration report produced before each DDT import.
+    Evaluates the previous order using actual consumption — model-independent.
+    """
+    storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='calibration_reports')
+    generated_at = models.DateTimeField(default=timezone.now)
+    ddt_import_log = models.OneToOneField(
+        RestockLog, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='calibration_report',
+    )
+    days_elapsed = models.IntegerField(help_text="Days since previous delivery")
+    coverage_days = models.FloatField(help_text="Coverage days from the evaluated order")
+    products_evaluated = models.IntegerField(default=0)
+    products_ok = models.IntegerField(default=0)
+    products_overstocked = models.IntegerField(default=0)
+    products_understocked = models.IntegerField(default=0)
+    results = models.TextField(blank=True)
+
+    def set_results(self, data):
+        self.results = json.dumps(data)
+
+    def get_results(self):
+        if not self.results:
+            return {}
+        try:
+            return json.loads(self.results)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    class Meta:
+        ordering = ['-generated_at']
+
+    def __str__(self):
+        return f"Calibration {self.storage.name} {self.generated_at.strftime('%Y-%m-%d')}"
+
+
 class Recipe(models.Model):
     """Recipe with ingredients from products and external items for cost calculation"""
     supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='recipes')

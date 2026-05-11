@@ -217,6 +217,67 @@ def import_ddt_for_supermarket(self, supermarket_id):
             try:
                 storage_invoices = desc_mag_to_invoices.get(desc_mag, [])
                 with AutomatedRestockService(matched_storage) as service:
+                    # Calibration snapshot BEFORE stock is updated by the delivery
+                    try:
+                        from .models import OrderCalibrationReport
+
+                        prev_ddt = (
+                            RestockLog.objects
+                            .filter(
+                                storage=matched_storage,
+                                operation_type='ddt_import',
+                                status='completed',
+                                completed_at__isnull=False,
+                            )
+                            .order_by('-completed_at')
+                            .first()
+                        )
+                        days_elapsed = 0
+                        if prev_ddt and prev_ddt.completed_at:
+                            days_elapsed = (timezone.now().date() - prev_ddt.completed_at.date()).days
+
+                        last_restock = (
+                            RestockLog.objects
+                            .filter(
+                                storage=matched_storage,
+                                operation_type='full_restock',
+                                status='completed',
+                                coverage_used__isnull=False,
+                            )
+                            .order_by('-started_at')
+                            .first()
+                        )
+                        coverage_days = float(last_restock.coverage_used) if last_restock else 0.0
+
+                        cal = service.compute_calibration_for_storage(coverage_days=coverage_days)
+
+                        cal_report = OrderCalibrationReport(
+                            storage=matched_storage,
+                            ddt_import_log=log,
+                            days_elapsed=days_elapsed,
+                            coverage_days=coverage_days,
+                            products_evaluated=cal['products_evaluated'],
+                            products_ok=cal['products_ok'],
+                            products_overstocked=cal['products_overstocked'],
+                            products_understocked=cal['products_understocked'] + cal['products_critical'],
+                        )
+                        cal_report.set_results({
+                            'products_critical': cal['products_critical'],
+                            'critical': cal['critical'],
+                            'understocked': cal['understocked'],
+                            'overstocked': cal['overstocked'],
+                        })
+                        cal_report.save()
+                        logger.info(
+                            f"[DDT] Calibration {matched_storage.name}: "
+                            f"critical={cal['products_critical']}, "
+                            f"understocked={cal['products_understocked']}, "
+                            f"overstocked={cal['products_overstocked']}, "
+                            f"ok={cal['products_ok']}"
+                        )
+                    except Exception:
+                        logger.exception(f"[DDT] Calibration failed for {matched_storage.name} — DDT import continues")
+
                     service.apply_ddt_for_storage(log, ean_qty, storage_invoices)
 
                 RestockLog.objects.filter(id=log.id).update(

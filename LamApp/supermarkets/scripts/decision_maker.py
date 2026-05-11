@@ -90,16 +90,18 @@ class DecisionMaker:
 
         return summed
     
-    def retrieve_products_on_sale(self):
+    def retrieve_products_on_sale(self, days_ahead=0):
         today = date.today()
+        future = today + timedelta(days=int(days_ahead))
 
         self.cursor.execute("""
             SELECT cod, v, price_std, price_s, sale_start, sale_end
             FROM economics
             WHERE sale_start IS NOT NULL
             AND sale_end IS NOT NULL
-            AND %s BETWEEN sale_start AND sale_end;
-        """, (today,))
+            AND sale_end >= %s
+            AND sale_start <= %s;
+        """, (today, future))
 
         rows = self.cursor.fetchall()
         sale_discounts = {}
@@ -169,7 +171,7 @@ class DecisionMaker:
 
     def get_ended_discount_for(self, cod, v):
         return self.sale_discounts_ended.get((cod, v))
-    
+
     def is_in_last_60_percent(self, today, sale_start, sale_end):
         total_days = (sale_end - sale_start).days + 1
         threshold_day = ceil(total_days * 0.6)
@@ -190,6 +192,9 @@ class DecisionMaker:
         
         extra_losses_list = self.get_internal_use_losses()
         extra_losses_lookup = {(item["cod"], item["v"]) for item in extra_losses_list}
+
+        self.sale_discounts = self.retrieve_products_on_sale(coverage)
+        logger.info(f"Products on sale (including upcoming within {coverage} days): {len(self.sale_discounts)}")
 
         order_list = []
         zombie_products = []
@@ -293,16 +298,19 @@ class DecisionMaker:
 
                 if discount == 0:
                     discount = 15
-                    logger.info("This product is currently on sale: default 15%")
+
+                today = date.today()
+                if sale_start > today:
+                    logger.info(f"Upcoming sale in {(sale_start - today).days} days: {discount}%")
                 else:
                     logger.info(f"This product is currently on sale: {discount}%")
 
-                if self.is_in_last_60_percent(date.today(), sale_start, sale_end):
+                if self.is_in_last_60_percent(today, sale_start, sale_end):
                     req_stock += req_stock * discount / 100
-                    logger.info("Stock buff applied (first 60% of sale period)")
+                    logger.info("Stock buff applied")
                 else:
-                    logger.info("Sale active, but stock buff NOT applied (late sale phase)")
-            else : 
+                    logger.info("Sale buff NOT applied (late sale phase)")
+            else:
                 discount = None
 
             if verified:
