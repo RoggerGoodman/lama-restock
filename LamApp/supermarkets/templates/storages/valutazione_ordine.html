@@ -541,6 +541,11 @@
                 Carica <strong>OrdiniRighe.csv</strong> esportato dal PAC2000A per confrontare l&rsquo;ordine
                 generato automaticamente con quello confermato dall&rsquo;operatore.
             </p>
+            {% if csv_error %}
+            <div class="alert alert-danger mb-3">
+                <i class="bi bi-exclamation-triangle"></i> <strong>Errore parsing CSV:</strong> {{ csv_error }}
+            </div>
+            {% endif %}
             <form method="post" enctype="multipart/form-data" style="max-width:460px;">
                 {% csrf_token %}
                 <div class="mb-3">

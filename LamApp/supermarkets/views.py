@@ -794,7 +794,8 @@ def order_comparison_view(request, storage_id):
     # --- Parse CSV ---
     raw = request.FILES['csv_file'].read()
     try:
-        text = raw.decode('utf-8')
+        # utf-8-sig strips the UTF-8 BOM that Windows software (PAC2000A) adds
+        text = raw.decode('utf-8-sig')
     except UnicodeDecodeError:
         text = raw.decode('latin-1')
 
@@ -806,7 +807,12 @@ def order_comparison_view(request, storage_id):
         return int(v)
 
     human_orders = {}  # (cod, var) -> human_qty
+    csv_parse_error = None
+    detected_columns = None
+
     for row in reader:
+        if detected_columns is None:
+            detected_columns = list(row.keys())
         errore = row.get('Errore', '').strip()
         if errore == 'Si':
             continue
@@ -814,9 +820,19 @@ def order_comparison_view(request, storage_id):
             cod = _parse_it_int(row['Cod.'])
             var = _parse_it_int(row['Diff.'])
             human_qty = _parse_it_int(row['N.imb.'])
-        except (KeyError, ValueError):
+        except KeyError as e:
+            csv_parse_error = f"Colonna non trovata: {e}. Colonne rilevate: {detected_columns}"
+            break
+        except ValueError:
             continue
         human_orders[(cod, var)] = human_qty
+
+    if csv_parse_error or (not human_orders and detected_columns):
+        return render(request, 'storages/valutazione_ordine.html', {
+            'storage': storage,
+            'upload_form': form,
+            'csv_error': csv_parse_error or f"Nessuna riga valida trovata. Colonne rilevate: {detected_columns}",
+        })
 
     # --- Load second-to-last completed full_restock log ---
     full_restock_logs = RestockLog.objects.filter(
