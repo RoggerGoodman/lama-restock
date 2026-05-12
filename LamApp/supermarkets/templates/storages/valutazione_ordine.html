@@ -385,16 +385,22 @@
                         <th class="text-end sortable" onclick="sortTable('human-more-table',2)">Macchina<span class="sort-icon">⇅</span></th>
                         <th class="text-end sortable" onclick="sortTable('human-more-table',3)">Umano<span class="sort-icon">⇅</span></th>
                         <th class="text-end sortable" onclick="sortTable('human-more-table',4)">Differenza<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('human-more-table',5)">Calibrazione<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('human-more-table',6)">Giudizio<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in comparison.human_more %}
-                    <tr>
+                    <tr data-comp-cat="{{ p.comp_cat }}"
+                        data-calib-outcome="{{ p.calib.outcome|default:'' }}"
+                        {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
                         <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
                         <td class="text-end text-muted" data-sort="{{ p.machine_qty }}">{{ p.machine_qty }}</td>
                         <td class="text-end fw-bold text-primary" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
                         <td class="text-end fw-bold text-primary" data-sort="{{ p.diff }}">+{{ p.diff }}</td>
+                        <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
+                        <td class="verdict-badge">{% include 'storages/_verdict_badge.html' with verdict=p.verdict %}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -418,16 +424,22 @@
                         <th class="text-end sortable" onclick="sortTable('human-less-table',2)">Macchina<span class="sort-icon">⇅</span></th>
                         <th class="text-end sortable" onclick="sortTable('human-less-table',3)">Umano<span class="sort-icon">⇅</span></th>
                         <th class="text-end sortable" onclick="sortTable('human-less-table',4)">Differenza<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('human-less-table',5)">Calibrazione<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('human-less-table',6)">Giudizio<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in comparison.human_less %}
-                    <tr>
+                    <tr data-comp-cat="{{ p.comp_cat }}"
+                        data-calib-outcome="{{ p.calib.outcome|default:'' }}"
+                        {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
                         <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
                         <td class="text-end fw-bold text-warning" data-sort="{{ p.machine_qty }}">{{ p.machine_qty }}</td>
                         <td class="text-end text-muted" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
                         <td class="text-end fw-bold text-warning" data-sort="{{ p.diff }}">{{ p.diff }}</td>
+                        <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
+                        <td class="verdict-badge">{% include 'storages/_verdict_badge.html' with verdict=p.verdict %}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -449,14 +461,20 @@
                         <th class="sortable" onclick="sortTable('human-zeroed-table',0)">Codice<span class="sort-icon">⇅</span></th>
                         <th class="sortable" onclick="sortTable('human-zeroed-table',1)">Descrizione<span class="sort-icon">⇅</span></th>
                         <th class="text-end sortable" onclick="sortTable('human-zeroed-table',2)">Macchina<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('human-zeroed-table',3)">Calibrazione<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('human-zeroed-table',4)">Giudizio<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in comparison.human_zeroed %}
-                    <tr>
+                    <tr data-comp-cat="{{ p.comp_cat }}"
+                        data-calib-outcome="{{ p.calib.outcome|default:'' }}"
+                        {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
                         <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
                         <td class="text-end fw-bold text-danger" data-sort="{{ p.machine_qty }}">{{ p.machine_qty }}</td>
+                        <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
+                        <td class="verdict-badge">{% include 'storages/_verdict_badge.html' with verdict=p.verdict %}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -478,14 +496,20 @@
                         <th class="sortable" onclick="sortTable('human-added-table',0)">Codice<span class="sort-icon">⇅</span></th>
                         <th class="sortable" onclick="sortTable('human-added-table',1)">Descrizione<span class="sort-icon">⇅</span></th>
                         <th class="text-end sortable" onclick="sortTable('human-added-table',2)">Umano<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('human-added-table',3)">Calibrazione<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('human-added-table',4)">Giudizio<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in comparison.human_added %}
-                    <tr>
+                    <tr data-comp-cat="{{ p.comp_cat }}"
+                        data-calib-outcome="{{ p.calib.outcome|default:'' }}"
+                        {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
                         <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
                         <td class="text-end fw-bold" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
+                        <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
+                        <td class="verdict-badge">{% include 'storages/_verdict_badge.html' with verdict=p.verdict %}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -507,14 +531,18 @@
                         <th class="sortable" onclick="sortTable('agreed-table',0)">Codice<span class="sort-icon">⇅</span></th>
                         <th class="sortable" onclick="sortTable('agreed-table',1)">Descrizione<span class="sort-icon">⇅</span></th>
                         <th class="text-end sortable" onclick="sortTable('agreed-table',2)">Qty<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('agreed-table',3)">Calibrazione<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in comparison.agreed %}
-                    <tr>
+                    <tr data-comp-cat="{{ p.comp_cat }}"
+                        data-calib-outcome="{{ p.calib.outcome|default:'' }}"
+                        {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
                         <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
                         <td class="text-end text-success fw-bold" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
+                        <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -610,6 +638,53 @@
             : '<i class="bi bi-tag"></i> Nascondi promo';
     }
 
+    function outcomeToHTML(outcome) {
+        if (outcome === 'critical')     return '<span class="badge bg-danger">Critico</span>';
+        if (outcome === 'understocked') return '<span class="badge bg-warning text-dark">Sotto</span>';
+        if (outcome === 'overstocked')  return '<span class="badge" style="background:#e6a817;color:#000">Sovra</span>';
+        if (outcome === 'ok')           return '<span class="badge bg-success">OK</span>';
+        return '<span class="text-muted small">—</span>';
+    }
+
+    function verdictToHTML(compCat, outcome) {
+        if (!outcome) return '<span class="text-muted small">—</span>';
+        if (outcome === 'ok') return '<span class="badge bg-light text-dark border">Neutro</span>';
+        const shortage = outcome === 'critical' || outcome === 'understocked';
+        const humanMore = compCat === 'human_more' || compCat === 'human_added';
+        const humanLess = compCat === 'human_less' || compCat === 'human_zeroed';
+        if (shortage && humanMore) return '<span class="badge bg-success">Umano</span>';
+        if (shortage && humanLess) return '<span class="badge bg-primary">Macchina</span>';
+        if (!shortage && humanLess) return '<span class="badge bg-success">Umano</span>';
+        if (!shortage && humanMore) return '<span class="badge bg-primary">Macchina</span>';
+        return '<span class="badge bg-secondary">Entrambi</span>';
+    }
+
+    function updateComparisonBurn(active) {
+        document.querySelectorAll('tr[data-comp-cat]').forEach(row => {
+            const origOutcome = row.dataset.calibOutcome || '';
+            const compCat     = row.dataset.compCat || '';
+            const outcomeTd   = row.querySelector('td.outcome-badge');
+            const verdictTd   = row.querySelector('td.verdict-badge');
+
+            let outcome = origOutcome;
+            if (active && row.dataset.stock !== undefined) {
+                const stock    = parseFloat(row.dataset.stock);
+                const avgDaily = parseFloat(row.dataset.avgDaily || '0');
+                const floor    = parseFloat(row.dataset.floor    || '0');
+                const effMin   = parseFloat(row.dataset.effMin   || '0');
+                const pkg      = parseFloat(row.dataset.package  || '1');
+                const adj      = stock - avgDaily;
+                if (adj <= 0)              outcome = 'critical';
+                else if (adj < floor)      outcome = 'understocked';
+                else if (adj > effMin+pkg) outcome = 'overstocked';
+                else                       outcome = 'ok';
+            }
+
+            if (outcomeTd) outcomeTd.innerHTML = outcomeToHTML(outcome);
+            if (verdictTd) verdictTd.innerHTML = verdictToHTML(compCat, outcome);
+        });
+    }
+
     let burnActive = false;
     function toggleBurn() {
         burnActive = !burnActive;
@@ -628,6 +703,7 @@
             btn.classList.replace('btn-warning', 'btn-outline-warning');
             btn.innerHTML = '<i class="bi bi-fire"></i> Simula burn oggi';
         }
+        updateComparisonBurn(burnActive);
     }
 
     function populateBurnView() {

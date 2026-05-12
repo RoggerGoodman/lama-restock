@@ -850,12 +850,13 @@ def order_comparison_view(request, storage_id):
 
     machine_log = None
     machine_orders = {}  # (cod, var) -> qty
-    if full_restock_logs.count() >= 2:
-        machine_log = full_restock_logs[1]
-        for o in machine_log.get_results().get('orders', []):
-            machine_orders[(o['cod'], o['var'])] = o['qty']
-    elif full_restock_logs.count() == 1:
-        machine_log = full_restock_logs[0]
+    latest_log = full_restock_logs.first()
+    if latest_log:
+        latest_date = latest_log.started_at.date()
+        # Skip all logs from the same day (retries / multiple runs) and pick the
+        # first one from a different order cycle.  Fall back to latest if none.
+        prev_log = full_restock_logs.exclude(started_at__date=latest_date).first()
+        machine_log = prev_log if prev_log else latest_log
         for o in machine_log.get_results().get('orders', []):
             machine_orders[(o['cod'], o['var'])] = o['qty']
 
@@ -881,6 +882,42 @@ def order_comparison_view(request, storage_id):
         finally:
             db.conn.close()
 
+    # --- Most recent calibration report ---
+    calibration = storage.calibration_reports.first()
+
+    # Build calib_map: (cod, v) -> dict with outcome + raw threshold data for JS burn
+    calib_map = {}
+    if calibration:
+        cal_results = calibration.get_results()
+        for outcome in ('critical', 'understocked', 'overstocked', 'ok'):
+            for p in cal_results.get(outcome, []):
+                calib_map[(p['cod'], p['v'])] = {
+                    'outcome': outcome,
+                    'stock': p.get('stock', ''),
+                    'avg_daily': p.get('avg_daily_sales', ''),
+                    'floor': p.get('floor', ''),
+                    'eff_min': p.get('eff_min', ''),
+                    'package_size': p.get('package_size', ''),
+                }
+
+    def _verdict(comp_cat, outcome):
+        if not outcome:
+            return ''
+        if outcome == 'ok':
+            return 'neutro'
+        shortage = outcome in ('critical', 'understocked')
+        human_more_cats = ('human_more', 'human_added')
+        human_less_cats = ('human_less', 'human_zeroed')
+        if shortage and comp_cat in human_more_cats:
+            return 'human_right'
+        if shortage and comp_cat in human_less_cats:
+            return 'machine_right'
+        if not shortage and comp_cat in human_less_cats:  # overstocked
+            return 'human_right'
+        if not shortage and comp_cat in human_more_cats:  # overstocked
+            return 'machine_right'
+        return 'machine_responsible'  # agreed
+
     # --- Categorise ---
     agreed = []
     human_more = []
@@ -893,21 +930,37 @@ def order_comparison_view(request, storage_id):
         h = human_orders.get(key, 0)
         m = machine_orders.get(key, 0)
         descrizione = desc_map.get(key, f"{cod}.{var}")
-        entry = {'cod': cod, 'v': var, 'descrizione': descrizione, 'machine_qty': m, 'human_qty': h, 'diff': h - m}
+        calib = calib_map.get(key)
 
         if key not in machine_orders:
-            human_added.append(entry)
+            comp_cat = 'human_added'
         elif h == 0 and m > 0:
-            human_zeroed.append(entry)
+            comp_cat = 'human_zeroed'
         elif h == m:
-            agreed.append(entry)
+            comp_cat = 'agreed'
         elif h > m:
+            comp_cat = 'human_more'
+        else:
+            comp_cat = 'human_less'
+
+        entry = {
+            'cod': cod, 'v': var, 'descrizione': descrizione,
+            'machine_qty': m, 'human_qty': h, 'diff': h - m,
+            'comp_cat': comp_cat,
+            'calib': calib,
+            'verdict': _verdict(comp_cat, calib['outcome'] if calib else ''),
+        }
+
+        if comp_cat == 'human_added':
+            human_added.append(entry)
+        elif comp_cat == 'human_zeroed':
+            human_zeroed.append(entry)
+        elif comp_cat == 'agreed':
+            agreed.append(entry)
+        elif comp_cat == 'human_more':
             human_more.append(entry)
         else:
             human_less.append(entry)
-
-    # --- Most recent calibration report for context ---
-    calibration = storage.calibration_reports.first()
 
     context = {
         'storage': storage,

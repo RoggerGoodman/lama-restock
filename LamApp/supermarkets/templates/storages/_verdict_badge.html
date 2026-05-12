@@ -1,0 +1,5 @@
+{% if verdict == 'human_right' %}<span class="badge bg-success">Umano</span>
+{% elif verdict == 'machine_right' %}<span class="badge bg-primary">Macchina</span>
+{% elif verdict == 'machine_responsible' %}<span class="badge bg-secondary">Entrambi</span>
+{% elif verdict == 'neutro' %}<span class="badge bg-light text-dark border">Neutro</span>
+{% else %}<span class="text-muted small">—</span>{% endif %}

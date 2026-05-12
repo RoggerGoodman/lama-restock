@@ -1,0 +1,5 @@
+{% if outcome == 'critical' %}<span class="badge bg-danger">Critico</span>
+{% elif outcome == 'understocked' %}<span class="badge bg-warning text-dark">Sotto</span>
+{% elif outcome == 'overstocked' %}<span class="badge" style="background:#e6a817;color:#000">Sovra</span>
+{% elif outcome == 'ok' %}<span class="badge bg-success">OK</span>
+{% else %}<span class="text-muted small">—</span>{% endif %}
