@@ -799,7 +799,7 @@ def order_comparison_view(request, storage_id):
     except UnicodeDecodeError:
         text = raw.decode('latin-1')
 
-    reader = csv.DictReader(io.StringIO(text), delimiter=';')
+    reader = csv.reader(io.StringIO(text), delimiter=',')
 
     def _parse_it_int(val):
         """Parse Italian-formatted numbers like '8.378,00' -> 8378."""
@@ -807,31 +807,38 @@ def order_comparison_view(request, storage_id):
         return int(v)
 
     human_orders = {}  # (cod, var) -> human_qty
-    csv_parse_error = None
-    detected_columns = None
 
-    for row in reader:
-        if detected_columns is None:
-            detected_columns = list(row.keys())
-        errore = row.get('Errore', '').strip()
-        if errore == 'Si':
-            continue
-        try:
-            cod = _parse_it_int(row['Cod.'])
-            var = _parse_it_int(row['Diff.'])
-            human_qty = _parse_it_int(row['N.imb.'])
-        except KeyError as e:
-            csv_parse_error = f"Colonna non trovata: {e}. Colonne rilevate: {detected_columns}"
-            break
-        except ValueError:
-            continue
-        human_orders[(cod, var)] = human_qty
-
-    if csv_parse_error or (not human_orders and detected_columns):
+    try:
+        next(reader)  # skip header row
+    except StopIteration:
         return render(request, 'storages/valutazione_ordine.html', {
             'storage': storage,
             'upload_form': form,
-            'csv_error': csv_parse_error or f"Nessuna riga valida trovata. Colonne rilevate: {detected_columns}",
+            'csv_error': "Il file CSV è vuoto.",
+        })
+
+    for row in reader:
+        # OrdiniRighe.csv columns (0-indexed):
+        #   0=#  1=Errore  4=Cod.(first)  5=Diff.(first)  14=N.imb.
+        if len(row) < 15:
+            continue
+        if row[1].strip() == 'Si':
+            continue
+        try:
+            cod = _parse_it_int(row[4])
+            var = _parse_it_int(row[5])
+            human_qty = _parse_it_int(row[14])
+        except ValueError:
+            continue
+        if row[1].strip() == '0':
+            human_qty = 0
+        human_orders[(cod, var)] = human_qty
+
+    if not human_orders:
+        return render(request, 'storages/valutazione_ordine.html', {
+            'storage': storage,
+            'upload_form': form,
+            'csv_error': "Nessuna riga valida trovata nel file CSV.",
         })
 
     # --- Load second-to-last completed full_restock log ---
