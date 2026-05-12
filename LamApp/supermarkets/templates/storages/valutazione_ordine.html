@@ -68,6 +68,9 @@
             <button id="toggle-sale-btn" onclick="toggleSaleFilter()" class="btn btn-outline-success btn-sm">
                 <i class="bi bi-tag"></i> Nascondi promo
             </button>
+            <button id="toggle-burn-btn" onclick="toggleBurn()" class="btn btn-outline-warning btn-sm">
+                <i class="bi bi-fire"></i> Simula burn oggi
+            </button>
             <span class="text-muted small ms-2">
                 <strong>{{ products_critical }}</strong> critici
                 &nbsp;|&nbsp;
@@ -126,6 +129,7 @@
             </div>
         </div>
 
+        <div id="section-view">
         <!-- Critical -->
         <h5 class="mb-3 mt-2">
             <i class="bi bi-x-octagon text-danger"></i>
@@ -139,18 +143,20 @@
                     <tr>
                         <th class="sortable" onclick="sortTable('critical-table',0)">Codice<span class="sort-icon">⇅</span></th>
                         <th class="sortable" onclick="sortTable('critical-table',1)">Descrizione<span class="sort-icon">⇅</span></th>
-                        <th class="text-end sortable" onclick="sortTable('critical-table',2)">Floor<span class="sort-icon">⇅</span></th>
-                        <th class="text-end sortable" onclick="sortTable('critical-table',3)">Imballo<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('critical-table',2)">Vend./gg<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('critical-table',3)">Floor<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('critical-table',4)">Imballo<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in critical %}
-                    <tr data-on-sale="{{ p.on_sale|lower }}">
+                    <tr data-on-sale="{{ p.on_sale|lower }}" data-stock="{{ p.stock }}" data-avg-daily="{{ p.avg_daily_sales }}" data-floor="{{ p.floor }}" data-eff-min="{{ p.eff_min }}" data-package="{{ p.package_size }}">
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
                         <td data-sort="{{ p.descrizione }}">
                             {{ p.descrizione }}
                             {% if p.on_sale %}<span class="badge bg-success ms-1">Promo</span>{% endif %}
                         </td>
+                        <td class="text-end text-muted" data-sort="{{ p.avg_daily_sales }}">{{ p.avg_daily_sales }}</td>
                         <td class="text-end" data-sort="{{ p.floor }}">{{ p.floor }}</td>
                         <td class="text-end" data-sort="{{ p.package_size }}">{{ p.package_size }}</td>
                     </tr>
@@ -177,19 +183,21 @@
                     <tr>
                         <th class="sortable" onclick="sortTable('understocked-table',0)">Codice<span class="sort-icon">⇅</span></th>
                         <th class="sortable" onclick="sortTable('understocked-table',1)">Descrizione<span class="sort-icon">⇅</span></th>
-                        <th class="text-end sortable" onclick="sortTable('understocked-table',2)">Giacenza<span class="sort-icon">⇅</span></th>
-                        <th class="text-end sortable" onclick="sortTable('understocked-table',3)">Floor<span class="sort-icon">⇅</span></th>
-                        <th class="text-end sortable" onclick="sortTable('understocked-table',4)">Deficit<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('understocked-table',2)">Vend./gg<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('understocked-table',3)">Giacenza<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('understocked-table',4)">Floor<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('understocked-table',5)">Deficit<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in understocked %}
-                    <tr data-on-sale="{{ p.on_sale|lower }}">
+                    <tr data-on-sale="{{ p.on_sale|lower }}" data-stock="{{ p.stock }}" data-avg-daily="{{ p.avg_daily_sales }}" data-floor="{{ p.floor }}" data-eff-min="{{ p.eff_min }}" data-package="{{ p.package_size }}">
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
                         <td data-sort="{{ p.descrizione }}">
                             {{ p.descrizione }}
                             {% if p.on_sale %}<span class="badge bg-success ms-1">Promo</span>{% endif %}
                         </td>
+                        <td class="text-end text-muted" data-sort="{{ p.avg_daily_sales }}">{{ p.avg_daily_sales }}</td>
                         <td class="text-end fw-bold text-warning" data-sort="{{ p.stock }}">{{ p.stock }}</td>
                         <td class="text-end" data-sort="{{ p.floor }}">{{ p.floor }}</td>
                         <td class="text-end fw-bold text-warning" data-sort="{{ p.deficit }}">{{ p.deficit }}</td>
@@ -217,24 +225,30 @@
                     <tr style="background:#fdf3cd;">
                         <th class="sortable" onclick="sortTable('overstocked-table',0)">Codice<span class="sort-icon">⇅</span></th>
                         <th class="sortable" onclick="sortTable('overstocked-table',1)">Descrizione<span class="sort-icon">⇅</span></th>
-                        <th class="text-end sortable" onclick="sortTable('overstocked-table',2)">Giacenza<span class="sort-icon">⇅</span></th>
-                        <th class="text-end sortable" onclick="sortTable('overstocked-table',3)">Buffer (eff. min)<span class="sort-icon">⇅</span></th>
-                        <th class="text-end sortable" onclick="sortTable('overstocked-table',4)">Imballo<span class="sort-icon">⇅</span></th>
-                        <th class="text-end sortable" onclick="sortTable('overstocked-table',5)">Eccesso<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',2)">Vend./gg<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',3)">Giacenza<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',4)">Buffer (eff. min)<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',5)">Imballo<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',6)">Eccesso<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('overstocked-table',7)">Eccesso gg<span class="sort-icon">⇅</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in overstocked %}
-                    <tr data-on-sale="{{ p.on_sale|lower }}">
+                    <tr data-on-sale="{{ p.on_sale|lower }}" data-stock="{{ p.stock }}" data-avg-daily="{{ p.avg_daily_sales }}" data-floor="{{ p.floor }}" data-eff-min="{{ p.eff_min }}" data-package="{{ p.package_size }}">
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
                         <td data-sort="{{ p.descrizione }}">
                             {{ p.descrizione }}
                             {% if p.on_sale %}<span class="badge bg-success ms-1">Promo</span>{% endif %}
                         </td>
+                        <td class="text-end text-muted" data-sort="{{ p.avg_daily_sales }}">{{ p.avg_daily_sales }}</td>
                         <td class="text-end fw-bold" style="color:#e6a817;" data-sort="{{ p.stock }}">{{ p.stock }}</td>
                         <td class="text-end text-muted" data-sort="{{ p.eff_min }}">{{ p.eff_min }}</td>
                         <td class="text-end text-muted" data-sort="{{ p.package_size }}">{{ p.package_size }}</td>
                         <td class="text-end fw-bold" style="color:#e6a817;" data-sort="{{ p.excess }}">+{{ p.excess }}</td>
+                        <td class="text-end text-muted" data-sort="{{ p.excess_days|default:9999 }}">
+                            {% if p.excess_days is not None %}{{ p.excess_days }} gg{% else %}—{% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -245,6 +259,46 @@
             <i class="bi bi-check-circle"></i> Nessun articolo con giacenza in eccesso.
         </div>
         {% endif %}
+
+        </div><!-- /section-view -->
+
+        {% if ok_products %}
+        <div aria-hidden="true" style="display:none;">
+            <table><tbody id="ok-tbody">
+                {% for p in ok_products %}
+                <tr data-on-sale="{{ p.on_sale|lower }}" data-stock="{{ p.stock }}" data-avg-daily="{{ p.avg_daily_sales }}" data-floor="{{ p.floor }}" data-eff-min="{{ p.eff_min }}" data-package="{{ p.package_size }}">
+                    <td><code>{{ p.cod }}.{{ p.v }}</code></td>
+                    <td>{{ p.descrizione }}{% if p.on_sale %}<span class="badge bg-success ms-1">Promo</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody></table>
+        </div>
+        {% endif %}
+
+        <!-- Burn View -->
+        <div id="burn-view" style="display:none;">
+            <div class="alert alert-warning mb-3 py-2 no-print">
+                <i class="bi bi-fire"></i>
+                <strong>Burn simulato:</strong> stock stimato = stock attuale &minus; vend./gg.
+                I prodotti OK di base non sono inclusi in questa vista.
+            </div>
+            <div class="table-responsive">
+                <table id="burn-table" class="table table-bordered table-sm table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Categoria</th>
+                            <th>Codice</th>
+                            <th>Descrizione</th>
+                            <th class="text-end">Vend./gg</th>
+                            <th class="text-end">Stock ora</th>
+                            <th class="text-end">Stock stimato</th>
+                            <th class="text-end">Soglia</th>
+                        </tr>
+                    </thead>
+                    <tbody id="burn-tbody"></tbody>
+                </table>
+            </div>
+        </div><!-- /burn-view -->
 
         <div class="mt-3 text-muted no-print" style="font-size: 0.8rem;">
             Snapshot generato il {{ report.generated_at|date:"d/m/Y" }} alle {{ report.generated_at|date:"H:i" }},
@@ -549,6 +603,106 @@
         btn.innerHTML = saleHidden
             ? '<i class="bi bi-tag-fill"></i> Mostra promo'
             : '<i class="bi bi-tag"></i> Nascondi promo';
+    }
+
+    let burnActive = false;
+    function toggleBurn() {
+        burnActive = !burnActive;
+        const btn = document.getElementById('toggle-burn-btn');
+        const sectionView = document.getElementById('section-view');
+        const burnView = document.getElementById('burn-view');
+        if (burnActive) {
+            populateBurnView();
+            sectionView.style.display = 'none';
+            burnView.style.display = '';
+            btn.classList.replace('btn-outline-warning', 'btn-warning');
+            btn.innerHTML = '<i class="bi bi-fire"></i> Rimuovi burn';
+        } else {
+            burnView.style.display = 'none';
+            sectionView.style.display = '';
+            btn.classList.replace('btn-warning', 'btn-outline-warning');
+            btn.innerHTML = '<i class="bi bi-fire"></i> Simula burn oggi';
+        }
+    }
+
+    function populateBurnView() {
+        const okTbody = document.getElementById('ok-tbody');
+        const sourceRows = [
+            ...document.querySelectorAll('#critical-table tbody tr'),
+            ...document.querySelectorAll('#understocked-table tbody tr'),
+            ...document.querySelectorAll('#overstocked-table tbody tr'),
+            ...(okTbody ? okTbody.querySelectorAll('tr') : []),
+        ];
+
+        const critical = [], understocked = [], overstocked = [], ok = [];
+        for (const row of sourceRows) {
+            const stock    = parseFloat(row.dataset.stock);
+            const avgDaily = parseFloat(row.dataset.avgDaily);
+            const floor    = parseFloat(row.dataset.floor);
+            const effMin   = parseFloat(row.dataset.effMin);
+            const pkg      = parseFloat(row.dataset.package);
+            const adj      = stock - avgDaily;
+            const onSale   = row.dataset.onSale === 'true';
+            const cells    = row.querySelectorAll('td');
+            const p = {
+                adj, stock, avgDaily, floor, effMin, pkg, onSale,
+                codeHTML: cells[0] ? cells[0].innerHTML : '',
+                descHTML: cells[1] ? cells[1].innerHTML : '',
+            };
+            if (adj <= 0)               critical.push(p);
+            else if (adj < floor)       understocked.push(p);
+            else if (adj > effMin + pkg) overstocked.push(p);
+            else                        ok.push(p);
+        }
+
+        const tbody = document.getElementById('burn-tbody');
+        tbody.innerHTML = '';
+
+        function sectionHeader(label, count, cls) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td colspan="7" class="${cls} fw-bold py-1 small">${label} <span class="badge bg-white text-dark ms-1">${count}</span></td>`;
+            return tr;
+        }
+
+        function makeRow(p, badgeHTML, adjClass, soglia) {
+            const tr = document.createElement('tr');
+            if (p.onSale) tr.setAttribute('data-on-sale', 'true');
+            if (p.onSale && saleHidden) tr.style.display = 'none';
+            tr.innerHTML = `
+                <td>${badgeHTML}</td>
+                <td>${p.codeHTML}</td>
+                <td>${p.descHTML}</td>
+                <td class="text-end text-muted">${p.avgDaily}</td>
+                <td class="text-end text-muted">${p.stock}</td>
+                <td class="text-end fw-bold ${adjClass}">${p.adj.toFixed(1)}</td>
+                <td class="text-end text-muted small">${soglia}</td>
+            `;
+            return tr;
+        }
+
+        if (critical.length) {
+            tbody.appendChild(sectionHeader('<i class="bi bi-x-octagon"></i> Critici', critical.length, 'table-danger'));
+            for (const p of critical)
+                tbody.appendChild(makeRow(p, '<span class="badge bg-danger">Critico</span>', 'text-danger', `floor: ${p.floor}`));
+        }
+        if (understocked.length) {
+            tbody.appendChild(sectionHeader('<i class="bi bi-exclamation-triangle"></i> Sotto-stoccati', understocked.length, 'table-warning'));
+            for (const p of understocked)
+                tbody.appendChild(makeRow(p, '<span class="badge bg-warning text-dark">Sotto</span>', 'text-warning', `floor: ${p.floor}`));
+        }
+        if (overstocked.length) {
+            tbody.appendChild(sectionHeader('<i class="bi bi-archive"></i> Sovra-stoccati', overstocked.length, 'bg-light'));
+            for (const p of overstocked)
+                tbody.appendChild(makeRow(p, '<span class="badge text-dark" style="background:#e6a817;">Sovra</span>', '', `buf+imb: ${p.effMin + p.pkg}`));
+        }
+        if (ok.length) {
+            tbody.appendChild(sectionHeader('<i class="bi bi-check-circle"></i> OK dopo burn', ok.length, 'table-success'));
+            for (const p of ok)
+                tbody.appendChild(makeRow(p, '<span class="badge bg-success">OK</span>', 'text-success', '—'));
+        }
+        if (!critical.length && !understocked.length && !overstocked.length && !ok.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Nessun prodotto flaggato da mostrare.</td></tr>';
+        }
     }
     </script>
 </body>

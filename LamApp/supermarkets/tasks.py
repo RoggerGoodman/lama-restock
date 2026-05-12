@@ -217,7 +217,9 @@ def import_ddt_for_supermarket(self, supermarket_id):
             try:
                 storage_invoices = desc_mag_to_invoices.get(desc_mag, [])
                 with AutomatedRestockService(matched_storage) as service:
-                    # Calibration snapshot BEFORE stock is updated by the delivery
+                    # Stock snapshot BEFORE delivery stock is applied.
+                    # Saved as a pending OrderCalibrationReport; the full analysis
+                    # runs at 08:00 once VENSETAR has updated sales data.
                     try:
                         from .models import OrderCalibrationReport
 
@@ -249,34 +251,23 @@ def import_ddt_for_supermarket(self, supermarket_id):
                         )
                         coverage_days = float(last_restock.coverage_used) if last_restock else 0.0
 
-                        cal = service.compute_calibration_for_storage(coverage_days=coverage_days)
+                        raw_stock = service.snapshot_pre_delivery_stock()
 
                         cal_report = OrderCalibrationReport(
                             storage=matched_storage,
                             ddt_import_log=log,
                             days_elapsed=days_elapsed,
                             coverage_days=coverage_days,
-                            products_evaluated=cal['products_evaluated'],
-                            products_ok=cal['products_ok'],
-                            products_overstocked=cal['products_overstocked'],
-                            products_understocked=cal['products_understocked'] + cal['products_critical'],
+                            products_evaluated=0,
+                            products_ok=0,
+                            products_overstocked=0,
+                            products_understocked=0,
                         )
-                        cal_report.set_results({
-                            'products_critical': cal['products_critical'],
-                            'critical': cal['critical'],
-                            'understocked': cal['understocked'],
-                            'overstocked': cal['overstocked'],
-                        })
+                        cal_report.set_results({'status': 'pending', 'raw_stock': raw_stock})
                         cal_report.save()
-                        logger.info(
-                            f"[DDT] Calibration {matched_storage.name}: "
-                            f"critical={cal['products_critical']}, "
-                            f"understocked={cal['products_understocked']}, "
-                            f"overstocked={cal['products_overstocked']}, "
-                            f"ok={cal['products_ok']}"
-                        )
+                        logger.info(f"[DDT] Stock snapshot saved for {matched_storage.name} ({len(raw_stock)} products) — report pending VENSETAR")
                     except Exception:
-                        logger.exception(f"[DDT] Calibration failed for {matched_storage.name} — DDT import continues")
+                        logger.exception(f"[DDT] Stock snapshot failed for {matched_storage.name} — DDT import continues")
 
                     service.apply_ddt_for_storage(log, ean_qty, storage_invoices)
 
@@ -298,6 +289,70 @@ def import_ddt_for_supermarket(self, supermarket_id):
     except Exception as exc:
         logger.exception(f"[DDT] Fatal error for supermarket {supermarket_id}")
         raise self.retry(exc=exc)
+
+
+@shared_task
+def run_daily_calibration():
+    """
+    08:00 daily task — completes calibration reports seeded during the 05:00 DDT import.
+
+    The DDT import stores a pre-delivery stock snapshot as a pending
+    OrderCalibrationReport. By 08:00 the VENSETAR sync (~06:00) has refreshed
+    sales_sets, so avg_daily_sales figures are current. This task finds all
+    pending reports from today, runs the full classification using the stored
+    pre-delivery stock + fresh sales data, and saves the completed report.
+    Storages with no DDT import today are skipped — nothing to evaluate.
+    """
+    from .models import OrderCalibrationReport
+
+    today = timezone.now().date()
+    pending_reports = (
+        OrderCalibrationReport.objects
+        .select_related('storage', 'storage__supermarket')
+        .filter(generated_at__date=today)
+    )
+
+    ok_count = 0
+    failed_count = 0
+
+    for report in pending_reports:
+        raw_data = report.get_results()
+        if raw_data.get('status') != 'pending':
+            continue  # already completed (e.g. task ran twice)
+
+        storage = report.storage
+        try:
+            raw_stock = raw_data.get('raw_stock', {})
+
+            with AutomatedRestockService(storage) as service:
+                cal = service.compute_calibration_for_storage(
+                    coverage_days=report.coverage_days,
+                    raw_stock=raw_stock,
+                )
+
+            report.products_evaluated = cal['products_evaluated']
+            report.products_ok = cal['products_ok']
+            report.products_overstocked = cal['products_overstocked']
+            report.products_understocked = cal['products_understocked'] + cal['products_critical']
+            report.set_results({
+                'products_critical': cal['products_critical'],
+                'critical': cal['critical'],
+                'understocked': cal['understocked'],
+                'overstocked': cal['overstocked'],
+                'ok': cal['ok'],
+            })
+            report.save()
+            ok_count += 1
+            logger.info(
+                f"[CAL] {storage.name}: critical={cal['products_critical']}, "
+                f"under={cal['products_understocked']}, over={cal['products_overstocked']}, "
+                f"ok={cal['products_ok']}"
+            )
+        except Exception:
+            logger.exception(f"[CAL] Failed for {storage.name}")
+            failed_count += 1
+
+    return f"Calibration done: {ok_count} ok, {failed_count} failed"
 
 
 @shared_task(

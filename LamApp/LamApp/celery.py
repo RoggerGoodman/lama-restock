@@ -30,9 +30,10 @@ app.autodiscover_tasks()
 #   00:35  monthly-bought-zero-prepend (1st of month only)
 #   03:00  check-list-updates
 #   03:30  backfill-ean
-#   05:00  update-stats-morning       (DDT import)
-#   05:30  VENSETAR sync              (store PC pushes sold data)
+#   05:00  update-stats-morning       (DDT import — also saves pending calibration snapshot)
+#   05:30 VENSETAR sync              (store PC pushes yesterday's sold data)
 #   06:00  run-scheduled-orders
+#   08:00  daily-calibration          (completes pending snapshots with fresh VENSETAR data)
 #   12:00  monthly-stock-snapshots    (1st of month only)
 #   22:30  record-losses-nightly
 #
@@ -71,6 +72,12 @@ app.conf.beat_schedule = {
     'run-scheduled-orders': {
         'task': 'supermarkets.tasks.run_scheduled_orders',
         'schedule': crontab(hour=6, minute=0),
+    },
+
+    # 08:00 — complete calibration reports with fresh VENSETAR sales data
+    'daily-calibration': {
+        'task': 'supermarkets.tasks.run_daily_calibration',
+        'schedule': crontab(hour=8, minute=0),
     },
 
     # 1st of month — 12:00

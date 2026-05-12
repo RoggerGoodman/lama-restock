@@ -755,6 +755,8 @@ def calibration_report_view(request, pk):
     overstocked = results.get('overstocked', [])
     for p in overstocked:
         p['excess'] = p.get('stock', 0) - p.get('eff_min', 0) - p.get('package_size', 0)
+        avg = p.get('avg_daily_sales', 0)
+        p['excess_days'] = round(p['excess'] / avg, 1) if avg > 0 else None
 
     context = {
         'report': report,
@@ -762,6 +764,7 @@ def calibration_report_view(request, pk):
         'critical': results.get('critical', []),
         'understocked': understocked,
         'overstocked': overstocked,
+        'ok_products': results.get('ok', []),
         'products_critical': results.get('products_critical', 0),
         'products_understocked': report.products_understocked,
         'products_overstocked': report.products_overstocked,

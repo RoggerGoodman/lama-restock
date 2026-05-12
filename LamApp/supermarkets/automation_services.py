@@ -86,14 +86,32 @@ class AutomatedRestockService(RestockService):
             logger.exception(f"Error recording losses for {self.supermarket.name}")
             raise
     
-    def compute_calibration_for_storage(self, coverage_days: float = 0.0) -> dict:
+    def snapshot_pre_delivery_stock(self) -> dict:
         """
-        Snapshot stock state for every verified+available product before a delivery arrives.
-        Classifies each product as:
-          - critical:      stock == 0
-          - understocked:  0 < stock < storage.minimum_stock (hard floor, non-circular)
-          - overstocked:   stock > eff_min + package_size (mirrors processor_N + deviation)
-          - ok:            everything else
+        Lightweight stock-only snapshot called right before apply_ddt_for_storage.
+        Returns {'{cod}.{v}': stock} for all verified+available products in this storage.
+        Sales data is intentionally excluded — it will be read fresh at report-creation time.
+        """
+        cur = self.db.cursor()
+        cur.execute("""
+            SELECT ps.cod, ps.v, ps.stock
+            FROM product_stats ps
+            JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+            WHERE ps.verified = TRUE
+              AND p.disponibilita IS NOT NULL AND p.disponibilita != 'No'
+              AND p.settore = %s
+        """, (self.storage.settore,))
+        return {f"{row['cod']}.{row['v']}": (row['stock'] or 0) for row in cur.fetchall()}
+
+    def compute_calibration_for_storage(self, coverage_days: float = 0.0, raw_stock: dict = None) -> dict:
+        """
+        Classify every verified+available product against calibration thresholds.
+
+        raw_stock: pre-delivery stock dict from snapshot_pre_delivery_stock().
+                   When provided, overrides the DB stock value per product so
+                   classification reflects pre-delivery state even when called
+                   after the DDT has been applied.
+                   When None, reads current stock from DB.
         """
         min_floor = self.storage.minimum_stock
 
@@ -114,13 +132,14 @@ class AutomatedRestockService(RestockService):
         critical = []
         understocked = []
         overstocked = []
-        ok_count = 0
+        ok = []
 
         from datetime import date as _date
         today = _date.today()
 
         for row in rows:
-            stock = row['stock'] or 0
+            key = f"{row['cod']}.{row['v']}"
+            stock = raw_stock[key] if raw_stock is not None and key in raw_stock else (row['stock'] or 0)
             min_override = row['min_override']
             sales_sets = row['sales_sets'] or []
             pz_x_collo = row['pz_x_collo'] or 1
@@ -176,6 +195,7 @@ class AutomatedRestockService(RestockService):
                 'eff_min': eff_min,
                 'package_size': package_size,
                 'on_sale': on_sale,
+                'avg_daily_sales': round(avg_daily_sales, 2),
             }
 
             if stock == 0:
@@ -185,17 +205,18 @@ class AutomatedRestockService(RestockService):
             elif stock > eff_min + package_size:
                 overstocked.append(entry)
             else:
-                ok_count += 1
+                ok.append(entry)
 
         return {
             'products_evaluated': len(rows),
-            'products_ok': ok_count,
+            'products_ok': len(ok),
             'products_understocked': len(understocked),
             'products_critical': len(critical),
             'products_overstocked': len(overstocked),
             'critical': critical,
             'understocked': understocked,
             'overstocked': overstocked,
+            'ok': ok,
         }
 
     def apply_ddt_for_storage(self, log: RestockLog, cod_v_qty: dict, invoice_numbers: list):
