@@ -1048,12 +1048,15 @@
             if (filter === 'understocked_human') return isUnder;
             return false;
         }
+        const hQty = parseFloat(row.dataset.humanQty   || '0');
+        const mQty = parseFloat(row.dataset.machineQty || '0');
+        if (filter === 'overstocked_human')    return isOver  && hQty >= mQty;
+        if (filter === 'understocked_human')   return isUnder && hQty <= mQty;
+
         const mo = getMachineOutcome(row);
         if (!mo) return false;
         const mOver  = mo === 'overstocked';
         const mUnder = mo === 'understocked' || mo === 'critical';
-        if (filter === 'overstocked_human')    return isOver  && !mOver;
-        if (filter === 'understocked_human')   return isUnder && !mUnder;
         if (filter === 'overstocked_machine')  return mOver;
         if (filter === 'understocked_machine') return mUnder;
         return false;
