@@ -375,18 +375,18 @@
             <span class="vr align-self-stretch mx-1"></span>
             <div class="btn-group btn-group-sm" role="group">
                 <button id="filter-overstocked-human" onclick="setCausalFilter('overstocked_human')" class="btn btn-outline-warning">
-                    <i class="bi bi-person"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span>
+                    <i class="bi bi-person"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
                 </button>
                 <button id="filter-understocked-human" onclick="setCausalFilter('understocked_human')" class="btn btn-outline-danger">
-                    <i class="bi bi-person"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span>
+                    <i class="bi bi-person"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
                 </button>
             </div>
             <div class="btn-group btn-group-sm" role="group">
                 <button id="filter-overstocked-machine" onclick="setCausalFilter('overstocked_machine')" class="btn btn-outline-warning">
-                    <i class="bi bi-cpu"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span>
+                    <i class="bi bi-cpu"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
                 </button>
                 <button id="filter-understocked-machine" onclick="setCausalFilter('understocked_machine')" class="btn btn-outline-danger">
-                    <i class="bi bi-cpu"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span>
+                    <i class="bi bi-cpu"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
                 </button>
             </div>
             {% endif %}
@@ -955,6 +955,12 @@
             overstocked_machine:  'filter-overstocked-machine',
             understocked_machine: 'filter-understocked-machine',
         };
+        const totals = {
+            overstocked_human:    TOTAL_CSV,
+            understocked_human:   TOTAL_CSV,
+            overstocked_machine:  TOTAL_MACHINE,
+            understocked_machine: TOTAL_MACHINE,
+        };
         Object.entries(ids).forEach(([key, id]) => {
             const btn = document.getElementById(id);
             if (!btn) return;
@@ -965,6 +971,11 @@
                 const n = bigCounts[key];
                 beSpan.textContent = n > 0 ? `●${n}` : '';
                 beSpan.style.display = n > 0 ? '' : 'none';
+            }
+            const pctSpan = btn.querySelector('.filter-pct');
+            if (pctSpan) {
+                const total = totals[key];
+                pctSpan.textContent = total > 0 ? Math.round(counts[key] / total * 100) + '%' : '';
             }
         });
     }
@@ -1042,10 +1053,13 @@
         const mUnder = mo === 'understocked' || mo === 'critical';
         if (filter === 'overstocked_human')    return isOver  && !mOver;
         if (filter === 'understocked_human')   return isUnder && !mUnder;
-        if (filter === 'overstocked_machine')  return isOver  && mOver;
-        if (filter === 'understocked_machine') return isUnder && mUnder;
+        if (filter === 'overstocked_machine')  return mOver;
+        if (filter === 'understocked_machine') return mUnder;
         return false;
     }
+
+    const TOTAL_CSV     = {{ comparison.total_csv|default:0 }};
+    const TOTAL_MACHINE = {{ comparison.total_machine|default:0 }};
 
     let activeCausalFilter = null;
     function updateCausalButtons() {
