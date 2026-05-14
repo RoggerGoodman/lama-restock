@@ -783,12 +783,19 @@ def order_comparison_view(request, storage_id):
 
     storage = get_object_or_404(Storage, pk=storage_id, supermarket__owner=request.user)
 
+    available_logs = (
+        RestockLog.objects
+        .filter(storage=storage, operation_type='full_restock', status='completed')
+        .order_by('-started_at')[:30]
+    )
+
     form = OrderComparisonForm(request.POST or None, request.FILES or None)
 
     if request.method == 'GET' or not form.is_valid():
         return render(request, 'storages/valutazione_ordine.html', {
             'storage': storage,
             'upload_form': form,
+            'available_logs': available_logs,
         })
 
     # --- Parse CSV ---
@@ -814,6 +821,7 @@ def order_comparison_view(request, storage_id):
         return render(request, 'storages/valutazione_ordine.html', {
             'storage': storage,
             'upload_form': form,
+            'available_logs': available_logs,
             'csv_error': "Il file CSV è vuoto.",
         })
 
@@ -838,25 +846,24 @@ def order_comparison_view(request, storage_id):
         return render(request, 'storages/valutazione_ordine.html', {
             'storage': storage,
             'upload_form': form,
+            'available_logs': available_logs,
             'csv_error': "Nessuna riga valida trovata nel file CSV.",
         })
 
-    # --- Load second-to-last completed full_restock log ---
-    full_restock_logs = RestockLog.objects.filter(
-        storage=storage,
-        operation_type='full_restock',
-        status='completed',
-    ).order_by('-started_at')
-
+    # --- Load the user-selected machine log ---
     machine_log = None
     machine_orders = {}  # (cod, var) -> qty
-    latest_log = full_restock_logs.first()
-    if latest_log:
-        latest_date = latest_log.started_at.date()
-        # Skip all logs from the same day (retries / multiple runs) and pick the
-        # first one from a different order cycle.  Fall back to latest if none.
-        prev_log = full_restock_logs.exclude(started_at__date=latest_date).first()
-        machine_log = prev_log if prev_log else latest_log
+    try:
+        log_id = int(request.POST.get('log_id', ''))
+        machine_log = RestockLog.objects.filter(
+            id=log_id,
+            storage=storage,
+            operation_type='full_restock',
+            status='completed',
+        ).first()
+    except (ValueError, TypeError):
+        pass
+    if machine_log:
         for o in machine_log.get_results().get('orders', []):
             machine_orders[(o['cod'], o['var'])] = o['qty']
 

@@ -558,7 +558,6 @@
         {% endif %}
 
         <div class="mt-3 text-muted no-print" style="font-size: 0.8rem;">
-            Ordine macchina: secondo-ultimo log <code>full_restock</code> completato.
             CSV: righe con <code>Errore=Si</code> escluse; <code>Errore=0</code> = operatore ha portato a 0 l&rsquo;ordine macchina.
         </div>
 
@@ -573,16 +572,49 @@
             </div>
             <hr class="my-3">
             <p class="text-muted small mb-4">
-                Carica <strong>OrdiniRighe.csv</strong> esportato dal PAC2000A per confrontare l&rsquo;ordine
-                generato automaticamente con quello confermato dall&rsquo;operatore.
+                Seleziona l&rsquo;ordine macchina da confrontare, poi carica il file
+                <strong>OrdiniRighe.csv</strong> esportato dal PAC2000A.
             </p>
             {% if csv_error %}
             <div class="alert alert-danger mb-3">
                 <i class="bi bi-exclamation-triangle"></i> <strong>Errore parsing CSV:</strong> {{ csv_error }}
             </div>
             {% endif %}
-            <form method="post" enctype="multipart/form-data" style="max-width:460px;">
+            <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
+
+                <!-- Log selection -->
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">Ordine macchina</label>
+                    {% if available_logs %}
+                    <div class="border rounded" style="max-height:260px; overflow-y:auto;">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th style="width:1.5rem;"></th>
+                                    <th>Data</th>
+                                    <th class="text-end">Copertura</th>
+                                </tr>
+                            </thead>
+                            <tbody id="log-list">
+                                {% for log in available_logs %}
+                                <tr class="log-row {% if forloop.first %}table-active{% endif %}"
+                                    onclick="selectLogRow(this)"
+                                    style="cursor:pointer">
+                                    <td><input type="radio" name="log_id" value="{{ log.id }}" {% if forloop.first %}checked{% endif %}></td>
+                                    <td>{{ log.started_at|date:"d/m/Y H:i" }}</td>
+                                    <td class="text-end text-muted">{% if log.coverage_used %}{{ log.coverage_used }} gg{% else %}&mdash;{% endif %}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info py-2">Nessun ordine macchina completato trovato per questo magazzino.</div>
+                    {% endif %}
+                </div>
+
+                <!-- CSV upload -->
                 <div class="mb-3">
                     {{ upload_form.csv_file.label_tag }}
                     {{ upload_form.csv_file }}
@@ -590,7 +622,7 @@
                     <div class="text-danger small mt-1">{{ upload_form.csv_file.errors }}</div>
                     {% endif %}
                 </div>
-                <button type="submit" class="btn btn-primary btn-sm">
+                <button type="submit" class="btn btn-primary btn-sm" {% if not available_logs %}disabled{% endif %}>
                     <i class="bi bi-bar-chart-line"></i> Analizza
                 </button>
             </form>
@@ -773,6 +805,11 @@
         if (!critical.length && !understocked.length && !overstocked.length && !ok.length) {
             tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Nessun prodotto flaggato da mostrare.</td></tr>';
         }
+    }
+    function selectLogRow(tr) {
+        document.querySelectorAll('#log-list .log-row').forEach(r => r.classList.remove('table-active'));
+        tr.classList.add('table-active');
+        tr.querySelector('input[type=radio]').checked = true;
     }
     </script>
 </body>
