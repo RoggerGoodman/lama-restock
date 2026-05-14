@@ -814,6 +814,7 @@ def order_comparison_view(request, storage_id):
         return int(v)
 
     human_orders = {}  # (cod, var) -> human_qty
+    error_keys   = set()  # keys with Errore='Si' — excluded from comparison entirely
 
     try:
         next(reader)  # skip header row
@@ -831,6 +832,10 @@ def order_comparison_view(request, storage_id):
         if len(row) < 15:
             continue
         if row[1].strip() == 'Si':
+            try:
+                error_keys.add((_parse_it_int(row[4]), _parse_it_int(row[5])))
+            except ValueError:
+                pass
             continue
         try:
             cod = _parse_it_int(row[4])
@@ -838,8 +843,6 @@ def order_comparison_view(request, storage_id):
             human_qty = _parse_it_int(row[14])
         except ValueError:
             continue
-        if row[1].strip() == '0':
-            human_qty = 0
         human_orders[(cod, var)] = human_qty
 
     if not human_orders:
@@ -867,8 +870,8 @@ def order_comparison_view(request, storage_id):
         for o in machine_log.get_results().get('orders', []):
             machine_orders[(o['cod'], o['var'])] = o['qty']
 
-    # --- Merge all product keys ---
-    all_keys = set(human_orders.keys()) | set(machine_orders.keys())
+    # --- Merge all product keys (exclude error rows from the CSV) ---
+    all_keys = (set(human_orders.keys()) | set(machine_orders.keys())) - error_keys
 
     # --- Load product descriptions from DB ---
     desc_map = {}  # (cod, var) -> descrizione

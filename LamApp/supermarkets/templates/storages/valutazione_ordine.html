@@ -375,7 +375,7 @@
             <span class="vr align-self-stretch mx-1"></span>
             <div class="btn-group btn-group-sm" role="group">
                 <button id="filter-overstocked-human" onclick="setCausalFilter('overstocked_human')" class="btn btn-outline-warning">
-                    <i class="bi bi-person"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span>
+                    <i class="bi bi-person"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span>
                 </button>
                 <button id="filter-understocked-human" onclick="setCausalFilter('understocked_human')" class="btn btn-outline-danger">
                     <i class="bi bi-person"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span>
@@ -383,7 +383,7 @@
             </div>
             <div class="btn-group btn-group-sm" role="group">
                 <button id="filter-overstocked-machine" onclick="setCausalFilter('overstocked_machine')" class="btn btn-outline-warning">
-                    <i class="bi bi-cpu"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span>
+                    <i class="bi bi-cpu"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span>
                 </button>
                 <button id="filter-understocked-machine" onclick="setCausalFilter('understocked_machine')" class="btn btn-outline-danger">
                     <i class="bi bi-cpu"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span>
@@ -436,7 +436,7 @@
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end excess-deficit-cell" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
                     </tr>
                     {% endfor %}
@@ -482,7 +482,7 @@
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end excess-deficit-cell" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
                     </tr>
                     {% endfor %}
@@ -528,7 +528,7 @@
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end excess-deficit-cell" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
                     </tr>
                     {% endfor %}
@@ -574,7 +574,7 @@
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end excess-deficit-cell" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
                     </tr>
                     {% endfor %}
@@ -620,7 +620,7 @@
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end excess-deficit-cell" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
                     </tr>
                     {% endfor %}
@@ -766,11 +766,13 @@
         } else if (effectiveStock < effMin) {
             ed = Math.round(effectiveStock - effMin);
         }
+        const bigExcess = ed !== null && ed > 0 && ed >= pkg;
+        const dot = bigExcess ? ' <span class="text-danger">●</span>' : '';
         const edHTML = ed === null ? '&mdash;' :
-            ed > 0 ? `<span style="color:#e6a817">+${ed}</span>` :
+            ed > 0 ? `<span style="color:#e6a817">+${ed}</span>${dot}` :
                      `<span class="text-warning">${ed}</span>`;
         const egHTML = eg === null ? '&mdash;' : `${eg} gg`;
-        return { edHTML, egHTML, edSort: ed === null ? 9999 : ed, egSort: eg === null ? 9999 : eg };
+        return { edHTML, egHTML, edSort: ed === null ? 9999 : ed, egSort: eg === null ? 9999 : eg, bigExcess };
     }
 
     function updateComparisonBurn(active) {
@@ -903,6 +905,7 @@
             row.style.display = (hiddenByChecked || hiddenByCausal) ? 'none' : '';
         });
         updateSectionCounts();
+        updateColumnSummaries();
     }
 
     function updateSectionCounts() {
@@ -926,10 +929,25 @@
     }
 
     function computeCausalCounts() {
-        const counts = { overstocked_human: 0, understocked_human: 0, overstocked_machine: 0, understocked_machine: 0 };
+        const counts    = { overstocked_human: 0, understocked_human: 0, overstocked_machine: 0, understocked_machine: 0 };
+        const bigCounts = { overstocked_human: 0, understocked_human: 0, overstocked_machine: 0, understocked_machine: 0 };
         document.querySelectorAll('tr[data-comp-cat]').forEach(row => {
-            for (const f of Object.keys(counts))
-                if (rowMatchesCausalFilter(row, f)) counts[f]++;
+            for (const f of Object.keys(counts)) {
+                if (!rowMatchesCausalFilter(row, f)) continue;
+                counts[f]++;
+                const isMachine = f.includes('machine');
+                if (isMachine && row.dataset.stock !== undefined) {
+                    const s   = parseFloat(row.dataset.stock);
+                    const mq  = parseFloat(row.dataset.machineQty || '0');
+                    const hq  = parseFloat(row.dataset.humanQty   || '0');
+                    const pk  = parseFloat(row.dataset.package    || '1');
+                    const em  = parseFloat(row.dataset.effMin     || '0');
+                    const ms  = s + (mq - hq) * pk;
+                    if (ms > em + pk && Math.round(ms - em - pk) >= pk) bigCounts[f]++;
+                } else if (!isMachine) {
+                    if (row.querySelector('td.excess-deficit-cell.has-big-excess')) bigCounts[f]++;
+                }
+            }
         });
         const ids = {
             overstocked_human:    'filter-overstocked-human',
@@ -938,12 +956,55 @@
             understocked_machine: 'filter-understocked-machine',
         };
         Object.entries(ids).forEach(([key, id]) => {
-            const span = document.getElementById(id)?.querySelector('.filter-count');
-            if (span) span.textContent = counts[key];
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            const countSpan = btn.querySelector('.filter-count');
+            if (countSpan) countSpan.textContent = counts[key];
+            const beSpan = btn.querySelector('.big-excess-count');
+            if (beSpan) {
+                const n = bigCounts[key];
+                beSpan.textContent = n > 0 ? `●${n}` : '';
+                beSpan.style.display = n > 0 ? '' : 'none';
+            }
         });
     }
 
-    document.addEventListener('DOMContentLoaded', computeCausalCounts);
+    function initColumnSummaryFooters() {
+        const tables = ['human-more-table', 'human-less-table', 'human-zeroed-table', 'human-added-table', 'agreed-table'];
+        tables.forEach(tableId => {
+            const table = document.getElementById(tableId);
+            if (!table || table.querySelector('tfoot')) return;
+            const tfoot = document.createElement('tfoot');
+            tfoot.innerHTML =
+                '<tr class="table-light text-muted small no-print">' +
+                '<td colspan="9" class="text-end py-1" style="font-size:0.8rem">Media Eccesso gg:</td>' +
+                '<td class="text-end excess-days-median py-1 fw-semibold" style="font-size:0.8rem">&mdash;</td>' +
+                '</tr>';
+            table.appendChild(tfoot);
+        });
+    }
+
+    function updateColumnSummaries() {
+        const tables = ['human-more-table', 'human-less-table', 'human-zeroed-table', 'human-added-table', 'agreed-table'];
+        tables.forEach(tableId => {
+            const table = document.getElementById(tableId);
+            const medianEl = table ? table.querySelector('.excess-days-median') : null;
+            if (!medianEl) return;
+            const values = [];
+            Array.from(table.querySelectorAll('tbody tr')).forEach(row => {
+                if (row.style.display === 'none') return;
+                const cell = row.querySelector('td.excess-days-cell');
+                if (!cell) return;
+                const v = parseFloat(cell.dataset.sort);
+                if (!isNaN(v) && v !== 9999) values.push(v);
+            });
+            if (values.length === 0) { medianEl.textContent = '—'; return; }
+            const avg = values.reduce((s, v) => s + v, 0) / values.length;
+            medianEl.textContent = (Math.round(avg * 10) / 10) + ' gg';
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() { computeCausalCounts(); initColumnSummaryFooters(); updateColumnSummaries(); });
 
     function classifyStockLevel(stock, floor, effMin, pkg) {
         if (stock <= 0)            return 'critical';
@@ -965,9 +1026,16 @@
 
     function rowMatchesCausalFilter(row, filter) {
         const cur     = row.dataset.calibOutcome || '';
+        const compCat = row.dataset.compCat      || '';
         const isOver  = cur === 'overstocked';
         const isUnder = cur === 'understocked' || cur === 'critical';
         if (!isOver && !isUnder) return false;
+        // human_added: machine ordered 0 — human alone is responsible regardless of counterfactual
+        if (compCat === 'human_added') {
+            if (filter === 'overstocked_human')  return isOver;
+            if (filter === 'understocked_human') return isUnder;
+            return false;
+        }
         const mo = getMachineOutcome(row);
         if (!mo) return false;
         const mOver  = mo === 'overstocked';
@@ -995,9 +1063,34 @@
             btn.classList.toggle(outlineCls, !on);
         });
     }
+    function updateExcessCells() {
+        const useMachine = activeCausalFilter === 'overstocked_machine' || activeCausalFilter === 'understocked_machine';
+        document.querySelectorAll('tr[data-comp-cat]').forEach(row => {
+            const edTd = row.querySelector('td.excess-deficit-cell');
+            const egTd = row.querySelector('td.excess-days-cell');
+            if (!edTd || !egTd || row.dataset.stock === undefined) return;
+            const stock  = parseFloat(row.dataset.stock);
+            const mQty   = parseFloat(row.dataset.machineQty || '0');
+            const hQty   = parseFloat(row.dataset.humanQty   || '0');
+            const pkg    = parseFloat(row.dataset.package    || '1');
+            const floor  = parseFloat(row.dataset.floor      || '0');
+            const effMin = parseFloat(row.dataset.effMin     || '0');
+            const avg    = parseFloat(row.dataset.avgDaily   || '0');
+            const effStock = useMachine ? stock + (mQty - hQty) * pkg : stock;
+            const r = excessDeficitCells(effStock, floor, effMin, pkg, avg);
+            edTd.innerHTML = r.edHTML;
+            edTd.dataset.sort = r.edSort;
+            edTd.classList.toggle('has-big-excess', r.bigExcess);
+            egTd.innerHTML = r.egHTML;
+            egTd.dataset.sort = r.egSort;
+        });
+        updateColumnSummaries();
+    }
+
     function setCausalFilter(filter) {
         activeCausalFilter = (activeCausalFilter === filter) ? null : filter;
         updateCausalButtons();
+        updateExcessCells();
         computeRowVisibility();
     }
 
