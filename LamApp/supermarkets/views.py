@@ -810,6 +810,7 @@ def order_comparison_view(request, storage_id):
         .filter(storage=storage, operation_type='full_restock', status='completed')
         .order_by('-started_at')[:30]
     )
+    available_calibrations = storage.calibration_reports.all()[:10]
 
     form = OrderComparisonForm(request.POST or None, request.FILES or None)
 
@@ -818,6 +819,7 @@ def order_comparison_view(request, storage_id):
             'storage': storage,
             'upload_form': form,
             'available_logs': available_logs,
+            'available_calibrations': available_calibrations,
         })
 
     # --- Parse CSV ---
@@ -931,8 +933,16 @@ def order_comparison_view(request, storage_id):
         finally:
             db.conn.close()
 
-    # --- Most recent calibration report ---
-    calibration = storage.calibration_reports.first()
+    # --- Calibration report: user-selected or most recent ---
+    calib_report_id_str = request.POST.get('calib_report_id', '').strip()
+    calibration = None
+    if calib_report_id_str:
+        try:
+            calibration = storage.calibration_reports.filter(pk=int(calib_report_id_str)).first()
+        except (ValueError, TypeError):
+            pass
+    if calibration is None:
+        calibration = storage.calibration_reports.first()
 
     # Build calib_map: (cod, v) -> calibration data for display + JS burn
     calib_map = {}
@@ -1010,16 +1020,40 @@ def order_comparison_view(request, storage_id):
         else:
             human_less.append(entry)
 
+    # --- Products in calibration critical/understocked absent from both orders ---
+    both_missed = []
+    if calibration:
+        cal_results = calibration.get_results()
+        for outcome in ('critical', 'understocked'):
+            for p in cal_results.get(outcome, []):
+                key = (p['cod'], p['v'])
+                if key in all_keys:
+                    continue
+                calib = calib_map.get(key)
+                if calib is None:
+                    continue
+                both_missed.append({
+                    'cod': p['cod'], 'v': p['v'],
+                    'descrizione': p.get('descrizione', f"{p['cod']}.{p['v']}"),
+                    'machine_qty': 0, 'human_qty': 0, 'diff': 0,
+                    'comp_cat': 'both_missed',
+                    'calib': calib,
+                    'has_blue_dot': (p['cod'], p['v']) in blue_dot_keys,
+                    'has_promo': (p['cod'], p['v']) in promo_keys,
+                })
+
     context = {
         'storage': storage,
         'machine_log': machine_log,
         'calibration': calibration,
+        'available_calibrations': available_calibrations,
         'comparison': {
             'agreed': agreed,
             'human_more': human_more,
             'human_less': human_less,
             'human_zeroed': human_zeroed,
             'human_added': human_added,
+            'both_missed': both_missed,
             'total_csv': len(human_orders),
             'total_machine': len(machine_orders),
         },

@@ -360,6 +360,12 @@
                     <div class="text-muted small">Aggiunti umano</div>
                     <div class="fs-5 fw-bold">{{ comparison.human_added|length }}</div>
                 </div>
+                {% if comparison.both_missed %}
+                <div class="border border-danger rounded px-3 py-2 text-center" style="min-width:120px;">
+                    <div class="text-danger small">Ignorati da entrambi</div>
+                    <div class="fs-5 fw-bold text-danger">{{ comparison.both_missed|length }}</div>
+                </div>
+                {% endif %}
             </div>
         </div>
 
@@ -584,6 +590,52 @@
         </div>
         {% endif %}
 
+        <!-- Both missed -->
+        {% if comparison.both_missed %}
+        <h5 class="mb-3 section-break">
+            <i class="bi bi-exclamation-octagon text-danger"></i>
+            Ignorati da entrambi (critici/sotto nel report)
+            <span id="count-both-missed" class="badge bg-danger ms-1">{{ comparison.both_missed|length }}</span>
+        </h5>
+        <div class="table-responsive mb-5">
+            <table id="both-missed-table" class="table table-bordered table-sm table-hover">
+                <thead class="table-danger">
+                    <tr>
+                        <th class="no-print" style="width:1.5rem;"></th>
+                        <th class="sortable" onclick="sortTable('both-missed-table',1)">Codice<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('both-missed-table',2)">Descrizione<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('both-missed-table',3)">Mac/Uman<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('both-missed-table',4)">Calibrazione<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('both-missed-table',5)">Vend./gg<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('both-missed-table',6)">Giacenza<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('both-missed-table',7)">Imballo<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('both-missed-table',8)">Eccesso/Deficit<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('both-missed-table',9)">Eccesso gg<span class="sort-icon">⇅</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in comparison.both_missed %}
+                    <tr data-comp-cat="{{ p.comp_cat }}"
+                        data-calib-outcome="{{ p.calib.outcome|default:'' }}"
+                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}" data-blue-dot="{% if p.has_blue_dot %}1{% else %}0{% endif %}"
+                        {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
+                        <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
+                        <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
+                        <td class="text-end text-muted" data-sort="0">0/0</td>
+                        <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
+                        <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted stock-cell" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% if p.calib.stock == 0 %} <span class="text-danger">●</span>{% endif %}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
         <!-- Agreed -->
         {% if comparison.agreed %}
         <h5 class="mb-3 section-break">
@@ -684,6 +736,37 @@
                     </div>
                     {% else %}
                     <div class="alert alert-info py-2">Nessun ordine macchina completato trovato per questo magazzino.</div>
+                    {% endif %}
+                </div>
+
+                <!-- Calibration report selection -->
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">Report di Calibrazione <span class="text-muted fw-normal small">— per rilevare prodotti ignorati da entrambi</span></label>
+                    {% if available_calibrations %}
+                    <div class="border rounded" style="max-height:180px; overflow-y:auto;">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th style="width:1.5rem;"></th>
+                                    <th>Generato</th>
+                                    <th class="text-end text-danger">Critici</th>
+                                    <th class="text-end text-warning">Sotto</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for cr in available_calibrations %}
+                                <tr onclick="this.querySelector('input').checked=true" style="cursor:pointer">
+                                    <td><input type="radio" name="calib_report_id" value="{{ cr.pk }}" {% if forloop.first %}checked{% endif %}></td>
+                                    <td>{{ cr.generated_at|date:"d/m/Y H:i" }}</td>
+                                    <td class="text-end text-danger">{{ cr.products_critical }}</td>
+                                    <td class="text-end text-warning">{{ cr.products_understocked }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info py-2 small">Nessun report di calibrazione trovato per questo magazzino.</div>
                     {% endif %}
                 </div>
 
@@ -915,6 +998,7 @@
             ['human-less-table',   'count-human-less'],
             ['human-zeroed-table', 'count-human-zeroed'],
             ['human-added-table',  'count-human-added'],
+            ['both-missed-table',  'count-both-missed'],
             ['agreed-table',       'count-agreed'],
         ];
         const anyFilter = checkedFilterActive || activeCausalFilter !== null;
@@ -982,7 +1066,7 @@
     }
 
     function initColumnSummaryFooters() {
-        const tables = ['human-more-table', 'human-less-table', 'human-zeroed-table', 'human-added-table', 'agreed-table'];
+        const tables = ['human-more-table', 'human-less-table', 'human-zeroed-table', 'human-added-table', 'both-missed-table', 'agreed-table'];
         tables.forEach(tableId => {
             const table = document.getElementById(tableId);
             if (!table || table.querySelector('tfoot')) return;
@@ -997,7 +1081,7 @@
     }
 
     function updateColumnSummaries() {
-        const tables = ['human-more-table', 'human-less-table', 'human-zeroed-table', 'human-added-table', 'agreed-table'];
+        const tables = ['human-more-table', 'human-less-table', 'human-zeroed-table', 'human-added-table', 'both-missed-table', 'agreed-table'];
         tables.forEach(tableId => {
             const table = document.getElementById(tableId);
             const medianEl = table ? table.querySelector('.excess-days-median') : null;
@@ -1046,7 +1130,7 @@
         if (compCat === 'human_added') {
             if (filter === 'overstocked_human')  return isOver;
             if (filter === 'understocked_human') return isUnder;
-            return false;
+            // machine filters: fall through to counterfactual check
         }
         const hQty = parseFloat(row.dataset.humanQty   || '0');
         const mQty = parseFloat(row.dataset.machineQty || '0');
