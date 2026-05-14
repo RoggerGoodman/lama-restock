@@ -130,3 +130,10 @@ DEPLOYMENT_CHANGES.md
 debug_ean_fetch.py
 web_lister_local.py
 debug_orderer.py
+LamApp/logs/app.log.1
+LamApp/logs/app.log.2
+LamApp/logs/app.log.3
+LamApp/logs/app.log.4
+LamApp/logs/app.log.5
+LamApp/logs/decision_maker.log.1
+LamApp/logs/decision_maker.log.2

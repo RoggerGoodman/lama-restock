@@ -137,7 +137,8 @@ class Inventory_Scrapper:
         }
 
         today = date.today()
-        grouped = {}  # desc -> [testate dicts]
+        grouped = {}       # desc -> [testate dicts]
+        found_day = {}     # desc -> days_back when first (most recent) entry was found
 
         for days_back in range(max_days_back + 1):
             target_date = (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
@@ -165,7 +166,12 @@ class Inventory_Scrapper:
                     continue
                 if last_ids.get(desc) is not None and tid <= last_ids[desc]:
                     continue
+                # Only collect from the most recent day this type appears on.
+                # If we already found this type on an earlier (closer) day, skip.
+                if desc in found_day and found_day[desc] != days_back:
+                    continue
 
+                found_day[desc] = days_back
                 grouped.setdefault(desc, []).append(t)
 
             if all(t in grouped for t in ALLOWED_TYPES):
