@@ -892,38 +892,36 @@ def order_comparison_view(request, storage_id):
     # --- Most recent calibration report ---
     calibration = storage.calibration_reports.first()
 
-    # Build calib_map: (cod, v) -> dict with outcome + raw threshold data for JS burn
+    # Build calib_map: (cod, v) -> calibration data for display + JS burn
     calib_map = {}
     if calibration:
         cal_results = calibration.get_results()
         for outcome in ('critical', 'understocked', 'overstocked', 'ok'):
             for p in cal_results.get(outcome, []):
+                stock    = p.get('stock', 0) or 0
+                floor_v  = p.get('floor', 0) or 0
+                eff_min  = p.get('eff_min', 0) or 0
+                pkg      = p.get('package_size', 1) or 1
+                avg      = p.get('avg_daily_sales', 0) or 0
+                if outcome == 'overstocked':
+                    excess_deficit = stock - eff_min - pkg
+                    excess_days    = round(excess_deficit / avg, 1) if avg > 0 else None
+                elif outcome in ('critical', 'understocked'):
+                    excess_deficit = stock - floor_v   # negative
+                    excess_days    = None
+                else:
+                    excess_deficit = None
+                    excess_days    = None
                 calib_map[(p['cod'], p['v'])] = {
                     'outcome': outcome,
-                    'stock': p.get('stock', ''),
-                    'avg_daily': p.get('avg_daily_sales', ''),
-                    'floor': p.get('floor', ''),
-                    'eff_min': p.get('eff_min', ''),
-                    'package_size': p.get('package_size', ''),
+                    'stock': stock,
+                    'avg_daily': avg,
+                    'floor': floor_v,
+                    'eff_min': eff_min,
+                    'package_size': pkg,
+                    'excess_deficit': excess_deficit,
+                    'excess_days': excess_days,
                 }
-
-    def _verdict(comp_cat, outcome):
-        if not outcome:
-            return ''
-        if outcome == 'ok':
-            return 'neutro'
-        shortage = outcome in ('critical', 'understocked')
-        human_more_cats = ('human_more', 'human_added')
-        human_less_cats = ('human_less', 'human_zeroed')
-        if shortage and comp_cat in human_more_cats:
-            return 'human_right'
-        if shortage and comp_cat in human_less_cats:
-            return 'machine_right'
-        if not shortage and comp_cat in human_less_cats:  # overstocked
-            return 'human_right'
-        if not shortage and comp_cat in human_more_cats:  # overstocked
-            return 'machine_right'
-        return 'machine_responsible'  # agreed
 
     # --- Categorise ---
     agreed = []
@@ -955,7 +953,6 @@ def order_comparison_view(request, storage_id):
             'machine_qty': m, 'human_qty': h, 'diff': h - m,
             'comp_cat': comp_cat,
             'calib': calib,
-            'verdict': _verdict(comp_cat, calib['outcome'] if calib else ''),
         }
 
         if comp_cat == 'human_added':

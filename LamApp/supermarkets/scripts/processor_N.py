@@ -29,12 +29,10 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
             minimum_stock += (round(avg_daily_sales) * 2)
     elif avg_daily_sales < 0.6:
         minimum_stock -= 1
-        if avg_daily_sales < 0.3:
+        if avg_daily_sales <= 0.1:
             minimum_stock -= 1
-            if avg_daily_sales < 0.2:
+            if avg_daily_sales <= 0.05:
                 minimum_stock -= 1
-                if avg_daily_sales < 0.1:
-                    minimum_stock -= 1
 
     logger.info(f"Minimum Stock = {minimum_stock} (base: {minimum_stock_base}, override: {minimum_stock_override})")
 

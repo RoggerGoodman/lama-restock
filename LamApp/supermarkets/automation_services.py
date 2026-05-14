@@ -165,9 +165,9 @@ class AutomatedRestockService(RestockService):
                 eff_min += round(math.sqrt(max(0, req_stock - 1)))
             elif avg_daily_sales < 0.6:
                 eff_min -= 1
-                if avg_daily_sales < 0.3:
+                if avg_daily_sales < 0.1:
                     eff_min -= 1
-                    if avg_daily_sales < 0.2:
+                    if avg_daily_sales < 0.05:
                         eff_min -= 1
 
             deviation = self.helper.calculate_deviation(sales_sets)
@@ -193,6 +193,7 @@ class AutomatedRestockService(RestockService):
                 'stock': stock,
                 'floor': floor,
                 'eff_min': eff_min,
+                'floor_delta': eff_min - floor,
                 'package_size': package_size,
                 'on_sale': on_sale,
                 'avg_daily_sales': round(avg_daily_sales, 2),
