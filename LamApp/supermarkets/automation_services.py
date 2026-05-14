@@ -201,7 +201,7 @@ class AutomatedRestockService(RestockService):
 
             if stock == 0:
                 critical.append(entry)
-            elif stock < floor:
+            elif stock < eff_min:
                 understocked.append(entry)
             elif stock > eff_min + package_size:
                 overstocked.append(entry)

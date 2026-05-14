@@ -750,7 +750,7 @@ def calibration_report_view(request, pk):
 
     understocked = results.get('understocked', [])
     for p in understocked:
-        p['deficit'] = p.get('floor', 0) - p.get('stock', 0)
+        p['deficit'] = p.get('eff_min', 0) - p.get('stock', 0)
 
     overstocked = results.get('overstocked', [])
     for p in overstocked:
@@ -907,7 +907,7 @@ def order_comparison_view(request, storage_id):
                     excess_deficit = stock - eff_min - pkg
                     excess_days    = round(excess_deficit / avg, 1) if avg > 0 else None
                 elif outcome in ('critical', 'understocked'):
-                    excess_deficit = stock - floor_v   # negative
+                    excess_deficit = stock - eff_min   # negative
                     excess_days    = None
                 else:
                     excess_deficit = None

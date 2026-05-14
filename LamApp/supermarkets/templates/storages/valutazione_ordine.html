@@ -763,8 +763,8 @@
         if (effectiveStock > effMin + pkg) {
             ed = Math.round(effectiveStock - effMin - pkg);
             eg = avg > 0 ? Math.round((ed / avg) * 10) / 10 : null;
-        } else if (effectiveStock < floor) {
-            ed = Math.round(effectiveStock - floor);
+        } else if (effectiveStock < effMin) {
+            ed = Math.round(effectiveStock - effMin);
         }
         const edHTML = ed === null ? '&mdash;' :
             ed > 0 ? `<span style="color:#e6a817">+${ed}</span>` :
@@ -854,7 +854,7 @@
                 descHTML: cells[1] ? cells[1].innerHTML : '',
             };
             if (adj <= 0)               critical.push(p);
-            else if (adj < floor)       understocked.push(p);
+            else if (adj < effMin)      understocked.push(p);
             else if (adj > effMin + pkg) overstocked.push(p);
             else                        ok.push(p);
         }
@@ -947,7 +947,7 @@
 
     function classifyStockLevel(stock, floor, effMin, pkg) {
         if (stock <= 0)            return 'critical';
-        if (stock < floor)         return 'understocked';
+        if (stock < effMin)        return 'understocked';
         if (stock > effMin + pkg)  return 'overstocked';
         return 'ok';
     }
