@@ -758,6 +758,28 @@ def calibration_report_view(request, pk):
         avg = p.get('avg_daily_sales', 0)
         p['excess_days'] = round(p['excess'] / avg, 1) if avg > 0 else None
 
+    blue_dot_keys = set()
+    try:
+        from .scripts.DatabaseManager import DatabaseManager
+        from .scripts.helpers import Helper
+        _db = DatabaseManager(Helper(), supermarket_name=report.storage.supermarket.name)
+        try:
+            _cur = _db.cursor()
+            _cutoff = date.today() - timedelta(days=60)
+            _cur.execute(
+                "SELECT cod, v FROM extra_losses WHERE internal_updated IS NOT NULL AND internal_updated >= %s",
+                (_cutoff,)
+            )
+            blue_dot_keys = {(r['cod'], r['v']) for r in _cur.fetchall()}
+        finally:
+            _db.conn.close()
+    except Exception:
+        pass
+
+    for lst in (results.get('critical', []), understocked, overstocked):
+        for p in lst:
+            p['has_blue_dot'] = (p.get('cod'), p.get('v')) in blue_dot_keys
+
     context = {
         'report': report,
         'storage': report.storage,
@@ -875,6 +897,7 @@ def order_comparison_view(request, storage_id):
 
     # --- Load product descriptions from DB ---
     desc_map = {}  # (cod, var) -> descrizione
+    blue_dot_keys = set()
     if all_keys:
         from .scripts.DatabaseManager import DatabaseManager
         from .scripts.helpers import Helper
@@ -889,6 +912,12 @@ def order_comparison_view(request, storage_id):
                 key = (r['cod'], r['v'])
                 if key in all_keys:
                     desc_map[key] = r['descrizione']
+            cutoff = date.today() - timedelta(days=60)
+            cur.execute(
+                "SELECT cod, v FROM extra_losses WHERE internal_updated IS NOT NULL AND internal_updated >= %s",
+                (cutoff,)
+            )
+            blue_dot_keys = {(r['cod'], r['v']) for r in cur.fetchall()}
         finally:
             db.conn.close()
 
@@ -956,6 +985,7 @@ def order_comparison_view(request, storage_id):
             'machine_qty': m, 'human_qty': h, 'diff': h - m,
             'comp_cat': comp_cat,
             'calib': calib,
+            'has_blue_dot': (cod, var) in blue_dot_keys,
         }
 
         if comp_cat == 'human_added':

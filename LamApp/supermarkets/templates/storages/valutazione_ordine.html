@@ -156,6 +156,7 @@
                         <td data-sort="{{ p.descrizione }}">
                             {{ p.descrizione }}
                             {% if p.on_sale %}<span class="badge bg-success ms-1">Promo</span>{% endif %}
+                            {% if p.has_blue_dot %}<span class="text-primary ms-1">●</span>{% endif %}
                         </td>
                         <td class="text-end text-muted" data-sort="{{ p.avg_daily_sales }}">{{ p.avg_daily_sales }}</td>
                         <td class="text-end" data-sort="{{ p.eff_min }}">{{ p.eff_min }}{% if p.floor_delta != 0 %} <span class="text-muted small">({{ p.floor }} {% if p.floor_delta > 0 %}+{% endif %}{{ p.floor_delta }})</span>{% endif %}</td>
@@ -199,7 +200,7 @@
                             {% if p.on_sale %}<span class="badge bg-success ms-1">Promo</span>{% endif %}
                         </td>
                         <td class="text-end text-muted" data-sort="{{ p.avg_daily_sales }}">{{ p.avg_daily_sales }}</td>
-                        <td class="text-end fw-bold text-warning" data-sort="{{ p.stock }}">{{ p.stock }}</td>
+                        <td class="text-end fw-bold text-warning" data-sort="{{ p.stock }}">{{ p.stock }}{% if p.stock == 0 %} <span class="text-danger">●</span>{% endif %}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}</td>
                         <td class="text-end" data-sort="{{ p.eff_min }}">{{ p.eff_min }}{% if p.floor_delta != 0 %} <span class="text-muted small">({{ p.floor }} {% if p.floor_delta > 0 %}+{% endif %}{{ p.floor_delta }})</span>{% endif %}</td>
                         <td class="text-end fw-bold text-warning" data-sort="{{ p.deficit }}">{{ p.deficit }}</td>
                     </tr>
@@ -243,7 +244,7 @@
                             {% if p.on_sale %}<span class="badge bg-success ms-1">Promo</span>{% endif %}
                         </td>
                         <td class="text-end text-muted" data-sort="{{ p.avg_daily_sales }}">{{ p.avg_daily_sales }}</td>
-                        <td class="text-end fw-bold" style="color:#e6a817;" data-sort="{{ p.stock }}">{{ p.stock }}</td>
+                        <td class="text-end fw-bold" style="color:#e6a817;" data-sort="{{ p.stock }}">{{ p.stock }}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.eff_min }}">{{ p.eff_min }}{% if p.floor_delta != 0 %} <span class="small">({{ p.floor }} {% if p.floor_delta > 0 %}+{% endif %}{{ p.floor_delta }})</span>{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.package_size }}">{{ p.package_size }}</td>
                         <td class="text-end fw-bold" style="color:#e6a817;" data-sort="{{ p.excess }}">+{{ p.excess }}</td>
@@ -426,7 +427,7 @@
                     {% for p in comparison.human_more %}
                     <tr data-comp-cat="{{ p.comp_cat }}"
                         data-calib-outcome="{{ p.calib.outcome|default:'' }}"
-                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}"
+                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}" data-blue-dot="{% if p.has_blue_dot %}1{% else %}0{% endif %}"
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
@@ -434,7 +435,7 @@
                         <td class="text-end" data-sort="{{ p.machine_qty }}"><span class="text-muted">{{ p.machine_qty }}</span>/<span class="fw-bold text-primary">{{ p.human_qty }}</span></td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted stock-cell" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% if p.calib.stock == 0 %} <span class="text-danger">●</span>{% endif %}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
@@ -472,7 +473,7 @@
                     {% for p in comparison.human_less %}
                     <tr data-comp-cat="{{ p.comp_cat }}"
                         data-calib-outcome="{{ p.calib.outcome|default:'' }}"
-                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}"
+                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}" data-blue-dot="{% if p.has_blue_dot %}1{% else %}0{% endif %}"
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
@@ -480,7 +481,7 @@
                         <td class="text-end" data-sort="{{ p.machine_qty }}"><span class="fw-bold text-warning">{{ p.machine_qty }}</span>/<span class="text-muted">{{ p.human_qty }}</span></td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted stock-cell" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% if p.calib.stock == 0 %} <span class="text-danger">●</span>{% endif %}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
@@ -518,7 +519,7 @@
                     {% for p in comparison.human_zeroed %}
                     <tr data-comp-cat="{{ p.comp_cat }}"
                         data-calib-outcome="{{ p.calib.outcome|default:'' }}"
-                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}"
+                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}" data-blue-dot="{% if p.has_blue_dot %}1{% else %}0{% endif %}"
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
@@ -526,7 +527,7 @@
                         <td class="text-end fw-bold text-danger" data-sort="{{ p.machine_qty }}">{{ p.machine_qty }}</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted stock-cell" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% if p.calib.stock == 0 %} <span class="text-danger">●</span>{% endif %}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
@@ -564,7 +565,7 @@
                     {% for p in comparison.human_added %}
                     <tr data-comp-cat="{{ p.comp_cat }}"
                         data-calib-outcome="{{ p.calib.outcome|default:'' }}"
-                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}"
+                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}" data-blue-dot="{% if p.has_blue_dot %}1{% else %}0{% endif %}"
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
@@ -572,7 +573,7 @@
                         <td class="text-end fw-bold" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted stock-cell" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% if p.calib.stock == 0 %} <span class="text-danger">●</span>{% endif %}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
@@ -610,7 +611,7 @@
                     {% for p in comparison.agreed %}
                     <tr data-comp-cat="{{ p.comp_cat }}"
                         data-calib-outcome="{{ p.calib.outcome|default:'' }}"
-                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}"
+                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}" data-blue-dot="{% if p.has_blue_dot %}1{% else %}0{% endif %}"
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
@@ -618,7 +619,7 @@
                         <td class="text-end text-success fw-bold" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
-                        <td class="text-end text-muted" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted stock-cell" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% if p.calib.stock == 0 %} <span class="text-danger">●</span>{% endif %}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
@@ -1082,6 +1083,7 @@
         document.querySelectorAll('tr[data-comp-cat]').forEach(row => {
             const edTd = row.querySelector('td.excess-deficit-cell');
             const egTd = row.querySelector('td.excess-days-cell');
+            const stTd = row.querySelector('td.stock-cell');
             if (!edTd || !egTd || row.dataset.stock === undefined) return;
             const stock  = parseFloat(row.dataset.stock);
             const mQty   = parseFloat(row.dataset.machineQty || '0');
@@ -1097,6 +1099,12 @@
             edTd.classList.toggle('has-big-excess', r.bigExcess);
             egTd.innerHTML = r.egHTML;
             egTd.dataset.sort = r.egSort;
+            if (stTd) {
+                const redDot  = effStock <= 0 ? ' <span class="text-danger">●</span>' : '';
+                const blueDot = row.dataset.blueDot === '1' ? ' <span class="text-primary">●</span>' : '';
+                stTd.innerHTML = effStock + redDot + blueDot;
+                stTd.dataset.sort = effStock;
+            }
         });
         updateColumnSummaries();
     }
