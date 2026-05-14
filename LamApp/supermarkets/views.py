@@ -898,6 +898,7 @@ def order_comparison_view(request, storage_id):
     # --- Load product descriptions from DB ---
     desc_map = {}  # (cod, var) -> descrizione
     blue_dot_keys = set()
+    promo_keys = set()
     if all_keys:
         from .scripts.DatabaseManager import DatabaseManager
         from .scripts.helpers import Helper
@@ -918,6 +919,15 @@ def order_comparison_view(request, storage_id):
                 (cutoff,)
             )
             blue_dot_keys = {(r['cod'], r['v']) for r in cur.fetchall()}
+            if machine_log:
+                ref_date = machine_log.started_at.date()
+                cur.execute(
+                    "SELECT cod, v FROM economics"
+                    " WHERE sale_start IS NOT NULL AND sale_end IS NOT NULL"
+                    " AND sale_start <= %s AND sale_end >= %s",
+                    (ref_date, ref_date)
+                )
+                promo_keys = {(r['cod'], r['v']) for r in cur.fetchall()}
         finally:
             db.conn.close()
 
@@ -986,6 +996,7 @@ def order_comparison_view(request, storage_id):
             'comp_cat': comp_cat,
             'calib': calib,
             'has_blue_dot': (cod, var) in blue_dot_keys,
+            'has_promo': (cod, var) in promo_keys,
         }
 
         if comp_cat == 'human_added':

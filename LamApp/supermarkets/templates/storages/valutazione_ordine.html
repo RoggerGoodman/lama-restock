@@ -431,7 +431,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
                         <td class="text-end" data-sort="{{ p.machine_qty }}"><span class="text-muted">{{ p.machine_qty }}</span>/<span class="fw-bold text-primary">{{ p.human_qty }}</span></td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -477,7 +477,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
                         <td class="text-end" data-sort="{{ p.machine_qty }}"><span class="fw-bold text-warning">{{ p.machine_qty }}</span>/<span class="text-muted">{{ p.human_qty }}</span></td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -523,7 +523,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
                         <td class="text-end fw-bold text-danger" data-sort="{{ p.machine_qty }}">{{ p.machine_qty }}</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -569,7 +569,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
                         <td class="text-end fw-bold" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -615,7 +615,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
                         <td class="text-end text-success fw-bold" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
