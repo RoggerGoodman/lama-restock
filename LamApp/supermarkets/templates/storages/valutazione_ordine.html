@@ -812,6 +812,9 @@
             const aNum = parseFloat(aRaw);
             const bNum = parseFloat(bRaw);
             if (!isNaN(aNum) && !isNaN(bNum)) {
+                // Always pin sentinel 9999 (dash/null) to the bottom regardless of direction
+                if (aNum === 9999 && bNum !== 9999) return 1;
+                if (bNum === 9999 && aNum !== 9999) return -1;
                 return goAsc ? aNum - bNum : bNum - aNum;
             }
             return goAsc ? aRaw.localeCompare(bRaw, 'it') : bRaw.localeCompare(aRaw, 'it');
@@ -876,15 +879,16 @@
             let outcome, effStock;
             if (active) {
                 effStock = stock - avgDaily;
-                if (effStock <= 0)              outcome = 'critical';
-                else if (effStock < floor)      outcome = 'understocked';
-                else if (effStock > effMin+pkg) outcome = 'overstocked';
-                else                            outcome = 'ok';
+                if (effStock <= 0)                                                     outcome = 'critical';
+                else if (effStock < floor)                                             outcome = 'understocked';
+                else if (effStock > effMin+pkg && Math.round(effStock-effMin-pkg) > 0) outcome = 'overstocked';
+                else                                                                   outcome = 'ok';
             } else {
                 effStock = stock;
                 outcome = origOutcome;
             }
 
+            row.dataset.calibOutcome = outcome;
             if (outcomeTd) outcomeTd.innerHTML = outcomeToHTML(outcome);
             if (edTd && egTd) {
                 const r = excessDeficitCells(effStock, floor, effMin, pkg, avgDaily);
@@ -894,6 +898,8 @@
                 egTd.dataset.sort = r.egSort;
             }
         });
+        computeCausalCounts();
+        updateColumnSummaries();
     }
 
     let burnActive = false;
