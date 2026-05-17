@@ -865,7 +865,9 @@
     function updateComparisonBurn(active) {
         document.querySelectorAll('tr[data-comp-cat]').forEach(row => {
             if (row.dataset.stock === undefined) return;
-            const origOutcome = row.dataset.calibOutcome || '';
+            // Save original outcome once, so toggling off can always restore it
+            if (!row.dataset.origCalibOutcome) row.dataset.origCalibOutcome = row.dataset.calibOutcome || '';
+            const origOutcome = row.dataset.origCalibOutcome;
             const stock    = parseFloat(row.dataset.stock);
             const avgDaily = parseFloat(row.dataset.avgDaily || '0');
             const floor    = parseFloat(row.dataset.floor    || '0');
@@ -875,6 +877,7 @@
             const outcomeTd = row.querySelector('td.outcome-badge');
             const edTd      = row.querySelector('td.excess-deficit-cell');
             const egTd      = row.querySelector('td.excess-days-cell');
+            const stTd      = row.querySelector('td.stock-cell');
 
             let outcome, effStock;
             if (active) {
@@ -896,6 +899,12 @@
                 edTd.dataset.sort = r.edSort;
                 egTd.innerHTML = r.egHTML;
                 egTd.dataset.sort = r.egSort;
+            }
+            if (stTd) {
+                const redDot  = effStock <= 0 ? ' <span class="text-danger">●</span>' : '';
+                const blueDot = row.dataset.blueDot === '1' ? ' <span class="text-primary">●</span>' : '';
+                stTd.innerHTML = effStock + redDot + blueDot;
+                stTd.dataset.sort = effStock;
             }
         });
         computeCausalCounts();
