@@ -881,7 +881,7 @@
 
             let outcome, effStock;
             if (active) {
-                effStock = stock - avgDaily;
+                effStock = Math.round(stock - avgDaily);
                 if (effStock <= 0)                                                     outcome = 'critical';
                 else if (effStock < floor)                                             outcome = 'understocked';
                 else if (effStock > effMin+pkg && Math.round(effStock-effMin-pkg) > 0) outcome = 'overstocked';
