@@ -265,10 +265,10 @@ def dashboard_view(request):
                     cursor.execute("""
                         SELECT COUNT(*) as cnt
                         FROM products p
-                        JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                         WHERE p.settore = %s
                             AND p.purge_flag = FALSE
-                            AND ps.verified = FALSE
+                            AND ps.verified IS NOT TRUE
                             AND (p.disponibilita = 'Si' OR p.settore = 'DEPERIBILI')
                             AND (ps.bought_last_24 IS NULL OR ps.bought_last_24 = '[]'::jsonb OR (ps.bought_last_24->0)::numeric = 0)
                             AND (ps.sold_last_24 IS NULL OR ps.sold_last_24 = '[]'::jsonb OR (ps.sold_last_24->0)::numeric = 0)
@@ -662,11 +662,11 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp,
                         p.first_added_at, e.cost_std, e.price_std
                     FROM products p
-                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                    LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                     LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
                     WHERE p.settore = %s
                         AND p.purge_flag = FALSE
-                        AND ps.verified = FALSE
+                        AND ps.verified IS NOT TRUE
                         AND (p.disponibilita = 'Si' OR p.settore = 'DEPERIBILI')
                         AND (ps.bought_last_24 IS NULL OR ps.bought_last_24 = '[]'::jsonb OR (ps.bought_last_24->0)::numeric = 0)
                         AND (ps.sold_last_24 IS NULL OR ps.sold_last_24 = '[]'::jsonb OR (ps.sold_last_24->0)::numeric = 0)
@@ -765,12 +765,14 @@ def calibration_report_view(request, pk):
         _db = DatabaseManager(Helper(), supermarket_name=report.storage.supermarket.name)
         try:
             _cur = _db.cursor()
-            _cutoff = date.today() - timedelta(days=60)
-            _cur.execute(
-                "SELECT cod, v FROM extra_losses WHERE internal_updated IS NOT NULL AND internal_updated >= %s",
-                (_cutoff,)
-            )
-            blue_dot_keys = {(r['cod'], r['v']) for r in _cur.fetchall()}
+            _cur.execute("SELECT cod, v, internal FROM extra_losses WHERE internal IS NOT NULL")
+            blue_dot_keys = set()
+            for _r in _cur.fetchall():
+                for _entry in (_r['internal'] or [])[:2]:
+                    _qty = _entry[0] if isinstance(_entry, list) else _entry
+                    if _qty:
+                        blue_dot_keys.add((_r['cod'], _r['v']))
+                        break
         finally:
             _db.conn.close()
     except Exception:
@@ -915,12 +917,14 @@ def order_comparison_view(request, storage_id):
                 key = (r['cod'], r['v'])
                 if key in all_keys:
                     desc_map[key] = r['descrizione']
-            cutoff = date.today() - timedelta(days=60)
-            cur.execute(
-                "SELECT cod, v FROM extra_losses WHERE internal_updated IS NOT NULL AND internal_updated >= %s",
-                (cutoff,)
-            )
-            blue_dot_keys = {(r['cod'], r['v']) for r in cur.fetchall()}
+            cur.execute("SELECT cod, v, internal FROM extra_losses WHERE internal IS NOT NULL")
+            blue_dot_keys = set()
+            for _el in cur.fetchall():
+                for _entry in (_el['internal'] or [])[:2]:
+                    _qty = _entry[0] if isinstance(_entry, list) else _entry
+                    if _qty:
+                        blue_dot_keys.add((_el['cod'], _el['v']))
+                        break
             if machine_log:
                 ref_date = machine_log.started_at.date()
                 cur.execute(

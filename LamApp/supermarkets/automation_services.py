@@ -76,6 +76,7 @@ class AutomatedRestockService(RestockService):
 
             finally:
                 inv_scrapper.driver.quit()
+                shutil.rmtree(inv_scrapper.user_data_dir, ignore_errors=True)
 
         except Exception as e:
             log.status = 'failed'

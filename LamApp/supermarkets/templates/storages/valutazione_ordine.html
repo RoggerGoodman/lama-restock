@@ -1130,7 +1130,8 @@
         if (compCat === 'human_added') {
             if (filter === 'overstocked_human')  return isOver;
             if (filter === 'understocked_human') return isUnder;
-            // machine filters: fall through to counterfactual check
+            if (filter === 'overstocked_machine') return false; // machine ordered 0, cannot cause overstock
+            // understocked_machine: fall through to counterfactual check
         }
         const hQty = parseFloat(row.dataset.humanQty   || '0');
         const mQty = parseFloat(row.dataset.machineQty || '0');

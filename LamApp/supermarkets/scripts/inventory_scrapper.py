@@ -7,7 +7,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-import os, uuid, shutil
+import os, uuid
 import sys
 from django.conf import settings
 import logging
@@ -135,12 +135,17 @@ class Inventory_Scrapper:
             "SCADUTO": sync_state.last_id_scaduto,
             "UTILIZZO INTERNO": sync_state.last_id_utilizzo_interno,
         }
+        logger.info(f"Starting export — last_ids: {last_ids}")
 
         today = date.today()
-        grouped = {}       # desc -> [testate dicts]
-        found_day = {}     # desc -> days_back when first (most recent) entry was found
+        grouped = {}    # desc -> [new testate dicts]
+        seen = set()    # types for which the most recent day has been found (new or already processed)
 
         for days_back in range(max_days_back + 1):
+            remaining = ALLOWED_TYPES - seen
+            if not remaining:
+                break
+
             target_date = (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
             payload_testate = {
@@ -158,24 +163,22 @@ class Inventory_Scrapper:
             resp.raise_for_status()
             testate = resp.json()
 
+            # Group this day's testate by type (only unseen types)
+            day_by_type = {}
             for t in testate:
                 desc = t["RilevazioniTestateDescRilevazione"].strip()
-                tid = int(t["RilevazioniTestateIDRilevazioniTestata"].strip())
-
-                if desc not in ALLOWED_TYPES:
+                if desc not in remaining:
                     continue
-                if last_ids.get(desc) is not None and tid <= last_ids[desc]:
-                    continue
-                # Only collect from the most recent day this type appears on.
-                # If we already found this type on an earlier (closer) day, skip.
-                if desc in found_day and found_day[desc] != days_back:
-                    continue
+                day_by_type.setdefault(desc, []).append(t)
 
-                found_day[desc] = days_back
-                grouped.setdefault(desc, []).append(t)
-
-            if all(t in grouped for t in ALLOWED_TYPES):
-                break
+            # For each type present today: mark seen, collect only new testate
+            for desc, items in day_by_type.items():
+                seen.add(desc)
+                for t in items:
+                    tid = int(t["RilevazioniTestateIDRilevazioniTestata"].strip())
+                    if last_ids.get(desc) is not None and tid <= last_ids[desc]:
+                        continue
+                    grouped.setdefault(desc, []).append(t)
 
         if not grouped:
             logger.info("No new testate found.")
@@ -224,5 +227,3 @@ class Inventory_Scrapper:
 
         sync_state.save()
         logger.info("All available testate exported.")
-        self.driver.quit()
-        shutil.rmtree(self.user_data_dir, ignore_errors=True)
