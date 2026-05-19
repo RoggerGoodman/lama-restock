@@ -1140,25 +1140,35 @@
         const compCat = row.dataset.compCat      || '';
         const isOver  = cur === 'overstocked';
         const isUnder = cur === 'understocked' || cur === 'critical';
+
+        // Machine filters: evaluate counterfactual outcome regardless of current calibration state.
+        // A product with Calibrazione=OK can still be "cpu sotto" if the machine ordered far less
+        // than the human — the counterfactual stock (using machine qty) may be critical/understocked.
+        if (filter === 'overstocked_machine' || filter === 'understocked_machine') {
+            if (compCat === 'human_added') {
+                if (filter === 'overstocked_machine') return false; // machine ordered 0, cannot cause overstock
+                // understocked_machine with human_added: fall through to counterfactual check
+            }
+            const mo = getMachineOutcome(row);
+            if (!mo) return false;
+            const mOver  = mo === 'overstocked';
+            const mUnder = mo === 'understocked' || mo === 'critical';
+            if (filter === 'overstocked_machine')  return mOver;
+            if (filter === 'understocked_machine') return mUnder;
+            return false;
+        }
+
+        // Human filters: require current calibration to be over or under
         if (!isOver && !isUnder) return false;
         // human_added: machine ordered 0 — human alone is responsible regardless of counterfactual
         if (compCat === 'human_added') {
             if (filter === 'overstocked_human')  return isOver;
             if (filter === 'understocked_human') return isUnder;
-            if (filter === 'overstocked_machine') return false; // machine ordered 0, cannot cause overstock
-            // understocked_machine: fall through to counterfactual check
         }
         const hQty = parseFloat(row.dataset.humanQty   || '0');
         const mQty = parseFloat(row.dataset.machineQty || '0');
         if (filter === 'overstocked_human')    return isOver  && hQty >= mQty;
         if (filter === 'understocked_human')   return isUnder && hQty <= mQty;
-
-        const mo = getMachineOutcome(row);
-        if (!mo) return false;
-        const mOver  = mo === 'overstocked';
-        const mUnder = mo === 'understocked' || mo === 'critical';
-        if (filter === 'overstocked_machine')  return mOver;
-        if (filter === 'understocked_machine') return mUnder;
         return false;
     }
 
