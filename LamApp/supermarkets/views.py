@@ -1202,7 +1202,7 @@ def schedule_exceptions_api(request, storage_id):
         try:
             body = json.loads(request.body)
             date_str = body.get('date')
-            exception_type = body.get('exception_type', 'skip')
+            exception_type = body.get('exception_type', 'none')
             delivery_offset = body.get('delivery_offset')
             skip_sale = body.get('skip_sale', False)
             note = body.get('note', '')

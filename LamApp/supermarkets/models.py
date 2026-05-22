@@ -357,11 +357,12 @@ class ScheduleException(models.Model):
         ('skip', 'Skip Order'),  # Don't order on this day
         ('add', 'Add Order'),    # Order on this day even if not in weekly schedule
         ('modify', 'Modify Delivery'),  # Change delivery offset for this day
+        ('none', 'No Change'),  # No scheduling change; only skip_sale applies
     ]
 
     schedule = models.ForeignKey(RestockSchedule, on_delete=models.CASCADE, related_name='exceptions')
     date = models.DateField(help_text="The specific date this exception applies to")
-    exception_type = models.CharField(max_length=10, choices=EXCEPTION_TYPE_CHOICES, default='skip')
+    exception_type = models.CharField(max_length=10, choices=EXCEPTION_TYPE_CHOICES, default='none')
     delivery_offset = models.IntegerField(
         null=True, blank=True,
         help_text="Custom delivery offset for 'add' or 'modify' types"
