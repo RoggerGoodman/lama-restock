@@ -1786,11 +1786,12 @@ def run_scheduled_orders(self):
     schedule includes today as an order day.  Fires at 06:00 daily via
     Celery Beat (after stats are updated at 05:00).
     """
-    from .models import Storage, is_closure_day
+    from .models import Storage, is_closure_day, ScheduleException
     import datetime
 
     try:
-        today_index = datetime.date.today().weekday()  # 0=Monday … 6=Sunday
+        today = datetime.date.today()
+        today_index = today.weekday()  # 0=Monday … 6=Sunday
 
         storages = Storage.objects.filter(
             schedule__isnull=False
@@ -1804,7 +1805,7 @@ def run_scheduled_orders(self):
         skipped = 0
 
         from .models import SalesSyncLog
-        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        yesterday = today - datetime.timedelta(days=1)
 
         for storage in storages:
             if is_closure_day(storage.supermarket):
@@ -1815,6 +1816,17 @@ def run_scheduled_orders(self):
             order_days = storage.schedule.get_order_days()
             if today_index not in order_days:
                 logger.info(f"[CELERY-SCHED] {storage.name} — no order today (day {today_index})")
+                skipped += 1
+                continue
+
+            skip_exc = ScheduleException.objects.filter(
+                schedule=storage.schedule,
+                date=today,
+                exception_type='skip'
+            ).first()
+            if skip_exc:
+                note = f" ({skip_exc.note})" if skip_exc.note else ""
+                logger.info(f"[CELERY-SCHED] Skipping {storage.name} — exception 'skip' on {today}{note}")
                 skipped += 1
                 continue
 

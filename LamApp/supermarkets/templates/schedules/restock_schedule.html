@@ -633,7 +633,7 @@
                                 <label class="form-label">Tipo di eccezione</label>
                                 <div class="d-flex flex-column gap-2">
                                     <div class="form-check">
-                                        <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeSkip" value="skip" checked>
+                                        <input class="form-check-input" type="radio" name="exceptionType" id="exceptionTypeSkip" value="skip">
                                         <label class="form-check-label" for="exceptionTypeSkip">
                                             <i class="bi bi-x-circle text-danger"></i>
                                             <strong>Salta ordine</strong>
@@ -1464,7 +1464,7 @@ function initThreeMonthCalendar() {
     // Save exception button
     document.getElementById('saveExceptionBtn')?.addEventListener('click', async () => {
         const dateStr = document.getElementById('exceptionDateInput').value;
-        const exceptionType = document.querySelector('input[name="exceptionType"]:checked').value;
+        const exceptionType = document.querySelector('input[name="exceptionType"]:checked')?.value || 'none';
         const deliveryOffset = parseInt(document.getElementById('exceptionDeliveryOffset').value) || 1;
         const skipSale = document.getElementById('exceptionSkipSale').checked;
         const note = document.getElementById('exceptionNote').value.trim();
@@ -1517,10 +1517,12 @@ function openExceptionModal(dateStr) {
     document.getElementById('exceptionNote').value = '';
     document.getElementById('exceptionDeliveryOffset').value = weeklySchedule[weekday]?.deliveryOffset || 1;
     document.getElementById('exceptionSkipSale').checked = false;
+    document.querySelectorAll('input[name="exceptionType"]').forEach(r => r.checked = false);
 
     if (exception) {
         document.getElementById('removeExceptionBtn').style.display = 'inline-block';
-        document.querySelector(`input[name="exceptionType"][value="${exception.type}"]`).checked = true;
+        const typeRadio = document.querySelector(`input[name="exceptionType"][value="${exception.type}"]`);
+        if (typeRadio) typeRadio.checked = true;
         if (exception.note) {
             document.getElementById('exceptionNote').value = exception.note;
         }
@@ -1530,15 +1532,10 @@ function openExceptionModal(dateStr) {
         document.getElementById('exceptionSkipSale').checked = exception.skip_sale || false;
     } else {
         document.getElementById('removeExceptionBtn').style.display = 'none';
-        if (isScheduledOrderDay) {
-            document.getElementById('exceptionTypeSkip').checked = true;
-        } else {
-            document.getElementById('exceptionTypeAdd').checked = true;
-        }
     }
 
     // Update visibility of delivery offset section
-    const selectedType = document.querySelector('input[name="exceptionType"]:checked').value;
+    const selectedType = document.querySelector('input[name="exceptionType"]:checked')?.value;
     document.getElementById('deliveryOffsetSection').style.display =
         (selectedType === 'add' || selectedType === 'modify') ? 'block' : 'none';
 

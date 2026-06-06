@@ -61,12 +61,16 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
                 continue
 
             df[EAN_COL] = df[EAN_COL].astype(str).str.strip()
-            df[STOCK_COL] = (
-                df[STOCK_COL]
-                .astype(str)
-                .str.replace(".", "", regex=False)
-                .str.replace(",", ".", regex=False)
-            )
+
+            def _parse_qty(s: str) -> str:
+                s = s.strip()
+                # Only strip dots when a comma is also present (Italian thousands separator).
+                # Without a comma, a dot is a decimal point — "12.0" must stay "12.0", not become "120".
+                if ',' in s:
+                    return s.replace('.', '').replace(',', '.')
+                return s
+
+            df[STOCK_COL] = df[STOCK_COL].astype(str).map(_parse_qty)
             df[STOCK_COL] = pd.to_numeric(df[STOCK_COL], errors='coerce')
 
             initial_rows = len(df)
