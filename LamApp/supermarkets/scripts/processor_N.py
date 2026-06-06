@@ -24,7 +24,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
     leftover_stock = stock - req_stock
     
     if avg_daily_sales >= 0.6:
-        buff = round(math.sqrt(max(0, req_stock - 1)))
+        buff = max(0, round(math.sqrt(max(0, req_stock - 1))) - 1)
         minimum_stock += buff
         if discount != None:
             minimum_stock += (buff * 2)
@@ -65,7 +65,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
         if order >= 1:
             return order, 1, True, discount
         
-    if leftover_stock <= minimum_stock:
+    if leftover_stock < minimum_stock:
         order = 1
         return order, 2, True, discount
     

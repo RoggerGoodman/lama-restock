@@ -73,6 +73,7 @@ class DatabaseManager:
                 sold_last_24 JSONB,
                 bought_last_24 JSONB,
                 sales_sets JSONB,
+                bought_sets JSONB,
                 stock INTEGER DEFAULT 0,
                 verified BOOLEAN DEFAULT FALSE,
                 minimum_stock INTEGER DEFAULT 6,
@@ -317,7 +318,7 @@ class DatabaseManager:
 
         for cod, var, sold_qty in daily_sales:
             cur.execute("""
-                SELECT sold_last_24, sales_sets, stock, last_update_sold, verified
+                SELECT sold_last_24, sales_sets, bought_sets, stock, last_update_sold, verified
                 FROM product_stats
                 WHERE cod=%s AND v=%s
             """, (cod, var))
@@ -335,6 +336,7 @@ class DatabaseManager:
 
             sold_array = row["sold_last_24"]
             sales_sets = row["sales_sets"] or []
+            bought_sets = row["bought_sets"] or []
             stock = row["stock"] or 0
             verified = bool(row["verified"])
 
@@ -355,12 +357,16 @@ class DatabaseManager:
             sales_sets.insert(0, sold_qty)
             sales_sets = sales_sets[:30]
 
+            # Open a fresh slot for today's deliveries; yesterday's total shifts to [1]
+            bought_sets.insert(0, 0)
+            bought_sets = bought_sets[:30]
+
             cur.execute("""
                 UPDATE product_stats
-                SET sold_last_24=%s, sales_sets=%s, stock=%s,
+                SET sold_last_24=%s, sales_sets=%s, bought_sets=%s, stock=%s,
                     last_update_sold = CASE WHEN %s > 0 THEN %s ELSE last_update_sold END
                 WHERE cod=%s AND v=%s
-            """, (Json(sold_array), Json(sales_sets), stock - sold_qty, sold_qty, sync_date, cod, var))
+            """, (Json(sold_array), Json(sales_sets), Json(bought_sets), stock - sold_qty, sold_qty, sync_date, cod, var))
 
             if sold_qty > 0:
                 updated += 1
@@ -373,7 +379,7 @@ class DatabaseManager:
         # - stock == 0: insert None (out of stock — demand censored)
         payload_keys = {(cod, var) for cod, var, _ in daily_sales}
         cur.execute("""
-            SELECT cod, v, sales_sets, stock
+            SELECT cod, v, sales_sets, bought_sets, stock
             FROM product_stats
             WHERE verified = TRUE
               AND (last_update_sold IS NULL OR last_update_sold < %s)
@@ -385,10 +391,13 @@ class DatabaseManager:
             entry = 0 if (absent['stock'] or 0) >= 1 else None
             ss.insert(0, entry)
             ss = ss[:30]
+            bs = absent['bought_sets'] or []
+            bs.insert(0, 0)
+            bs = bs[:30]
             cur.execute("""
-                UPDATE product_stats SET sales_sets=%s
+                UPDATE product_stats SET sales_sets=%s, bought_sets=%s
                 WHERE cod=%s AND v=%s
-            """, (Json(ss), absent['cod'], absent['v']))
+            """, (Json(ss), Json(bs), absent['cod'], absent['v']))
 
         self.conn.commit()
         logger.info(
@@ -425,7 +434,7 @@ class DatabaseManager:
             try:
                 cur = self.cursor()
                 cur.execute(
-                    "SELECT ps.bought_last_24, ps.stock, ps.last_update_bought, ps.verified, p.descrizione, p.rapp "
+                    "SELECT ps.bought_last_24, ps.bought_sets, ps.stock, ps.last_update_bought, ps.verified, p.descrizione, p.rapp "
                     "FROM product_stats ps "
                     "JOIN products p ON p.cod = ps.cod AND p.v = ps.v "
                     "WHERE ps.cod=%s AND ps.v=%s",
@@ -454,9 +463,14 @@ class DatabaseManager:
                     bought_array.insert(0, actual_qty)
                     bought_array = bought_array[:24]
 
+                bought_sets = row["bought_sets"] or []
+                if not bought_sets:
+                    bought_sets = [0]
+                bought_sets[0] = (bought_sets[0] or 0) + actual_qty
+
                 cur.execute(
-                    "UPDATE product_stats SET bought_last_24=%s, stock=%s, last_update_bought=%s WHERE cod=%s AND v=%s",
-                    (Json(bought_array), stock + actual_qty, today, cod, v)
+                    "UPDATE product_stats SET bought_last_24=%s, bought_sets=%s, stock=%s, last_update_bought=%s WHERE cod=%s AND v=%s",
+                    (Json(bought_array), Json(bought_sets), stock + actual_qty, today, cod, v)
                 )
                 self.conn.commit()
                 updated += 1

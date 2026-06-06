@@ -3385,13 +3385,6 @@ def inventory_flag_for_purge_ajax_view(request):
                     product_var=var
                 )
 
-                # Set purge_flag in products table
-                try:
-                    cursor.execute("ALTER TABLE products ADD COLUMN purge_flag BOOLEAN DEFAULT FALSE")
-                    service.db.conn.commit()
-                except:
-                    pass  # Column already exists
-
                 cursor.execute("""
                     UPDATE products
                     SET purge_flag = TRUE
