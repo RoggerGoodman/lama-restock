@@ -39,8 +39,8 @@ class DecisionMaker:
         """
         query = """
             SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
-                p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag, ps.minimum_stock,
-                p.shelf_life_days
+                ps.bought_sets, p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag,
+                ps.minimum_stock, p.shelf_life_days
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
             WHERE p.settore = %s
@@ -108,6 +108,50 @@ class DecisionMaker:
             return 0.6
         else:
             return 0.4
+
+    def compute_batch_expiry_factor(self, bought_sets, sales_sets, shelf_life_days, avg_daily_sales):
+        """
+        Returns a minimum_stock penalty factor based on whether the previous delivery
+        batch is at risk of expiring before being fully consumed, or None if no risk.
+
+        Severity scales with how much longer it will take to clear the old batch
+        compared to the shelf life remaining on it.
+        """
+        if not bought_sets or avg_daily_sales <= 0:
+            return None
+
+        deliveries = [(i, qty) for i, qty in enumerate(bought_sets) if qty and qty > 0]
+        if len(deliveries) < 2:
+            return None
+
+        i_prev, qty_prev = deliveries[1]
+
+        # Sales from the day of the previous delivery through yesterday (today excluded — incomplete)
+        sold_since_prev = sum(v for v in sales_sets[1:i_prev + 1] if v is not None)
+        remaining_old = qty_prev - sold_since_prev
+
+        if remaining_old <= 0:
+            return None
+
+        days_left = shelf_life_days - i_prev
+
+        if days_left <= 0:
+            logger.info(f"Batch expiry: previous delivery ({qty_prev} units, {i_prev}d ago) already past shelf life")
+            return 0.3
+
+        days_to_clear = remaining_old / avg_daily_sales
+        if days_to_clear <= days_left:
+            return None
+
+        risk_ratio = days_to_clear / days_left
+        logger.info(f"Batch expiry risk: {remaining_old:.1f} units remaining, {days_left}d left, ratio={risk_ratio:.2f}")
+
+        if risk_ratio <= 1.5:
+            return 0.7
+        elif risk_ratio <= 2.5:
+            return 0.5
+        else:
+            return 0.3
 
     def integrate_internal_losses(self, cod, v, sold_array, extra_losses):
         """Element-wise sum of internal losses with sold_array.
@@ -261,6 +305,7 @@ class DecisionMaker:
             sold_array = row["sold_last_24"] or []
             bought_array = row["bought_last_24"] or []
             sales_sets = row["sales_sets"] or []
+            bought_sets = row["bought_sets"] or []
             package_size = row["pz_x_collo"]
             package_multi = row["rapp"]
             verified = row["verified"]
@@ -361,12 +406,18 @@ class DecisionMaker:
                     expired_lookup[(product_cod, product_var)], sold_array
                 )
 
+            batch_expiry_factor = None
+            if shelf_life_days is not None:
+                batch_expiry_factor = self.compute_batch_expiry_factor(
+                    bought_sets, sales_sets, shelf_life_days, avg_daily_sales
+                )
+
             if verified:
                 category = "N"
                 result, check, status, returned_discount = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales,
                     avg_sales_base, req_stock, stock, discount, minimum_stock_base, minimum_stock_override,
-                    expiry_factor, shelf_life_days
+                    expiry_factor, shelf_life_days, batch_expiry_factor
                 )
             else:
                 reason = "Not verified in system"

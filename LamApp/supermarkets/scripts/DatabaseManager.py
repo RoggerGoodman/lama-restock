@@ -364,11 +364,11 @@ class DatabaseManager:
                 sold_array = sold_array[:24]
 
             sales_sets.insert(0, sold_qty)
-            sales_sets = sales_sets[:30]
+            sales_sets = sales_sets[:60]
 
             # Open a fresh slot for today's deliveries; yesterday's total shifts to [1]
             bought_sets.insert(0, 0)
-            bought_sets = bought_sets[:30]
+            bought_sets = bought_sets[:60]
 
             cur.execute("""
                 UPDATE product_stats
@@ -399,10 +399,10 @@ class DatabaseManager:
             ss = absent['sales_sets'] or []
             entry = 0 if (absent['stock'] or 0) >= 1 else None
             ss.insert(0, entry)
-            ss = ss[:30]
+            ss = ss[:60]
             bs = absent['bought_sets'] or []
             bs.insert(0, 0)
-            bs = bs[:30]
+            bs = bs[:60]
             cur.execute("""
                 UPDATE product_stats SET sales_sets=%s, bought_sets=%s
                 WHERE cod=%s AND v=%s

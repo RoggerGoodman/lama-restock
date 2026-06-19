@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year,
                    req_stock, stock, discount=None, minimum_stock_base=None, minimum_stock_override=None,
-                   expiry_factor=None, shelf_life_days=None):
+                   expiry_factor=None, shelf_life_days=None, batch_expiry_factor=None):
     """
     Process N category sales and calculate order quantity.
 
@@ -60,6 +60,9 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
 
     if expiry_factor is not None:
         minimum_stock = math.floor(minimum_stock * expiry_factor)
+
+    if batch_expiry_factor is not None:
+        minimum_stock = math.floor(minimum_stock * batch_expiry_factor)
 
     minimum_stock = max(0, minimum_stock)
 
