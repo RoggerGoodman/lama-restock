@@ -6,7 +6,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year,
-                   req_stock, stock, discount=None, minimum_stock_base=None, minimum_stock_override=None):
+                   req_stock, stock, discount=None, minimum_stock_base=None, minimum_stock_override=None,
+                   expiry_factor=None, shelf_life_days=None):
     """
     Process N category sales and calculate order quantity.
 
@@ -52,6 +53,15 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
         minimum_stock = max(minimum_stock_override, minimum_stock)
     else:
         minimum_stock = max(1, minimum_stock)
+
+    if shelf_life_days is not None:
+        max_safe_buffer = shelf_life_days * avg_daily_sales - req_stock
+        minimum_stock = min(minimum_stock, max(0, int(max_safe_buffer)))
+
+    if expiry_factor is not None:
+        minimum_stock = math.floor(minimum_stock * expiry_factor)
+
+    minimum_stock = max(0, minimum_stock)
 
     order = (req_stock + minimum_stock - stock) / package_size
     if order >= 0:

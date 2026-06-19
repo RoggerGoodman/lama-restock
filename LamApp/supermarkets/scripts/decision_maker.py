@@ -39,7 +39,8 @@ class DecisionMaker:
         """
         query = """
             SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
-                p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag, ps.minimum_stock
+                p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag, ps.minimum_stock,
+                p.shelf_life_days
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
             WHERE p.settore = %s
@@ -68,7 +69,46 @@ class DecisionMaker:
             })
 
         return extra_losses
-    
+
+    def get_expired_losses(self):
+        """Return dict keyed by (cod, v) → expired JSONB array from extra_losses."""
+        query = """
+            SELECT cod, v, expired
+            FROM extra_losses
+            WHERE expired IS NOT NULL;
+        """
+        self.cursor.execute(query)
+        rows = self.cursor.fetchall()
+        return {(r["cod"], r["v"]): r["expired"] for r in rows}
+
+    def compute_expiry_factor(self, expired_array, sold_array):
+        """
+        Returns a minimum_stock penalty factor based on historical expiry rate,
+        or None if expiry rate is below the 5% threshold.
+        """
+        total_expired = 0
+        for entry in expired_array:
+            if isinstance(entry, list) and len(entry) >= 1:
+                total_expired += entry[0]
+            elif isinstance(entry, (int, float)):
+                total_expired += entry
+
+        total_sold = sum(sold_array)
+        denominator = total_sold + total_expired
+        if denominator == 0:
+            return None
+
+        expiry_rate = total_expired / denominator
+
+        if expiry_rate <= 0.05:
+            return None
+        elif expiry_rate <= 0.15:
+            return 0.8
+        elif expiry_rate <= 0.30:
+            return 0.6
+        else:
+            return 0.4
+
     def integrate_internal_losses(self, cod, v, sold_array, extra_losses):
         """Element-wise sum of internal losses with sold_array.
         Arrays are kept aligned by the monthly zero-prepend task."""
@@ -192,6 +232,7 @@ class DecisionMaker:
         
         extra_losses_list = self.get_internal_use_losses()
         extra_losses_lookup = {(item["cod"], item["v"]) for item in extra_losses_list}
+        expired_lookup = self.get_expired_losses()
 
         self.sale_discounts = self.retrieve_products_on_sale(coverage)
         logger.info(f"Products on sale (including upcoming within {coverage} days): {len(self.sale_discounts)}")
@@ -216,7 +257,7 @@ class DecisionMaker:
                 continue
             
             descrizione = row["descrizione"]
-            stock = row["stock"]
+            stock = max(0, row["stock"])
             sold_array = row["sold_last_24"] or []
             bought_array = row["bought_last_24"] or []
             sales_sets = row["sales_sets"] or []
@@ -225,6 +266,7 @@ class DecisionMaker:
             verified = row["verified"]
             disponibilita = row["disponibilita"]
             minimum_stock_override = row.get("minimum_stock", None)
+            shelf_life_days = row.get("shelf_life_days", None)
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
             
@@ -313,11 +355,18 @@ class DecisionMaker:
             else:
                 discount = None
 
+            expiry_factor = None
+            if (product_cod, product_var) in expired_lookup:
+                expiry_factor = self.compute_expiry_factor(
+                    expired_lookup[(product_cod, product_var)], sold_array
+                )
+
             if verified:
                 category = "N"
                 result, check, status, returned_discount = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales,
-                    avg_sales_base, req_stock, stock, discount, minimum_stock_base, minimum_stock_override
+                    avg_sales_base, req_stock, stock, discount, minimum_stock_base, minimum_stock_override,
+                    expiry_factor, shelf_life_days
                 )
             else:
                 reason = "Not verified in system"

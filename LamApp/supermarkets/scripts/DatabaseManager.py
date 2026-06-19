@@ -61,6 +61,7 @@ class DatabaseManager:
                 cluster TEXT,
                 purge_flag BOOLEAN DEFAULT FALSE,
                 ean BIGINT,
+                shelf_life_days INTEGER,
                 first_added_at DATE DEFAULT CURRENT_DATE,
                 PRIMARY KEY (cod, v)
             )
@@ -297,7 +298,7 @@ class DatabaseManager:
 
     # --- Data Sync ---
 
-    def apply_daily_vensetar_sales(self, daily_sales, sync_date):
+    def apply_daily_vensetar_sales(self, daily_sales, sync_date, shelf_life_map=None):
         """
         Apply one day's sold quantities from the VENSETAR sync (runs at 06:00, data = yesterday).
 
@@ -339,6 +340,14 @@ class DatabaseManager:
             bought_sets = row["bought_sets"] or []
             stock = row["stock"] or 0
             verified = bool(row["verified"])
+
+            if shelf_life_map and verified:
+                sl = shelf_life_map.get((cod, var))
+                if sl is not None:
+                    cur.execute(
+                        "UPDATE products SET shelf_life_days = %s WHERE cod = %s AND v = %s",
+                        (sl, cod, var)
+                    )
 
             if not isinstance(sold_array, list):
                 sold_array = [0]

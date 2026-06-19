@@ -71,6 +71,7 @@ def vensetar_sales_sync_view(request):
         return HttpResponse('Invalid sync_date, expected YYYY-MM-DD', status=400)
 
     daily_sales = []
+    shelf_life_map = {}
     skipped_float = 0
     for entry in products_raw:
         try:
@@ -82,6 +83,9 @@ def vensetar_sales_sync_view(request):
                 skipped_float += 1
                 continue
             daily_sales.append((cod, var, int(sold_raw)))
+            sl = entry.get('shelf_life')
+            if sl is not None:
+                shelf_life_map[(cod, var)] = int(sl)
         except (KeyError, ValueError, TypeError):
             continue
     if skipped_float:
@@ -93,7 +97,7 @@ def vensetar_sales_sync_view(request):
     helper = Helper()
     db = DatabaseManager(helper, supermarket_name=supermarket.name)
     try:
-        result = db.apply_daily_vensetar_sales(daily_sales, sync_date)
+        result = db.apply_daily_vensetar_sales(daily_sales, sync_date, shelf_life_map=shelf_life_map)
     except Exception:
         logger.exception(f"[VENSETAR SYNC] DB error for supermarket '{supermarket.name}'")
         return HttpResponse('Internal server error', status=500)
@@ -343,12 +347,15 @@ Write-Host "Syncing sales for $YesterdayStr (day $VensDay, col $VensCol, week $W
 
 $Query = @"
 SELECT
-    Cod_Articolo      AS cod,
-    Variante_Articolo AS var,
-    SUM($VensCol) AS sold
-FROM VENSETAR
-WHERE Data_vendita_dal_ = '$WeekMondayStr'
-GROUP BY Cod_Articolo, Variante_Articolo
+    v.Cod_Articolo      AS cod,
+    v.Variante_Articolo AS var,
+    SUM(v.$VensCol)     AS sold,
+    MAX(a.durata_max_articolo) AS shelf_life
+FROM VENSETAR v
+LEFT JOIN Essepiu.dbo.ARTICOLI a
+    ON v.Cod_Articolo = a.cod__articolo AND v.Variante_Articolo = a.variante_articolo
+WHERE v.Data_vendita_dal_ = '$WeekMondayStr'
+GROUP BY v.Cod_Articolo, v.Variante_Articolo
 "@
 
 try {{
@@ -366,7 +373,11 @@ if (-not $Rows -or $Rows.Count -eq 0) {{
 Write-Host "Sending $($Rows.Count) products to server..."
 
 $Products = @($Rows | ForEach-Object {{
-    @{{ cod = [int]$_.cod; var = [int]$_.var; sold = [int]$_.sold }}
+    $sl = $null
+    if ($_.shelf_life -ne $null -and $_.shelf_life -isnot [System.DBNull]) {{
+        $sl = [int]$_.shelf_life
+    }}
+    @{{ cod = [int]$_.cod; var = [int]$_.var; sold = [int]$_.sold; shelf_life = $sl }}
 }})
 
 $Payload = @{{

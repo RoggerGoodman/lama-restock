@@ -3888,6 +3888,7 @@ def verify_product_ajax_view(request):
                     cluster_to_set = cluster
 
             # Verify stock (this also marks as verified)
+            current_stock = service.db.get_stock(cod, var)
             if stock is not None:
                 service.db.verify_stock(cod, var, int(stock), cluster_to_set)
             else:
@@ -3898,9 +3899,10 @@ def verify_product_ajax_view(request):
                 message += f' Package size updated to {package_size}.'
 
             logger.info(
-                f"Product verified: {storage.supermarket.name} - {storage.settore} - "
-                f"{cod}.{var}" + (f" (package: {package_size})" if package_size else "") +
-                (f" (cluster: {cluster})" if cluster else "")
+                f"[VERIFY] {storage.supermarket.name} - {storage.settore} - "
+                f"Product {cod}.{var}: {current_stock} → {stock if stock is not None else '(unchanged)'}"
+                + (f" (package: {package_size})" if package_size else "")
+                + (f" (cluster: {cluster})" if cluster else "")
             )
 
             return JsonResponse({
@@ -4407,12 +4409,18 @@ def inventory_adjust_stock_ajax_view(request):
         
         supermarket = get_object_or_404(Supermarket, name=supermarket_name, owner=request.user)
         storage = supermarket.storages.first()
-        
+
         if not storage:
             return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)
-        
-        with RestockService(storage) as service:        
+
+        with RestockService(storage) as service:
             current_stock = service.db.get_stock(cod, var)
+
+            logger.info(
+                f"[ADJUST] {supermarket_name} - Product {cod}.{var}: "
+                f"current_stock={current_stock} adjustment_raw='{adjustment_raw}' "
+                f"reason='{reason}' minimum_stock='{minimum_stock}' cluster='{cluster}'"
+            )
 
             # Update minimum_stock if provided AND not empty
             minimum_stock_updated = False
@@ -4536,6 +4544,10 @@ def inventory_adjust_stock_ajax_view(request):
                 })
             else:
                 # No stock change, only metadata updated
+                logger.info(
+                    f"[ADJUST] {supermarket_name} - Product {cod}.{var}: "
+                    f"no stock change (stock={current_stock}), metadata only"
+                )
                 return JsonResponse({
                     'success': True,
                     'message': 'Product updated',
