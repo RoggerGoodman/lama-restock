@@ -207,6 +207,15 @@ def import_ddt_for_supermarket(self, supermarket_id):
                 logger.info(f"[DDT] DescMag '{desc_mag}' matched no storage in {supermarket.name}")
                 continue
 
+            if RestockLog.objects.filter(
+                storage=matched_storage,
+                operation_type='ddt_import',
+                status='completed',
+                completed_at__date=timezone.now().date(),
+            ).exists():
+                logger.warning(f"[DDT] {matched_storage.name} already has a completed ddt_import today — skipping (retry guard)")
+                continue
+
             log = RestockLog.objects.create(
                 storage=matched_storage,
                 status='processing',
