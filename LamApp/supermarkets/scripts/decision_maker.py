@@ -361,15 +361,30 @@ class DecisionMaker:
             else : 
                 sale_info = self.get_discount_for(product_cod, product_var)
 
-            avg_daily_sales = self.helper.avg_daily_sales_from_sales_sets(sales_sets)
-            avg_sales_base = avg_daily_sales
-            if avg_daily_sales == None: 
-                avg_daily_sales, avg_sales_base = self.helper.calculate_weighted_avg_sales_new(sold_array)
+            avg_from_sets = self.helper.avg_daily_sales_from_sales_sets(sales_sets)
+            if avg_from_sets is not None:
+                avg_daily_sales = avg_from_sets
+            else:
+                avg_daily_sales, _ = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
             deviation_corrected = self.helper.calculate_deviation(sales_sets)
             logger.info(f"Deviation = {deviation_corrected} %")
 
             req_stock = avg_daily_sales * coverage
+
+            if avg_from_sets is not None:
+                oos_window = sales_sets[:7]
+                null_count = sum(1 for v in oos_window if v is None)
+                if null_count > 0:
+                    null_rate = null_count / len(oos_window)
+                    correction = min(1.0 / (1.0 - null_rate), 2.0)
+                    logger.warning(
+                        f"OOS correction {product_cod}.{product_var} '{descrizione}': "
+                        f"{null_count}/7 OOS days → ×{correction:.2f} "
+                        f"(req_stock {req_stock:.2f} → {req_stock * correction:.2f})"
+                    )
+                    req_stock *= correction
+
             logger.info(f"Required stock = {req_stock:.2f}")
 
             package_consumption = req_stock / package_size 
@@ -417,7 +432,7 @@ class DecisionMaker:
                 category = "N"
                 result, check, status, returned_discount = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales,
-                    avg_sales_base, req_stock, stock, discount, minimum_stock_base, minimum_stock_override,
+                    req_stock, stock, discount, minimum_stock_base, minimum_stock_override,
                     expiry_factor, shelf_life_days, batch_expiry_factor
                 )
             else:

@@ -110,6 +110,61 @@
                 </form>
             </div>
 
+            {% if all_storages %}
+            <!-- Manage existing clusters -->
+            <div class="stat-card mt-3">
+                <h5 class="mb-3">
+                    <i class="bi bi-pencil-square text-warning"></i> Gestisci Cluster Esistente
+                </h5>
+                <form method="post" action="{% url 'manage-cluster' %}">
+                    {% csrf_token %}
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Magazzino</label>
+                            <select name="storage_id" id="mc_storage" class="form-select" required onchange="mcUpdateClusters()">
+                                <option value="">-- Seleziona --</option>
+                                {% for s in all_storages %}
+                                <option value="{{ s.id }}">{{ s.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Cluster</label>
+                            <select name="source_cluster" id="mc_cluster" class="form-select" required disabled>
+                                <option value="">-- Seleziona prima il magazzino --</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Azione</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="action" id="mc_rename" value="rename" checked onchange="mcToggleAction()">
+                            <label class="form-check-label" for="mc_rename">Rinomina / Sposta prodotti in un altro cluster</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="action" id="mc_delete" value="delete" onchange="mcToggleAction()">
+                            <label class="form-check-label" for="mc_delete">Elimina cluster</label>
+                        </div>
+                    </div>
+                    <div id="mc_rename_section">
+                        <label class="form-label">Nuovo nome (o cluster di destinazione esistente)</label>
+                        <input type="text" name="new_name" class="form-control text-uppercase" placeholder="es. SURGELATI, CHIMICO..." style="text-transform:uppercase; max-width:300px;">
+                    </div>
+                    <div id="mc_delete_section" style="display:none;">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="purge_products" id="mc_purge" onchange="mcTogglePurgeWarning()">
+                            <label class="form-check-label" for="mc_purge">Azzera scorte e purga tutti i prodotti del cluster</label>
+                        </div>
+                        <div class="alert alert-danger mt-2" id="mc_purge_warning" style="display:none;">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            Operazione irreversibile: i dati statistici di tutti i prodotti nel cluster verranno eliminati permanentemente.
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-warning mt-3">Conferma</button>
+                </form>
+            </div>
+            {% endif %}
+
             <!-- PDF Format Example -->
             <div class="stat-card mt-3">
                 <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Formato PDF previsto</h6>
@@ -197,6 +252,31 @@ function loadExistingClusters() {
 document.getElementById('cluster').addEventListener('input', function() {
     this.value = this.value.toUpperCase();
 });
+
+// Manage cluster form helpers
+function mcUpdateClusters() {
+    const storageId = document.getElementById('mc_storage').value;
+    const sel = document.getElementById('mc_cluster');
+    const clusters = clustersByStorage[storageId] || [];
+    sel.innerHTML = '<option value="">-- Seleziona cluster --</option>';
+    clusters.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c; opt.textContent = c;
+        sel.appendChild(opt);
+    });
+    sel.disabled = clusters.length === 0;
+}
+
+function mcToggleAction() {
+    const isDelete = document.getElementById('mc_delete').checked;
+    document.getElementById('mc_rename_section').style.display = isDelete ? 'none' : 'block';
+    document.getElementById('mc_delete_section').style.display = isDelete ? 'block' : 'none';
+}
+
+function mcTogglePurgeWarning() {
+    document.getElementById('mc_purge_warning').style.display =
+        document.getElementById('mc_purge').checked ? 'block' : 'none';
+}
 
 {% if supermarkets|length == 1 %}
 document.addEventListener('DOMContentLoaded', function() { loadStorages(); });

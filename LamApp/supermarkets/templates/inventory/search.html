@@ -244,6 +244,45 @@
             </div>
         </div>
     </div>
+
+    {% if fermi_storages %}
+    <div class="row mt-4">
+        <div class="col-12">
+            <h5 class="mb-3">
+                <i class="bi bi-pause-circle text-warning"></i> Prodotti fermi per 14 giorni o più
+            </h5>
+
+            {% for item in fermi_storages %}
+            <div class="stat-card mb-3">
+                <div class="d-flex justify-content-between align-items-center"
+                     role="button"
+                     data-bs-toggle="collapse"
+                     data-bs-target="#fermi-panel-{{ item.storage_id }}"
+                     aria-expanded="false"
+                     style="cursor:pointer;">
+                    <h6 class="mb-0">
+                        <i class="bi bi-chevron-right me-1 fermi-chevron" data-target="fermi-panel-{{ item.storage_id }}" style="transition:transform .2s;"></i>
+                        {{ item.storage_name }}
+                        <span class="text-muted fw-normal">— {{ item.supermarket_name }}</span>
+                    </h6>
+                    <span class="badge bg-warning text-dark">{{ item.count }} articoli</span>
+                </div>
+                <div class="collapse"
+                     id="fermi-panel-{{ item.storage_id }}"
+                     data-storage-id="{{ item.storage_id }}"
+                     data-supermarket-name="{{ item.supermarket_name|escapejs }}">
+                    <div class="mt-3" id="fermi-body-{{ item.storage_id }}">
+                        <div class="text-center py-3 text-muted">
+                            <i class="bi bi-hourglass-split"></i> Caricamento...
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
 </div>
 
 {% endblock %}
@@ -535,4 +574,245 @@ document.addEventListener('DOMContentLoaded', function() {
     updateFieldsVisibility();
 });
 </script>
+
+{% if fermi_storages %}
+<script>
+(function () {
+    const LS_PREFIX = 'hidden_fermi_';
+    const loadedPanels = new Set();
+
+    function getCsrf() {
+        const m = document.cookie.match(/csrftoken=([^;]+)/);
+        return m ? m[1] : '';
+    }
+
+    function getHidden(storageId) {
+        try { return JSON.parse(localStorage.getItem(LS_PREFIX + storageId) || '[]'); }
+        catch { return []; }
+    }
+
+    function setHidden(storageId, arr) {
+        localStorage.setItem(LS_PREFIX + storageId, JSON.stringify(arr));
+    }
+
+    function updateHiddenFooter(storageId, bodyEl) {
+        const hidden = getHidden(storageId);
+        let footer = bodyEl.querySelector('.fermi-hidden-footer');
+        if (hidden.length === 0) {
+            if (footer) footer.remove();
+            return;
+        }
+        if (!footer) {
+            footer = document.createElement('div');
+            footer.className = 'fermi-hidden-footer mt-2 small text-muted';
+            bodyEl.appendChild(footer);
+        }
+        footer.innerHTML = `${hidden.length} nascost${hidden.length === 1 ? 'o' : 'i'} · <a href="#" class="fermi-show-link">mostra</a>`;
+        footer.querySelector('.fermi-show-link').addEventListener('click', function (e) {
+            e.preventDefault();
+            setHidden(storageId, []);
+            loadedPanels.delete(storageId);
+            const bodyEl2 = document.getElementById('fermi-body-' + storageId);
+            bodyEl2.innerHTML = '<div class="text-center py-3 text-muted"><i class="bi bi-hourglass-split"></i> Caricamento...</div>';
+            loadFermiPanel(storageId);
+        });
+    }
+
+    function renderFermiProducts(storageId, products, bodyEl) {
+        const panel = document.getElementById('fermi-panel-' + storageId);
+        const supermarketName = panel.dataset.supermarketName;
+        const hidden = getHidden(storageId);
+        const visible = products.filter(p => !hidden.includes(p.cod + '.' + p.v));
+
+        if (visible.length === 0 && hidden.length === 0) {
+            bodyEl.innerHTML = '<div class="alert alert-info py-2 mb-0">Nessun prodotto fermo.</div>';
+            return;
+        }
+
+        let rows = '';
+        visible.forEach(function (p) {
+            rows += `<tr id="fermi-row-${storageId}-${p.cod}-${p.v}">
+                <td><small class="text-muted">${p.settore}</small></td>
+                <td><code>${p.cod}</code></td>
+                <td><code>${p.v}</code></td>
+                <td>${p.descrizione}</td>
+                <td><span class="badge bg-secondary fermi-stock-badge">${p.stock}</span></td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-sm btn-warning fermi-btn-correggi"
+                                data-cod="${p.cod}" data-v="${p.v}"
+                                data-storage-id="${storageId}"
+                                data-supermarket="${supermarketName}">
+                            <i class="bi bi-pencil"></i> Correggi
+                        </button>
+                        <button class="btn btn-sm btn-danger fermi-btn-azzera"
+                                data-cod="${p.cod}" data-v="${p.v}"
+                                data-storage-id="${storageId}"
+                                data-supermarket="${supermarketName}">
+                            <i class="bi bi-trash"></i> Azzera+Elim
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary fermi-btn-nascondi"
+                                data-cod="${p.cod}" data-v="${p.v}"
+                                data-storage-id="${storageId}"
+                                title="Nascondi">
+                            <i class="bi bi-eye-slash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>`;
+        });
+
+        bodyEl.innerHTML = `<div class="table-responsive">
+            <table class="table table-hover table-sm mb-1">
+                <thead><tr>
+                    <th>Settore</th><th>Cod</th><th>V</th>
+                    <th>Descrizione</th><th>Giacenza</th><th>Azioni</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+
+        bodyEl.querySelectorAll('.fermi-btn-correggi').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const cod = parseInt(this.dataset.cod);
+                const v = parseInt(this.dataset.v);
+                const sid = parseInt(this.dataset.storageId);
+                const sm = this.dataset.supermarket;
+                const rowEl = document.getElementById('fermi-row-' + sid + '-' + cod + '-' + v);
+                const currentStock = parseInt(rowEl.querySelector('.fermi-stock-badge').textContent);
+
+                const newStockStr = prompt('Correggi la giacenza per ' + cod + '.' + v + ' (attuale: ' + currentStock + '):', '0');
+                if (newStockStr === null) return;
+                const newStock = parseInt(newStockStr);
+                if (isNaN(newStock)) { alert('Valore non valido'); return; }
+                if (!confirm('Impostare la giacenza di ' + cod + '.' + v + ' a ' + newStock + '?')) return;
+
+                const fd = new FormData();
+                fd.append('cod', cod); fd.append('var', v);
+                fd.append('adjustment', newStock - currentStock);
+                fd.append('reason', 'stolen');
+                fd.append('supermarket', sm);
+
+                fetch('/inventory/adjust-stock/', { method: 'POST', headers: { 'X-CSRFToken': getCsrf() }, body: fd })
+                    .then(r => r.json())
+                    .then(function (data) {
+                        if (data.success) {
+                            rowEl.querySelector('.fermi-stock-badge').textContent = newStock;
+                        } else {
+                            alert('Errore: ' + data.message);
+                        }
+                    })
+                    .catch(function (err) { alert('Errore: ' + err); });
+            });
+        });
+
+        bodyEl.querySelectorAll('.fermi-btn-azzera').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const cod = parseInt(this.dataset.cod);
+                const v = parseInt(this.dataset.v);
+                const sid = parseInt(this.dataset.storageId);
+                const sm = this.dataset.supermarket;
+                const rowEl = document.getElementById('fermi-row-' + sid + '-' + cod + '-' + v);
+                const currentStock = parseInt(rowEl.querySelector('.fermi-stock-badge').textContent);
+
+                if (!confirm('Impostare giacenza a 0 ed eliminare ' + cod + '.' + v + ' dal sistema?')) return;
+
+                function doPurge() {
+                    fetch('/inventory/flag-for-purge/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+                        body: JSON.stringify({ cod: cod, var: v, storage_id: sid })
+                    })
+                    .then(r => r.json())
+                    .then(function (data) {
+                        if (data.success) {
+                            rowEl.style.transition = 'opacity 0.3s';
+                            rowEl.style.opacity = '0';
+                            setTimeout(function () { rowEl.remove(); }, 300);
+                        } else {
+                            alert('Errore: ' + data.message);
+                        }
+                    })
+                    .catch(function (err) { alert('Errore: ' + err); });
+                }
+
+                if (currentStock !== 0) {
+                    const fd = new FormData();
+                    fd.append('cod', cod); fd.append('var', v);
+                    fd.append('adjustment', -currentStock);
+                    fd.append('reason', 'stolen');
+                    fd.append('supermarket', sm);
+                    fetch('/inventory/adjust-stock/', { method: 'POST', headers: { 'X-CSRFToken': getCsrf() }, body: fd })
+                        .then(r => r.json())
+                        .then(function (data) {
+                            if (data.success) { doPurge(); }
+                            else { alert('Errore: ' + data.message); }
+                        })
+                        .catch(function (err) { alert('Errore: ' + err); });
+                } else {
+                    doPurge();
+                }
+            });
+        });
+
+        bodyEl.querySelectorAll('.fermi-btn-nascondi').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const cod = parseInt(this.dataset.cod);
+                const v = parseInt(this.dataset.v);
+                const sid = parseInt(this.dataset.storageId);
+                const rowEl = document.getElementById('fermi-row-' + sid + '-' + cod + '-' + v);
+                const key = cod + '.' + v;
+                const arr = getHidden(sid);
+                if (!arr.includes(key)) arr.push(key);
+                setHidden(sid, arr);
+                rowEl.style.transition = 'opacity 0.3s';
+                rowEl.style.opacity = '0';
+                setTimeout(function () {
+                    rowEl.remove();
+                    updateHiddenFooter(sid, bodyEl);
+                }, 300);
+            });
+        });
+
+        updateHiddenFooter(storageId, bodyEl);
+    }
+
+    function loadFermiPanel(storageId) {
+        fetch('/inventory/api/fermi-products/' + storageId + '/')
+            .then(r => r.json())
+            .then(function (data) {
+                const bodyEl = document.getElementById('fermi-body-' + storageId);
+                if (data.error) {
+                    bodyEl.innerHTML = '<div class="alert alert-danger">' + data.error + '</div>';
+                } else {
+                    renderFermiProducts(storageId, data.products, bodyEl);
+                }
+            })
+            .catch(function (err) {
+                const bodyEl = document.getElementById('fermi-body-' + storageId);
+                bodyEl.innerHTML = '<div class="alert alert-danger">Errore: ' + err + '</div>';
+            });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('[id^="fermi-panel-"]').forEach(function (panelEl) {
+            const storageId = parseInt(panelEl.dataset.storageId);
+            const chevron = document.querySelector('.fermi-chevron[data-target="fermi-panel-' + storageId + '"]');
+
+            panelEl.addEventListener('show.bs.collapse', function () {
+                if (chevron) chevron.style.transform = 'rotate(90deg)';
+                if (!loadedPanels.has(storageId)) {
+                    loadedPanels.add(storageId);
+                    loadFermiPanel(storageId);
+                }
+            });
+
+            panelEl.addEventListener('hide.bs.collapse', function () {
+                if (chevron) chevron.style.transform = 'rotate(0deg)';
+            });
+        });
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

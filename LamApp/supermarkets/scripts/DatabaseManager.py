@@ -385,19 +385,23 @@ class DatabaseManager:
 
         # For verified products absent from today's VENSETAR payload:
         # - stock >= 1: insert 0 (available but didn't sell)
-        # - stock == 0: insert None (out of stock — demand censored)
+        # - stock == 0 AND disponibilita != 'No': insert None (supermarket stockout — demand censored)
+        # - stock == 0 AND disponibilita == 'No': insert 0 (supplier-OOS, not our fault)
         payload_keys = {(cod, var) for cod, var, _ in daily_sales}
         cur.execute("""
-            SELECT cod, v, sales_sets, bought_sets, stock
-            FROM product_stats
-            WHERE verified = TRUE
-              AND (last_update_sold IS NULL OR last_update_sold < %s)
+            SELECT ps.cod, ps.v, ps.sales_sets, ps.bought_sets, ps.stock, p.disponibilita
+            FROM product_stats ps
+            JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+            WHERE ps.verified = TRUE
+              AND (ps.last_update_sold IS NULL OR ps.last_update_sold < %s)
         """, (sync_date,))
         for absent in cur.fetchall():
             if (absent['cod'], absent['v']) in payload_keys:
                 continue
             ss = absent['sales_sets'] or []
-            entry = 0 if (absent['stock'] or 0) >= 1 else None
+            stock_zero = (absent['stock'] or 0) == 0
+            supplier_oos = absent['disponibilita'] == 'No'
+            entry = None if (stock_zero and not supplier_oos) else 0
             ss.insert(0, entry)
             ss = ss[:60]
             bs = absent['bought_sets'] or []

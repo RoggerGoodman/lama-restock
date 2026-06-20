@@ -5,7 +5,7 @@ import logging
 # Use Django's logging system
 logger = logging.getLogger(__name__)
 
-def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sales_last_year,
+def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
                    req_stock, stock, discount=None, minimum_stock_base=None, minimum_stock_override=None,
                    expiry_factor=None, shelf_life_days=None, batch_expiry_factor=None):
     """

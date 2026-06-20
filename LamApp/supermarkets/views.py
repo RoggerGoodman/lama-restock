@@ -2884,21 +2884,92 @@ def inventory_search_view(request):
             elif search_type == 'ean':
                 ean_code = form.cleaned_data['ean_code'].strip()
                 return redirect(f'/inventory/results/ean/?ean={ean_code}')
-        else:
-            # Form has errors - re-render with errors
-            return render(request, 'inventory/search.html', {
-                'form': form,
-                'user_supermarkets': user_supermarkets
-            })
     else:
         form = InventorySearchForm(request.user)
 
+    # Count fermi products per storage (verified, disponibilita != No, last 14 sales_sets all zero)
+    fermi_storages = []
+    for sm in user_supermarkets.prefetch_related('storages'):
+        for storage in sm.storages.all():
+            try:
+                with RestockService(storage) as service:
+                    cursor = service.db.cursor()
+                    cursor.execute("""
+                        SELECT COUNT(*) AS cnt
+                        FROM product_stats ps
+                        JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE ps.verified = TRUE
+                          AND p.disponibilita != 'No'
+                          AND p.settore = %s
+                          AND (
+                              SELECT bool_and(elem::numeric = 0)
+                              FROM (
+                                  SELECT value AS elem
+                                  FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY
+                                  WHERE ordinality <= 14
+                              ) recent
+                              HAVING count(*) = 14
+                          ) = TRUE
+                    """, (storage.settore,))
+                    cnt = cursor.fetchone()['cnt']
+                    if cnt > 0:
+                        fermi_storages.append({
+                            'storage_id': storage.id,
+                            'storage_name': storage.name,
+                            'supermarket_name': sm.name,
+                            'count': cnt,
+                        })
+            except Exception as e:
+                logger.warning(f"Could not count fermi products for {storage.name}: {e}")
+
     return render(request, 'inventory/search.html', {
         'form': form,
-        'user_supermarkets': user_supermarkets
+        'user_supermarkets': user_supermarkets,
+        'fermi_storages': fermi_storages,
     })
 
-@login_required  
+
+@login_required
+def fermi_products_api_view(request, storage_id):
+    storage = get_object_or_404(Storage, pk=storage_id, supermarket__owner=request.user)
+    try:
+        with RestockService(storage) as service:
+            cursor = service.db.cursor()
+            cursor.execute("""
+                SELECT p.settore, ps.cod, ps.v, p.descrizione, ps.stock
+                FROM product_stats ps
+                JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+                WHERE ps.verified = TRUE
+                  AND p.disponibilita != 'No'
+                  AND p.settore = %s
+                  AND (
+                      SELECT bool_and(elem::numeric = 0)
+                      FROM (
+                          SELECT value AS elem
+                          FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY
+                          WHERE ordinality <= 14
+                      ) recent
+                      HAVING count(*) = 14
+                  ) = TRUE
+                ORDER BY p.settore, p.descrizione
+            """, (storage.settore,))
+            products = [
+                {
+                    'settore': row['settore'],
+                    'cod': row['cod'],
+                    'v': row['v'],
+                    'descrizione': row['descrizione'] or f"{row['cod']}.{row['v']}",
+                    'stock': row['stock'] if row['stock'] is not None else 0,
+                }
+                for row in cursor.fetchall()
+            ]
+        return JsonResponse({'products': products})
+    except Exception as e:
+        logger.exception(f"Error fetching fermi products for storage {storage_id}")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
 def inventory_results_view(request, search_type):
     """Display inventory search results - NOW INCLUDES minimum_stock"""
     
@@ -3617,23 +3688,86 @@ def assign_clusters_view(request):
     
     # Load existing clusters for reference
     clusters_by_storage = {}
+    all_storages = []
     for sm in supermarkets:
         for storage in sm.storages.all():
             with RestockService(storage) as service:
                 cursor = service.db.cursor()
                 cursor.execute("""
-                    SELECT DISTINCT cluster 
-                    FROM products 
-                    WHERE cluster IS NOT NULL AND cluster != '' 
+                    SELECT DISTINCT cluster
+                    FROM products
+                    WHERE cluster IS NOT NULL AND cluster != ''
                         AND settore = %s
                     ORDER BY cluster ASC
                 """, (storage.settore,))
                 clusters = [row['cluster'] for row in cursor.fetchall()]
                 clusters_by_storage[storage.id] = clusters
+            if clusters:
+                all_storages.append({'id': storage.id, 'label': f"{sm.name} — {storage.settore}", 'clusters': clusters})
     return render(request, 'inventory/assign_clusters.html', {
         'supermarkets': supermarkets,
-        'clusters_by_storage': json.dumps(clusters_by_storage)
+        'clusters_by_storage': json.dumps(clusters_by_storage),
+        'all_storages': all_storages,
     })
+
+@login_required
+@require_POST
+def manage_cluster_view(request):
+    """Handle cluster rename/move and delete operations from assign_clusters page."""
+    storage_id = request.POST.get('storage_id')
+    source = request.POST.get('source_cluster', '').strip().upper()
+    action = request.POST.get('action')
+
+    if not storage_id or not source:
+        messages.error(request, "Seleziona un magazzino e un cluster.")
+        return redirect('assign-clusters')
+
+    storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+
+    if action == 'rename':
+        new_name = request.POST.get('new_name', '').strip().upper()
+        if not new_name:
+            messages.error(request, "Inserisci il nuovo nome del cluster.")
+            return redirect('assign-clusters')
+        with RestockService(storage) as service:
+            cur = service.db.cursor()
+            cur.execute(
+                "UPDATE products SET cluster = %s WHERE settore = %s AND cluster = %s",
+                (new_name, storage.settore, source)
+            )
+            count = cur.rowcount
+        messages.success(request, f"Cluster '{source}' → '{new_name}' ({count} prodotti aggiornati).")
+
+    elif action == 'delete':
+        purge = 'purge_products' in request.POST
+        with RestockService(storage) as service:
+            cur = service.db.cursor()
+            if purge:
+                cur.execute(
+                    "SELECT cod, v FROM products WHERE settore = %s AND cluster = %s",
+                    (storage.settore, source)
+                )
+                for row in cur.fetchall():
+                    cur.execute(
+                        "UPDATE product_stats SET stock = 0 WHERE cod = %s AND v = %s",
+                        (row['cod'], row['v'])
+                    )
+                    service.db.purge_product(row['cod'], row['v'])
+            cur.execute(
+                "UPDATE products SET cluster = NULL WHERE settore = %s AND cluster = %s",
+                (storage.settore, source)
+            )
+            count = cur.rowcount
+        if purge:
+            messages.success(request, f"Cluster '{source}' eliminato e prodotti purgati.")
+        else:
+            messages.success(request, f"Cluster '{source}' eliminato da {count} prodotti.")
+
+    else:
+        messages.error(request, "Azione non valida.")
+
+    return redirect('assign-clusters')
+
 
 @login_required
 def record_losses_unified_view(request):
@@ -3888,7 +4022,10 @@ def verify_product_ajax_view(request):
                     cluster_to_set = cluster
 
             # Verify stock (this also marks as verified)
-            current_stock = service.db.get_stock(cod, var)
+            try:
+                current_stock = service.db.get_stock(cod, var)
+            except ValueError:
+                current_stock = None  # New product, no product_stats row yet
             if stock is not None:
                 service.db.verify_stock(cod, var, int(stock), cluster_to_set)
             else:
