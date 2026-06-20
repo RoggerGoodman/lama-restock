@@ -218,7 +218,7 @@
                         <i class="bi bi-clipboard-check"></i> Carica inventario
                     </a>
                     <a href="{% url 'assign-clusters' %}" class="btn btn-sm btn-primary">
-                        <i class="bi bi-folder"></i> Assegna Clusters
+                        <i class="bi bi-folder"></i> Gestione Cluster
                     </a>
                     <a href="{% url 'record-losses-unified' %}" class="btn btn-sm btn-primary">
                         <i class="bi bi-clipboard-data"></i> Registra Perdite
@@ -632,7 +632,6 @@ document.addEventListener('DOMContentLoaded', function() {
         let rows = '';
         visible.forEach(function (p) {
             rows += `<tr id="fermi-row-${storageId}-${p.cod}-${p.v}">
-                <td><small class="text-muted">${p.settore}</small></td>
                 <td><code>${p.cod}</code></td>
                 <td><code>${p.v}</code></td>
                 <td>${p.descrizione}</td>
@@ -665,7 +664,7 @@ document.addEventListener('DOMContentLoaded', function() {
         bodyEl.innerHTML = `<div class="table-responsive">
             <table class="table table-hover table-sm mb-1">
                 <thead><tr>
-                    <th>Settore</th><th>Cod</th><th>V</th>
+                    <th>Cod</th><th>V</th>
                     <th>Descrizione</th><th>Giacenza</th><th>Azioni</th>
                 </tr></thead>
                 <tbody>${rows}</tbody>

@@ -3724,7 +3724,7 @@ def manage_cluster_view(request):
 
     storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
 
-    if action == 'rename':
+    if action in ('rename', 'move'):
         new_name = request.POST.get('new_name', '').strip().upper()
         if not new_name:
             messages.error(request, "Inserisci il nuovo nome del cluster.")
@@ -3736,32 +3736,29 @@ def manage_cluster_view(request):
                 (new_name, storage.settore, source)
             )
             count = cur.rowcount
-        messages.success(request, f"Cluster '{source}' → '{new_name}' ({count} prodotti aggiornati).")
+        if action == 'move':
+            messages.success(request, f"{count} prodotti spostati da '{source}' a '{new_name}'.")
+        else:
+            messages.success(request, f"Cluster '{source}' rinominato in '{new_name}' ({count} prodotti).")
 
     elif action == 'delete':
-        purge = 'purge_products' in request.POST
         with RestockService(storage) as service:
             cur = service.db.cursor()
-            if purge:
+            cur.execute(
+                "SELECT cod, v FROM products WHERE settore = %s AND cluster = %s",
+                (storage.settore, source)
+            )
+            for row in cur.fetchall():
                 cur.execute(
-                    "SELECT cod, v FROM products WHERE settore = %s AND cluster = %s",
-                    (storage.settore, source)
+                    "UPDATE product_stats SET stock = 0 WHERE cod = %s AND v = %s",
+                    (row['cod'], row['v'])
                 )
-                for row in cur.fetchall():
-                    cur.execute(
-                        "UPDATE product_stats SET stock = 0 WHERE cod = %s AND v = %s",
-                        (row['cod'], row['v'])
-                    )
-                    service.db.purge_product(row['cod'], row['v'])
+                service.db.purge_product(row['cod'], row['v'])
             cur.execute(
                 "UPDATE products SET cluster = NULL WHERE settore = %s AND cluster = %s",
                 (storage.settore, source)
             )
-            count = cur.rowcount
-        if purge:
-            messages.success(request, f"Cluster '{source}' eliminato e prodotti purgati.")
-        else:
-            messages.success(request, f"Cluster '{source}' eliminato da {count} prodotti.")
+        messages.success(request, f"Cluster '{source}' eliminato e prodotti purgati.")
 
     else:
         messages.error(request, "Azione non valida.")

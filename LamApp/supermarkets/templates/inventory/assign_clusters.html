@@ -1,7 +1,7 @@
 <!-- Replace LamApp/supermarkets/templates/inventory/assign_clusters.html -->
 {% extends 'base.html' %}
-{% block title %}Assegna Clusters{% endblock %}
-{% block page_title %}Assegna Clusters articoli{% endblock %}
+{% block title %}Gestione Cluster{% endblock %}
+{% block page_title %}Gestione Cluster{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -11,7 +11,7 @@
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
                     <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
-                    <li class="breadcrumb-item active">Assegna Clusters</li>
+                    <li class="breadcrumb-item active">Gestione Cluster</li>
                 </ol>
             </nav>
         </div>
@@ -22,7 +22,7 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-folder text-info"></i>
-                    Assegna Clusters a articoli - Formato PDF
+                    Assegna Cluster a articoli - Formato PDF
                 </h4>
 
                 <div class="alert alert-info">
@@ -130,7 +130,7 @@
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Cluster</label>
-                            <select name="source_cluster" id="mc_cluster" class="form-select" required disabled>
+                            <select name="source_cluster" id="mc_cluster" class="form-select" required disabled onchange="mcUpdateDestination()">
                                 <option value="">-- Seleziona prima il magazzino --</option>
                             </select>
                         </div>
@@ -139,25 +139,36 @@
                         <label class="form-label">Azione</label>
                         <div class="form-check">
                             <input class="form-check-input" type="radio" name="action" id="mc_rename" value="rename" checked onchange="mcToggleAction()">
-                            <label class="form-check-label" for="mc_rename">Rinomina / Sposta prodotti in un altro cluster</label>
+                            <label class="form-check-label" for="mc_rename">Rinomina</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="action" id="mc_move" value="move" onchange="mcToggleAction()">
+                            <label class="form-check-label" for="mc_move">Sposta prodotti in un altro cluster</label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="radio" name="action" id="mc_delete" value="delete" onchange="mcToggleAction()">
                             <label class="form-check-label" for="mc_delete">Elimina cluster</label>
                         </div>
                     </div>
+
                     <div id="mc_rename_section">
-                        <label class="form-label">Nuovo nome (o cluster di destinazione esistente)</label>
-                        <input type="text" name="new_name" class="form-control text-uppercase" placeholder="es. SURGELATI, CHIMICO..." style="text-transform:uppercase; max-width:300px;">
+                        <label class="form-label">Nuovo nome</label>
+                        <input type="text" name="new_name" id="mc_rename_input" class="form-control text-uppercase"
+                               placeholder="es. LATTICINI, CHIMICO..." style="text-transform:uppercase; max-width:300px;">
                     </div>
+
+                    <div id="mc_move_section" style="display:none;">
+                        <label class="form-label">Cluster di destinazione</label>
+                        <select name="new_name" id="mc_move_select" class="form-select" disabled style="max-width:300px;">
+                            <option value="">-- Seleziona --</option>
+                        </select>
+                        <div class="form-text">I prodotti del cluster sorgente passeranno a quello di destinazione. Il cluster sorgente verrà eliminato.</div>
+                    </div>
+
                     <div id="mc_delete_section" style="display:none;">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="purge_products" id="mc_purge" onchange="mcTogglePurgeWarning()">
-                            <label class="form-check-label" for="mc_purge">Azzera scorte e purga tutti i prodotti del cluster</label>
-                        </div>
-                        <div class="alert alert-danger mt-2" id="mc_purge_warning" style="display:none;">
+                        <div class="alert alert-danger mb-0">
                             <i class="bi bi-exclamation-triangle-fill"></i>
-                            Operazione irreversibile: i dati statistici di tutti i prodotti nel cluster verranno eliminati permanentemente.
+                            Le scorte verranno azzerate e i dati statistici di tutti i prodotti nel cluster eliminati permanentemente.
                         </div>
                     </div>
                     <button type="submit" class="btn btn-warning mt-3">Conferma</button>
@@ -265,18 +276,32 @@ function mcUpdateClusters() {
         sel.appendChild(opt);
     });
     sel.disabled = clusters.length === 0;
+    mcUpdateDestination();
+}
+
+function mcUpdateDestination() {
+    const storageId = document.getElementById('mc_storage').value;
+    const source = document.getElementById('mc_cluster').value;
+    const sel = document.getElementById('mc_move_select');
+    const others = (clustersByStorage[storageId] || []).filter(c => c !== source);
+    sel.innerHTML = '<option value="">-- Seleziona --</option>';
+    others.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c; opt.textContent = c;
+        sel.appendChild(opt);
+    });
 }
 
 function mcToggleAction() {
-    const isDelete = document.getElementById('mc_delete').checked;
-    document.getElementById('mc_rename_section').style.display = isDelete ? 'none' : 'block';
-    document.getElementById('mc_delete_section').style.display = isDelete ? 'block' : 'none';
+    const action = document.querySelector('input[name="action"]:checked').value;
+    document.getElementById('mc_rename_section').style.display = action === 'rename' ? 'block' : 'none';
+    document.getElementById('mc_move_section').style.display   = action === 'move'   ? 'block' : 'none';
+    document.getElementById('mc_delete_section').style.display = action === 'delete' ? 'block' : 'none';
+    document.getElementById('mc_rename_input').disabled  = action !== 'rename';
+    document.getElementById('mc_move_select').disabled   = action !== 'move';
+    if (action === 'move') mcUpdateDestination();
 }
 
-function mcTogglePurgeWarning() {
-    document.getElementById('mc_purge_warning').style.display =
-        document.getElementById('mc_purge').checked ? 'block' : 'none';
-}
 
 {% if supermarkets|length == 1 %}
 document.addEventListener('DOMContentLoaded', function() { loadStorages(); });
