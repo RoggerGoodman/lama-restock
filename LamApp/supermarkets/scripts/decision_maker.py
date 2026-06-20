@@ -48,38 +48,33 @@ class DecisionMaker:
         self.cursor.execute(query, (settore,))
         return self.cursor.fetchall()
     
-    def get_internal_use_losses(self):
-        """Return list of (cod, v, internal) from extra_losses
-        where internal is valid JSON."""
-
-        query = """
-            SELECT cod, v, internal
-            FROM extra_losses
-            WHERE internal IS NOT NULL;
+    def get_extra_losses(self):
         """
-        self.cursor.execute(query)
+        Single-query fetch of extra_losses.
+        Returns (internal_list, expired_dict):
+          internal_list: list of {cod, v, internal} for products with internal losses
+          expired_dict:  {(cod, v): expired_array} for products with expired losses
+        """
+        self.cursor.execute("""
+            SELECT cod, v, internal, expired
+            FROM extra_losses
+            WHERE internal IS NOT NULL OR expired IS NOT NULL;
+        """)
         rows = self.cursor.fetchall()
 
-        extra_losses = []
+        internal_list = []
+        expired_dict = {}
         for row in rows:
-            extra_losses.append({
-                "cod": row["cod"],
-                "v": row["v"],
-                "internal": row["internal"] or [],
-            })
+            if row["internal"] is not None:
+                internal_list.append({
+                    "cod": row["cod"],
+                    "v": row["v"],
+                    "internal": row["internal"] or [],
+                })
+            if row["expired"] is not None:
+                expired_dict[(row["cod"], row["v"])] = row["expired"]
 
-        return extra_losses
-
-    def get_expired_losses(self):
-        """Return dict keyed by (cod, v) → expired JSONB array from extra_losses."""
-        query = """
-            SELECT cod, v, expired
-            FROM extra_losses
-            WHERE expired IS NOT NULL;
-        """
-        self.cursor.execute(query)
-        rows = self.cursor.fetchall()
-        return {(r["cod"], r["v"]): r["expired"] for r in rows}
+        return internal_list, expired_dict
 
     def compute_expiry_factor(self, expired_array, sold_array):
         """
@@ -125,6 +120,11 @@ class DecisionMaker:
             return None
 
         i_prev, qty_prev = deliveries[1]
+
+        # Need full sales history back to the previous delivery to assess how much remains.
+        # If sales_sets is shorter we can't tell — skip nerfing rather than over-penalise.
+        if len(sales_sets) < i_prev + 1:
+            return None
 
         # Sales from the day of the previous delivery through yesterday (today excluded — incomplete)
         sold_since_prev = sum(v for v in sales_sets[1:i_prev + 1] if v is not None)
@@ -274,9 +274,8 @@ class DecisionMaker:
         products = self.get_products_by_settore(settore)
         logger.info(f"Found {len(products)} products in settore '{settore}'")
         
-        extra_losses_list = self.get_internal_use_losses()
+        extra_losses_list, expired_lookup = self.get_extra_losses()
         extra_losses_lookup = {(item["cod"], item["v"]) for item in extra_losses_list}
-        expired_lookup = self.get_expired_losses()
 
         self.sale_discounts = self.retrieve_products_on_sale(coverage)
         logger.info(f"Products on sale (including upcoming within {coverage} days): {len(self.sale_discounts)}")
@@ -301,7 +300,13 @@ class DecisionMaker:
                 continue
             
             descrizione = row["descrizione"]
-            stock = max(0, row["stock"])
+            stock = row["stock"]
+
+            if stock is None:
+                logger.info(f"Skipping Article: {product_cod}.{product_var}. Because has no registered stock")
+                continue
+
+            stock = max(0, stock)
             sold_array = row["sold_last_24"] or []
             bought_array = row["bought_last_24"] or []
             sales_sets = row["sales_sets"] or []
@@ -314,7 +319,7 @@ class DecisionMaker:
             shelf_life_days = row.get("shelf_life_days", None)
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
-            
+
             if not verified and disponibilita == "No":
                 logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not verified and not available")
                 continue
@@ -327,12 +332,8 @@ class DecisionMaker:
                     'reason': 'Finished and not restockable (disponibilita=No, stock=0)'
                 })
                 continue
-                        
-            package_size *= package_multi
 
-            if stock is None:
-                logger.info(f"Skipping Article: {product_cod}.{product_var}. Because has no registered stock")
-                continue
+            package_size *= package_multi
             
             if stock < 0 and verified:
                 analyzer.anomalous_stock_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")

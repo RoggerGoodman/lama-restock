@@ -54,9 +54,14 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
     else:
         minimum_stock = max(1, minimum_stock)
 
+    shelf_life_has_buffer = False
     if shelf_life_days is not None:
         max_safe_buffer = shelf_life_days * avg_daily_sales - req_stock
         minimum_stock = min(minimum_stock, max(0, int(max_safe_buffer)))
+        # Only raise the post-nerf floor if the shelf life supports at least 1 full unit
+        # of buffer (msb >= 1). Fractional capacity (0 < msb < 1) means ordering 1 extra
+        # would already exceed what can sell before expiry.
+        shelf_life_has_buffer = max_safe_buffer >= 1
 
     if expiry_factor is not None:
         minimum_stock = math.floor(minimum_stock * expiry_factor)
@@ -64,7 +69,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales, avg_sale
     if batch_expiry_factor is not None:
         minimum_stock = math.floor(minimum_stock * batch_expiry_factor)
 
-    minimum_stock = max(0, minimum_stock)
+    minimum_stock = max(1 if shelf_life_has_buffer else 0, minimum_stock)
 
     order = (req_stock + minimum_stock - stock) / package_size
     if order >= 0:
