@@ -389,19 +389,21 @@ class DatabaseManager:
         # - stock == 0 AND disponibilita == 'No': insert 0 (supplier-OOS, not our fault)
         payload_keys = {(cod, var) for cod, var, _ in daily_sales}
         cur.execute("""
-            SELECT ps.cod, ps.v, ps.sales_sets, ps.bought_sets, ps.stock, p.disponibilita
+            SELECT ps.cod, ps.v, ps.sales_sets, ps.bought_sets, ps.stock, p.disponibilita, ps.verified
             FROM product_stats ps
             JOIN products p ON p.cod = ps.cod AND p.v = ps.v
-            WHERE ps.verified = TRUE
-              AND (ps.last_update_sold IS NULL OR ps.last_update_sold < %s)
+            WHERE (ps.last_update_sold IS NULL OR ps.last_update_sold < %s)
         """, (sync_date,))
         for absent in cur.fetchall():
             if (absent['cod'], absent['v']) in payload_keys:
                 continue
             ss = absent['sales_sets'] or []
-            stock_zero = (absent['stock'] or 0) == 0
-            supplier_oos = absent['disponibilita'] == 'No'
-            entry = None if (stock_zero and not supplier_oos) else 0
+            if bool(absent['verified']):
+                stock_zero = (absent['stock'] or 0) == 0
+                supplier_oos = absent['disponibilita'] == 'No'
+                entry = None if (stock_zero and not supplier_oos) else 0
+            else:
+                entry = 0
             ss.insert(0, entry)
             ss = ss[:60]
             bs = absent['bought_sets'] or []

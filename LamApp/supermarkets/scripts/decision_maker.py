@@ -377,7 +377,7 @@ class DecisionMaker:
                 null_count = sum(1 for v in oos_window if v is None)
                 if null_count > 0:
                     null_rate = null_count / len(oos_window)
-                    correction = min(1.0 / (1.0 - null_rate), 2.0)
+                    correction = 1.5 if null_rate >= 1.0 else min(1.0 / (1.0 - null_rate), 1.5)
                     logger.warning(
                         f"OOS correction {product_cod}.{product_var} '{descrizione}': "
                         f"{null_count}/7 OOS days → ×{correction:.2f} "
