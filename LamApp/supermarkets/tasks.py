@@ -366,6 +366,29 @@ def run_daily_calibration():
 
 @shared_task(
     bind=True,
+    max_retries=0,
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
+)
+def retry_restock_from_checkpoint(self, log_id):
+    """Retry a failed restock log from its last successful checkpoint."""
+    from .models import RestockLog
+
+    log = RestockLog.objects.select_related('storage__supermarket', 'storage__schedule').get(id=log_id)
+    storage = log.storage
+    coverage = float(log.coverage_used) if log.coverage_used else None
+
+    logger.info(f"[CELERY-RETRY] Retrying log #{log_id} for {storage.name} from checkpoint {log.current_stage}")
+
+    with AutomatedRestockService(storage) as service:
+        service.retry_from_checkpoint(log, coverage=coverage)
+
+    logger.info(f"[CELERY-RETRY] Log #{log_id} completed successfully")
+
+
+@shared_task(
+    bind=True,
     max_retries=3,
     default_retry_delay=900,
     queue='selenium',

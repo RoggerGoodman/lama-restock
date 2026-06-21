@@ -21,7 +21,6 @@ from django.conf import settings
 import math
 from psycopg2.extras import Json
 from .automation_services import AutomatedRestockService
-import threading
 from LamApp.celery import app as celery_app
 from celery.result import AsyncResult
 
@@ -1318,41 +1317,16 @@ def retry_restock_view(request, log_id):
         return redirect('restock-log-detail', pk=log_id)
     
     try:
-        # Get coverage from log
-        coverage = float(log.coverage_used) if log.coverage_used else None
-        storage = log.storage
-        
-        logger.info(f"User-initiated retry for RestockLog #{log_id} from checkpoint {log.current_stage} with coverage={coverage}")
-        
+        logger.info(f"User-initiated retry for RestockLog #{log_id} from checkpoint {log.current_stage}")
+
+        from .tasks import retry_restock_from_checkpoint
+        retry_restock_from_checkpoint.apply_async(args=[log_id], queue='selenium')
+
         if is_ajax:
-            # CRITICAL FIX: Create service in background thread
-            
-            def run_retry():
-                """Background thread worker - creates its own DB connection"""
-                
-                
-                # CRITICAL: Service created in THIS thread
-                with AutomatedRestockService(storage) as service:
-                    try:
-                        service.retry_from_checkpoint(log, coverage=coverage)
-                    except Exception as e:
-                        logger.exception(f"Error in background retry for log #{log_id}")           
-            thread = threading.Thread(target=run_retry)
-            thread.daemon = True
-            thread.start()
-            
             return JsonResponse({'success': True, 'log_id': log_id})
         else:
-            # Synchronous retry
-            with AutomatedRestockService(storage) as service:
-                updated_log = service.retry_from_checkpoint(log, coverage=coverage)
-                
-                messages.success(
-                    request, 
-                    f"Retry successful! Operation completed from checkpoint: {log.get_current_stage_display()}"
-                )
-                
-                return redirect('restock-log-detail', pk=updated_log.id)
+            messages.success(request, f"Retry queued — the order will be processed shortly.")
+            return redirect('restock-log-detail', pk=log_id)
     except Exception as e:
         logger.exception(f"Error retrying restock from checkpoint")
         
