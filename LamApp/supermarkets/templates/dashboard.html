@@ -189,6 +189,73 @@
     </div>
     {% endif %}
 
+    <!-- Product Link Notifications -->
+    {% if product_link_notifications %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card" style="border-left: 4px solid #6f42c1;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <i class="bi bi-arrow-left-right" style="color:#6f42c1;"></i>
+                        Sostituzioni prodotto configurate
+                        <span class="badge ms-1" style="background:#6f42c1;">{{ product_link_notifications|length }}</span>
+                    </h5>
+                    {% if product_link_notifications|length > 1 %}
+                    <form method="post" action="{% url 'dismiss-all-product-link-notifications' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-check-all"></i> Archivia tutte
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Punto vendita</th>
+                                <th>Dominante</th>
+                                <th></th>
+                                <th>Secondario</th>
+                                <th>Creato da</th>
+                                <th>Data</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for notif in product_link_notifications %}
+                            <tr>
+                                <td><strong>{{ notif.supermarket.name }}</strong></td>
+                                <td><code class="text-primary">{{ notif.dominant_cod }}.{{ notif.dominant_v }}</code></td>
+                                <td class="text-muted"><i class="bi bi-arrow-right"></i></td>
+                                <td><code class="text-secondary">{{ notif.secondary_cod }}.{{ notif.secondary_v }}</code></td>
+                                <td><small class="text-muted">{% if notif.created_by %}{{ notif.created_by.username }}{% else %}—{% endif %}</small></td>
+                                <td><small class="text-muted">{{ notif.created_at|date:"d/m/Y" }}</small></td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{% url 'product-links' %}?supermarket_id={{ notif.supermarket.id }}"
+                                           class="btn btn-outline-secondary" title="Gestisci">
+                                            <i class="bi bi-pencil-square"></i>
+                                        </a>
+                                        <form method="post" action="{% url 'dismiss-product-link-notification' pk=notif.pk %}">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-outline-secondary" title="Archivia">
+                                                <i class="bi bi-check"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Storages Overview (Compact) -->
     <div class="row mb-4">
         <div class="col-12">

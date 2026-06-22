@@ -195,6 +195,24 @@ class Helper:
         deviation = round(deviation, 2)
         return max(-50, min(deviation, 50))
 
+    @staticmethod
+    def merge_sales_sets(primary: list, secondary: list) -> list:
+        """
+        Merge two sales_sets arrays (newest-first) by summing per-day slots.
+        None + value → value (stockout on one side doesn't censor combined demand).
+        None + None  → None (both out of stock — true stockout).
+        """
+        max_len = max(len(primary), len(secondary))
+        merged = []
+        for i in range(max_len):
+            a = primary[i] if i < len(primary) else None
+            b = secondary[i] if i < len(secondary) else None
+            if a is None and b is None:
+                merged.append(None)
+            else:
+                merged.append((a or 0) + (b or 0))
+        return merged
+
     def next_article(self, product_cod, product_var, package_size, product_name, reason):
         logger.info(f"Will NOT order {product_name}: {product_cod}.{product_var}.{package_size}!")
         logger.info(f"Reason : {reason}")

@@ -81,6 +81,8 @@ urlpatterns = [
     path('recipes/api/base/<int:pk>/items/', views.recipe_get_base_items_view, name='recipe-base-items'),
     path('recipes/alerts/<int:pk>/dismiss/', views.dismiss_recipe_cost_alert, name='dismiss-recipe-alert'),
     path('recipes/alerts/dismiss-all/', views.dismiss_all_recipe_cost_alerts, name='dismiss-all-recipe-alerts'),
+    path('product-links/notifications/<int:pk>/dismiss/', views.dismiss_product_link_notification, name='dismiss-product-link-notification'),
+    path('product-links/notifications/dismiss-all/', views.dismiss_all_product_link_notifications, name='dismiss-all-product-link-notifications'),
 
     # ============ Inventory Panel (Unified Operations) ============
     path('inventory/', views.inventory_search_view, name='inventory-search'),
@@ -104,6 +106,7 @@ urlpatterns = [
     path('inventory/losses-analytics/', views.losses_analytics_unified_view, name='losses-analytics-unified'),
     path('inventory/promo-products/', views.promo_products_view, name='promo-products'),
     path('inventory/order-promo-products/', views.order_promo_products_view, name='order-promo-products'),
+    path('inventory/product-links/', views.product_links_view, name='product-links'),
 
     # Inventory AJAX endpoints
     path('inventory/api/settores/<int:supermarket_id>/', views.get_settores_for_supermarket_view, name='api-settores'),

@@ -855,3 +855,87 @@ class StockValueSnapshot(models.Model):
             cls.objects.filter(supermarket=supermarket).exclude(id__in=list(keep_ids)).delete()
 
         return snapshot
+
+
+class ProductLink(models.Model):
+    """
+    Per-supermarket link between two products that represent the same item
+    (one replacing the other). The dominant product is the one to order;
+    the secondary is being phased out. Both products' sales and stock are
+    merged when evaluating the dominant's order quantity.
+
+    Links are independent per supermarket — one store can unlink without
+    affecting other stores. Chain-wide propagation is a UI convenience
+    that creates individual copies, one per supermarket.
+    """
+    supermarket = models.ForeignKey(
+        'Supermarket', on_delete=models.CASCADE, related_name='product_links'
+    )
+    dominant_cod = models.IntegerField()
+    dominant_v = models.IntegerField(default=0)
+    secondary_cod = models.IntegerField()
+    secondary_v = models.IntegerField(default=0)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='product_links'
+    )
+
+    class Meta:
+        # Each product may appear in at most one link per supermarket.
+        unique_together = [
+            ('supermarket', 'dominant_cod', 'dominant_v'),
+            ('supermarket', 'secondary_cod', 'secondary_v'),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.supermarket.name}: "
+            f"[{self.dominant_cod}.{self.dominant_v}] → "
+            f"[{self.secondary_cod}.{self.secondary_v}]"
+        )
+
+    @classmethod
+    def build_lookup(cls, supermarket):
+        """
+        Returns two dicts for fast lookup during order processing for one supermarket:
+          secondary_set:         {(cod, v)} — products to skip when iterating
+          dominant_to_secondary: {(dom_cod, dom_v): (sec_cod, sec_v)}
+        """
+        secondary_set = set()
+        dominant_to_secondary = {}
+        for link in cls.objects.filter(supermarket=supermarket):
+            key_d = (link.dominant_cod, link.dominant_v)
+            key_s = (link.secondary_cod, link.secondary_v)
+            secondary_set.add(key_s)
+            dominant_to_secondary[key_d] = key_s
+        return secondary_set, dominant_to_secondary
+
+
+class ProductLinkNotification(models.Model):
+    """
+    Created whenever a ProductLink is added to a supermarket (including via propagation).
+    Surfaces on the dashboard so the store manager can review and dismiss.
+    """
+    supermarket = models.ForeignKey(
+        'Supermarket', on_delete=models.CASCADE, related_name='product_link_notifications'
+    )
+    dominant_cod = models.IntegerField()
+    dominant_v = models.IntegerField(default=0)
+    secondary_cod = models.IntegerField()
+    secondary_v = models.IntegerField(default=0)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='product_link_notifications_created'
+    )
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return (
+            f"{self.supermarket.name}: "
+            f"{self.dominant_cod}.{self.dominant_v} → {self.secondary_cod}.{self.secondary_v}"
+        )

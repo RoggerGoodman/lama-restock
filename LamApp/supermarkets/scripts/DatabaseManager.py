@@ -167,6 +167,21 @@ class DatabaseManager:
             "last_update_sold": row["last_update_sold"],
         }
 
+    def get_linked_product_stats(self, cod, v):
+        """Fetch sales_sets and stock for a product regardless of settore (used for linked product merging)."""
+        cur = self.cursor()
+        cur.execute(
+            "SELECT sales_sets, stock FROM product_stats WHERE cod=%s AND v=%s",
+            (cod, v)
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "sales_sets": row["sales_sets"] or [],
+            "stock": row["stock"] or 0,
+        }
+
     def get_stock(self, cod, v):
         cur = self.cursor()
         cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))

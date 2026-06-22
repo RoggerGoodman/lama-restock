@@ -30,6 +30,7 @@ from .models import (
     Recipe, RecipeProductItem, RecipeExternalItem, RecipeCostAlert,
     StockValueSnapshot,
     RecurringClosure, OneTimeClosure, RecurringClosureOverride,
+    ProductLinkNotification,
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
@@ -299,6 +300,12 @@ def dashboard_view(request):
         is_read=False
     ).count()
 
+    # Get unread product link notifications for this user's supermarkets
+    product_link_notifications = ProductLinkNotification.objects.filter(
+        supermarket__owner=request.user,
+        is_read=False,
+    ).select_related('supermarket', 'created_by').order_by('-created_at')[:20]
+
     context = {
         'supermarkets': supermarkets,
         'recent_logs': recent_logs,  # ← NOW ONLY ORDERS
@@ -314,6 +321,7 @@ def dashboard_view(request):
         'recipe_cost_alerts': recipe_cost_alerts,
         'unread_alerts_count': unread_alerts_count,
         'storage_notifications': storage_notifications,
+        'product_link_notifications': product_link_notifications,
     }
 
     return render(request, 'dashboard.html', context)
@@ -3326,8 +3334,15 @@ def cluster_order_preview_view(request):
     orders = []
     try:
         with RestockService(storage) as service:
+            from .models import ProductLink
+            secondary_products, dominant_to_secondary = ProductLink.build_lookup(supermarket)
             blacklist = service.get_blacklist_set()
-            dm = DecisionMaker(service.db, service.helper, blacklist_set=blacklist)
+            dm = DecisionMaker(
+                service.db, service.helper,
+                blacklist_set=blacklist,
+                secondary_products=secondary_products,
+                dominant_to_secondary=dominant_to_secondary,
+            )
             dm.decide_orders_for_settore(settore, coverage, storage.minimum_stock)
 
             if dm.orders_list:
@@ -5405,6 +5420,37 @@ def dismiss_all_recipe_cost_alerts(request):
 
 
 @login_required
+@require_POST
+def dismiss_product_link_notification(request, pk):
+    """Mark a single product link notification as read."""
+    notif = get_object_or_404(
+        ProductLinkNotification, pk=pk, supermarket__owner=request.user
+    )
+    notif.is_read = True
+    notif.save(update_fields=['is_read'])
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True})
+
+    return redirect('dashboard')
+
+
+@login_required
+@require_POST
+def dismiss_all_product_link_notifications(request):
+    """Mark all product link notifications as read for the current user."""
+    updated = ProductLinkNotification.objects.filter(
+        supermarket__owner=request.user,
+        is_read=False,
+    ).update(is_read=True)
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True, 'dismissed': updated})
+
+    return redirect('dashboard')
+
+
+@login_required
 def recipe_create_view(request):
     """Create recipe with AJAX-driven product search"""
     from decimal import Decimal
@@ -5677,4 +5723,126 @@ def recipe_get_base_items_view(request, pk):
         'product_items': product_items,
         'external_items': external_items,
         'total_cost': recipe.get_total_cost()
+    })
+
+
+@login_required
+def product_links_view(request):
+    """
+    Per-supermarket product link management.
+    Allows creating and deleting links between a dominant product (the one to keep
+    ordering) and a secondary product (being phased out). A 'propagate to all'
+    option creates the same link for every supermarket owned by the user.
+    """
+    from .models import ProductLink
+
+    user_supermarkets = list(Supermarket.objects.filter(owner=request.user).order_by('name'))
+    if not user_supermarkets:
+        messages.error(request, "Nessun punto vendita associato al tuo account.")
+        return redirect('inventory-search')
+
+    # Supermarket selector (via GET param, default to first)
+    selected_id = request.GET.get('supermarket_id') or request.POST.get('supermarket_id')
+    try:
+        selected_id = int(selected_id)
+        selected_sm = next(sm for sm in user_supermarkets if sm.id == selected_id)
+    except (TypeError, ValueError, StopIteration):
+        selected_sm = user_supermarkets[0]
+        selected_id = selected_sm.id
+
+    error = None
+    success = None
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+
+        if action == 'create':
+            try:
+                dominant_cod = int(request.POST['dominant_cod'])
+                dominant_v = int(request.POST.get('dominant_v') or 0)
+                secondary_cod = int(request.POST['secondary_cod'])
+                secondary_v = int(request.POST.get('secondary_v') or 0)
+                notes = request.POST.get('notes', '').strip()
+                propagate = request.POST.get('propagate') == '1'
+
+                if dominant_cod == secondary_cod and dominant_v == secondary_v:
+                    error = "Il prodotto dominante e il prodotto secondario non possono essere lo stesso articolo."
+                else:
+                    targets = user_supermarkets if propagate else [selected_sm]
+                    created, skipped = 0, 0
+                    for sm in targets:
+                        _, was_created = ProductLink.objects.get_or_create(
+                            supermarket=sm,
+                            dominant_cod=dominant_cod,
+                            dominant_v=dominant_v,
+                            defaults={
+                                'secondary_cod': secondary_cod,
+                                'secondary_v': secondary_v,
+                                'notes': notes,
+                                'created_by': request.user,
+                            }
+                        )
+                        if was_created:
+                            created += 1
+                            ProductLinkNotification.objects.create(
+                                supermarket=sm,
+                                dominant_cod=dominant_cod,
+                                dominant_v=dominant_v,
+                                secondary_cod=secondary_cod,
+                                secondary_v=secondary_v,
+                                created_by=request.user,
+                            )
+                        else:
+                            skipped += 1
+
+                    if propagate:
+                        success = f"Collegamento propagato: {created} punto/i vendita aggiornato/i."
+                        if skipped:
+                            success += f" {skipped} già esistente/i (saltati)."
+                    else:
+                        if created:
+                            success = f"Collegamento creato: {dominant_cod}.{dominant_v} → {secondary_cod}.{secondary_v}"
+                        else:
+                            error = "Uno dei prodotti selezionati fa già parte di un collegamento per questo punto vendita."
+            except ValueError:
+                error = "Codici prodotto non validi. Inserire numeri interi."
+            except Exception as e:
+                error = f"Errore durante la creazione: {e}"
+
+        elif action == 'delete':
+            try:
+                link_id = int(request.POST['link_id'])
+                ProductLink.objects.filter(id=link_id, supermarket__owner=request.user).delete()
+                success = "Collegamento eliminato."
+            except Exception as e:
+                error = f"Errore durante l'eliminazione: {e}"
+
+        elif action == 'invert':
+            try:
+                link_id = int(request.POST['link_id'])
+                link = ProductLink.objects.get(id=link_id, supermarket__owner=request.user)
+                link.dominant_cod, link.secondary_cod = link.secondary_cod, link.dominant_cod
+                link.dominant_v, link.secondary_v = link.secondary_v, link.dominant_v
+                link.save()
+                success = f"Dominanza invertita: {link.dominant_cod}.{link.dominant_v} e' ora il dominante."
+            except ProductLink.DoesNotExist:
+                error = "Collegamento non trovato."
+            except Exception as e:
+                error = f"Errore durante l'inversione: {e}"
+
+        return redirect(f"{request.path}?supermarket_id={selected_id}")
+
+    links = (
+        ProductLink.objects
+        .filter(supermarket=selected_sm)
+        .select_related('created_by')
+        .order_by('-created_at')
+    )
+
+    return render(request, 'inventory/product_links.html', {
+        'links': links,
+        'supermarkets': user_supermarkets,
+        'selected_sm': selected_sm,
+        'error': error,
+        'success': success,
     })

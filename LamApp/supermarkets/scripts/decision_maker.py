@@ -13,24 +13,34 @@ logger = logging.getLogger(__name__)
 
 
 class DecisionMaker:
-    def __init__(self, db: DatabaseManager, helper: Helper, blacklist_set = None, skip_sale: bool = False):
+    def __init__(self, db: DatabaseManager, helper: Helper, blacklist_set=None, skip_sale: bool = False,
+                 secondary_products=None, dominant_to_secondary=None):
         """
         Initialize decision maker with PostgreSQL support.
+
+        secondary_products:      set of (cod, v) that are the phased-out side of a ProductLink.
+                                 These are skipped for ordering; their stats are merged into the dominant.
+        dominant_to_secondary:   dict {(dom_cod, dom_v): (sec_cod, sec_v)} for stat merging.
         """
-        self.helper = helper        
+        self.helper = helper
         self.conn = db.conn
+        self.db = db
         self.cursor = db.cursor()
         self.skip_sale = skip_sale
         self.orders_list = []
-        
+
         self.zombie_products = []   # Products that are finished/not restockable
 
         self.sale_discounts = self.retrieve_products_on_sale()
         self.sale_discounts_ended = self.retrieve_products_recently_ended_sale()
-        
+
         # Store blacklist - if None, create empty set
         self.blacklist = blacklist_set if blacklist_set is not None else set()
-        
+
+        # Product link lookups (global, chain-level)
+        self.secondary_products = secondary_products if secondary_products is not None else set()
+        self.dominant_to_secondary = dominant_to_secondary if dominant_to_secondary is not None else {}
+
         logger.info(f"DecisionMaker initialized with {len(self.blacklist)} blacklisted products")
 
     def get_products_by_settore(self, settore):
@@ -300,7 +310,12 @@ class DecisionMaker:
             if product_flag:
                 logger.info(f"Skipping purging product: {product_cod}.{product_var}")
                 continue
-            
+
+            # CHECK PRODUCT LINK — skip secondaries; merge into dominant later
+            if (product_cod, product_var) in self.secondary_products:
+                logger.info(f"Skipping secondary linked product: {product_cod}.{product_var} (handled by dominant)")
+                continue
+
             descrizione = row["descrizione"]
             stock = row["stock"]
 
@@ -313,6 +328,19 @@ class DecisionMaker:
             bought_array = row["bought_last_24"] or []
             sales_sets = row["sales_sets"] or []
             bought_sets = row["bought_sets"] or []
+
+            # PRODUCT LINK — merge secondary's sales_sets and stock into this dominant
+            linked_secondary = self.dominant_to_secondary.get((product_cod, product_var))
+            if linked_secondary is not None:
+                sec_stats = self.db.get_linked_product_stats(linked_secondary[0], linked_secondary[1])
+                if sec_stats is not None:
+                    sales_sets = Helper.merge_sales_sets(sales_sets, sec_stats["sales_sets"])
+                    stock = stock + max(0, sec_stats["stock"])
+                    logger.info(
+                        f"Merged linked secondary {linked_secondary[0]}.{linked_secondary[1]} "
+                        f"into dominant {product_cod}.{product_var}: "
+                        f"stock+={sec_stats['stock']}"
+                    )
             package_size = row["pz_x_collo"]
             package_multi = row["rapp"]
             verified = row["verified"]
