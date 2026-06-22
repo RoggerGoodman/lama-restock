@@ -34,6 +34,7 @@ urlpatterns = [
     path('calibration-reports/<int:pk>/', views.calibration_report_view, name='calibration-report'),
     path('storages/<int:storage_id>/order-comparison/', views.order_comparison_view, name='order-comparison'),
     path('storages/<int:storage_id>/save-snapshot/', views.save_comparison_snapshot_view, name='save-comparison-snapshot'),
+    path('storages/<int:storage_id>/snapshot/', views.serve_comparison_snapshot_view, name='serve-comparison-snapshot'),
     path('storages/<int:storage_id>/restock/', views.run_restock_view, name='run-restock'),
     path('storages/<int:storage_id>/add-products/', views.add_products_view, name='add-products'),
     path('storages/<int:storage_id>/purge/', views.purge_products_view, name='purge-products'),

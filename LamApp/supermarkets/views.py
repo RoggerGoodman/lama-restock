@@ -725,11 +725,11 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             .order_by('-generated_at')[:5]
         )
 
-        snapshot_path = Path(settings.MEDIA_ROOT) / 'snapshots' / f'storage_{self.object.pk}.html'
+        snapshot_path = Path(settings.BASE_DIR) / 'snapshots' / f'storage_{self.object.pk}.html'
         if snapshot_path.exists():
             import datetime
             mtime = datetime.datetime.fromtimestamp(snapshot_path.stat().st_mtime)
-            context['snapshot_url'] = f'{settings.MEDIA_URL}snapshots/storage_{self.object.pk}.html'
+            context['snapshot_url'] = reverse('serve-comparison-snapshot', kwargs={'storage_id': self.object.pk})
             context['snapshot_saved_at'] = mtime
         else:
             context['snapshot_url'] = None
@@ -1402,12 +1402,27 @@ def save_comparison_snapshot_view(request, storage_id):
     date_str = now.strftime('%d/%m/%Y %H:%M')
     html = _build_snapshot_html(storage, rows, date_str)
 
-    snapshots_dir = Path(settings.MEDIA_ROOT) / 'snapshots'
+    snapshots_dir = Path(settings.BASE_DIR) / 'snapshots'
     snapshots_dir.mkdir(parents=True, exist_ok=True)
     (snapshots_dir / f'storage_{storage_id}.html').write_text(html, encoding='utf-8')
 
-    url = request.build_absolute_uri(f'{settings.MEDIA_URL}snapshots/storage_{storage_id}.html')
+    url = request.build_absolute_uri(
+        reverse('serve-comparison-snapshot', kwargs={'storage_id': storage_id})
+    )
     return JsonResponse({'url': url, 'count': len(rows)})
+
+
+@login_required
+def serve_comparison_snapshot_view(request, storage_id):
+    from django.http import Http404, HttpResponse
+    storage = get_object_or_404(Storage, pk=storage_id)
+    if storage.supermarket.owner != request.user:
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
+    snapshot_path = Path(settings.BASE_DIR) / 'snapshots' / f'storage_{storage_id}.html'
+    if not snapshot_path.exists():
+        raise Http404
+    return HttpResponse(snapshot_path.read_text(encoding='utf-8'), content_type='text/html; charset=utf-8')
 
 
 # ============ Restock Operation Views ============
