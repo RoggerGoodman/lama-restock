@@ -1294,29 +1294,29 @@ def _build_snapshot_html(storage, rows, date_str):
     from html import escape
     from collections import defaultdict
 
-    SECTION_ORDER = ['pac_rejected', 'both_missed', 'human_more', 'human_less', 'zeroed', 'human_added', 'concordi']
+    SECTION_ORDER = [‘pac_rejected’, ‘both_missed’, ‘human_more’, ‘human_less’, ‘zeroed’, ‘human_added’, ‘concordi’]
     SECTION_NAMES = {
-        'pac_rejected': 'Rifiutati da PAC2000A',
-        'both_missed':  'Ignorati da entrambi',
-        'human_more':   'Umano → Macchina (umano >)',
-        'human_less':   'Umano → Macchina (umano <)',
-        'zeroed':       'Azzerati',
-        'human_added':  "Aggiunti dall’operatore",
-        'concordi':     'Concordi',
+        ‘pac_rejected’: ‘Rifiutati da PAC2000A’,
+        ‘both_missed’:  ‘Ignorati da entrambi’,
+        ‘human_more’:   ‘Umano → Macchina (umano >)’,
+        ‘human_less’:   ‘Umano → Macchina (umano <)’,
+        ‘zeroed’:       ‘Azzerati’,
+        ‘human_added’:  "Aggiunti dall’operatore",
+        ‘concordi’:     ‘Concordi’,
     }
     OUTCOME_BADGE = {
-        'critical':     '<span class="badge b-crit">Critico</span>',
-        'understocked': '<span class="badge b-under">Sotto</span>',
-        'overstocked':  '<span class="badge b-over">Sovra</span>',
-        'ok':           '<span class="badge b-ok">OK</span>',
+        ‘critical’:     ‘<span class="badge b-crit">Critico</span>’,
+        ‘understocked’: ‘<span class="badge b-under">Sotto</span>’,
+        ‘overstocked’:  ‘<span class="badge b-over">Sovra</span>’,
+        ‘ok’:           ‘<span class="badge b-ok">OK</span>’,
     }
-    OUTCOME_SORT = {'critical': 0, 'understocked': 1, 'ok': 2, 'overstocked': 3, '': 4}
+    OUTCOME_SORT = {‘critical’: 0, ‘understocked’: 1, ‘ok’: 2, ‘overstocked’: 3, ‘’: 4}
 
     grouped = defaultdict(list)
     for r in rows:
-        grouped[r.get('section', '')].append(r)
+        grouped[r.get(‘section’, ‘’)].append(r)
     for sec in grouped:
-        grouped[sec].sort(key=lambda r: OUTCOME_SORT.get(r.get('outcome', ''), 4))
+        grouped[sec].sort(key=lambda r: OUTCOME_SORT.get(r.get(‘outcome’, ‘’), 4))
 
     sections_html = []
     for key in SECTION_ORDER:
@@ -1326,65 +1326,119 @@ def _build_snapshot_html(storage, rows, date_str):
         title = SECTION_NAMES.get(key, key)
         trs = []
         for r in sec_rows:
-            desc = escape(r.get('desc', ''))
-            badge = OUTCOME_BADGE.get(r.get('outcome', ''), '<span class="b-none">—</span>')
+            desc = escape(r.get(‘desc’, ‘’))
+            badge = OUTCOME_BADGE.get(r.get(‘outcome’, ‘’), ‘<span class="b-none">—</span>’)
             try:
-                sv = float(r.get('stock', ''))
-                stock_cls = ' class="stock stock-zero"' if sv <= 0 else ' class="stock"'
+                sv = float(r.get(‘stock’, ‘’))
+                stock_cls = ‘ class="stock stock-zero"’ if sv <= 0 else ‘ class="stock"’
                 stock_txt = str(int(sv)) if sv == int(sv) else str(sv)
             except (ValueError, TypeError):
-                stock_cls = ' class="stock"'
-                stock_txt = str(r.get('stock', '')) or '—'
-            trs.append(f'<tr><td class="desc">{desc}</td><td>{badge}</td><td{stock_cls}>{stock_txt}</td></tr>')
+                stock_cls = ‘ class="stock"’
+                stock_txt = str(r.get(‘stock’, ‘’)) or ‘—‘
+            trs.append(
+                f’<tr>’
+                f’<td class="desc">{desc}</td>’
+                f’<td>{badge}</td>’
+                f’<td{stock_cls}>{stock_txt}</td>’
+                f’<td class="corr-cell"><input type="number" class="ci" inputmode="numeric" onchange="onCorr(this)" placeholder="—"></td>’
+                f’</tr>’
+            )
         sections_html.append(
-            f'<div class="section"><div class="section-title">{escape(title)}'
-            f' <span class="sec-n">({len(sec_rows)})</span></div>'
-            f'<table><thead><tr><th>Prodotto</th><th>Calib.</th><th>Giac.</th></tr></thead>'
-            f'<tbody>{"".join(trs)}</tbody></table></div>'
+            f’<div class="section"><div class="section-title">{escape(title)}’
+            f’ <span class="sec-n">({len(sec_rows)})</span></div>’
+            f’<table><thead><tr><th>Prodotto</th><th>Calib.</th><th>Giac.</th><th>Corr.</th></tr></thead>’
+            f’<tbody>{"".join(trs)}</tbody></table></div>’
         )
 
     total = sum(len(v) for v in grouped.values())
     css = (
-        '*{box-sizing:border-box;margin:0;padding:0}'
-        'body{font-family:system-ui,sans-serif;font-size:14px;background:#f0f0f0;padding-bottom:24px}'
-        'header{background:#1e293b;color:#fff;padding:12px 14px 10px}'
-        'header h1{font-size:1rem;font-weight:700}'
-        'header p{font-size:.72rem;color:#94a3b8;margin-top:2px}'
-        '.total{font-size:.72rem;color:#64748b;padding:5px 12px 0}'
-        '.section{margin:8px 10px 0}'
-        '.section-title{font-size:.68rem;font-weight:700;color:#64748b;text-transform:uppercase;'
-        'letter-spacing:.05em;padding:8px 2px 3px}'
-        '.sec-n{font-weight:400}'
-        'table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;'
-        'box-shadow:0 1px 2px rgba(0,0,0,.06)}'
-        'th{font-size:.65rem;color:#9ca3af;font-weight:600;padding:6px 8px;text-align:left;'
-        'border-bottom:1px solid #f3f4f6}'
-        'th:last-child{text-align:right}'
-        'td{padding:7px 8px;border-bottom:1px solid #f9fafb;vertical-align:middle}'
-        'td:last-child{text-align:right;white-space:nowrap}'
-        'tr:last-child td{border-bottom:none}'
-        '.desc{font-size:.82rem;line-height:1.3}'
-        '.badge{display:inline-block;font-size:.6rem;font-weight:700;padding:2px 5px;border-radius:3px}'
-        '.b-crit{background:#dc2626;color:#fff}'
-        '.b-under{background:#f59e0b;color:#000}'
-        '.b-over{background:#d97706;color:#000}'
-        '.b-ok{background:#16a34a;color:#fff}'
-        '.b-none{color:#9ca3af;font-size:.75rem}'
-        '.stock{font-weight:600;font-size:.88rem}'
-        '.stock-zero{color:#dc2626}'
+        ‘*{box-sizing:border-box;margin:0;padding:0}’
+        ‘body{font-family:system-ui,sans-serif;font-size:14px;background:#f0f0f0;padding-bottom:80px}’
+        ‘header{background:#1e293b;color:#fff;padding:12px 14px 10px}’
+        ‘header h1{font-size:1rem;font-weight:700}’
+        ‘header p{font-size:.72rem;color:#94a3b8;margin-top:2px}’
+        ‘.total{font-size:.72rem;color:#64748b;padding:5px 12px 0}’
+        ‘.section{margin:8px 10px 0}’
+        ‘.section-title{font-size:.68rem;font-weight:700;color:#64748b;text-transform:uppercase;’
+        ‘letter-spacing:.05em;padding:8px 2px 3px}’
+        ‘.sec-n{font-weight:400}’
+        ‘table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;’
+        ‘box-shadow:0 1px 2px rgba(0,0,0,.06)}’
+        ‘th{font-size:.65rem;color:#9ca3af;font-weight:600;padding:6px 8px;text-align:left;’
+        ‘border-bottom:1px solid #f3f4f6}’
+        ‘th:nth-child(2),th:nth-child(3),th:nth-child(4){text-align:right}’
+        ‘td{padding:7px 8px;border-bottom:1px solid #f9fafb;vertical-align:middle}’
+        ‘td:nth-child(2),td:nth-child(3){text-align:right;white-space:nowrap}’
+        ‘tr:last-child td{border-bottom:none}’
+        ‘tr.edited{background:#fffbeb}’
+        ‘.desc{font-size:.82rem;line-height:1.3}’
+        ‘.badge{display:inline-block;font-size:.6rem;font-weight:700;padding:2px 5px;border-radius:3px}’
+        ‘.b-crit{background:#dc2626;color:#fff}’
+        ‘.b-under{background:#f59e0b;color:#000}’
+        ‘.b-over{background:#d97706;color:#000}’
+        ‘.b-ok{background:#16a34a;color:#fff}’
+        ‘.b-none{color:#9ca3af;font-size:.75rem}’
+        ‘.stock{font-weight:600;font-size:.88rem}’
+        ‘.stock-zero{color:#dc2626}’
+        ‘.corr-cell{text-align:right;padding:4px 6px}’
+        ‘.ci{width:54px;border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px;’
+        ‘font-size:.85rem;text-align:center;background:#f9fafb;-moz-appearance:textfield}’
+        ‘.ci::-webkit-inner-spin-button,.ci::-webkit-outer-spin-button{-webkit-appearance:none}’
+        ‘.ci:focus{outline:none;border-color:#6366f1;background:#fff}’
+        ‘.ci.has-val{background:#fef3c7;border-color:#f59e0b;font-weight:700;color:#92400e}’
+        ‘.fab{position:fixed;bottom:16px;right:16px;z-index:99;border:none;border-radius:24px;’
+        ‘padding:12px 20px;font-size:.85rem;font-weight:700;cursor:pointer;’
+        ‘box-shadow:0 3px 10px rgba(0,0,0,.25);transition:background .15s}’
+        ‘.fab-off{background:#6b7280;color:#fff}’
+        ‘.fab-on{background:#f59e0b;color:#000}’
+    )
+    js = (
+        ‘function onCorr(inp){‘
+        ‘  var tr=inp.closest("tr");’
+        ‘  var filled=inp.value!==""&&inp.value!==null;’
+        ‘  inp.classList.toggle("has-val",filled);’
+        ‘  tr.classList.toggle("edited",filled);’
+        ‘  if(document.getElementById("fab").dataset.on==="1")applyFilter();’
+        ‘  updateFab();’
+        ‘}’
+        ‘function updateFab(){‘
+        ‘  var n=document.querySelectorAll("tr.edited").length;’
+        ‘  var btn=document.getElementById("fab");’
+        ‘  btn.textContent=btn.dataset.on==="1"’
+        ‘    ?"Mostra tutti":"Solo modificati"+(n>0?" ("+n+")":"");’
+        ‘}’
+        ‘function toggleFilter(){‘
+        ‘  var btn=document.getElementById("fab");’
+        ‘  var on=btn.dataset.on!=="1";’
+        ‘  btn.dataset.on=on?"1":"0";’
+        ‘  btn.className="fab "+(on?"fab-on":"fab-off");’
+        ‘  applyFilter();updateFab();’
+        ‘}’
+        ‘function applyFilter(){‘
+        ‘  var on=document.getElementById("fab").dataset.on==="1";’
+        ‘  document.querySelectorAll("tbody tr").forEach(function(tr){‘
+        ‘    tr.style.display=(!on||tr.classList.contains("edited"))?"":"none";’
+        ‘  });’
+        ‘  document.querySelectorAll(".section").forEach(function(sec){‘
+        ‘    var visible=sec.querySelectorAll("tbody tr:not([style*=none])").length;’
+        ‘    sec.style.display=visible>0?"":"none";’
+        ‘  });’
+        ‘}’
     )
     name_esc = escape(storage.name)
     sm_esc   = escape(storage.supermarket.name)
     return (
-        f'<!DOCTYPE html><html lang="it"><head>'
-        f'<meta charset="utf-8">'
-        f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f'<title>{name_esc}</title>'
-        f'<style>{css}</style></head><body>'
-        f'<header><h1>{name_esc}</h1><p>{sm_esc} — {date_str}</p></header>'
-        f'<div class="total">{total} prodotti visibili</div>'
-        f'{"".join(sections_html)}'
-        f'</body></html>'
+        f’<!DOCTYPE html><html lang="it"><head>’
+        f’<meta charset="utf-8">’
+        f’<meta name="viewport" content="width=device-width,initial-scale=1">’
+        f’<title>{name_esc}</title>’
+        f’<style>{css}</style></head><body>’
+        f’<header><h1>{name_esc}</h1><p>{sm_esc} — {date_str}</p></header>’
+        f’<div class="total">{total} prodotti visibili</div>’
+        f’{"".join(sections_html)}’
+        f’<button id="fab" class="fab fab-off" data-on="0" onclick="toggleFilter()">Solo modificati</button>’
+        f’<script>{js}</script>’
+        f’</body></html>’
     )
 
 
