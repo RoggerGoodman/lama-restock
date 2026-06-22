@@ -409,6 +409,19 @@
                 </button>
             </div>
             {% endif %}
+            <span class="vr align-self-stretch mx-1"></span>
+            <button id="save-snapshot-btn"
+                    onclick="saveComparisonSnapshot()"
+                    data-url="{% url 'save-comparison-snapshot' storage_id=storage.pk %}"
+                    class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-floppy"></i> Salva mobile
+            </button>
+        </div>
+        <div id="snapshot-result" class="mt-2 no-print align-items-center gap-2" style="display:none;">
+            <a id="snapshot-link" href="#" target="_blank" class="btn btn-sm btn-success">
+                <i class="bi bi-phone"></i> Apri report mobile
+            </a>
+            <span id="snapshot-meta" class="text-muted small"></span>
         </div>
 
         {% if not machine_log %}
@@ -1356,6 +1369,45 @@
     }
 
     document.addEventListener('DOMContentLoaded', autoSelectLog);
+
+    function saveComparisonSnapshot() {
+        const btn = document.getElementById('save-snapshot-btn');
+        const url = btn.dataset.url;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Salvataggio...';
+
+        const rows = [];
+        document.querySelectorAll('tr[data-comp-cat]').forEach(function(tr) {
+            if (window.getComputedStyle(tr).display === 'none') return;
+            rows.push({
+                section: tr.dataset.compCat || '',
+                desc:    tr.cells[2]?.dataset.sort || tr.cells[2]?.textContent?.trim() || '',
+                outcome: tr.dataset.calibOutcome || '',
+                stock:   tr.dataset.stock !== undefined ? tr.dataset.stock : '',
+            });
+        });
+
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+            body: JSON.stringify({ rows: rows })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-floppy-fill"></i> Salvato';
+            if (data.url) {
+                const result = document.getElementById('snapshot-result');
+                document.getElementById('snapshot-link').href = data.url;
+                document.getElementById('snapshot-meta').textContent = data.count + ' prodotti — ' + new Date().toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'});
+                result.style.display = 'flex';
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-floppy"></i> Salva mobile';
+        });
+    }
     </script>
 </body>
 </html>

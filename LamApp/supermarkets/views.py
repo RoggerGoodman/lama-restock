@@ -717,6 +717,15 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
             .order_by('-generated_at')[:5]
         )
 
+        snapshot_path = Path(settings.MEDIA_ROOT) / 'snapshots' / f'storage_{self.object.pk}.html'
+        if snapshot_path.exists():
+            import datetime
+            mtime = datetime.datetime.fromtimestamp(snapshot_path.stat().st_mtime)
+            context['snapshot_url'] = f'{settings.MEDIA_URL}snapshots/storage_{self.object.pk}.html'
+            context['snapshot_saved_at'] = mtime
+        else:
+            context['snapshot_url'] = None
+
         return context
 
 
@@ -1269,6 +1278,128 @@ def schedule_exceptions_api(request, storage_id):
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
 
     return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+# ============ Comparison Snapshot ============
+
+def _build_snapshot_html(storage, rows, date_str):
+    from html import escape
+    from collections import defaultdict
+
+    SECTION_ORDER = ['pac_rejected', 'both_missed', 'human_more', 'human_less', 'zeroed', 'human_added', 'concordi']
+    SECTION_NAMES = {
+        'pac_rejected': 'Rifiutati da PAC2000A',
+        'both_missed':  'Ignorati da entrambi',
+        'human_more':   'Umano → Macchina (umano >)',
+        'human_less':   'Umano → Macchina (umano <)',
+        'zeroed':       'Azzerati',
+        'human_added':  "Aggiunti dall’operatore",
+        'concordi':     'Concordi',
+    }
+    OUTCOME_BADGE = {
+        'critical':     '<span class="badge b-crit">Critico</span>',
+        'understocked': '<span class="badge b-under">Sotto</span>',
+        'overstocked':  '<span class="badge b-over">Sovra</span>',
+        'ok':           '<span class="badge b-ok">OK</span>',
+    }
+    OUTCOME_SORT = {'critical': 0, 'understocked': 1, 'ok': 2, 'overstocked': 3, '': 4}
+
+    grouped = defaultdict(list)
+    for r in rows:
+        grouped[r.get('section', '')].append(r)
+    for sec in grouped:
+        grouped[sec].sort(key=lambda r: OUTCOME_SORT.get(r.get('outcome', ''), 4))
+
+    sections_html = []
+    for key in SECTION_ORDER:
+        if key not in grouped:
+            continue
+        sec_rows = grouped[key]
+        title = SECTION_NAMES.get(key, key)
+        trs = []
+        for r in sec_rows:
+            desc = escape(r.get('desc', ''))
+            badge = OUTCOME_BADGE.get(r.get('outcome', ''), '<span class="b-none">—</span>')
+            try:
+                sv = float(r.get('stock', ''))
+                stock_cls = ' class="stock stock-zero"' if sv <= 0 else ' class="stock"'
+                stock_txt = str(int(sv)) if sv == int(sv) else str(sv)
+            except (ValueError, TypeError):
+                stock_cls = ' class="stock"'
+                stock_txt = str(r.get('stock', '')) or '—'
+            trs.append(f'<tr><td class="desc">{desc}</td><td>{badge}</td><td{stock_cls}>{stock_txt}</td></tr>')
+        sections_html.append(
+            f'<div class="section"><div class="section-title">{escape(title)}'
+            f' <span class="sec-n">({len(sec_rows)})</span></div>'
+            f'<table><thead><tr><th>Prodotto</th><th>Calib.</th><th>Giac.</th></tr></thead>'
+            f'<tbody>{"".join(trs)}</tbody></table></div>'
+        )
+
+    total = sum(len(v) for v in grouped.values())
+    css = (
+        '*{box-sizing:border-box;margin:0;padding:0}'
+        'body{font-family:system-ui,sans-serif;font-size:14px;background:#f0f0f0;padding-bottom:24px}'
+        'header{background:#1e293b;color:#fff;padding:12px 14px 10px}'
+        'header h1{font-size:1rem;font-weight:700}'
+        'header p{font-size:.72rem;color:#94a3b8;margin-top:2px}'
+        '.total{font-size:.72rem;color:#64748b;padding:5px 12px 0}'
+        '.section{margin:8px 10px 0}'
+        '.section-title{font-size:.68rem;font-weight:700;color:#64748b;text-transform:uppercase;'
+        'letter-spacing:.05em;padding:8px 2px 3px}'
+        '.sec-n{font-weight:400}'
+        'table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;'
+        'box-shadow:0 1px 2px rgba(0,0,0,.06)}'
+        'th{font-size:.65rem;color:#9ca3af;font-weight:600;padding:6px 8px;text-align:left;'
+        'border-bottom:1px solid #f3f4f6}'
+        'th:last-child{text-align:right}'
+        'td{padding:7px 8px;border-bottom:1px solid #f9fafb;vertical-align:middle}'
+        'td:last-child{text-align:right;white-space:nowrap}'
+        'tr:last-child td{border-bottom:none}'
+        '.desc{font-size:.82rem;line-height:1.3}'
+        '.badge{display:inline-block;font-size:.6rem;font-weight:700;padding:2px 5px;border-radius:3px}'
+        '.b-crit{background:#dc2626;color:#fff}'
+        '.b-under{background:#f59e0b;color:#000}'
+        '.b-over{background:#d97706;color:#000}'
+        '.b-ok{background:#16a34a;color:#fff}'
+        '.b-none{color:#9ca3af;font-size:.75rem}'
+        '.stock{font-weight:600;font-size:.88rem}'
+        '.stock-zero{color:#dc2626}'
+    )
+    name_esc = escape(storage.name)
+    sm_esc   = escape(storage.supermarket.name)
+    return (
+        f'<!DOCTYPE html><html lang="it"><head>'
+        f'<meta charset="utf-8">'
+        f'<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>{name_esc}</title>'
+        f'<style>{css}</style></head><body>'
+        f'<header><h1>{name_esc}</h1><p>{sm_esc} — {date_str}</p></header>'
+        f'<div class="total">{total} prodotti visibili</div>'
+        f'{"".join(sections_html)}'
+        f'</body></html>'
+    )
+
+
+@login_required
+@require_POST
+def save_comparison_snapshot_view(request, storage_id):
+    storage = get_object_or_404(Storage, pk=storage_id)
+    try:
+        payload = json.loads(request.body)
+        rows = payload.get('rows', [])
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    now = timezone.localtime(timezone.now())
+    date_str = now.strftime('%d/%m/%Y %H:%M')
+    html = _build_snapshot_html(storage, rows, date_str)
+
+    snapshots_dir = Path(settings.MEDIA_ROOT) / 'snapshots'
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
+    (snapshots_dir / f'storage_{storage_id}.html').write_text(html, encoding='utf-8')
+
+    url = request.build_absolute_uri(f'{settings.MEDIA_URL}snapshots/storage_{storage_id}.html')
+    return JsonResponse({'url': url, 'count': len(rows)})
 
 
 # ============ Restock Operation Views ============
@@ -2935,10 +3066,15 @@ def inventory_search_view(request):
 def fermi_products_api_view(request, storage_id):
     storage = get_object_or_404(Storage, pk=storage_id, supermarket__owner=request.user)
     try:
+        blacklisted = set(
+            BlacklistEntry.objects.filter(blacklist__storage=storage)
+            .values_list('product_code', 'product_var')
+        )
+
         with RestockService(storage) as service:
             cursor = service.db.cursor()
             cursor.execute("""
-                SELECT p.settore, ps.cod, ps.v, p.descrizione, ps.stock
+                SELECT p.settore, ps.cod, ps.v, p.descrizione, ps.stock, p.cluster
                 FROM product_stats ps
                 JOIN products p ON p.cod = ps.cod AND p.v = ps.v
                 WHERE ps.verified = TRUE
@@ -2953,7 +3089,7 @@ def fermi_products_api_view(request, storage_id):
                       ) recent
                       HAVING count(*) = 14
                   ) = TRUE
-                ORDER BY p.settore, p.descrizione
+                ORDER BY p.cluster NULLS LAST, p.descrizione
             """, (storage.settore,))
             products = [
                 {
@@ -2962,8 +3098,10 @@ def fermi_products_api_view(request, storage_id):
                     'v': row['v'],
                     'descrizione': row['descrizione'] or f"{row['cod']}.{row['v']}",
                     'stock': row['stock'] if row['stock'] is not None else 0,
+                    'cluster': row['cluster'],
                 }
                 for row in cursor.fetchall()
+                if (row['cod'], row['v']) not in blacklisted
             ]
         return JsonResponse({'products': products})
     except Exception as e:
@@ -3421,6 +3559,8 @@ def inventory_flag_for_purge_ajax_view(request):
         if not storage:
             return JsonResponse({'success': False, 'message': 'No storage found'}, status=400)
 
+        caller_stock = data.get('stock')  # set by fermi page to trigger shrinkage + immediate purge
+
         with RestockService(storage) as service:
             # Check product stock
             cursor = service.db.cursor()
@@ -3437,7 +3577,15 @@ def inventory_flag_for_purge_ajax_view(request):
 
             stock = row['stock'] if row['stock'] is not None else 0
 
-            if stock > 0:
+            if caller_stock is not None:
+                # Fermi path: register stock as shrinkage, then purge (preserving the loss record)
+                shrinkage_qty = int(caller_stock)
+                if shrinkage_qty > 0:
+                    service.db.register_losses(cod, var, shrinkage_qty, 'shrinkage')
+                    logger.info(f"Registered shrinkage of {shrinkage_qty} units for {cod}.{var}")
+                result = service.db.purge_product(cod, var)
+                return JsonResponse({'success': True, 'message': result['message']})
+            elif stock > 0:
                 # Has stock - add to "In fase di eliminazione" blacklist
                 PURGE_BLACKLIST_NAME = "In fase di eliminazione"
 
@@ -3481,6 +3629,33 @@ def inventory_flag_for_purge_ajax_view(request):
         logger.exception("Error flagging product for purge")
         return JsonResponse({'success': False, 'message': str(e)}, status=500)
 
+
+@login_required
+@require_POST
+def fermi_blacklist_view(request):
+    try:
+        data = json.loads(request.body)
+        cod = int(data['cod'])
+        var = int(data['var'])
+        storage_id = int(data['storage_id'])
+
+        storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+
+        blacklist, _ = Blacklist.objects.get_or_create(
+            storage=storage,
+            name='Non più interessato',
+            defaults={'description': 'Prodotti non più di interesse'},
+        )
+        _, created = BlacklistEntry.objects.get_or_create(
+            blacklist=blacklist,
+            product_code=cod,
+            product_var=var,
+        )
+
+        return JsonResponse({'success': True, 'created': created})
+    except Exception as e:
+        logger.exception("Error adding fermi product to blacklist")
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
 
 
 # ============ NEW: Unified Inventory Operations ============

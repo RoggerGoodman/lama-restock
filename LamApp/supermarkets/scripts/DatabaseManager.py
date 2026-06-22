@@ -874,14 +874,14 @@ class DatabaseManager:
 
     def purge_product(self, cod: int, v: int):
         """
-        Clear a product's operational data (product_stats, economics, extra_losses).
-        The products row is kept to preserve first_added_at; it will be restored on
-        the next list update if the product reappears.
+        Clear a product's operational data (product_stats, economics).
+        The products row and extra_losses are kept: losses are permanent economic records
+        that fade naturally over time via prepend_monthly_loss_zeros.
         """
         cur = self.cursor()
         deleted_from = []
 
-        for table in ('product_stats', 'economics', 'extra_losses'):
+        for table in ('product_stats', 'economics'):
             cur.execute(f"DELETE FROM {table} WHERE cod=%s AND v=%s", (cod, v))
             if cur.rowcount > 0:
                 deleted_from.append(table)

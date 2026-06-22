@@ -33,6 +33,7 @@ urlpatterns = [
     path('storages/<int:pk>/set-minimum-stock/', views.storage_set_minimum_stock_view, name='storage-set-minimum-stock'),
     path('calibration-reports/<int:pk>/', views.calibration_report_view, name='calibration-report'),
     path('storages/<int:storage_id>/order-comparison/', views.order_comparison_view, name='order-comparison'),
+    path('storages/<int:storage_id>/save-snapshot/', views.save_comparison_snapshot_view, name='save-comparison-snapshot'),
     path('storages/<int:storage_id>/restock/', views.run_restock_view, name='run-restock'),
     path('storages/<int:storage_id>/add-products/', views.add_products_view, name='add-products'),
     path('storages/<int:storage_id>/purge/', views.purge_products_view, name='purge-products'),
@@ -114,6 +115,7 @@ urlpatterns = [
     path('inventory/api/fermi-products/<int:storage_id>/', views.fermi_products_api_view, name='api-fermi-products'),
     path('inventory/adjust-stock/', views.inventory_adjust_stock_ajax_view, name='inventory-adjust-stock'),
     path('inventory/flag-for-purge/', views.inventory_flag_for_purge_ajax_view, name='inventory-flag-purge'),
+    path('inventory/api/fermi-blacklist/', views.fermi_blacklist_view, name='api-fermi-blacklist'),
 
     # ============ Sync API (supermarket PC → server) ============
     path('api/sync/vensetar-sales/', sync_views.vensetar_sales_sync_view, name='vensetar-sales-sync'),

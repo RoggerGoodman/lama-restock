@@ -618,6 +618,55 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    function buildProductRow(storageId, supermarketName, p) {
+        return `<tr id="fermi-row-${storageId}-${p.cod}-${p.v}">
+            <td><code>${p.cod}</code></td>
+            <td><code>${p.v}</code></td>
+            <td>${p.descrizione}</td>
+            <td><span class="badge bg-secondary fermi-stock-badge">${p.stock}</span></td>
+            <td>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-sm btn-warning fermi-btn-correggi"
+                            data-cod="${p.cod}" data-v="${p.v}"
+                            data-storage-id="${storageId}"
+                            data-supermarket="${supermarketName}">
+                        <i class="bi bi-pencil"></i> Correggi
+                    </button>
+                    <button class="btn btn-sm btn-danger fermi-btn-azzera"
+                            data-cod="${p.cod}" data-v="${p.v}"
+                            data-storage-id="${storageId}"
+                            data-supermarket="${supermarketName}">
+                        <i class="bi bi-trash"></i> Azzera+Elim
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary fermi-btn-nascondi"
+                            data-cod="${p.cod}" data-v="${p.v}"
+                            data-storage-id="${storageId}"
+                            title="Nascondi">
+                        <i class="bi bi-eye-slash"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-dark fermi-btn-blacklist"
+                            data-cod="${p.cod}" data-v="${p.v}"
+                            data-storage-id="${storageId}"
+                            title="Blacklist">
+                        <i class="bi bi-ban"></i> Blacklist
+                    </button>
+                </div>
+            </td>
+        </tr>`;
+    }
+
+    function buildClusterTable(rows) {
+        return `<div class="table-responsive mt-1">
+            <table class="table table-hover table-sm mb-1">
+                <thead><tr>
+                    <th>Cod</th><th>V</th>
+                    <th>Descrizione</th><th>Giacenza</th><th>Azioni</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+    }
+
     function renderFermiProducts(storageId, products, bodyEl) {
         const panel = document.getElementById('fermi-panel-' + storageId);
         const supermarketName = panel.dataset.supermarketName;
@@ -629,47 +678,57 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        let rows = '';
+        // Group by cluster
+        const clusterMap = {};
         visible.forEach(function (p) {
-            rows += `<tr id="fermi-row-${storageId}-${p.cod}-${p.v}">
-                <td><code>${p.cod}</code></td>
-                <td><code>${p.v}</code></td>
-                <td>${p.descrizione}</td>
-                <td><span class="badge bg-secondary fermi-stock-badge">${p.stock}</span></td>
-                <td>
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-sm btn-warning fermi-btn-correggi"
-                                data-cod="${p.cod}" data-v="${p.v}"
-                                data-storage-id="${storageId}"
-                                data-supermarket="${supermarketName}">
-                            <i class="bi bi-pencil"></i> Correggi
-                        </button>
-                        <button class="btn btn-sm btn-danger fermi-btn-azzera"
-                                data-cod="${p.cod}" data-v="${p.v}"
-                                data-storage-id="${storageId}"
-                                data-supermarket="${supermarketName}">
-                            <i class="bi bi-trash"></i> Azzera+Elim
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary fermi-btn-nascondi"
-                                data-cod="${p.cod}" data-v="${p.v}"
-                                data-storage-id="${storageId}"
-                                title="Nascondi">
-                            <i class="bi bi-eye-slash"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>`;
+            const key = p.cluster || 'Senza cluster';
+            if (!clusterMap[key]) clusterMap[key] = [];
+            clusterMap[key].push(p);
         });
 
-        bodyEl.innerHTML = `<div class="table-responsive">
-            <table class="table table-hover table-sm mb-1">
-                <thead><tr>
-                    <th>Cod</th><th>V</th>
-                    <th>Descrizione</th><th>Giacenza</th><th>Azioni</th>
-                </tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>`;
+        const clusterKeys = Object.keys(clusterMap).sort(function (a, b) {
+            if (a === 'Senza cluster') return 1;
+            if (b === 'Senza cluster') return -1;
+            return a.localeCompare(b);
+        });
+
+        let html = '';
+        clusterKeys.forEach(function (clusterName) {
+            const clusterProducts = clusterMap[clusterName];
+            const safeId = clusterName.replace(/[^a-z0-9]/gi, '_');
+            const clusterId = 'fermi-cluster-' + storageId + '-' + safeId;
+            let rows = '';
+            clusterProducts.forEach(function (p) { rows += buildProductRow(storageId, supermarketName, p); });
+            html += `<div class="mb-2">
+                <div class="d-flex justify-content-between align-items-center px-2 py-1 rounded"
+                     style="background:#f0f0f0;cursor:pointer;"
+                     role="button"
+                     data-bs-toggle="collapse"
+                     data-bs-target="#${clusterId}"
+                     aria-expanded="false">
+                    <span class="small fw-semibold">
+                        <i class="bi bi-chevron-right me-1 fermi-cluster-chevron" data-target="${clusterId}" style="transition:transform .2s;"></i>
+                        ${clusterName}
+                    </span>
+                    <span class="badge bg-secondary">${clusterProducts.length}</span>
+                </div>
+                <div class="collapse" id="${clusterId}">
+                    ${buildClusterTable(rows)}
+                </div>
+            </div>`;
+        });
+
+        bodyEl.innerHTML = html;
+
+        bodyEl.querySelectorAll('.collapse[id^="fermi-cluster-"]').forEach(function (clusterEl) {
+            const chevron = bodyEl.querySelector('.fermi-cluster-chevron[data-target="' + clusterEl.id + '"]');
+            clusterEl.addEventListener('show.bs.collapse', function () {
+                if (chevron) chevron.style.transform = 'rotate(90deg)';
+            });
+            clusterEl.addEventListener('hide.bs.collapse', function () {
+                if (chevron) chevron.style.transform = 'rotate(0deg)';
+            });
+        });
 
         bodyEl.querySelectorAll('.fermi-btn-correggi').forEach(function (btn) {
             btn.addEventListener('click', function () {
@@ -716,41 +775,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 if (!confirm('Impostare giacenza a 0 ed eliminare ' + cod + '.' + v + ' dal sistema?')) return;
 
-                function doPurge() {
-                    fetch('/inventory/flag-for-purge/', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-                        body: JSON.stringify({ cod: cod, var: v, storage_id: sid })
-                    })
-                    .then(r => r.json())
-                    .then(function (data) {
-                        if (data.success) {
-                            rowEl.style.transition = 'opacity 0.3s';
-                            rowEl.style.opacity = '0';
-                            setTimeout(function () { rowEl.remove(); }, 300);
-                        } else {
-                            alert('Errore: ' + data.message);
-                        }
-                    })
-                    .catch(function (err) { alert('Errore: ' + err); });
-                }
-
-                if (currentStock !== 0) {
-                    const fd = new FormData();
-                    fd.append('cod', cod); fd.append('var', v);
-                    fd.append('adjustment', -currentStock);
-                    fd.append('reason', 'stolen');
-                    fd.append('supermarket', sm);
-                    fetch('/inventory/adjust-stock/', { method: 'POST', headers: { 'X-CSRFToken': getCsrf() }, body: fd })
-                        .then(r => r.json())
-                        .then(function (data) {
-                            if (data.success) { doPurge(); }
-                            else { alert('Errore: ' + data.message); }
-                        })
-                        .catch(function (err) { alert('Errore: ' + err); });
-                } else {
-                    doPurge();
-                }
+                fetch('/inventory/flag-for-purge/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+                    body: JSON.stringify({ cod: cod, var: v, storage_id: sid, stock: currentStock })
+                })
+                .then(r => r.json())
+                .then(function (data) {
+                    if (data.success) {
+                        rowEl.style.transition = 'opacity 0.3s';
+                        rowEl.style.opacity = '0';
+                        setTimeout(function () { rowEl.remove(); }, 300);
+                    } else {
+                        alert('Errore: ' + data.message);
+                    }
+                })
+                .catch(function (err) { alert('Errore: ' + err); });
             });
         });
 
@@ -770,6 +810,32 @@ document.addEventListener('DOMContentLoaded', function() {
                     rowEl.remove();
                     updateHiddenFooter(sid, bodyEl);
                 }, 300);
+            });
+        });
+
+        bodyEl.querySelectorAll('.fermi-btn-blacklist').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const cod = parseInt(this.dataset.cod);
+                const v = parseInt(this.dataset.v);
+                const sid = parseInt(this.dataset.storageId);
+                const rowEl = document.getElementById('fermi-row-' + sid + '-' + cod + '-' + v);
+
+                fetch('/inventory/api/fermi-blacklist/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+                    body: JSON.stringify({ cod: cod, var: v, storage_id: sid })
+                })
+                .then(r => r.json())
+                .then(function (data) {
+                    if (data.success) {
+                        rowEl.style.transition = 'opacity 0.3s';
+                        rowEl.style.opacity = '0';
+                        setTimeout(function () { rowEl.remove(); }, 300);
+                    } else {
+                        alert('Errore: ' + data.message);
+                    }
+                })
+                .catch(function (err) { alert('Errore: ' + err); });
             });
         });
 
