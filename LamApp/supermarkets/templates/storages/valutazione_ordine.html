@@ -331,6 +331,12 @@
 
             <hr class="my-3">
 
+            <div class="d-flex gap-3 flex-wrap mb-3 small text-muted">
+                <span><span class="text-danger">●</span> Giacenza = 0</span>
+                <span><span class="text-primary">●</span> Uso interno registrato</span>
+                <span><span class="text-success">●</span> In promozione</span>
+            </div>
+
             <div class="d-flex flex-wrap gap-3">
                 <div class="border rounded px-3 py-2 text-center" style="min-width:120px;">
                     <div class="text-muted small">CSV (umano)</div>
@@ -366,6 +372,12 @@
                     <div class="fs-5 fw-bold text-danger">{{ comparison.both_missed|length }}</div>
                 </div>
                 {% endif %}
+                {% if comparison.pac_rejected %}
+                <div class="border border-secondary rounded px-3 py-2 text-center" style="min-width:120px;">
+                    <div class="text-secondary small">Rifiutati PAC</div>
+                    <div class="fs-5 fw-bold text-secondary">{{ comparison.pac_rejected|length }}</div>
+                </div>
+                {% endif %}
             </div>
         </div>
 
@@ -385,7 +397,7 @@
                     <i class="bi bi-person"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
                 </button>
                 <button id="filter-understocked-human" onclick="setCausalFilter('understocked_human')" class="btn btn-outline-danger">
-                    <i class="bi bi-person"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
+                    <i class="bi bi-person"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
                 </button>
             </div>
             <div class="btn-group btn-group-sm" role="group">
@@ -393,7 +405,7 @@
                     <i class="bi bi-cpu"></i> Sovra <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
                 </button>
                 <button id="filter-understocked-machine" onclick="setCausalFilter('understocked_machine')" class="btn btn-outline-danger">
-                    <i class="bi bi-cpu"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
+                    <i class="bi bi-cpu"></i> Sotto <span class="filter-count badge rounded-pill bg-secondary ms-1" style="font-size:0.65rem"></span><span class="big-excess-count text-danger ms-1" style="font-size:0.7rem;display:none"></span><span class="filter-pct text-muted ms-1" style="font-size:0.65rem"></span>
                 </button>
             </div>
             {% endif %}
@@ -636,6 +648,52 @@
         </div>
         {% endif %}
 
+        <!-- PAC rejected -->
+        {% if comparison.pac_rejected %}
+        <h5 class="mb-3 section-break">
+            <i class="bi bi-x-octagon text-secondary"></i>
+            Rifiutati da PAC2000A (errore sistema, non colpa di macchina/operatore)
+            <span id="count-pac-rejected" class="badge bg-secondary ms-1">{{ comparison.pac_rejected|length }}</span>
+        </h5>
+        <div class="table-responsive mb-5">
+            <table id="pac-rejected-table" class="table table-bordered table-sm table-hover">
+                <thead class="table-secondary">
+                    <tr>
+                        <th class="no-print" style="width:1.5rem;"></th>
+                        <th class="sortable" onclick="sortTable('pac-rejected-table',1)">Codice<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('pac-rejected-table',2)">Descrizione<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('pac-rejected-table',3)">Mac ord./Uman tent.<span class="sort-icon">⇅</span></th>
+                        <th class="sortable" onclick="sortTable('pac-rejected-table',4)">Calibrazione<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('pac-rejected-table',5)">Vend./gg<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('pac-rejected-table',6)">Giacenza<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('pac-rejected-table',7)">Imballo<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('pac-rejected-table',8)">Eccesso/Deficit<span class="sort-icon">⇅</span></th>
+                        <th class="text-end sortable" onclick="sortTable('pac-rejected-table',9)">Eccesso gg<span class="sort-icon">⇅</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in comparison.pac_rejected %}
+                    <tr data-comp-cat="{{ p.comp_cat }}"
+                        data-calib-outcome="{{ p.calib.outcome|default:'' }}"
+                        data-machine-qty="{{ p.machine_qty|default:0 }}" data-human-qty="{{ p.human_qty|default:0 }}" data-blue-dot="{% if p.has_blue_dot %}1{% else %}0{% endif %}"
+                        {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
+                        <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
+                        <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
+                        <td class="text-end text-secondary" data-sort="{{ p.machine_qty }}">{{ p.machine_qty }}/{{ p.human_qty }}</td>
+                        <td class="outcome-badge">{% if p.calib %}{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted stock-cell" data-sort="{{ p.calib.stock|default:'' }}">{% if p.calib %}{{ p.calib.stock }}{% if p.calib.stock == 0 %} <span class="text-danger">●</span>{% endif %}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end text-muted" data-sort="{{ p.calib.package_size|default:'' }}">{% if p.calib %}{{ p.calib.package_size }}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end excess-deficit-cell{% if p.calib and p.calib.excess_deficit >= p.calib.package_size %} has-big-excess{% endif %}" data-sort="{{ p.calib.excess_deficit|default:9999 }}">{% if p.calib and p.calib.excess_deficit is not None %}{% if p.calib.excess_deficit > 0 %}<span style="color:#e6a817">+{{ p.calib.excess_deficit }}</span>{% if p.calib.excess_deficit >= p.calib.package_size %} <span class="text-danger">●</span>{% endif %}{% else %}<span class="text-warning">{{ p.calib.excess_deficit }}</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+                        <td class="text-end excess-days-cell" data-sort="{{ p.calib.excess_days|default:9999 }}">{% if p.calib and p.calib.excess_days is not None %}{{ p.calib.excess_days }} gg{% else %}&mdash;{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
         <!-- Agreed -->
         {% if comparison.agreed %}
         <h5 class="mb-3 section-break">
@@ -697,8 +755,8 @@
             </div>
             <hr class="my-3">
             <p class="text-muted small mb-4">
-                Seleziona l&rsquo;ordine macchina da confrontare, poi carica il file
-                <strong>OrdiniRighe.csv</strong> esportato dal PAC2000A.
+                Seleziona il <strong>Report di Calibrazione</strong> da analizzare.
+                L&rsquo;ordine macchina precedente viene selezionato automaticamente.
             </p>
             {% if csv_error %}
             <div class="alert alert-danger mb-3">
@@ -708,42 +766,11 @@
             <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
 
-                <!-- Log selection -->
+                <!-- Calibration report selection — user picks this first -->
                 <div class="mb-4">
-                    <label class="form-label fw-semibold">Ordine macchina</label>
-                    {% if available_logs %}
-                    <div class="border rounded" style="max-height:260px; overflow-y:auto;">
-                        <table class="table table-sm table-hover mb-0">
-                            <thead class="table-light sticky-top">
-                                <tr>
-                                    <th style="width:1.5rem;"></th>
-                                    <th>Data</th>
-                                    <th class="text-end">Copertura</th>
-                                </tr>
-                            </thead>
-                            <tbody id="log-list">
-                                {% for log in available_logs %}
-                                <tr class="log-row {% if forloop.first %}table-active{% endif %}"
-                                    onclick="selectLogRow(this)"
-                                    style="cursor:pointer">
-                                    <td><input type="radio" name="log_id" value="{{ log.id }}" {% if forloop.first %}checked{% endif %}></td>
-                                    <td>{{ log.started_at|date:"d/m/Y H:i" }}</td>
-                                    <td class="text-end text-muted">{% if log.coverage_used %}{{ log.coverage_used }} gg{% else %}&mdash;{% endif %}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% else %}
-                    <div class="alert alert-info py-2">Nessun ordine macchina completato trovato per questo magazzino.</div>
-                    {% endif %}
-                </div>
-
-                <!-- Calibration report selection -->
-                <div class="mb-4">
-                    <label class="form-label fw-semibold">Report di Calibrazione <span class="text-muted fw-normal small">— per rilevare prodotti ignorati da entrambi</span></label>
+                    <label class="form-label fw-semibold">Report di Calibrazione</label>
                     {% if available_calibrations %}
-                    <div class="border rounded" style="max-height:180px; overflow-y:auto;">
+                    <div class="border rounded" style="max-height:200px; overflow-y:auto;">
                         <table class="table table-sm table-hover mb-0">
                             <thead class="table-light sticky-top">
                                 <tr>
@@ -755,7 +782,9 @@
                             </thead>
                             <tbody>
                                 {% for cr in available_calibrations %}
-                                <tr onclick="this.querySelector('input').checked=true" style="cursor:pointer">
+                                <tr data-generated-at="{{ cr.generated_at|date:'c' }}"
+                                    onclick="this.querySelector('input').checked=true; autoSelectLog();"
+                                    style="cursor:pointer">
                                     <td><input type="radio" name="calib_report_id" value="{{ cr.pk }}" {% if forloop.first %}checked{% endif %}></td>
                                     <td>{{ cr.generated_at|date:"d/m/Y H:i" }}</td>
                                     <td class="text-end text-danger">{{ cr.products_critical }}</td>
@@ -770,9 +799,43 @@
                     {% endif %}
                 </div>
 
+                <!-- Machine order — auto-selected, display only -->
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">Ordine macchina <span class="text-muted fw-normal small">— selezionato automaticamente</span></label>
+                    {% if available_logs %}
+                    <div class="border rounded" style="max-height:200px; overflow-y:auto;">
+                        <table class="table table-sm mb-0">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th style="width:1.5rem;"></th>
+                                    <th>Data</th>
+                                    <th class="text-end">Copertura</th>
+                                </tr>
+                            </thead>
+                            <tbody id="log-list">
+                                {% for log in available_logs %}
+                                <tr class="log-row"
+                                    data-started-at="{{ log.started_at|date:'c' }}"
+                                    style="cursor:default; pointer-events:none;">
+                                    <td><input type="radio" name="log_id" value="{{ log.id }}" {% if forloop.first %}checked{% endif %}></td>
+                                    <td>{{ log.started_at|date:"d/m/Y H:i" }}</td>
+                                    <td class="text-end text-muted">{% if log.coverage_used %}{{ log.coverage_used }} gg{% else %}&mdash;{% endif %}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info py-2">Nessun ordine macchina completato trovato per questo magazzino.</div>
+                    {% endif %}
+                </div>
+
                 <!-- CSV upload -->
                 <div class="mb-3">
                     {{ upload_form.csv_file.label_tag }}
+                    <div id="csv-hint-block" class="text-muted small mb-1" style="display:none;">
+                        Esporta da PAC2000A l&rsquo;ordine del <strong id="csv-date-hint"></strong>.
+                    </div>
                     {{ upload_form.csv_file }}
                     {% if upload_form.csv_file.errors %}
                     <div class="text-danger small mt-1">{{ upload_form.csv_file.errors }}</div>
@@ -1036,16 +1099,21 @@
                 if (!rowMatchesCausalFilter(row, f)) continue;
                 counts[f]++;
                 const isMachine = f.includes('machine');
-                if (isMachine && row.dataset.stock !== undefined) {
-                    const s   = parseFloat(row.dataset.stock);
-                    const mq  = parseFloat(row.dataset.machineQty || '0');
-                    const hq  = parseFloat(row.dataset.humanQty   || '0');
-                    const pk  = parseFloat(row.dataset.package    || '1');
-                    const em  = parseFloat(row.dataset.effMin     || '0');
-                    const ms  = s + (mq - hq) * pk;
-                    if (ms > em + pk && Math.round(ms - em - pk) >= pk) bigCounts[f]++;
-                } else if (!isMachine) {
-                    if (row.querySelector('td.excess-deficit-cell.has-big-excess')) bigCounts[f]++;
+                const isOverFilter = f.includes('overstocked');
+                if (isOverFilter) {
+                    if (isMachine && row.dataset.stock !== undefined) {
+                        const s  = parseFloat(row.dataset.stock);
+                        const mq = parseFloat(row.dataset.machineQty || '0');
+                        const hq = parseFloat(row.dataset.humanQty   || '0');
+                        const pk = parseFloat(row.dataset.package    || '1');
+                        const em = parseFloat(row.dataset.effMin     || '0');
+                        const ms = s + (mq - hq) * pk;
+                        if (ms > em + pk && Math.round(ms - em - pk) >= pk) bigCounts[f]++;
+                    } else if (!isMachine) {
+                        if (row.querySelector('td.excess-deficit-cell.has-big-excess')) bigCounts[f]++;
+                    }
+                } else {
+                    if (row.dataset.calibOutcome === 'critical') bigCounts[f]++;
                 }
             }
         });
@@ -1244,11 +1312,50 @@
         computeRowVisibility();
     }
 
-    function selectLogRow(tr) {
-        document.querySelectorAll('#log-list .log-row').forEach(r => r.classList.remove('table-active'));
-        tr.classList.add('table-active');
-        tr.querySelector('input[type=radio]').checked = true;
+    function autoSelectLog() {
+        const calibRadio = document.querySelector('input[name="calib_report_id"]:checked');
+        if (!calibRadio) return;
+        const calibDate = new Date(calibRadio.closest('tr').dataset.generatedAt);
+
+        const logRows = Array.from(document.querySelectorAll('#log-list .log-row'));
+        const pastRows = logRows
+            .filter(function(row) { return new Date(row.dataset.startedAt) < calibDate; })
+            .sort(function(a, b) { return new Date(b.dataset.startedAt) - new Date(a.dataset.startedAt); });
+
+        logRows.forEach(function(row) {
+            row.classList.remove('table-active');
+            const r = row.querySelector('input[type=radio]');
+            if (r) r.checked = false;
+        });
+
+        const hintBlock = document.getElementById('csv-hint-block');
+        const hint = document.getElementById('csv-date-hint');
+
+        if (pastRows.length < 2) {
+            if (hintBlock) {
+                hintBlock.style.display = '';
+                hintBlock.innerHTML = '<span class="text-danger">Impossibile selezionare automaticamente: ordini precedenti insufficienti.</span>';
+            }
+            return;
+        }
+
+        const bestRow = pastRows[1];
+        const bestDate = new Date(bestRow.dataset.startedAt);
+        bestRow.classList.add('table-active');
+        const r = bestRow.querySelector('input[type=radio]');
+        if (r) r.checked = true;
+        bestRow.scrollIntoView({ block: 'nearest' });
+        if (hint && hintBlock) {
+            hintBlock.innerHTML = 'Esporta da PAC2000A l&rsquo;ordine del <strong id="csv-date-hint"></strong>.';
+            document.getElementById('csv-date-hint').textContent = bestDate.toLocaleString('it-IT', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+            hintBlock.style.display = '';
+        }
     }
+
+    document.addEventListener('DOMContentLoaded', autoSelectLog);
     </script>
 </body>
 </html>

@@ -219,7 +219,7 @@ def import_ddt_for_supermarket(self, supermarket_id):
             log = RestockLog.objects.create(
                 storage=matched_storage,
                 status='processing',
-                current_stage='updating_stats',
+                current_stage='processing',
                 operation_type='ddt_import',
             )
 
@@ -372,17 +372,22 @@ def run_daily_calibration():
     reject_on_worker_lost=True
 )
 def retry_restock_from_checkpoint(self, log_id):
-    """Retry a failed restock log from its last successful checkpoint."""
+    """Retry a failed restock log from scratch."""
     from .models import RestockLog
 
     log = RestockLog.objects.select_related('storage__supermarket', 'storage__schedule').get(id=log_id)
     storage = log.storage
-    coverage = float(log.coverage_used) if log.coverage_used else None
 
-    logger.info(f"[CELERY-RETRY] Retrying log #{log_id} for {storage.name} from checkpoint {log.current_stage}")
+    log.status = 'processing'
+    log.current_stage = 'processing'
+    log.error_message = None
+    log.retry_count = (log.retry_count or 0) + 1
+    log.save()
+
+    logger.info(f"[CELERY-RETRY] Retrying log #{log_id} for {storage.name} (fresh run)")
 
     with AutomatedRestockService(storage) as service:
-        service.retry_from_checkpoint(log, coverage=coverage)
+        service.run_full_restock_workflow(log=log)
 
     logger.info(f"[CELERY-RETRY] Log #{log_id} completed successfully")
 

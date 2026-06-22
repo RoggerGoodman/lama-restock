@@ -781,8 +781,23 @@ class DatabaseManager:
                 category = excluded.category
         """, econ_rows)
 
+        # Products absent from today's list are no longer available from the supplier.
+        absent_count = 0
+        if prod_rows:
+            imported_keys = tuple((row[0], row[1]) for row in prod_rows)
+            cur.execute("""
+                UPDATE products
+                SET disponibilita = 'No'
+                WHERE settore = %s
+                  AND (cod, v) NOT IN %s
+                  AND disponibilita != 'No'
+            """, (settore, imported_keys))
+            absent_count = cur.rowcount
+
         self.conn.commit()
         print(f"Imported {len(prod_rows)} products into settore '{settore}'.")
+        if absent_count:
+            print(f"Marked {absent_count} products as unavailable (absent from new list) in settore '{settore}'.")
 
     def update_promos(self, promo_list):
         """

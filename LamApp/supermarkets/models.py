@@ -422,11 +422,7 @@ class RestockLog(models.Model):
     
     STAGE_CHOICES = [
         ('pending', 'Pending Start'),
-        ('updating_stats', 'Updating Product Stats'),
-        ('stats_updated', 'Stats Updated'),
-        ('calculating_order', 'Calculating Order'),
-        ('order_calculated', 'Order Calculated'),
-        ('executing_order', 'Executing Order'),
+        ('processing', 'Processing'),
         ('completed', 'Completed'),
         ('failed', 'Failed'),
     ]
@@ -567,14 +563,10 @@ class RestockLog(models.Model):
         if self.status == 'failed':
             return {'label': 'Fallito', 'progress': 0, 'icon': 'x-circle'}
         stage_info = {
-            'pending': {'label': 'In coda', 'progress': 0, 'icon': 'clock'},
-            'updating_stats': {'label': 'Aggiornamento statistiche...', 'progress': 10, 'icon': 'download'},
-            'stats_updated': {'label': 'Statistiche aggiornate', 'progress': 50, 'icon': 'check-circle'},
-            'calculating_order': {'label': 'Calcolo ordine...', 'progress': 60, 'icon': 'calculator'},
-            'order_calculated': {'label': 'Ordine calcolato', 'progress': 70, 'icon': 'check-circle'},
-            'executing_order': {'label': 'Invio ordine...', 'progress': 80, 'icon': 'send'},
-            'completed': {'label': 'Completato', 'progress': 100, 'icon': 'check-circle-fill'},
-            'failed': {'label': 'Fallito', 'progress': 0, 'icon': 'x-circle'},
+            'pending':    {'label': 'In coda',      'progress': 0,   'icon': 'clock'},
+            'processing': {'label': 'In corso...',  'progress': 50,  'icon': 'arrow-repeat'},
+            'completed':  {'label': 'Completato',   'progress': 100, 'icon': 'check-circle-fill'},
+            'failed':     {'label': 'Fallito',      'progress': 0,   'icon': 'x-circle'},
         }
         return stage_info.get(self.current_stage, stage_info['pending'])
     

@@ -80,15 +80,17 @@ class DecisionMaker:
         """
         Returns a minimum_stock penalty factor based on historical expiry rate,
         or None if expiry rate is below the 5% threshold.
+        Only the most recent 3 months (index 0–2) are considered.
         """
+        recent_expired = expired_array[:3]
         total_expired = 0
-        for entry in expired_array:
+        for entry in recent_expired:
             if isinstance(entry, list) and len(entry) >= 1:
                 total_expired += entry[0]
             elif isinstance(entry, (int, float)):
                 total_expired += entry
 
-        total_sold = sum(sold_array)
+        total_sold = sum(v for v in sold_array[:3] if v is not None)
         denominator = total_sold + total_expired
         if denominator == 0:
             return None
@@ -256,7 +258,7 @@ class DecisionMaker:
     def get_ended_discount_for(self, cod, v):
         return self.sale_discounts_ended.get((cod, v))
 
-    def is_in_last_60_percent(self, today, sale_start, sale_end):
+    def is_in_first_60_percent(self, today, sale_start, sale_end):
         total_days = (sale_end - sale_start).days + 1
         threshold_day = ceil(total_days * 0.6)
 
@@ -400,7 +402,7 @@ class DecisionMaker:
                 sale_end = sale_info["sale_end"]
 
                 if discount == 0:
-                    discount = 15
+                    discount = 10
 
                 today = date.today()
                 if sale_start > today:
@@ -408,8 +410,8 @@ class DecisionMaker:
                 else:
                     logger.info(f"This product is currently on sale: {discount}%")
 
-                if self.is_in_last_60_percent(today, sale_start, sale_end):
-                    req_stock += req_stock * discount / 100
+                if self.is_in_first_60_percent(today, sale_start, sale_end):
+                    req_stock += req_stock * 0.10
                     logger.info("Stock buff applied")
                 else:
                     logger.info("Sale buff NOT applied (late sale phase)")

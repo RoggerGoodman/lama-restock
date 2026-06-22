@@ -1,10 +1,8 @@
-# automation_services.py - FIXED: No stats in retry, only 2 checkpoints
 import math
 """
-Automated services with checkpoint-based recovery.
-UPDATED: Stats are done nightly, so retry only has 2 steps:
-  1. Calculate order (decision maker)
-  2. Execute order (orderer)
+Automated restock services.
+Workflow: calculate order (decision maker) → execute order (orderer).
+Both steps run fresh on every execution, including retries.
 """
 import logging
 from pathlib import Path
@@ -23,10 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class AutomatedRestockService(RestockService):
-    """
-    Handles automated restock operations with checkpoint recovery.
-    FIXED: Retry logic no longer updates stats (done nightly).
-    """
+    """Handles automated restock operations."""
     
     def record_losses(self):
         """Record product losses by downloading and processing inventory files."""
@@ -200,7 +195,7 @@ class AutomatedRestockService(RestockService):
                 'avg_daily_sales': round(avg_daily_sales, 2),
             }
 
-            if stock == 0:
+            if stock <= 0:
                 critical.append(entry)
             elif stock < eff_min:
                 understocked.append(entry)
@@ -279,7 +274,7 @@ class AutomatedRestockService(RestockService):
 
         with transaction.atomic():
             log = RestockLog.objects.select_for_update().get(id=log.id)
-            log.current_stage = 'stats_updated'
+            log.current_stage = 'completed'
             log.stats_updated_at = timezone.now()
             log.total_products = report.get('updated', 0)
             log.set_results({
@@ -294,26 +289,36 @@ class AutomatedRestockService(RestockService):
         logger.info(f"DDT import complete for {self.storage.name}: invoices={invoice_numbers}")
         return True
     
-    def calculate_order_checkpoint(self, log: RestockLog, coverage=None, progress_callback=None):
+    def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None, skip_stats_update=False):
         """
-        CHECKPOINT 1 (RETRY): Calculate what needs to be ordered.
-        This is now the FIRST checkpoint in retry logic.
+        Run complete restock workflow: calculate order then execute it.
+        Both steps always run fresh — no checkpoint skipping.
         """
-        logger.info(f"[CHECKPOINT 1 - RETRY] Calculating order for {self.storage.name}")
-        
-        if progress_callback:
-            progress_callback(20, 'Analyzing product needs...')
-        
-        log.current_stage = 'calculating_order'
-        log.save()
-        
+        logger.info(f"Starting restock workflow for {self.storage.name}")
+
+        if log is None:
+            log = RestockLog.objects.create(
+                storage=self.storage,
+                status='processing',
+                current_stage='processing',
+                started_at=timezone.now()
+            )
+
         try:
-            # Calculate coverage if not provided
+            if not skip_stats_update:
+                if progress_callback:
+                    progress_callback(10, 'Updating product statistics...')
+                self.import_ddt_deliveries(log)
+
+            # Step 1: Calculate order
+            if progress_callback:
+                progress_callback(20, 'Analyzing product needs...')
+
             today_date = timezone.now().date()
             if coverage is None:
                 schedule = self.storage.schedule
-                today = today_date.weekday()
-                coverage = schedule.calculate_coverage_for_day(today, reference_date=today_date)
+                coverage = schedule.calculate_coverage_for_day(today_date.weekday(), reference_date=today_date)
+
             skip_sale = ScheduleException.objects.filter(
                 schedule=self.storage.schedule,
                 date=today_date,
@@ -333,24 +338,13 @@ class AutomatedRestockService(RestockService):
                     blacklist_set=self.get_blacklist_set(),
                     skip_sale=skip_sale
                 )
-                
                 decision_maker.decide_orders_for_settore(self.settore, coverage, self.storage.minimum_stock)
-                
                 orders_list = decision_maker.orders_list
                 zombie_products = decision_maker.zombie_products
-                
+
                 log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
                 log.products_ordered = len(orders_list)
-                
-                # Handle 4-element tuples (with discount)
-                total_packages = 0
-                for order in orders_list:
-                    if len(order) >= 3:
-                        total_packages += order[2]  # qty is always 3rd element
-                
-                log.total_packages = total_packages
-                
-                # Store discount in results
+                log.total_packages = sum(order[2] for order in orders_list if len(order) >= 3)
                 log.set_results({
                     'orders': [
                         {
@@ -365,223 +359,57 @@ class AutomatedRestockService(RestockService):
                     'settore': self.settore,
                     'coverage': float(coverage)
                 })
-                
-                # Mark checkpoint as complete
-                log.current_stage = 'order_calculated'
-                log.order_calculated_at = timezone.now()
                 log.save()
-                
-                if progress_callback:
-                    progress_callback(50, f'Order calculated: {len(orders_list)} products')
-                
-                logger.info(
-                    f"✅ [CHECKPOINT 1 COMPLETE] Order calculated: "
-                    f"{len(orders_list)} products ordered, "
-                    f"{len(zombie_products)} zombie"
-                )
-                return orders_list
-                
             finally:
                 decision_maker.close()
                 self.db.close()
-            
-        except Exception as e:
-            log.current_stage = 'failed'
-            log.status = 'failed'
-            log.error_message = f"Order calculation failed: {str(e)}"
-            log.save()
-            
-            logger.exception(f"❌ [CHECKPOINT 1 FAILED]")
-            raise
-   
-    def execute_order_checkpoint(self, log: RestockLog, orders_list, progress_callback=None):
-        """
-        CHECKPOINT 2 (RETRY): Execute the order in Dropzone.
-        This is now the SECOND and FINAL checkpoint in retry logic.
-        """
-        logger.info(f"[CHECKPOINT 2 - RETRY] Executing order for {self.storage.name}")
-        
-        if progress_callback:
-            progress_callback(70, 'Connecting to ordering system...')
-        
-        log.current_stage = 'executing_order'
-        log.save()
-        
-        try:
+
+            if progress_callback:
+                progress_callback(50, f'Order calculated: {len(orders_list)} products')
+            logger.info(f"Order calculated: {len(orders_list)} products, {len(zombie_products)} zombie")
+
+            # Step 2: Execute order
             if not orders_list:
                 logger.info(f"No items to order for {self.storage.name}")
-                log.current_stage = 'completed'
                 log.status = 'completed'
+                log.current_stage = 'completed'
                 log.completed_at = timezone.now()
                 log.save()
-                return True
-            
-            logger.info(f"Executing order with {len(orders_list)} items")
-            
+                return log
+
             if progress_callback:
-                progress_callback(80, f'Placing order for {len(orders_list)} products...')
-            
+                progress_callback(70, f'Placing order for {len(orders_list)} products...')
+
             orderer = Orderer(
                 username=self.supermarket.username,
                 password=self.supermarket.password
             )
-            
             try:
                 orderer.login()
-                successful_orders, order_skipped = orderer.make_orders(
-                    self.storage.name, 
-                    orders_list
-                )
-                
-                # Add order-skipped products to results
+                successful_orders, order_skipped = orderer.make_orders(self.storage.name, orders_list)
+
                 results = log.get_results()
-                if 'order_skipped_products' not in results:
-                    results['order_skipped_products'] = []
-                results['order_skipped_products'].extend(order_skipped)
+                results.setdefault('order_skipped_products', []).extend(order_skipped)
                 log.set_results(results)
-                
+
                 log.products_ordered = len(successful_orders)
                 log.total_packages = sum(order[2] for order in successful_orders)
-                
-                log.current_stage = 'completed'
                 log.status = 'completed'
-                log.order_executed_at = timezone.now()
+                log.current_stage = 'completed'
                 log.completed_at = timezone.now()
                 log.save()
-                
-                if progress_callback:
-                    progress_callback(100, 'Order placed successfully!')
-                
-                logger.info(f"✅ [CHECKPOINT 2 COMPLETE] Order executed successfully")
-                return True
-                
             finally:
                 orderer.driver.quit()
-                
-        except Exception as e:
-            log.current_stage = 'failed'
-            log.status = 'failed'
-            log.error_message = f"Order execution failed: {str(e)}"
-            log.save()
-            
-            logger.exception(f"❌ [CHECKPOINT 2 FAILED]")
-            raise
-    
-    def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None, skip_stats_update=False):
-        """
-        Run complete restock workflow with optional progress reporting.
-        
-        Args:
-            coverage: Days to cover (None = auto-calculate)
-            log: Existing RestockLog or None to create new
-            progress_callback: Function to call with (progress_pct, status_msg)
-            skip_stats_update: If True, skip CHECKPOINT 1 (stats update)
-        
-        UPDATED: skip_stats_update is now the default for manual orders and retries.
-        """
-        logger.info(f"Starting restock workflow for {self.storage.name} (skip_stats={skip_stats_update})")
-        
-        if log is None:
-            log = RestockLog.objects.create(
-                storage=self.storage,
-                status='processing',
-                current_stage='pending',
-                started_at=timezone.now()
-            )
-        
-        try:
-            # CHECKPOINT 1 (NIGHTLY ONLY): Update stats
-            if skip_stats_update:
-                logger.info(f"[CHECKPOINT 1 SKIP] Stats update skipped (manual order/retry)")
-                if progress_callback:
-                    progress_callback(10, 'Skipping stats update (already done)...')
-            else:
-                if progress_callback:
-                    progress_callback(10, 'Updating product statistics...')
-                
-                with transaction.atomic():
-                    log.refresh_from_db()
-                    
-                    if log.stats_updated_at:
-                        logger.info(f"[CHECKPOINT 1 SKIP] Stats already updated")
-                    else:
-                        logger.info(f"[CHECKPOINT 1 START] Updating stats...")
-                        self.import_ddt_deliveries(log)
-            
-            # CHECKPOINT 1 (RETRY): Calculate order
+
             if progress_callback:
-                progress_callback(20, 'Calculating order quantities...')
-            
-            with transaction.atomic():
-                log.refresh_from_db()
-                
-                if log.order_calculated_at:
-                    results = log.get_results()
-                    orders_list = [
-                        (o['cod'], o['var'], o['qty']) 
-                        for o in results.get('orders', [])
-                    ]
-                    logger.info(f"[CHECKPOINT 1 SKIP] Order already calculated")
-                else:
-                    logger.info(f"[CHECKPOINT 1 START] Calculating order...")
-                    orders_list = self.calculate_order_checkpoint(log, coverage, progress_callback)
-            
-            # CHECKPOINT 2 (RETRY): Execute order
-            if progress_callback:
-                progress_callback(70, 'Placing order in Dropzone...')
-            
-            with transaction.atomic():
-                log.refresh_from_db()
-                
-                if log.order_executed_at:
-                    logger.info(f"[CHECKPOINT 2 SKIP] Order already executed")
-                else:
-                    logger.info(f"[CHECKPOINT 2 START] Executing order...")
-                    self.execute_order_checkpoint(log, orders_list, progress_callback)
-            
-            if progress_callback:
-                progress_callback(100, 'Restock completed successfully!')
-            
-            logger.info(f"✅ Restock workflow completed successfully")
+                progress_callback(100, 'Order placed successfully!')
+            logger.info(f"Restock workflow completed successfully for {self.storage.name}")
             return log
-            
+
         except Exception as e:
-            logger.exception(f"❌ Restock workflow failed")
-            
-            with transaction.atomic():
-                log = RestockLog.objects.select_for_update().get(id=log.id)
-                
-                if log.status != 'completed':
-                    log.status = 'failed'
-                    log.save()
-            
+            logger.exception(f"Restock workflow failed for {self.storage.name}")
+            log.status = 'failed'
+            log.current_stage = 'failed'
+            log.error_message = str(e)
+            log.save()
             raise
-    
-    def retry_from_checkpoint(self, log, coverage=None):
-        """
-        Retry workflow from last successful checkpoint.
-        FIXED: No longer tries to update stats on retry.
-        """
-        logger.info(f"🔄 Retrying from checkpoint for {self.storage.name}")
-        
-        # CHECKPOINT 1: Calculate order
-        if log.order_calculated_at:
-            logger.info(f"[CHECKPOINT 1 SKIP] Order already calculated")
-            results = log.get_results()
-            orders_list = [
-                (o['cod'], o['var'], o['qty'], o.get('discount'))
-                for o in results.get('orders', [])
-            ]
-        else:
-            logger.info(f"[CHECKPOINT 1 START] Calculating order...")
-            orders_list = self.calculate_order_checkpoint(log, coverage)
-        
-        # CHECKPOINT 2: Execute order
-        if log.order_executed_at:
-            logger.info(f"[CHECKPOINT 2 SKIP] Order already executed")
-        else:
-            logger.info(f"[CHECKPOINT 2 START] Executing order...")
-            self.execute_order_checkpoint(log, orders_list)
-        
-        logger.info(f"✅ Restock retry completed")
-        return log

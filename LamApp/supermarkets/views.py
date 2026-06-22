@@ -839,7 +839,8 @@ def order_comparison_view(request, storage_id):
         return int(v)
 
     human_orders = {}  # (cod, var) -> human_qty
-    error_keys   = set()  # keys with Errore='Si' — excluded from comparison entirely
+    error_keys   = set()   # keys with Errore='Si' — excluded from comparison entirely
+    error_orders = {}  # (cod, var) -> qty the human attempted for errored rows
 
     try:
         next(reader)  # skip header row
@@ -858,7 +859,12 @@ def order_comparison_view(request, storage_id):
             continue
         if row[1].strip() == 'Si':
             try:
-                error_keys.add((_parse_it_int(row[4]), _parse_it_int(row[5])))
+                ec = (_parse_it_int(row[4]), _parse_it_int(row[5]))
+                error_keys.add(ec)
+                try:
+                    error_orders[ec] = _parse_it_int(row[14])
+                except ValueError:
+                    pass
             except ValueError:
                 pass
             continue
@@ -902,7 +908,8 @@ def order_comparison_view(request, storage_id):
     desc_map = {}  # (cod, var) -> descrizione
     blue_dot_keys = set()
     promo_keys = set()
-    if all_keys:
+    all_desc_keys = all_keys | error_keys
+    if all_desc_keys:
         from .scripts.DatabaseManager import DatabaseManager
         from .scripts.helpers import Helper
         db = DatabaseManager(Helper(), supermarket_name=storage.supermarket.name)
@@ -914,7 +921,7 @@ def order_comparison_view(request, storage_id):
             )
             for r in cur.fetchall():
                 key = (r['cod'], r['v'])
-                if key in all_keys:
+                if key in all_desc_keys:
                     desc_map[key] = r['descrizione']
             cur.execute("SELECT cod, v, internal FROM extra_losses WHERE internal IS NOT NULL")
             blue_dot_keys = set()
@@ -968,7 +975,7 @@ def order_comparison_view(request, storage_id):
                     excess_deficit = None
                     excess_days    = None
                 calib_map[(p['cod'], p['v'])] = {
-                    'outcome': outcome,
+                    'outcome': 'critical' if stock <= 0 else outcome,
                     'stock': stock,
                     'avg_daily': avg,
                     'floor': floor_v,
@@ -1032,6 +1039,8 @@ def order_comparison_view(request, storage_id):
                 key = (p['cod'], p['v'])
                 if key in all_keys:
                     continue
+                if key in error_keys:  # attempted but rejected by PAC2000A — separate section
+                    continue
                 calib = calib_map.get(key)
                 if calib is None:
                     continue
@@ -1045,6 +1054,24 @@ def order_comparison_view(request, storage_id):
                     'has_promo': (p['cod'], p['v']) in promo_keys,
                 })
 
+    # --- Products rejected by PAC2000A (Errore='Si' in the CSV) ---
+    pac_rejected = []
+    for key in sorted(error_keys):
+        cod, var = key
+        machine_qty = machine_orders.get(key, 0)
+        human_qty = error_orders.get(key, 0)
+        descrizione = desc_map.get(key, f"{cod}.{var}")
+        calib = calib_map.get(key)
+        pac_rejected.append({
+            'cod': cod, 'v': var, 'descrizione': descrizione,
+            'machine_qty': machine_qty, 'human_qty': human_qty,
+            'diff': human_qty - machine_qty,
+            'comp_cat': 'pac_rejected',
+            'calib': calib,
+            'has_blue_dot': key in blue_dot_keys,
+            'has_promo': key in promo_keys,
+        })
+
     context = {
         'storage': storage,
         'machine_log': machine_log,
@@ -1057,6 +1084,7 @@ def order_comparison_view(request, storage_id):
             'human_zeroed': human_zeroed,
             'human_added': human_added,
             'both_missed': both_missed,
+            'pac_rejected': pac_rejected,
             'total_csv': len(human_orders),
             'total_machine': len(machine_orders),
         },
@@ -1317,7 +1345,7 @@ def retry_restock_view(request, log_id):
         return redirect('restock-log-detail', pk=log_id)
     
     try:
-        logger.info(f"User-initiated retry for RestockLog #{log_id} from checkpoint {log.current_stage}")
+        logger.info(f"User-initiated retry for RestockLog #{log_id} (fresh run)")
 
         from .tasks import retry_restock_from_checkpoint
         retry_restock_from_checkpoint.apply_async(args=[log_id], queue='selenium')
