@@ -1931,21 +1931,25 @@ class BlacklistDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     params = [item for pair in codes for item in pair]
 
                     cursor.execute(f"""
-                        SELECT cod, v, descrizione
-                        FROM products
-                        WHERE (cod, v) IN ({placeholders})
+                        SELECT p.cod, p.v, p.descrizione, ps.stock
+                        FROM products p
+                        LEFT JOIN product_stats ps ON ps.cod = p.cod AND ps.v = p.v
+                        WHERE (p.cod, p.v) IN ({placeholders})
                     """, params)
 
                     # Create lookup dict
-                    descriptions = {(row['cod'], row['v']): row['descrizione'] for row in cursor.fetchall()}
+                    info = {(row['cod'], row['v']): row for row in cursor.fetchall()}
 
-                    # Attach descriptions to entries
+                    # Attach descriptions and stock to entries
                     for entry in entries:
-                        entry.description = descriptions.get((entry.product_code, entry.product_var), '-')
+                        row = info.get((entry.product_code, entry.product_var))
+                        entry.description = row['descrizione'] if row else '-'
+                        entry.stock = row['stock'] if row and row['stock'] is not None else 0
             except Exception:
                 # If DB query fails, set empty descriptions
                 for entry in entries:
                     entry.description = '-'
+                    entry.stock = '-'
 
         context['entries_with_desc'] = entries
         return context

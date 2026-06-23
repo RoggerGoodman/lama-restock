@@ -84,6 +84,7 @@
                                 <tr>
                                     <th>Codice Articolo</th>
                                     <th>Descrizione</th>
+                                    <th>Giacenza</th>
                                     <th>Azioni</th>
                                 </tr>
                             </thead>
@@ -92,6 +93,7 @@
                                 <tr>
                                     <td><strong>{{ entry.product_code }}.{{ entry.product_var }}</strong></td>
                                     <td>{{ entry.description|default:"-" }}</td>
+                                    <td><span class="badge bg-secondary">{{ entry.stock }}</span></td>
                                     <td>
                                         <a href="{% url 'blacklistentry-delete' pk=entry.pk %}" class="btn btn-sm btn-outline-danger">
                                             <i class="bi bi-trash"></i> Rimuovi
