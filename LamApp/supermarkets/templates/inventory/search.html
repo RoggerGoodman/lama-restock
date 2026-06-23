@@ -625,7 +625,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return `<tr id="fermi-row-${storageId}-${p.cod}-${p.v}">
             <td><code>${p.cod}</code></td>
             <td><code>${p.v}</code></td>
-            <td>${p.descrizione}</td>
+            <td>${p.descrizione}${p.blacklisted ? ' <span class="badge bg-secondary ms-1" title="Già in blacklist">in blacklist</span>' : ''}</td>
             <td><span class="badge bg-secondary fermi-stock-badge">${p.stock}</span></td>
             <td>
                 <div class="btn-group btn-group-sm">

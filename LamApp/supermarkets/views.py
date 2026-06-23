@@ -3176,9 +3176,9 @@ def fermi_products_api_view(request, storage_id):
                     'descrizione': row['descrizione'] or f"{row['cod']}.{row['v']}",
                     'stock': row['stock'] if row['stock'] is not None else 0,
                     'cluster': row['cluster'],
+                    'blacklisted': (row['cod'], row['v']) in blacklisted,
                 }
                 for row in cursor.fetchall()
-                if (row['cod'], row['v']) not in blacklisted
             ]
         return JsonResponse({'products': products})
     except Exception as e:
