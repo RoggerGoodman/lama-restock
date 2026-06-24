@@ -621,12 +621,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    function daysLabel(d) { return d >= 60 ? '60+' : String(d); }
+
     function buildProductRow(storageId, supermarketName, p) {
         return `<tr id="fermi-row-${storageId}-${p.cod}-${p.v}">
             <td><code>${p.cod}</code></td>
             <td><code>${p.v}</code></td>
             <td>${p.descrizione}${p.blacklisted ? ' <span class="badge bg-secondary ms-1" title="Già in blacklist">in blacklist</span>' : ''}</td>
             <td><span class="badge bg-secondary fermi-stock-badge">${p.stock}</span></td>
+            <td>${daysLabel(p.days)}</td>
             <td>
                 <div class="btn-group btn-group-sm">
                     <button class="btn btn-sm btn-warning fermi-btn-correggi"
@@ -658,50 +661,44 @@ document.addEventListener('DOMContentLoaded', function() {
         </tr>`;
     }
 
-    function buildClusterTable(rows) {
+    function buildClusterTable(storageId, supermarketName, products) {
+        let rows = '';
+        products.forEach(function (p) { rows += buildProductRow(storageId, supermarketName, p); });
         return `<div class="table-responsive mt-1">
             <table class="table table-hover table-sm mb-1">
                 <thead><tr>
                     <th>Cod</th><th>V</th>
-                    <th>Descrizione</th><th>Giacenza</th><th>Azioni</th>
+                    <th>Descrizione</th><th>Giacenza</th><th>Giorni</th><th>Azioni</th>
                 </tr></thead>
                 <tbody>${rows}</tbody>
             </table>
         </div>`;
     }
 
-    function renderFermiProducts(storageId, products, bodyEl) {
-        const panel = document.getElementById('fermi-panel-' + storageId);
-        const supermarketName = panel.dataset.supermarketName;
-        const hidden = getHidden(storageId);
-        const visible = products.filter(p => !hidden.includes(p.cod + '.' + p.v));
+    function getViewMode(storageId) {
+        return localStorage.getItem('fermi_view_' + storageId) || 'cluster';
+    }
+    function setViewMode(storageId, mode) {
+        localStorage.setItem('fermi_view_' + storageId, mode);
+    }
 
-        if (visible.length === 0 && hidden.length === 0) {
-            bodyEl.innerHTML = '<div class="alert alert-info py-2 mb-0">Nessun prodotto fermo.</div>';
-            return;
-        }
-
-        // Group by cluster
+    function buildFermiClusterHtml(storageId, supermarketName, visible) {
         const clusterMap = {};
         visible.forEach(function (p) {
             const key = p.cluster || 'Senza cluster';
             if (!clusterMap[key]) clusterMap[key] = [];
             clusterMap[key].push(p);
         });
-
         const clusterKeys = Object.keys(clusterMap).sort(function (a, b) {
             if (a === 'Senza cluster') return 1;
             if (b === 'Senza cluster') return -1;
             return a.localeCompare(b);
         });
-
         let html = '';
         clusterKeys.forEach(function (clusterName) {
             const clusterProducts = clusterMap[clusterName];
             const safeId = clusterName.replace(/[^a-z0-9]/gi, '_');
             const clusterId = 'fermi-cluster-' + storageId + '-' + safeId;
-            let rows = '';
-            clusterProducts.forEach(function (p) { rows += buildProductRow(storageId, supermarketName, p); });
             html += `<div class="mb-2">
                 <div class="d-flex justify-content-between align-items-center px-2 py-1 rounded"
                      style="background:#f0f0f0;cursor:pointer;"
@@ -716,12 +713,98 @@ document.addEventListener('DOMContentLoaded', function() {
                     <span class="badge bg-secondary">${clusterProducts.length}</span>
                 </div>
                 <div class="collapse" id="${clusterId}">
-                    ${buildClusterTable(rows)}
+                    ${buildClusterTable(storageId, supermarketName, clusterProducts)}
                 </div>
             </div>`;
         });
+        return html;
+    }
 
-        bodyEl.innerHTML = html;
+    function buildFermiListHtml(storageId, supermarketName, visible, bodyEl) {
+        if (!bodyEl._fermiSort) bodyEl._fermiSort = { col: 'days', dir: -1 };
+        const sort = bodyEl._fermiSort;
+
+        const sorted = visible.slice().sort(function (a, b) {
+            let av, bv;
+            if (sort.col === 'days')       { av = a.days;       bv = b.days; }
+            else if (sort.col === 'stock') { av = a.stock;      bv = b.stock; }
+            else if (sort.col === 'desc')  { av = a.descrizione; bv = b.descrizione; }
+            else if (sort.col === 'cluster') { av = a.cluster || ''; bv = b.cluster || ''; }
+            else { return 0; }
+            if (av < bv) return sort.dir;
+            if (av > bv) return -sort.dir;
+            return 0;
+        });
+
+        function ind(col) {
+            if (sort.col !== col) return ' <span style="opacity:.3">⇅</span>';
+            return sort.dir === -1 ? ' ▼' : ' ▲';
+        }
+        function sh(col, label) {
+            return `<th class="fermi-sort-hdr" data-col="${col}" style="cursor:pointer;white-space:nowrap;">${label}${ind(col)}</th>`;
+        }
+
+        let rows = '';
+        sorted.forEach(function (p) { rows += buildProductRow(storageId, supermarketName, p); });
+
+        return `<div class="table-responsive">
+            <table class="table table-hover table-sm mb-1">
+                <thead><tr>
+                    <th>Cod</th><th>V</th>
+                    ${sh('desc', 'Descrizione')}
+                    ${sh('cluster', 'Cluster')}
+                    ${sh('stock', 'Giacenza')}
+                    ${sh('days', 'Giorni')}
+                    <th>Azioni</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+    }
+
+    function renderFermiProducts(storageId, products, bodyEl) {
+        bodyEl._fermiProducts = products;
+        const panel = document.getElementById('fermi-panel-' + storageId);
+        const supermarketName = panel.dataset.supermarketName;
+        const hidden = getHidden(storageId);
+        const visible = products.filter(p => !hidden.includes(p.cod + '.' + p.v));
+
+        if (visible.length === 0 && hidden.length === 0) {
+            bodyEl.innerHTML = '<div class="alert alert-info py-2 mb-0">Nessun prodotto fermo.</div>';
+            return;
+        }
+
+        const viewMode = getViewMode(storageId);
+        const toggleHtml = `<div class="d-flex gap-2 mb-2">
+            <button class="btn btn-sm ${viewMode === 'cluster' ? 'btn-secondary' : 'btn-outline-secondary'} fermi-view-btn" data-storage="${storageId}" data-mode="cluster">
+                <i class="bi bi-diagram-3"></i> Cluster
+            </button>
+            <button class="btn btn-sm ${viewMode === 'list' ? 'btn-secondary' : 'btn-outline-secondary'} fermi-view-btn" data-storage="${storageId}" data-mode="list">
+                <i class="bi bi-list-ul"></i> Lista
+            </button>
+        </div>`;
+
+        const contentHtml = viewMode === 'list'
+            ? buildFermiListHtml(storageId, supermarketName, visible, bodyEl)
+            : buildFermiClusterHtml(storageId, supermarketName, visible);
+
+        bodyEl.innerHTML = toggleHtml + contentHtml;
+
+        bodyEl.querySelectorAll('.fermi-view-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                setViewMode(storageId, this.dataset.mode);
+                renderFermiProducts(storageId, bodyEl._fermiProducts, bodyEl);
+            });
+        });
+
+        bodyEl.querySelectorAll('.fermi-sort-hdr').forEach(function (th) {
+            th.addEventListener('click', function () {
+                const col = this.dataset.col;
+                const cur = bodyEl._fermiSort || { col: 'days', dir: -1 };
+                bodyEl._fermiSort = { col: col, dir: cur.col === col ? -cur.dir : -1 };
+                renderFermiProducts(storageId, bodyEl._fermiProducts, bodyEl);
+            });
+        });
 
         bodyEl.querySelectorAll('.collapse[id^="fermi-cluster-"]').forEach(function (clusterEl) {
             const chevron = bodyEl.querySelector('.fermi-cluster-chevron[data-target="' + clusterEl.id + '"]');

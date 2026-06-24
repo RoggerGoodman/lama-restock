@@ -3155,7 +3155,15 @@ def fermi_products_api_view(request, storage_id):
         with RestockService(storage) as service:
             cursor = service.db.cursor()
             cursor.execute("""
-                SELECT p.settore, ps.cod, ps.v, p.descrizione, ps.stock, p.cluster
+                SELECT p.settore, ps.cod, ps.v, p.descrizione, ps.stock, p.cluster,
+                    (
+                        SELECT COALESCE(
+                            (SELECT (MIN(t.ord) - 1)::int
+                             FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY AS t(elem, ord)
+                             WHERE t.elem::numeric != 0),
+                            jsonb_array_length(ps.sales_sets)
+                        )
+                    ) AS days_without_sales
                 FROM product_stats ps
                 JOIN products p ON p.cod = ps.cod AND p.v = ps.v
                 WHERE ps.verified = TRUE
@@ -3180,6 +3188,7 @@ def fermi_products_api_view(request, storage_id):
                     'descrizione': row['descrizione'] or f"{row['cod']}.{row['v']}",
                     'stock': row['stock'] if row['stock'] is not None else 0,
                     'cluster': row['cluster'],
+                    'days': row['days_without_sales'] if row['days_without_sales'] is not None else 0,
                     'blacklisted': (row['cod'], row['v']) in blacklisted,
                 }
                 for row in cursor.fetchall()
