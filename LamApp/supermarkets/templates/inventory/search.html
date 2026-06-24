@@ -623,11 +623,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function daysLabel(d) { return d >= 60 ? '60+' : String(d); }
 
-    function buildProductRow(storageId, supermarketName, p) {
+    function buildProductRow(storageId, supermarketName, p, showCluster) {
         return `<tr id="fermi-row-${storageId}-${p.cod}-${p.v}">
             <td><code>${p.cod}</code></td>
             <td><code>${p.v}</code></td>
             <td>${p.descrizione}${p.blacklisted ? ' <span class="badge bg-secondary ms-1" title="Già in blacklist">in blacklist</span>' : ''}</td>
+            ${showCluster ? `<td>${p.cluster || '—'}</td>` : ''}
             <td><span class="badge bg-secondary fermi-stock-badge">${p.stock}</span></td>
             <td>${daysLabel(p.days)}</td>
             <td>
@@ -663,7 +664,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function buildClusterTable(storageId, supermarketName, products) {
         let rows = '';
-        products.forEach(function (p) { rows += buildProductRow(storageId, supermarketName, p); });
+        products.forEach(function (p) { rows += buildProductRow(storageId, supermarketName, p, false); });
         return `<div class="table-responsive mt-1">
             <table class="table table-hover table-sm mb-1">
                 <thead><tr>
@@ -745,7 +746,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         let rows = '';
-        sorted.forEach(function (p) { rows += buildProductRow(storageId, supermarketName, p); });
+        sorted.forEach(function (p) { rows += buildProductRow(storageId, supermarketName, p, true); });
 
         return `<div class="table-responsive">
             <table class="table table-hover table-sm mb-1">
