@@ -1,4 +1,3 @@
-<!-- Replace LamApp/supermarkets/templates/inventory/record_losses_unified.html -->
 {% extends 'base.html' %}
 {% block title %}Registra Perdite{% endblock %}
 {% block page_title %}Registra Perdite articoli{% endblock %}
@@ -35,18 +34,19 @@
                 </div>
 
                 <div class="alert alert-warning">
-                    <h6><i class="bi bi-exclamation-triangle"></i> Formato PDF</h6>
+                    <h6><i class="bi bi-exclamation-triangle"></i> Formato CSV Dropzone</h6>
                     <p class="mb-2">
-                        <strong>Nota bene:</strong> Il sistema accetta file PDF esportati da Dropzone.
+                        Esporta la rilevazione da Dropzone come CSV e carica il file qui.
+                        Il sistema legge le colonne <strong>Cod. Barre</strong> e <strong>Originale</strong>.
                     </p>
                     <p class="mb-0">
-                        Le giacenze verranno automaticamente ridotte in base agli importi delle perdite analizzati dal PDF.
+                        Carica un file per tipo. Se ci sono piu rilevazioni dello stesso tipo, puoi caricarle una alla volta.
                     </p>
                 </div>
 
                 <form method="post" enctype="multipart/form-data">
                     {% csrf_token %}
-                    
+
                     <div class="mb-3">
                         <label for="supermarket_id" class="form-label">Punto vendita</label>
                         <select name="supermarket_id" id="supermarket_id" class="form-select" required>
@@ -60,7 +60,7 @@
                             {% endif %}
                         </select>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="{{ form.loss_type.id_for_label }}" class="form-label">
                             {{ form.loss_type.label }}
@@ -69,13 +69,11 @@
                     </div>
 
                     <div class="mb-4">
-                        <label for="{{ form.pdf_file.id_for_label }}" class="form-label">
-                            {{ form.pdf_file.label }}
+                        <label for="{{ form.csv_file.id_for_label }}" class="form-label">
+                            {{ form.csv_file.label }}
                         </label>
-                        {{ form.pdf_file }}
-                        <div class="form-text">
-                            Carica il file PDF esportato da Dropzone
-                        </div>
+                        {{ form.csv_file }}
+                        <div class="form-text">{{ form.csv_file.help_text }}</div>
                     </div>
 
                     <div class="d-flex gap-2 justify-content-end">
@@ -87,28 +85,6 @@
                         </button>
                     </div>
                 </form>
-            </div>
-
-            <!-- PDF Format Example -->
-            <div class="stat-card mt-3">
-                <h6 class="mb-3"><i class="bi bi-file-pdf text-danger"></i> Formato PDF previsto</h6>
-                <div class="bg-light p-3 rounded">
-                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem;">Stampa Articoli Scaricati da Dropzone
-Punto Vendita: [Nome Punto vendita]
-Inventario: [Numero Inventario]
-
-Codice a Barre | Articolo | Descrizione  | Quantità | 
-8025916760282  | 36508 1  | PRODUCT DESC | PZ 5,00  | 
-8025916119969  | 22582 1  | PRODUCT DESC | PZ 4,00  |
-...</pre>
-                </div>
-                <p class="text-muted small mb-0 mt-2">
-                    <strong>Colonne chiave:</strong><br>
-                    • <strong>Articolo:</strong> Codice articolo e variante (e.g., "36508 1")<br>
-                    • <strong>Quantità:</strong> Quantità persa (e.g., "PZ 5,00")<br>
-                    <br>
-                    Il sistema estrarrà: cod=36508, v=1, qty=5
-                </p>
             </div>
         </div>
     </div>

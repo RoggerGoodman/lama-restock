@@ -4047,98 +4047,65 @@ def manage_cluster_view(request):
 
 @login_required
 def record_losses_unified_view(request):
-    """
-    UPDATED: Now handles PDF files instead of CSV.
-    Processing can take time for large PDFs.
-    """
     supermarkets = Supermarket.objects.filter(owner=request.user)
-    
+
     if request.method == 'POST':
         form = RecordLossesForm(request.POST, request.FILES)
         supermarket_id = request.POST.get('supermarket_id')
-        
+
         if not supermarket_id:
-            messages.error(request, "Please select a supermarket")
+            messages.error(request, "Seleziona un punto vendita")
             return redirect('record-losses-unified')
-        
-        supermarket = get_object_or_404(
-            Supermarket,
-            id=supermarket_id,
-            owner=request.user
-        )
-        
+
+        supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
+
         if form.is_valid():
             loss_type = form.cleaned_data['loss_type']
-            pdf_file = request.FILES['pdf_file']
-            
-            # Map loss types to filenames (keep same naming for compatibility)
-            filename_mapping = {
-                'broken': 'ROTTURE.pdf',
-                'expired': 'SCADUTO.pdf',
-                'internal': 'UTILIZZO INTERNO.pdf'
-            }
-            expected_filename = filename_mapping[loss_type]
-            
+            csv_file = request.FILES['csv_file']
+
             try:
+                import tempfile
                 losses_folder = Path(settings.LOSSES_FOLDER)
                 losses_folder.mkdir(exist_ok=True)
-                
-                file_path = losses_folder / expected_filename
-                
-                # Overwrite if exists
-                if file_path.exists():
-                    file_path.unlink()
-                
-                with open(file_path, 'wb+') as destination:
-                    for chunk in pdf_file.chunks():
-                        destination.write(chunk)
-                
-                logger.info(f"Saved loss PDF: {file_path}")
-                
-                # Process immediately (synchronous for now - can be celery task later)
+
+                with tempfile.NamedTemporaryFile(
+                    dir=str(losses_folder), suffix='.csv', delete=False, mode='wb'
+                ) as tmp:
+                    for chunk in csv_file.chunks():
+                        tmp.write(chunk)
+                    tmp_path = tmp.name
+
+                logger.info(f"Saved uploaded loss CSV: {tmp_path}")
+
                 storage = supermarket.storages.first()
                 if not storage:
-                    messages.error(request, f"No storages found for {supermarket.name}")
+                    messages.error(request, f"Nessun reparto trovato per {supermarket.name}")
+                    Path(tmp_path).unlink(missing_ok=True)
                     return redirect('record-losses-unified')
-                
+
                 with RestockService(storage) as service:
-                    # Import the new function
-                    from .scripts.inventory_reader import process_loss_pdf
-                    
-                    result = process_loss_pdf(service.db, str(file_path), loss_type)
-                    
+                    from .scripts.inventory_reader import process_loss_csv_dropzone
+                    result = process_loss_csv_dropzone(service.db, tmp_path, loss_type)
+
                     if result['success']:
                         messages.success(
                             request,
-                            f"✅ Processed {loss_type} losses: "
-                            f"{result['processed']} registered, "
-                            f"{result['total_losses']} total units"
+                            f"Elaborato {loss_type}: {result['processed']} perdite registrate, "
+                            f"{result['total_losses']} unita totali"
                         )
-                        
                         if result['absent'] > 0:
-                            messages.info(
-                                request,
-                                f"ℹ️ {result['absent']} products not found in database (skipped)"
-                            )
-                        
+                            messages.info(request, f"{result['absent']} EAN non trovati in database (saltati)")
                         if result['errors'] > 0:
-                            messages.warning(
-                                request,
-                                f"⚠️ {result['errors']} errors occurred during processing"
-                            )
+                            messages.warning(request, f"{result['errors']} errori durante elaborazione")
                     else:
-                        messages.error(request, f"Error: {result.get('error', 'Unknown error')}")
-                    
-                    # Clean up PDF file after processing
-                    try:
-                        file_path.unlink()
-                        logger.info(f"Deleted processed PDF: {file_path}")
-                    except Exception as e:
-                        logger.warning(f"Could not delete PDF: {e}")                     
-                return redirect('record-losses-unified')      
+                        messages.error(request, f"Errore: {result.get('error', 'Errore sconosciuto')}")
+
+                Path(tmp_path).unlink(missing_ok=True)
+                return redirect('record-losses-unified')
+
             except Exception as e:
-                logger.exception("Error saving/processing loss PDF")
-                messages.error(request, f"Error: {str(e)}")
+                logger.exception("Error processing uploaded loss CSV")
+                messages.error(request, f"Errore: {str(e)}")
     else:
         form = RecordLossesForm()
     return render(request, 'inventory/record_losses_unified.html', {

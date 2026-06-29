@@ -211,26 +211,24 @@ class PromoUploadForm(forms.Form):
 
 
 class RecordLossesForm(forms.Form):
-    """Form for manually uploading and recording losses - NOW SUPPORTS PDF"""
-    
+    """Form for manually uploading and recording losses from raw Dropzone CSV exports."""
+
     loss_type = forms.ChoiceField(
-        label="Loss Type",
+        label="Tipo perdita",
         choices=[
-            ('broken', 'ROTTURE (Broken/Damaged)'),
-            ('expired', 'SCADUTO (Expired)'),
-            ('internal', 'UTILIZZO INTERNO (Internal Use)'),
-            ('shrinkage', 'DIFFERENZE INVENTARIALI (Shrinkage)'),
+            ('broken', 'ROTTURE'),
+            ('expired', 'SCADUTO'),
+            ('internal', 'UTILIZZO INTERNO'),
         ],
         widget=forms.Select(attrs={'class': 'form-select'}),
-        help_text="Select the type of loss you want to record"
     )
-    
-    pdf_file = forms.FileField(
-        label="Loss PDF File",
-        help_text="Upload the PDF file with loss data",
+
+    csv_file = forms.FileField(
+        label="File CSV Dropzone",
+        help_text="Esporta da Dropzone → scarica CSV → carica qui",
         widget=forms.FileInput(attrs={
             'class': 'form-control',
-            'accept': '.pdf'
+            'accept': '.csv'
         })
     )
 

@@ -227,67 +227,68 @@ def parse_pdf(pdf_path: str):
     return results
 
 
-def process_loss_pdf(db: DatabaseManager, pdf_path: str, loss_type: str):
+def process_loss_csv_dropzone(db: DatabaseManager, csv_path: str, loss_type: str):
     """
-    Process a loss PDF file and register losses in database.
-    
-    Args:
-        db: DatabaseManager instance
-        pdf_path: Path to PDF file
-        loss_type: Type of loss (broken/expired/internal)
-    
-    Returns:
-        dict: Processing results
+    Process a raw Dropzone loss CSV export.
+    Expected columns: 'Cod. Barre' (EAN), 'Originale' (qty).
+    Multiple rows with the same EAN are summed before registering.
     """
-    logger.info(f"Processing loss PDF: {pdf_path} (type: {loss_type})")
-    
-    # Parse PDF
-    entries = parse_pdf(pdf_path)
-    
-    if not entries:
-        return {
-            'success': False,
-            'error': 'No valid entries found in PDF'
-        }
-    
+    EAN_COL = "Cod. Barre"
+    QTY_COL = "Originale"
+
+    try:
+        df = pd.read_csv(csv_path, encoding='utf-8', skipinitialspace=True)
+    except Exception as e:
+        return {'success': False, 'error': f"Could not read CSV: {e}"}
+
+    if EAN_COL not in df.columns:
+        return {'success': False, 'error': f"Missing column '{EAN_COL}'. Columns found: {df.columns.tolist()}"}
+    if QTY_COL not in df.columns:
+        return {'success': False, 'error': f"Missing column '{QTY_COL}'. Columns found: {df.columns.tolist()}"}
+
+    df[EAN_COL] = df[EAN_COL].astype(str).str.strip()
+    df[QTY_COL] = pd.to_numeric(df[QTY_COL], errors='coerce')
+    df = df.dropna(subset=[EAN_COL, QTY_COL])
+    df = df[df[EAN_COL] != '']
+
+    combined = df.groupby(EAN_COL, as_index=False)[QTY_COL].sum()
+
     processed_count = 0
     absent_count = 0
     error_count = 0
     total_losses = 0
-    
-    # Register each loss
-    for entry in entries:
-        cod = entry['cod']
-        v = entry['v']
-        qty = entry['qty']
-        
-        try:
-            db.register_losses(cod, v, qty, loss_type)
-            processed_count += 1
-            total_losses += qty
-            logger.debug(f"Registered {loss_type}: {cod}.{v} = {qty}")
-        
-        except ValueError as e:
-            logger.debug(f"Product {cod}.{v} not in database (skipped)")
+    absent_eans = []
+
+    for _, row in combined.iterrows():
+        ean = str(row[EAN_COL]).strip()
+        delta = int(row[QTY_COL])
+        if delta == 0:
+            continue
+
+        product = db.get_cod_v_by_ean(ean)
+        if product is None:
             absent_count += 1
-        
+            absent_eans.append({'ean': ean, 'qty': delta})
+            continue
+
+        try:
+            db.register_losses(product['cod'], product['v'], delta, loss_type)
+            processed_count += 1
+            total_losses += delta
         except Exception as e:
-            logger.warning(f"Error processing {cod}.{v}: {e}")
+            logger.warning(f"Error registering loss for EAN {ean}: {e}")
             error_count += 1
-    
-    logger.info(
-        f"✅ Processed PDF: {processed_count} registered, "
-        f"{absent_count} skipped, {error_count} errors"
-    )
-    
+
     return {
         'success': True,
         'processed': processed_count,
         'absent': absent_count,
         'errors': error_count,
-        'total_losses': total_losses
+        'total_losses': total_losses,
+        'absent_eans': absent_eans,
     }
-    
+
+
 def assign_clusters_from_pdf(db: DatabaseManager, pdf_path: str, cluster: str):
     """
     REFACTORED: Assign cluster to products listed in PDF (no stock update).
