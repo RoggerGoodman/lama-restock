@@ -610,9 +610,9 @@ class DatabaseManager:
             return {"action": "new_entry", "cod": cod, "v": v, "delta": delta, "cost": current_cost}
 
         existing_json = row[type]
-        existing_updated: date = row[f"{type}_updated"]
+        existing_updated = row[f"{type}_updated"]
 
-        if existing_json is None:
+        if not existing_json or existing_updated is None:
             cur.execute(
                 f"UPDATE extra_losses SET {type}=%s, {type}_updated=%s WHERE cod=%s AND v=%s",
                 (Json([[delta, current_cost]]), today, cod, v)
