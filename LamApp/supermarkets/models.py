@@ -795,11 +795,14 @@ class SalesSyncLog(models.Model):
 
 
 class LossSyncState(models.Model):
-    """Tracks the last processed testata ID per loss type for a supermarket, to avoid re-downloading."""
+    """Tracks the last processed rilevazione date per loss type for a supermarket."""
     supermarket = models.OneToOneField(Supermarket, on_delete=models.CASCADE, related_name='loss_sync_state')
     last_id_rotture = models.BigIntegerField(null=True, blank=True)
     last_id_scaduto = models.BigIntegerField(null=True, blank=True)
     last_id_utilizzo_interno = models.BigIntegerField(null=True, blank=True)
+    last_date_rotture = models.DateField(null=True, blank=True)
+    last_date_scaduto = models.DateField(null=True, blank=True)
+    last_date_utilizzo_interno = models.DateField(null=True, blank=True)
 
     def __str__(self):
         return f"LossSyncState for {self.supermarket.name}"

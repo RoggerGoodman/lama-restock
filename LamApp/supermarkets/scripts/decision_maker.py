@@ -398,7 +398,7 @@ class DecisionMaker:
                 Helper.order_this(order_list, product_cod, product_var, result, descrizione, category, check, returned_discount)
             else:
                 analyzer.stat_recorder(0, status)
-                Helper.order_denied(product_cod, product_var, package_size, descrizione, category, check)
+                self.helper.order_denied(product_cod, product_var, package_size, descrizione, category, check)
 
         analyzer.log_statistics()
         

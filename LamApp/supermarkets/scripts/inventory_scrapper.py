@@ -108,8 +108,8 @@ class Inventory_Scrapper:
     def export_all_testate_from_day(self, max_days_back: int = 30):
         """
         Exports new testate (ROTTURE, SCADUTO, UTILIZZO INTERNO) not yet downloaded.
-        Walks backwards day by day until a testata is found for each type, or max_days_back is reached.
-        Skips any testata whose ID was already processed (stored in LossSyncState).
+        Walks backwards day by day; stops for each type once the rilevazione date
+        reaches or passes the last date already synced (stored in LossSyncState).
         """
         from ..models import LossSyncState
 
@@ -130,23 +130,28 @@ class Inventory_Scrapper:
         ALLOWED_TYPES = {"ROTTURE", "SCADUTO", "UTILIZZO INTERNO"}
 
         sync_state, _ = LossSyncState.objects.get_or_create(supermarket=self.supermarket)
-        last_ids = {
-            "ROTTURE": sync_state.last_id_rotture,
-            "SCADUTO": sync_state.last_id_scaduto,
-            "UTILIZZO INTERNO": sync_state.last_id_utilizzo_interno,
+        last_dates = {
+            "ROTTURE": sync_state.last_date_rotture,
+            "SCADUTO": sync_state.last_date_scaduto,
+            "UTILIZZO INTERNO": sync_state.last_date_utilizzo_interno,
         }
-        logger.info(f"Starting export — last_ids: {last_ids}")
+        logger.info(f"Starting export — last_dates: {last_dates}")
 
         today = date.today()
-        grouped = {}    # desc -> [new testate dicts]
-        seen = set()    # types for which the most recent day has been found (new or already processed)
+        grouped = {}          # desc -> [testate dicts]
+        first_date_found = {} # desc -> most recent rilevazione date with new entries
 
         for days_back in range(max_days_back + 1):
-            remaining = ALLOWED_TYPES - seen
+            target_date_obj = today - timedelta(days=days_back)
+
+            remaining = {
+                desc for desc in ALLOWED_TYPES
+                if last_dates.get(desc) is None or target_date_obj > last_dates[desc]
+            }
             if not remaining:
                 break
 
-            target_date = (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
+            target_date = target_date_obj.strftime("%Y-%m-%d")
 
             payload_testate = {
                 "funzione": "lista",
@@ -163,22 +168,13 @@ class Inventory_Scrapper:
             resp.raise_for_status()
             testate = resp.json()
 
-            # Group this day's testate by type (only unseen types)
-            day_by_type = {}
             for t in testate:
                 desc = t["RilevazioniTestateDescRilevazione"].strip()
                 if desc not in remaining:
                     continue
-                day_by_type.setdefault(desc, []).append(t)
-
-            # For each type present today: mark seen, collect only new testate
-            for desc, items in day_by_type.items():
-                seen.add(desc)
-                for t in items:
-                    tid = int(t["RilevazioniTestateIDRilevazioniTestata"].strip())
-                    if last_ids.get(desc) is not None and tid <= last_ids[desc]:
-                        continue
-                    grouped.setdefault(desc, []).append(t)
+                grouped.setdefault(desc, []).append(t)
+                if desc not in first_date_found:
+                    first_date_found[desc] = target_date_obj
 
         if not grouped:
             logger.info("No new testate found.")
@@ -217,13 +213,12 @@ class Inventory_Scrapper:
 
             logger.info(f"Saved {csv_path}")
 
-            max_id = max(int(t["RilevazioniTestateIDRilevazioniTestata"].strip()) for t in items)
             if desc == "ROTTURE":
-                sync_state.last_id_rotture = max_id
+                sync_state.last_date_rotture = first_date_found[desc]
             elif desc == "SCADUTO":
-                sync_state.last_id_scaduto = max_id
+                sync_state.last_date_scaduto = first_date_found[desc]
             elif desc == "UTILIZZO INTERNO":
-                sync_state.last_id_utilizzo_interno = max_id
+                sync_state.last_date_utilizzo_interno = first_date_found[desc]
 
         sync_state.save()
         logger.info("All available testate exported.")
