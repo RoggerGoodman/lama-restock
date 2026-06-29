@@ -267,12 +267,14 @@ def process_loss_csv_dropzone(db: DatabaseManager, csv_path: str, loss_type: str
 
         product = db.get_cod_v_by_ean(ean)
         if product is None:
+            logger.info(f"EAN {ean} x{delta} — not found in database (skipped)")
             absent_count += 1
             absent_eans.append({'ean': ean, 'qty': delta})
             continue
 
         try:
             db.register_losses(product['cod'], product['v'], delta, loss_type)
+            logger.info(f"  {loss_type}: EAN {ean} ({product['descrizione']}) x{delta}")
             processed_count += 1
             total_losses += delta
         except Exception as e:

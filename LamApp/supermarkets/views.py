@@ -653,10 +653,8 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 out_of_stock_products = []
                 for row in cursor.fetchall():
                     sales_sets = row['sales_sets'] or []
-                    if sales_sets:
-                        avg_daily = round(Helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True), 1)
-                    else:
-                        avg_daily = 0.0
+                    raw = Helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True) if sales_sets else None
+                    avg_daily = round(raw, 1) if raw is not None else 0.0
                     out_of_stock_products.append({
                         'cod': row['cod'],
                         'var': row['v'],
