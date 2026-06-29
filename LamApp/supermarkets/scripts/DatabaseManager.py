@@ -5,7 +5,6 @@ import psycopg2.extras
 import os
 from psycopg2.extras import Json
 from datetime import date
-from .helpers import Helper
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,9 +14,7 @@ class DatabaseManager:
 
     # --- Connection & Cursor ---
 
-    def __init__(self, helper: Helper, supermarket_name=None):
-        self.helper = helper
-
+    def __init__(self, supermarket_name=None):
         if supermarket_name:
             self.schema = self._sanitize_schema_name(supermarket_name)
         else:

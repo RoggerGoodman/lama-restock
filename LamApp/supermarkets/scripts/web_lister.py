@@ -624,7 +624,7 @@ class WebLister:
 
         response = session.post(url, data=payload, headers=headers, timeout=60)
         response.raise_for_status()
-        data = response.json()
+        data = response.json() or []
         logger.info(f"fetch_scorporo: {len(data)} DDT rows for {date_from}→{date_to}")
         return data
 

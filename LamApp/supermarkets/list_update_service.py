@@ -12,7 +12,6 @@ from django.utils import timezone
 from .models import Storage, RecipeProductItem, RecipeCostAlert
 from .scripts.web_lister import download_product_list
 from .scripts.DatabaseManager import DatabaseManager
-from .scripts.helpers import Helper
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +23,7 @@ class ListUpdateService:
         self.storage = storage
         self.settore = storage.settore
         self.supermarket = storage.supermarket
-        self.helper = Helper()
-        
-        # Pass supermarket name instead of db_path
-        self.db = DatabaseManager(
-            self.helper, 
-            supermarket_name=self.supermarket.name
-        )
+        self.db = DatabaseManager(supermarket_name=self.supermarket.name)
         
         # Create temp directory for downloads
         self.download_dir = Path(settings.BASE_DIR) / 'temp_lists'

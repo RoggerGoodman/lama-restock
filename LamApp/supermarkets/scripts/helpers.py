@@ -97,7 +97,8 @@ class Helper:
 
         return avg_daily_sales, avg_sales_base
     
-    def avg_daily_sales_from_sales_sets(self, daily_sales: list, silent: bool = False):
+    @staticmethod
+    def avg_daily_sales_from_sales_sets(daily_sales: list, silent: bool = False):
         """
         Compute a recency-weighted average daily sales rate.
 
@@ -165,7 +166,8 @@ class Helper:
 
         return avg_daily_sales
     
-    def calculate_deviation(self, sales_sets: list):
+    @staticmethod
+    def calculate_deviation(sales_sets: list):
         """
         Calculate sales deviation from daily sales data.
         Compares median of recent 8 days vs median of baseline (days 8-30).
@@ -213,15 +215,102 @@ class Helper:
                 merged.append((a or 0) + (b or 0))
         return merged
 
-    def next_article(self, product_cod, product_var, package_size, product_name, reason):
+    @staticmethod
+    def compute_expiry_factor(expired_array, sold_array):
+        """
+        Returns a minimum_stock penalty factor based on historical expiry rate,
+        or None if expiry rate is below the 5% threshold.
+        Only the most recent 3 months (index 0–2) are considered.
+        """
+        recent_expired = expired_array[:3]
+        total_expired = 0
+        for entry in recent_expired:
+            if isinstance(entry, list) and len(entry) >= 1:
+                total_expired += entry[0]
+            elif isinstance(entry, (int, float)):
+                total_expired += entry
+
+        total_sold = sum(v for v in sold_array[:3] if v is not None)
+        denominator = total_sold + total_expired
+        if denominator == 0:
+            return None
+
+        expiry_rate = total_expired / denominator
+
+        if expiry_rate <= 0.05:
+            return None
+        elif expiry_rate <= 0.15:
+            factor = 0.8
+        elif expiry_rate <= 0.30:
+            factor = 0.6
+        else:
+            factor = 0.4
+
+        logger.info(f"Expiry factor: rate={expiry_rate:.1%} ({total_expired} expired / {denominator} total) → factor={factor}")
+        return factor
+
+    @staticmethod
+    def compute_batch_expiry_factor(bought_sets, sales_sets, shelf_life_days, avg_daily_sales):
+        """
+        Returns a minimum_stock penalty factor based on whether the previous delivery
+        batch is at risk of expiring before being fully consumed, or None if no risk.
+
+        Severity scales with how much longer it will take to clear the old batch
+        compared to the shelf life remaining on it.
+        """
+        if not bought_sets or avg_daily_sales <= 0:
+            return None
+
+        deliveries = [(i, qty) for i, qty in enumerate(bought_sets) if qty and qty > 0]
+        if len(deliveries) < 2:
+            return None
+
+        i_prev, qty_prev = deliveries[1]
+
+        if len(sales_sets) < i_prev + 1:
+            return None
+
+        sold_since_prev = sum(v for v in sales_sets[1:i_prev + 1] if v is not None)
+        remaining_old = qty_prev - sold_since_prev
+
+        if remaining_old <= 0:
+            return None
+
+        days_left = shelf_life_days - i_prev
+
+        if days_left <= 0:
+            factor = 0.3
+            logger.info(f"Batch expiry: previous delivery ({qty_prev} units, {i_prev}d ago) already past shelf life → factor={factor}")
+            return factor
+
+        days_to_clear = remaining_old / avg_daily_sales
+        if days_to_clear <= days_left:
+            return None
+
+        risk_ratio = days_to_clear / days_left
+
+        if risk_ratio <= 1.5:
+            factor = 0.7
+        elif risk_ratio <= 2.5:
+            factor = 0.5
+        else:
+            factor = 0.3
+
+        logger.info(f"Batch expiry risk: {remaining_old:.1f} units remaining, {days_left}d left, ratio={risk_ratio:.2f} → factor={factor}")
+        return factor
+
+    @staticmethod
+    def next_article(product_cod, product_var, package_size, product_name, reason):
         logger.info(f"Will NOT order {product_name}: {product_cod}.{product_var}.{package_size}!")
         logger.info(f"Reason : {reason}")
 
-    def order_denied(self, product_cod:int, product_var:int, package_size:int, product_name:str, category:str, check:int):
+    @staticmethod
+    def order_denied(product_cod:int, product_var:int, package_size:int, product_name:str, category:str, check:int):
         logger.info(f"Will NOT order {product_name}!")
         logger.info(f"Reason : {category}{check}")
 
-    def order_this(self, current_list: list, product_cod: int, product_var: int, qty: int, product_name: str, category: str, check: int, discount: float = None):
+    @staticmethod
+    def order_this(current_list: list, product_cod: int, product_var: int, qty: int, product_name: str, category: str, check: int, discount: float = None):
         current_list.append((product_cod, product_var, qty, discount))
         
         if discount:
@@ -231,7 +320,8 @@ class Helper:
         
         logger.info(f"Reason: {category}{check}")
               
-    def parse_promo_pdf(self, file_path):
+    @staticmethod
+    def parse_promo_pdf(file_path):
         data = []
         sale_start = None
         sale_end = None

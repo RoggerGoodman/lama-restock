@@ -21,7 +21,6 @@ from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 from .models import Blacklist, BlacklistEntry, SalesSyncLog, Storage, Supermarket
 from .scripts.DatabaseManager import DatabaseManager
-from .scripts.helpers import Helper
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +93,7 @@ def vensetar_sales_sync_view(request):
     if not daily_sales:
         return HttpResponse('No valid product entries found', status=400)
 
-    helper = Helper()
-    db = DatabaseManager(helper, supermarket_name=supermarket.name)
+    db = DatabaseManager(supermarket_name=supermarket.name)
     try:
         result = db.apply_daily_vensetar_sales(daily_sales, sync_date, shelf_life_map=shelf_life_map)
     except Exception:
@@ -144,7 +142,7 @@ def sales_sync_log_detail_view(request, pk):
 
     unverified = log.unverified_products or []
     if unverified:
-        db = DatabaseManager(Helper(), supermarket_name=log.supermarket.name)
+        db = DatabaseManager(supermarket_name=log.supermarket.name)
         try:
             placeholders = ','.join(['(%s,%s)'] * len(unverified))
             values = [x for p in unverified for x in (p['cod'], p['v'])]

@@ -9,11 +9,10 @@ logger = logging.getLogger(__name__)
 def create_storage_schema(sender, instance, created, **kwargs):
     if not created:
         return
-    from .scripts.helpers import Helper
     from .scripts.DatabaseManager import DatabaseManager
     db = None
     try:
-        db = DatabaseManager(Helper(), supermarket_name=instance.supermarket.name)
+        db = DatabaseManager(supermarket_name=instance.supermarket.name)
         db.create_tables()
         logger.info(f"Schema created for storage '{instance.name}' (supermarket: {instance.supermarket.name})")
     except Exception:

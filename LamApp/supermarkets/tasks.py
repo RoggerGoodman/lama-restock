@@ -566,8 +566,7 @@ def run_scheduled_list_updates(self):
         for sm in Supermarket.objects.filter(id__in=supermarket_ids):
             try:
                 from .scripts.DatabaseManager import DatabaseManager
-                from .scripts.helpers import Helper
-                db = DatabaseManager(Helper(), supermarket_name=sm.name)
+                db = DatabaseManager(supermarket_name=sm.name)
                 try:
                     purged = db.purge_obsolete_products()
                     if purged:
@@ -834,22 +833,23 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
     """
     from .models import Supermarket
     from .services import RestockService
+    from .scripts.helpers import Helper
     from pathlib import Path
     import os
-    
+
     try:
         supermarket = Supermarket.objects.get(id=supermarket_id)
-        
+
         logger.info(f"[PROCESS PROMOS] Starting for {supermarket.name}")
-        
+
         storage = supermarket.storages.first()
-        
+
         if not storage:
             raise ValueError(f"No storages found for {supermarket.name}")
-        
+
         with RestockService(storage) as service:
             # Parse PDF
-            promo_list = service.helper.parse_promo_pdf(pdf_file_path)
+            promo_list = Helper.parse_promo_pdf(pdf_file_path)
             
             # Update database
             service.db.update_promos(promo_list)
@@ -2039,14 +2039,13 @@ def prepend_monthly_bought_zeros(self):
     """
     from .models import Supermarket
     from .scripts.DatabaseManager import DatabaseManager
-    from .scripts.helpers import Helper
 
     try:
         supermarkets = Supermarket.objects.all()
         total_updated = 0
 
         for supermarket in supermarkets:
-            db = DatabaseManager(Helper(), supermarket_name=supermarket.name)
+            db = DatabaseManager(supermarket_name=supermarket.name)
             try:
                 updated = db.rollover_bought_last_24()
                 total_updated += updated

@@ -159,7 +159,7 @@
                             {% if p.has_blue_dot %}<span class="text-primary ms-1">●</span>{% endif %}
                         </td>
                         <td class="text-end text-muted" data-sort="{{ p.avg_daily_sales }}">{{ p.avg_daily_sales }}</td>
-                        <td class="text-end" data-sort="{{ p.eff_min }}">{{ p.eff_min }}{% if p.floor_delta != 0 %} <span class="text-muted small">({{ p.floor }} {% if p.floor_delta > 0 %}+{% endif %}{{ p.floor_delta }})</span>{% endif %}</td>
+                        <td class="text-end" data-sort="{{ p.eff_min }}">{{ p.eff_min }}{% if p.floor_delta != 0 %} <span class="text-muted small">({{ p.floor }} {% if p.floor_delta > 0 %}+{% endif %}{{ p.floor_delta }})</span>{% endif %}{% if p.shelf_life_days %} <span class="badge bg-info" title="Vita: {{ p.shelf_life_days }}gg">SL</span>{% endif %}</td>
                         <td class="text-end" data-sort="{{ p.package_size }}">{{ p.package_size }}</td>
                     </tr>
                     {% endfor %}
@@ -201,7 +201,7 @@
                         </td>
                         <td class="text-end text-muted" data-sort="{{ p.avg_daily_sales }}">{{ p.avg_daily_sales }}</td>
                         <td class="text-end fw-bold text-warning" data-sort="{{ p.stock }}">{{ p.stock }}{% if p.stock == 0 %} <span class="text-danger">●</span>{% endif %}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}</td>
-                        <td class="text-end" data-sort="{{ p.eff_min }}">{{ p.eff_min }}{% if p.floor_delta != 0 %} <span class="text-muted small">({{ p.floor }} {% if p.floor_delta > 0 %}+{% endif %}{{ p.floor_delta }})</span>{% endif %}</td>
+                        <td class="text-end" data-sort="{{ p.eff_min }}">{{ p.eff_min }}{% if p.floor_delta != 0 %} <span class="text-muted small">({{ p.floor }} {% if p.floor_delta > 0 %}+{% endif %}{{ p.floor_delta }})</span>{% endif %}{% if p.shelf_life_days %} <span class="badge bg-info" title="Vita: {{ p.shelf_life_days }}gg">SL</span>{% endif %}</td>
                         <td class="text-end fw-bold text-warning" data-sort="{{ p.deficit }}">{{ p.deficit }}</td>
                     </tr>
                     {% endfor %}
@@ -245,7 +245,7 @@
                         </td>
                         <td class="text-end text-muted" data-sort="{{ p.avg_daily_sales }}">{{ p.avg_daily_sales }}</td>
                         <td class="text-end fw-bold" style="color:#e6a817;" data-sort="{{ p.stock }}">{{ p.stock }}{% if p.has_blue_dot %} <span class="text-primary">●</span>{% endif %}</td>
-                        <td class="text-end text-muted" data-sort="{{ p.eff_min }}">{{ p.eff_min }}{% if p.floor_delta != 0 %} <span class="small">({{ p.floor }} {% if p.floor_delta > 0 %}+{% endif %}{{ p.floor_delta }})</span>{% endif %}</td>
+                        <td class="text-end text-muted" data-sort="{{ p.eff_min }}">{{ p.eff_min }}{% if p.floor_delta != 0 %} <span class="small">({{ p.floor }} {% if p.floor_delta > 0 %}+{% endif %}{{ p.floor_delta }})</span>{% endif %}{% if p.shelf_life_days %} <span class="badge bg-info" title="Vita: {{ p.shelf_life_days }}gg">SL</span>{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.package_size }}">{{ p.package_size }}</td>
                         <td class="text-end fw-bold" style="color:#e6a817;" data-sort="{{ p.excess }}">+{{ p.excess }}</td>
                         <td class="text-end text-muted" data-sort="{{ p.excess_days|default:9999 }}">
@@ -462,7 +462,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}{% if p.calib and p.calib.shelf_life_days %} <abbr class="text-info" title="Vita: {{ p.calib.shelf_life_days }}gg" style="text-decoration:none;font-size:.7rem;font-weight:700">SL</abbr>{% endif %}</td>
                         <td class="text-end" data-sort="{{ p.machine_qty }}"><span class="text-muted">{{ p.machine_qty }}</span>/<span class="fw-bold text-primary">{{ p.human_qty }}</span></td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -508,7 +508,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}{% if p.calib and p.calib.shelf_life_days %} <abbr class="text-info" title="Vita: {{ p.calib.shelf_life_days }}gg" style="text-decoration:none;font-size:.7rem;font-weight:700">SL</abbr>{% endif %}</td>
                         <td class="text-end" data-sort="{{ p.machine_qty }}"><span class="fw-bold text-warning">{{ p.machine_qty }}</span>/<span class="text-muted">{{ p.human_qty }}</span></td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -554,7 +554,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}{% if p.calib and p.calib.shelf_life_days %} <abbr class="text-info" title="Vita: {{ p.calib.shelf_life_days }}gg" style="text-decoration:none;font-size:.7rem;font-weight:700">SL</abbr>{% endif %}</td>
                         <td class="text-end fw-bold text-danger" data-sort="{{ p.machine_qty }}">{{ p.machine_qty }}</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -600,7 +600,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}{% if p.calib and p.calib.shelf_life_days %} <abbr class="text-info" title="Vita: {{ p.calib.shelf_life_days }}gg" style="text-decoration:none;font-size:.7rem;font-weight:700">SL</abbr>{% endif %}</td>
                         <td class="text-end fw-bold" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -646,7 +646,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}{% if p.calib and p.calib.shelf_life_days %} <abbr class="text-info" title="Vita: {{ p.calib.shelf_life_days }}gg" style="text-decoration:none;font-size:.7rem;font-weight:700">SL</abbr>{% endif %}</td>
                         <td class="text-end text-muted" data-sort="0">0/0</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -692,7 +692,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}{% if p.calib and p.calib.shelf_life_days %} <abbr class="text-info" title="Vita: {{ p.calib.shelf_life_days }}gg" style="text-decoration:none;font-size:.7rem;font-weight:700">SL</abbr>{% endif %}</td>
                         <td class="text-end text-secondary" data-sort="{{ p.machine_qty }}">{{ p.machine_qty }}/{{ p.human_qty }}</td>
                         <td class="outcome-badge">{% if p.calib %}{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}{% else %}&mdash;{% endif %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -738,7 +738,7 @@
                         {% if p.calib %}data-stock="{{ p.calib.stock }}" data-avg-daily="{{ p.calib.avg_daily }}" data-floor="{{ p.calib.floor }}" data-eff-min="{{ p.calib.eff_min }}" data-package="{{ p.calib.package_size }}"{% endif %}>
                         <td class="no-print" onclick="event.stopPropagation()"><input type="checkbox" class="row-check form-check-input" onchange="onRowCheck(this)"></td>
                         <td data-sort="{{ p.cod }}"><code>{{ p.cod }}.{{ p.v }}</code></td>
-                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}</td>
+                        <td data-sort="{{ p.descrizione }}">{{ p.descrizione }}{% if p.has_promo %} <span class="text-success">●</span>{% endif %}{% if p.calib and p.calib.shelf_life_days %} <abbr class="text-info" title="Vita: {{ p.calib.shelf_life_days }}gg" style="text-decoration:none;font-size:.7rem;font-weight:700">SL</abbr>{% endif %}</td>
                         <td class="text-end text-success fw-bold" data-sort="{{ p.human_qty }}">{{ p.human_qty }}</td>
                         <td class="outcome-badge">{% include 'storages/_calib_outcome_badge.html' with outcome=p.calib.outcome %}</td>
                         <td class="text-end text-muted" data-sort="{{ p.calib.avg_daily|default:'' }}">{% if p.calib %}{{ p.calib.avg_daily }}{% else %}&mdash;{% endif %}</td>
@@ -959,7 +959,7 @@
             if (active) {
                 effStock = Math.round(stock - avgDaily);
                 if (effStock <= 0)                                                     outcome = 'critical';
-                else if (effStock < floor)                                             outcome = 'understocked';
+                else if (effStock < effMin)                                            outcome = 'understocked';
                 else if (effStock > effMin+pkg && Math.round(effStock-effMin-pkg) > 0) outcome = 'overstocked';
                 else                                                                   outcome = 'ok';
             } else {

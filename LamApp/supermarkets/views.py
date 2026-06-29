@@ -39,6 +39,7 @@ from .forms import (
 )
 
 from .services import RestockService
+from .scripts.helpers import Helper
 import logging
 
 logger = logging.getLogger(__name__)
@@ -638,7 +639,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 # Load out of stock products (verified, stock=0, disponibilita='Si')
                 cursor.execute("""
                     SELECT
-                        p.cod, p.v, p.descrizione, p.pz_x_collo, ps.stock
+                        p.cod, p.v, p.descrizione, p.pz_x_collo, ps.stock, ps.sales_sets
                     FROM products p
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                     WHERE p.settore = %s
@@ -646,19 +647,24 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         AND ps.verified = TRUE
                         AND ps.stock = 0
                         AND p.disponibilita = 'Si'
-                    ORDER BY p.descrizione
                     LIMIT 50;
                 """, (self.object.settore,))
 
                 out_of_stock_products = []
                 for row in cursor.fetchall():
+                    sales_sets = row['sales_sets'] or []
+                    if sales_sets:
+                        avg_daily = round(Helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True), 1)
+                    else:
+                        avg_daily = 0.0
                     out_of_stock_products.append({
                         'cod': row['cod'],
                         'var': row['v'],
                         'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
-                        'stock': row['stock'],
-                        'package_size': row['pz_x_collo'] or 12
+                        'package_size': row['pz_x_collo'] or 12,
+                        'avg_daily_sales': avg_daily,
                     })
+                out_of_stock_products.sort(key=lambda x: x['avg_daily_sales'], reverse=True)
 
                 context['out_of_stock_products'] = out_of_stock_products
                 logger.info(f"Found {len(out_of_stock_products)} out of stock products")
@@ -777,8 +783,7 @@ def calibration_report_view(request, pk):
     blue_dot_keys = set()
     try:
         from .scripts.DatabaseManager import DatabaseManager
-        from .scripts.helpers import Helper
-        _db = DatabaseManager(Helper(), supermarket_name=report.storage.supermarket.name)
+        _db = DatabaseManager(supermarket_name=report.storage.supermarket.name)
         try:
             _cur = _db.cursor()
             _cur.execute("SELECT cod, v, internal FROM extra_losses WHERE internal IS NOT NULL")
@@ -928,8 +933,7 @@ def order_comparison_view(request, storage_id):
     all_desc_keys = all_keys | error_keys
     if all_desc_keys:
         from .scripts.DatabaseManager import DatabaseManager
-        from .scripts.helpers import Helper
-        db = DatabaseManager(Helper(), supermarket_name=storage.supermarket.name)
+        db = DatabaseManager(supermarket_name=storage.supermarket.name)
         try:
             cur = db.cursor()
             cur.execute(
@@ -1000,6 +1004,7 @@ def order_comparison_view(request, storage_id):
                     'package_size': pkg,
                     'excess_deficit': excess_deficit,
                     'excess_days': excess_days,
+                    'shelf_life_days': p.get('shelf_life_days'),
                 }
 
     # --- Categorise ---

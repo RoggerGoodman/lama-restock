@@ -13,6 +13,7 @@ from .models import Storage, RestockLog, ScheduleException
 from .services import RestockService
 import shutil
 from .scripts.decision_maker import DecisionMaker
+from .scripts.helpers import Helper
 from .scripts.inventory_scrapper import Inventory_Scrapper
 from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
 from .scripts.orderer import Orderer
@@ -108,13 +109,17 @@ class AutomatedRestockService(RestockService):
                    classification reflects pre-delivery state even when called
                    after the DDT has been applied.
                    When None, reads current stock from DB.
+
+        eff_min computation mirrors processor_N.process_N_sales exactly,
+        including shelf_life cap and expiry penalty factors.
         """
         min_floor = self.storage.minimum_stock
 
         cur = self.db.cursor()
         cur.execute("""
             SELECT ps.cod, ps.v, p.descrizione, ps.stock, ps.minimum_stock AS min_override,
-                   ps.sales_sets, p.pz_x_collo, p.rapp,
+                   ps.sales_sets, ps.bought_sets, ps.sold_last_24,
+                   p.pz_x_collo, p.rapp, p.shelf_life_days,
                    e.sale_start, e.sale_end
             FROM product_stats ps
             JOIN products p ON p.cod = ps.cod AND p.v = ps.v
@@ -124,6 +129,9 @@ class AutomatedRestockService(RestockService):
               AND p.settore = %s
         """, (self.storage.settore,))
         rows = cur.fetchall()
+
+        cur.execute("SELECT cod, v, expired FROM extra_losses WHERE expired IS NOT NULL")
+        expired_lookup = {(r['cod'], r['v']): r['expired'] for r in cur.fetchall()}
 
         critical = []
         understocked = []
@@ -135,12 +143,16 @@ class AutomatedRestockService(RestockService):
 
         for row in rows:
             key = f"{row['cod']}.{row['v']}"
+            cod, v = row['cod'], row['v']
             stock = raw_stock[key] if raw_stock is not None and key in raw_stock else (row['stock'] or 0)
             min_override = row['min_override']
             sales_sets = row['sales_sets'] or []
+            bought_sets = row['bought_sets'] or []
+            sold_last_24 = row['sold_last_24'] or []
             pz_x_collo = row['pz_x_collo'] or 1
             rapp = row['rapp'] or 1
             package_size = pz_x_collo * rapp
+            shelf_life_days = row.get('shelf_life_days')
             floor = min_override if min_override is not None else min_floor
             sale_start = row.get('sale_start')
             sale_end = row.get('sale_end')
@@ -157,13 +169,17 @@ class AutomatedRestockService(RestockService):
             else:
                 eff_min = min_floor
 
+            # Mirror processor_N buff formula exactly
             if avg_daily_sales >= 0.6:
-                eff_min += round(math.sqrt(max(0, req_stock - 1)))
+                buff = max(0, round(math.sqrt(max(0, req_stock - 1))) - 1)
+                eff_min += buff
+                if on_sale:
+                    eff_min += buff * 2
             elif avg_daily_sales < 0.6:
                 eff_min -= 1
-                if avg_daily_sales < 0.1:
+                if avg_daily_sales <= 0.1:
                     eff_min -= 1
-                    if avg_daily_sales < 0.05:
+                    if avg_daily_sales <= 0.05:
                         eff_min -= 1
 
             deviation = self.helper.calculate_deviation(sales_sets)
@@ -182,9 +198,33 @@ class AutomatedRestockService(RestockService):
             else:
                 eff_min = max(1, eff_min)
 
+            # Shelf-life cap
+            shelf_life_has_buffer = False
+            if shelf_life_days is not None:
+                max_safe_buffer = shelf_life_days * avg_daily_sales - req_stock
+                eff_min = min(eff_min, max(0, int(max_safe_buffer)))
+                shelf_life_has_buffer = max_safe_buffer >= 1
+
+            # Historical expiry penalty
+            if (cod, v) in expired_lookup:
+                expiry_factor = Helper.compute_expiry_factor(expired_lookup[(cod, v)], sold_last_24)
+                if expiry_factor is not None:
+                    eff_min = math.floor(eff_min * expiry_factor)
+
+            # Batch expiry penalty
+            if shelf_life_days is not None:
+                batch_factor = Helper.compute_batch_expiry_factor(
+                    bought_sets, sales_sets, shelf_life_days, avg_daily_sales
+                )
+                if batch_factor is not None:
+                    eff_min = math.floor(eff_min * batch_factor)
+
+            # Final floor (mirrors processor_N's post-factor floor)
+            eff_min = max(1 if shelf_life_has_buffer else 0, eff_min)
+
             entry = {
-                'cod': row['cod'],
-                'v': row['v'],
+                'cod': cod,
+                'v': v,
                 'descrizione': row['descrizione'],
                 'stock': stock,
                 'floor': floor,
@@ -193,6 +233,7 @@ class AutomatedRestockService(RestockService):
                 'package_size': package_size,
                 'on_sale': on_sale,
                 'avg_daily_sales': round(avg_daily_sales, 2),
+                'shelf_life_days': shelf_life_days,
             }
 
             if stock <= 0:

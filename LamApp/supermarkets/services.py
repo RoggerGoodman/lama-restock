@@ -22,12 +22,7 @@ class RestockService:
         self.settore = storage.settore
         self.supermarket = storage.supermarket
         self.helper = Helper()
-        
-        # Create database connection
-        self.db = DatabaseManager(
-            self.helper, 
-            supermarket_name=self.supermarket.name
-        )
+        self.db = DatabaseManager(supermarket_name=self.supermarket.name)
 
     def __enter__(self):
         """Enable 'with' statement usage"""

@@ -70,6 +70,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
         minimum_stock = math.floor(minimum_stock * batch_expiry_factor)
 
     minimum_stock = max(1 if shelf_life_has_buffer else 0, minimum_stock)
+    logger.info(f"Minimum Stock (final) = {minimum_stock}")
 
     order = (req_stock + minimum_stock - stock) / package_size
     if order >= 0:

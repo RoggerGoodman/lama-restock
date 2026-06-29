@@ -86,85 +86,6 @@ class DecisionMaker:
 
         return internal_list, expired_dict
 
-    def compute_expiry_factor(self, expired_array, sold_array):
-        """
-        Returns a minimum_stock penalty factor based on historical expiry rate,
-        or None if expiry rate is below the 5% threshold.
-        Only the most recent 3 months (index 0–2) are considered.
-        """
-        recent_expired = expired_array[:3]
-        total_expired = 0
-        for entry in recent_expired:
-            if isinstance(entry, list) and len(entry) >= 1:
-                total_expired += entry[0]
-            elif isinstance(entry, (int, float)):
-                total_expired += entry
-
-        total_sold = sum(v for v in sold_array[:3] if v is not None)
-        denominator = total_sold + total_expired
-        if denominator == 0:
-            return None
-
-        expiry_rate = total_expired / denominator
-
-        if expiry_rate <= 0.05:
-            return None
-        elif expiry_rate <= 0.15:
-            return 0.8
-        elif expiry_rate <= 0.30:
-            return 0.6
-        else:
-            return 0.4
-
-    def compute_batch_expiry_factor(self, bought_sets, sales_sets, shelf_life_days, avg_daily_sales):
-        """
-        Returns a minimum_stock penalty factor based on whether the previous delivery
-        batch is at risk of expiring before being fully consumed, or None if no risk.
-
-        Severity scales with how much longer it will take to clear the old batch
-        compared to the shelf life remaining on it.
-        """
-        if not bought_sets or avg_daily_sales <= 0:
-            return None
-
-        deliveries = [(i, qty) for i, qty in enumerate(bought_sets) if qty and qty > 0]
-        if len(deliveries) < 2:
-            return None
-
-        i_prev, qty_prev = deliveries[1]
-
-        # Need full sales history back to the previous delivery to assess how much remains.
-        # If sales_sets is shorter we can't tell — skip nerfing rather than over-penalise.
-        if len(sales_sets) < i_prev + 1:
-            return None
-
-        # Sales from the day of the previous delivery through yesterday (today excluded — incomplete)
-        sold_since_prev = sum(v for v in sales_sets[1:i_prev + 1] if v is not None)
-        remaining_old = qty_prev - sold_since_prev
-
-        if remaining_old <= 0:
-            return None
-
-        days_left = shelf_life_days - i_prev
-
-        if days_left <= 0:
-            logger.info(f"Batch expiry: previous delivery ({qty_prev} units, {i_prev}d ago) already past shelf life")
-            return 0.3
-
-        days_to_clear = remaining_old / avg_daily_sales
-        if days_to_clear <= days_left:
-            return None
-
-        risk_ratio = days_to_clear / days_left
-        logger.info(f"Batch expiry risk: {remaining_old:.1f} units remaining, {days_left}d left, ratio={risk_ratio:.2f}")
-
-        if risk_ratio <= 1.5:
-            return 0.7
-        elif risk_ratio <= 2.5:
-            return 0.5
-        else:
-            return 0.3
-
     def integrate_internal_losses(self, cod, v, sold_array, extra_losses):
         """Element-wise sum of internal losses with sold_array.
         Arrays are kept aligned by the monthly zero-prepend task."""
@@ -371,11 +292,11 @@ class DecisionMaker:
             if bought_array[0] == 0 and sold_array[0] == 0:
                 if not verified and (disponibilita == "Si" or settore == "DEPERIBILI"):
                     reason = "Never been in system (brand new product)"
-                    self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
+                    Helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     continue
                 elif disponibilita == "No":
                     reason = "Not available for restocking and no sales history"
-                    self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
+                    Helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     continue
 
             if (product_cod, product_var) in extra_losses_lookup:
@@ -388,16 +309,16 @@ class DecisionMaker:
                 days_since_the_end = sale_end_info["days_since_the_end"]
                 sales_sets = sales_sets[:days_since_the_end] + sales_sets[days_since_the_end + days_lasted:]
                 sale_info = None
-            else : 
+            else :
                 sale_info = self.get_discount_for(product_cod, product_var)
 
-            avg_from_sets = self.helper.avg_daily_sales_from_sales_sets(sales_sets)
+            avg_from_sets = Helper.avg_daily_sales_from_sales_sets(sales_sets)
             if avg_from_sets is not None:
                 avg_daily_sales = avg_from_sets
             else:
                 avg_daily_sales, _ = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
-            deviation_corrected = self.helper.calculate_deviation(sales_sets)
+            deviation_corrected = Helper.calculate_deviation(sales_sets)
             logger.info(f"Deviation = {deviation_corrected} %")
 
             req_stock = avg_daily_sales * coverage
@@ -423,7 +344,7 @@ class DecisionMaker:
             if sale_info is not None:
                 if self.skip_sale:
                     reason = "Skip products on sale mode is active for this order"
-                    self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
+                    Helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     continue
                 discount = sale_info["discount"]
                 sale_start = sale_info["sale_start"]
@@ -448,13 +369,13 @@ class DecisionMaker:
 
             expiry_factor = None
             if (product_cod, product_var) in expired_lookup:
-                expiry_factor = self.compute_expiry_factor(
+                expiry_factor = Helper.compute_expiry_factor(
                     expired_lookup[(product_cod, product_var)], sold_array
                 )
 
             batch_expiry_factor = None
             if shelf_life_days is not None:
-                batch_expiry_factor = self.compute_batch_expiry_factor(
+                batch_expiry_factor = Helper.compute_batch_expiry_factor(
                     bought_sets, sales_sets, shelf_life_days, avg_daily_sales
                 )
 
@@ -467,17 +388,17 @@ class DecisionMaker:
                 )
             else:
                 reason = "Not verified in system"
-                self.helper.next_article(product_cod, product_var, package_size, descrizione, reason)
+                Helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                 continue
 
             if result:
                 if avg_daily_sales <= 0.2:
                     analyzer.low_sale_recorder(descrizione, product_cod, product_var)
                 analyzer.stat_recorder(result, status)
-                self.helper.order_this(order_list, product_cod, product_var, result, descrizione, category, check, returned_discount)
+                Helper.order_this(order_list, product_cod, product_var, result, descrizione, category, check, returned_discount)
             else:
                 analyzer.stat_recorder(0, status)
-                self.helper.order_denied(product_cod, product_var, package_size, descrizione, category, check)
+                Helper.order_denied(product_cod, product_var, package_size, descrizione, category, check)
 
         analyzer.log_statistics()
         

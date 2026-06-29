@@ -106,8 +106,8 @@
                                 <th>Codice</th>
                                 <th>Variante</th>
                                 <th>Descrizione</th>
-                                <th>Giacenza</th>
                                 <th>Pz x Collo</th>
+                                <th>Pz/gg</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -117,10 +117,16 @@
                                 <td><code>{{ product.var }}</code></td>
                                 <td>{{ product.description|truncatewords:8 }}</td>
                                 <td>
-                                    <span class="badge bg-secondary">{{ product.stock }}</span>
+                                    <span class="badge bg-secondary">{{ product.package_size }}</span>
                                 </td>
                                 <td>
-                                    <span class="badge bg-secondary">{{ product.package_size }}</span>
+                                    {% if product.avg_daily_sales > 0 %}
+                                        <span class="badge {% if product.avg_daily_sales >= 3 %}bg-danger{% elif product.avg_daily_sales >= 1 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                            {{ product.avg_daily_sales }}
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">—</span>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
