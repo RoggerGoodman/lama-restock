@@ -102,7 +102,7 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
 
                 product = db.get_cod_v_by_ean(ean)
                 if product is None:
-                    logger.debug(f"EAN {ean} not found in products table (skipped)")
+                    logger.info(f"  EAN {ean} x{delta} — not found in database (skipped)")
                     absent_count += 1
                     absent_eans.append({'ean': ean, 'qty': delta, 'loss_type': loss_type})
                     continue
@@ -116,13 +116,13 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
                     db.register_losses(cod, v, delta, loss_type)
                     processed_count += 1
                     total_losses += delta
-                    logger.debug(f"Registered {loss_type}: EAN {ean} → {cod}.{v} = {delta}")
+                    logger.info(f"  {loss_type}: EAN {ean} ({descrizione}) x{delta}")
 
                     by_settore.setdefault(settore, {}).setdefault(loss_type, []).append({
                         'cod': cod, 'v': v, 'descrizione': descrizione, 'qty': delta
                     })
                 except ValueError as e:
-                    logger.debug(f"Product {cod}.{v} not in database (skipped)")
+                    logger.info(f"  EAN {ean} ({cod}.{v}) — not in product_stats (skipped)")
                     absent_count += 1
                 except Exception as e:
                     logger.warning(f"Error processing EAN {ean} ({cod}.{v}): {type(e).__name__}: {e}")
