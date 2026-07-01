@@ -54,7 +54,7 @@ class DatabaseManager:
                 rapp INTEGER,
                 pz_x_collo INTEGER,
                 settore TEXT NOT NULL,
-                disponibilita TEXT CHECK(disponibilita IN ('Si','No')) DEFAULT 'Si',
+                disponibilita TEXT CHECK(disponibilita IN ('Si','No','N.B.')) DEFAULT 'Si',
                 cluster TEXT,
                 purge_flag BOOLEAN DEFAULT FALSE,
                 ean BIGINT,

@@ -295,6 +295,12 @@ class WebLister:
         """Apply category filters based on storage type.
         IDCodMag is now set from the constructor (stored on Storage model).
         RepartoIn remains hardcoded per settore for now.
+
+        Dropzone silently drops products when multiple Reparto codes are
+        queried together in a single RepartoIn request. Querying one
+        Reparto at a time returns the full set, so each settore is
+        expressed as a list of single-Reparto groups to be fetched
+        separately and merged (see fetch_all_listino).
         """
         self.output_path = Path(self.download_dir) / f"{self.storage_name}.csv"
 
@@ -306,20 +312,43 @@ class WebLister:
 
         # RepartoIn still hardcoded per settore (to be made dynamic later)
         if "GENERI VARI" in self.settore:
-            self.RepartoIn = [28, 44, 76, 50, 52]
+            self.reparto_groups = [[28], [44], [76], [50], [52]]
         elif "DEPERIBILI" in self.settore:
-            self.RepartoIn = [28, 30, 34, 44]
+            self.reparto_groups = [[28], [30], [34], [44]]
         elif "SURGELATI" in self.settore:
-            self.RepartoIn = [38]
+            self.reparto_groups = [[38]]
         else:
             logger.info(f"No predefined RepartoIn filters for {self.settore}, using empty list")
-            self.RepartoIn = []
+            self.reparto_groups = [[]]
 
-    def fetch_listino(self):
+    def fetch_all_listino(self) -> list:
+        """
+        Fetch listino products once per Reparto group in self.reparto_groups
+        and merge the results, deduping by (CodiceArticolo, VarianteArticolo).
+        """
+        merged = []
+        seen = set()
+
+        for reparto_in in self.reparto_groups:
+            rows = self.fetch_listino(reparto_in)
+            logger.info(f"fetch_listino(RepartoIn={reparto_in}): {len(rows)} rows")
+            for row in rows:
+                key = (row.get("arCodiceArticolo"), row.get("arVarianteArticolo"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(row)
+
+        logger.info(f"fetch_all_listino: {len(merged)} distinct products across {len(self.reparto_groups)} Reparto groups")
+        return merged
+
+    def fetch_listino(self, reparto_in: list = None):
         """
         Fetch listino products from Dropzone (Listino_callV2.php)
         Requires an authenticated Selenium driver.
         """
+        if reparto_in is None:
+            reparto_in = getattr(self, "RepartoIn", [])
 
         url = "https://dropzone.pac2000a.it/anagrafiche/Listino_callV2.php"
 
@@ -343,7 +372,7 @@ class WebLister:
             "itemStagionalita": "",
             "posizioneDomandaIn": "",
             "dataIntercettaPrezzi": self.dataIntercettaPrezzi,
-            "RepartoIn": ",".join(map(str, self.RepartoIn)),
+            "RepartoIn": ",".join(map(str, reparto_in)),
             "dayInterval": 3,
             "IDClientiCanale": self.IDClientiCanale,
             "IDClientiArea": self.IDClientiArea,
@@ -400,7 +429,7 @@ class WebLister:
             self.login()
             self.navigate_to_lists()
             self.apply_category_filters()
-            self.data = self.fetch_listino()
+            self.data = self.fetch_all_listino()
             file_path = self.save_listino_to_csv(self.data)
             return file_path
         finally:
