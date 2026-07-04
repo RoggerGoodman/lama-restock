@@ -316,9 +316,12 @@ class DatabaseManager:
 
         - Skips products not present in product_stats.
         - Idempotent: skips if last_update_sold already equals sync_date.
-        - Same month: adds sold_qty to sold_last_24[0].
-        - New month: prepends sold_qty, trims to 24.
-        - sales_sets: inserts sold_qty at front, trims to 30.
+        - sold_last_24[0] accumulates sold_qty for the current month. The monthly
+          slot-shift is handled separately by rollover_sold_last_24() (Celery Beat,
+          2nd of month) — NOT inferred here from a per-product date, since
+          last_update_sold only advances when sold_qty > 0 and can't be used to
+          detect "new month" without repeatedly re-triggering on every zero-sale day.
+        - sales_sets: inserts sold_qty at front, trims to 60.
         - stock: decremented by sold_qty.
         - Does NOT touch bought_last_24.
         """
@@ -361,19 +364,10 @@ class DatabaseManager:
                         (sl, cod, var)
                     )
 
-            if not isinstance(sold_array, list):
+            if not isinstance(sold_array, list) or not sold_array:
                 sold_array = [0]
 
-            same_month = (
-                last_update_sold is not None
-                and last_update_sold.month == sync_date.month
-                and last_update_sold.year == sync_date.year
-            )
-            if same_month:
-                sold_array[0] = (sold_array[0] or 0) + sold_qty
-            else:
-                sold_array.insert(0, sold_qty)
-                sold_array = sold_array[:24]
+            sold_array[0] = (sold_array[0] or 0) + sold_qty
 
             sales_sets.insert(0, sold_qty)
             sales_sets = sales_sets[:60]
@@ -546,6 +540,25 @@ class DatabaseManager:
               AND jsonb_typeof(bought_last_24) = 'array'
               AND verified = TRUE
         """, (today,))
+        updated = cur.rowcount
+        self.conn.commit()
+        return updated
+
+    def rollover_sold_last_24(self) -> int:
+        """
+        On month rollover: prepend a 0 to sold_last_24 for every product with
+        sales history, opening a fresh slot for the new month.
+        """
+        cur = self.cursor()
+        cur.execute("""
+            UPDATE product_stats
+            SET sold_last_24 = jsonb_build_array(0) || COALESCE(
+                jsonb_path_query_array(sold_last_24, '$[0 to 22]'),
+                '[]'::jsonb
+            )
+            WHERE sold_last_24 IS NOT NULL
+              AND jsonb_typeof(sold_last_24) = 'array'
+        """)
         updated = cur.rowcount
         self.conn.commit()
         return updated

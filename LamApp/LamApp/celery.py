@@ -28,6 +28,7 @@ app.autodiscover_tasks()
 # Daily timeline:
 #   00:30  monthly-loss-zero-prepend  (1st of month only)
 #   00:35  monthly-bought-zero-prepend (1st of month only)
+#   00:40  monthly-sold-zero-prepend  (2nd of month only — see note below)
 #   03:00  check-list-updates
 #   03:30  backfill-ean
 #   05:00  update-stats-morning       (DDT import — also saves pending calibration snapshot)
@@ -48,6 +49,15 @@ app.conf.beat_schedule = {
     'monthly-bought-zero-prepend': {
         'task': 'supermarkets.tasks.prepend_monthly_bought_zeros',
         'schedule': crontab(hour=0, minute=35, day_of_month='1'),
+    },
+
+    # 2nd of month — 00:40. Must run on the 2nd, not the 1st: VENSETAR always syncs
+    # "yesterday's" sales, so the 1st's 05:30 run applies the last day of the
+    # PREVIOUS month and needs that month's slot still open. Rolling over on the
+    # 1st (before 05:30) would misfile that last day into the new month's slot.
+    'monthly-sold-zero-prepend': {
+        'task': 'supermarkets.tasks.prepend_monthly_sold_zeros',
+        'schedule': crontab(hour=0, minute=40, day_of_month='2'),
     },
 
     # 03:00 — refresh product lists for all scheduled storages

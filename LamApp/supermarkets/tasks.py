@@ -2067,3 +2067,50 @@ def prepend_monthly_bought_zeros(self):
     except Exception as exc:
         logger.exception("[MONTHLY-ROLLOVER] Fatal error")
         raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=300,
+)
+def prepend_monthly_sold_zeros(self):
+    """
+    2nd of month — prepend a 0 to sold_last_24 for every product with sales
+    history, across all supermarkets. Opens a fresh accumulator slot for the
+    new month; apply_daily_vensetar_sales only ever adds into slot [0].
+
+    Runs on the 2nd (not the 1st): VENSETAR syncs "yesterday's" sales, so the
+    1st's sync run still needs the previous month's slot open to file the
+    previous month's last day correctly.
+    """
+    from .models import Supermarket
+    from .scripts.DatabaseManager import DatabaseManager
+
+    try:
+        supermarkets = Supermarket.objects.all()
+        total_updated = 0
+
+        for supermarket in supermarkets:
+            db = DatabaseManager(supermarket_name=supermarket.name)
+            try:
+                updated = db.rollover_sold_last_24()
+                total_updated += updated
+                logger.info(
+                    f"[MONTHLY-ROLLOVER] {supermarket.name}: "
+                    f"prepended 0 to {updated} product(s) (sold_last_24)"
+                )
+            except Exception:
+                logger.exception(
+                    f"[MONTHLY-ROLLOVER] Error for {supermarket.name} (sold_last_24)"
+                )
+            finally:
+                db.close()
+
+        msg = f"Monthly sold_last_24 rollover complete: {total_updated} product(s) updated across all supermarkets"
+        logger.info(f"[MONTHLY-ROLLOVER] {msg}")
+        return msg
+
+    except Exception as exc:
+        logger.exception("[MONTHLY-ROLLOVER] Fatal error (sold_last_24)")
+        raise self.retry(exc=exc)
