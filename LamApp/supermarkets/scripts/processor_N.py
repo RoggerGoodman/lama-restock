@@ -39,13 +39,13 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     logger.info(f"Minimum Stock = {minimum_stock} (base: {minimum_stock_base}, override: {minimum_stock_override})")
 
     if deviation_corrected >= 40:
-        minimum_stock = math.floor(minimum_stock * 1.2)
+        minimum_stock = math.floor(minimum_stock * 1.3)
     elif deviation_corrected >= 20:
-        minimum_stock = math.floor(minimum_stock * 1.1)
+        minimum_stock = math.floor(minimum_stock * 1.2)
     elif deviation_corrected <= -40:
-        minimum_stock = math.ceil(minimum_stock * 0.7)
+        minimum_stock = math.ceil(minimum_stock * 0.6)
     elif deviation_corrected <= -20:
-        minimum_stock = math.ceil(minimum_stock * 0.9)
+        minimum_stock = math.ceil(minimum_stock * 0.8)
 
     minimum_stock = round(minimum_stock)
 
@@ -75,6 +75,8 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     order = (req_stock + minimum_stock - stock) / package_size
     if order >= 0:
         tollerance_threshold = avg_daily_sales/package_size
+        if batch_expiry_factor is not None:
+            tollerance_threshold *= batch_expiry_factor
         decimal_part = order % 1
         if decimal_part <= tollerance_threshold:
             order = math.floor(order)
@@ -84,7 +86,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
         if order >= 1:
             return order, 1, True, discount
         
-    if leftover_stock <= minimum_stock:
+    if leftover_stock < minimum_stock:
         order = 1
         return order, 2, True, discount
     

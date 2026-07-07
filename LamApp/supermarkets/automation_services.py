@@ -214,7 +214,7 @@ class AutomatedRestockService(RestockService):
             # Batch expiry penalty
             if shelf_life_days is not None:
                 batch_factor = Helper.compute_batch_expiry_factor(
-                    bought_sets, sales_sets, shelf_life_days, avg_daily_sales
+                    bought_sets, sales_sets, stock, shelf_life_days, avg_daily_sales
                 )
                 if batch_factor is not None:
                     eff_min = math.floor(eff_min * batch_factor)

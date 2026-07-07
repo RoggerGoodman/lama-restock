@@ -236,26 +236,39 @@ class Helper:
             return None
 
         expiry_rate = total_expired / denominator
-
-        if expiry_rate <= 0.05:
+        
+        if expiry_rate <= 0.01:
             return None
-        elif expiry_rate <= 0.15:
-            factor = 0.8
-        elif expiry_rate <= 0.30:
+        elif expiry_rate <= 0.05:
+            factor = 0.9
+        elif expiry_rate <= 0.1:
             factor = 0.6
-        else:
+        elif expiry_rate <= 0.2:
             factor = 0.4
+        else:
+            factor = 0.2
 
         logger.info(f"Expiry factor: rate={expiry_rate:.1%} ({total_expired} expired / {denominator} total) → factor={factor}")
         return factor
 
     @staticmethod
-    def compute_batch_expiry_factor(bought_sets, sales_sets, shelf_life_days, avg_daily_sales):
+    def compute_batch_expiry_factor(bought_sets, sales_sets, stock, shelf_life_days, avg_daily_sales):
         """
-        Returns a minimum_stock penalty factor based on whether the previous delivery
-        batch is at risk of expiring before being fully consumed, or None if no risk.
+        Returns a minimum_stock penalty factor based on whether a delivery batch
+        is at risk of expiring before being fully consumed, or None if no risk.
 
-        Severity scales with how much longer it will take to clear the old batch
+        Anchors on current `stock` (ground truth) rather than reconstructing sales
+        history from delivery dates: under FIFO, stock is drawn from the most
+        recent delivery first, so any stock beyond what that delivery held must
+        be leftover from the previous one.
+
+        The clearance rate is derived empirically from `sales_sets` — walking
+        back from yesterday until the units already known to be sold from the
+        active batch are accounted for — rather than the passed-in average,
+        since that can smooth over stockout days or a recent pace shift that
+        matters for this specific batch.
+
+        Severity scales with how much longer it will take to clear the batch
         compared to the shelf life remaining on it.
         """
         if not bought_sets or avg_daily_sales <= 0:
@@ -265,25 +278,40 @@ class Helper:
         if len(deliveries) < 2:
             return None
 
+        i0, qty0 = deliveries[0]
         i_prev, qty_prev = deliveries[1]
 
-        if len(sales_sets) < i_prev + 1:
-            return None
+        leftover_prev = stock - qty0
+        if leftover_prev > 0:
+            # Current stock exceeds what the most recent delivery could hold,
+            # so the excess must still be leftover from the previous one.
+            i_batch, qty_batch, remaining = i_prev, qty_prev, min(leftover_prev, qty_prev)
+        else:
+            # Stock fits entirely within the most recent delivery, so the
+            # previous one is confirmed fully sold through — no risk from it.
+            i_batch, qty_batch, remaining = i0, qty0, min(stock, qty0)
+            if remaining <= 0:
+                return None
 
-        sold_since_prev = sum(v for v in sales_sets[1:i_prev + 1] if v is not None)
-        remaining_old = qty_prev - sold_since_prev
-
-        if remaining_old <= 0:
-            return None
-
-        days_left = shelf_life_days - i_prev
+        days_left = shelf_life_days - i_batch
 
         if days_left <= 0:
             factor = 0.3
-            logger.info(f"Batch expiry: previous delivery ({qty_prev} units, {i_prev}d ago) already past shelf life → factor={factor}")
+            logger.info(f"Batch expiry: delivery ({qty_batch} units, {i_batch}d ago) already past shelf life → factor={factor}")
             return factor
 
-        days_to_clear = remaining_old / avg_daily_sales
+        sold_from_batch = qty_batch - remaining
+        recent_rate = avg_daily_sales
+        if sold_from_batch > 0:
+            cumulative = 0
+            for day_idx, v in enumerate(sales_sets):
+                if v is not None:
+                    cumulative += v
+                if cumulative >= sold_from_batch:
+                    recent_rate = sold_from_batch / (day_idx + 1)
+                    break
+
+        days_to_clear = remaining / recent_rate
         if days_to_clear <= days_left:
             return None
 
@@ -296,7 +324,7 @@ class Helper:
         else:
             factor = 0.3
 
-        logger.info(f"Batch expiry risk: {remaining_old:.1f} units remaining, {days_left}d left, ratio={risk_ratio:.2f} → factor={factor}")
+        logger.info(f"Batch expiry risk: {remaining:.1f} units remaining, {days_left}d left, ratio={risk_ratio:.2f} (rate={recent_rate:.2f}) → factor={factor}")
         return factor
 
     @staticmethod

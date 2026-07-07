@@ -376,7 +376,7 @@ class DecisionMaker:
             batch_expiry_factor = None
             if shelf_life_days is not None:
                 batch_expiry_factor = Helper.compute_batch_expiry_factor(
-                    bought_sets, sales_sets, shelf_life_days, avg_daily_sales
+                    bought_sets, sales_sets, stock, shelf_life_days, avg_daily_sales
                 )
 
             if verified:
