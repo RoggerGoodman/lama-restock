@@ -240,13 +240,13 @@ class Helper:
         if expiry_rate <= 0.01:
             return None
         elif expiry_rate <= 0.05:
-            factor = 0.9
+            factor = 0.7
         elif expiry_rate <= 0.1:
-            factor = 0.6
-        elif expiry_rate <= 0.2:
             factor = 0.4
-        else:
+        elif expiry_rate <= 0.2:
             factor = 0.2
+        else:
+            factor = 0.1
 
         logger.info(f"Expiry factor: rate={expiry_rate:.1%} ({total_expired} expired / {denominator} total) → factor={factor}")
         return factor
@@ -254,8 +254,10 @@ class Helper:
     @staticmethod
     def compute_batch_expiry_factor(bought_sets, sales_sets, stock, shelf_life_days, avg_daily_sales):
         """
-        Returns a minimum_stock penalty factor based on whether a delivery batch
-        is at risk of expiring before being fully consumed, or None if no risk.
+        Returns True if a delivery batch is at risk of expiring before being
+        fully consumed, or None if no risk. This is a binary signal, not a
+        graduated one — callers should cap minimum_stock at 1 outright when
+        True, rather than scale it.
 
         Anchors on current `stock` (ground truth) rather than reconstructing sales
         history from delivery dates: under FIFO, stock is drawn from the most
@@ -267,38 +269,37 @@ class Helper:
         active batch are accounted for — rather than the passed-in average,
         since that can smooth over stockout days or a recent pace shift that
         matters for this specific batch.
-
-        Severity scales with how much longer it will take to clear the batch
-        compared to the shelf life remaining on it.
         """
         if not bought_sets or avg_daily_sales <= 0:
             return None
 
         deliveries = [(i, qty) for i, qty in enumerate(bought_sets) if qty and qty > 0]
-        if len(deliveries) < 2:
+        if not deliveries:
             return None
 
         i0, qty0 = deliveries[0]
-        i_prev, qty_prev = deliveries[1]
 
-        leftover_prev = stock - qty0
+        # Only meaningful with a second delivery on record — with just one,
+        # there's nothing "previous" for stock to have leftover from.
+        leftover_prev = stock - qty0 if len(deliveries) >= 2 else 0
+
         if leftover_prev > 0:
             # Current stock exceeds what the most recent delivery could hold,
             # so the excess must still be leftover from the previous one.
+            i_prev, qty_prev = deliveries[1]
             i_batch, qty_batch, remaining = i_prev, qty_prev, min(leftover_prev, qty_prev)
         else:
-            # Stock fits entirely within the most recent delivery, so the
-            # previous one is confirmed fully sold through — no risk from it.
-            i_batch, qty_batch, remaining = i0, qty0, min(stock, qty0)
+            # Stock fits entirely within the most recent (or only) delivery, so
+            # any earlier one is confirmed fully sold through — no risk from it.
+            i_batch, qty_batch, remaining = i0, qty0, stock
             if remaining <= 0:
                 return None
 
         days_left = shelf_life_days - i_batch
 
         if days_left <= 0:
-            factor = 0.3
-            logger.info(f"Batch expiry: delivery ({qty_batch} units, {i_batch}d ago) already past shelf life → factor={factor}")
-            return factor
+            logger.info(f"Batch expiry: delivery ({qty_batch} units, {i_batch}d ago) already past shelf life")
+            return True
 
         sold_from_batch = qty_batch - remaining
         recent_rate = avg_daily_sales
@@ -312,20 +313,11 @@ class Helper:
                     break
 
         days_to_clear = remaining / recent_rate
-        if days_to_clear <= days_left:
+        if days_to_clear < days_left:
             return None
 
-        risk_ratio = days_to_clear / days_left
-
-        if risk_ratio <= 1.5:
-            factor = 0.7
-        elif risk_ratio <= 2.5:
-            factor = 0.5
-        else:
-            factor = 0.3
-
-        logger.info(f"Batch expiry risk: {remaining:.1f} units remaining, {days_left}d left, ratio={risk_ratio:.2f} (rate={recent_rate:.2f}) → factor={factor}")
-        return factor
+        logger.info(f"Batch expiry risk: {remaining:.1f} units remaining, {days_left}d left, {days_to_clear:.1f}d to clear (rate={recent_rate:.2f})")
+        return True
 
     @staticmethod
     def next_article(product_cod, product_var, package_size, product_name, reason):

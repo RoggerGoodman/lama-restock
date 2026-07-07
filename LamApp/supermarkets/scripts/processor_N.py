@@ -66,8 +66,8 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     if expiry_factor is not None:
         minimum_stock = math.floor(minimum_stock * expiry_factor)
 
-    if batch_expiry_factor is not None:
-        minimum_stock = math.floor(minimum_stock * batch_expiry_factor)
+    if batch_expiry_factor:
+        minimum_stock = 1
 
     minimum_stock = max(1 if shelf_life_has_buffer else 0, minimum_stock)
     logger.info(f"Minimum Stock (final) = {minimum_stock}")
@@ -75,10 +75,10 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     order = (req_stock + minimum_stock - stock) / package_size
     if order >= 0:
         tollerance_threshold = avg_daily_sales/package_size
-        if batch_expiry_factor is not None:
-            tollerance_threshold *= batch_expiry_factor
         decimal_part = order % 1
-        if decimal_part <= tollerance_threshold:
+        if batch_expiry_factor:
+            order = math.floor(order)
+        elif decimal_part <= tollerance_threshold:
             order = math.floor(order)
         else:
             order = math.ceil(order)

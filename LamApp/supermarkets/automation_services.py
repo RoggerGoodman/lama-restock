@@ -216,8 +216,8 @@ class AutomatedRestockService(RestockService):
                 batch_factor = Helper.compute_batch_expiry_factor(
                     bought_sets, sales_sets, stock, shelf_life_days, avg_daily_sales
                 )
-                if batch_factor is not None:
-                    eff_min = math.floor(eff_min * batch_factor)
+                if batch_factor:
+                    eff_min = 1
 
             # Final floor (mirrors processor_N's post-factor floor)
             eff_min = max(1 if shelf_life_has_buffer else 0, eff_min)
