@@ -139,10 +139,10 @@
                                     <br><small class="text-muted">{{ alert.product_description|truncatewords:5 }}</small>
                                 </td>
                                 <td class="text-end">
-                                    <span class="text-muted text-decoration-line-through">&euro; {{ alert.old_cost|floatformat:4 }}</span>
+                                    <span class="text-muted text-decoration-line-through">&euro; {{ alert.old_cost|floatformat:2 }}</span>
                                     <br>
                                     <span class="{% if alert.is_cost_increase %}text-danger{% else %}text-success{% endif %} fw-bold">
-                                        &euro; {{ alert.new_cost|floatformat:4 }}
+                                        &euro; {{ alert.new_cost|floatformat:2 }}
                                         {% if alert.is_cost_increase %}
                                         <i class="bi bi-arrow-up-short"></i>
                                         {% else %}

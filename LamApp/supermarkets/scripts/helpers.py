@@ -96,7 +96,7 @@ class Helper:
                 pass
 
         return avg_daily_sales, avg_sales_base
-    
+
     @staticmethod
     def avg_daily_sales_from_sales_sets(daily_sales: list, silent: bool = False):
         """
@@ -165,7 +165,7 @@ class Helper:
                 pass
 
         return avg_daily_sales
-    
+
     @staticmethod
     def calculate_deviation(sales_sets: list):
         """

@@ -307,6 +307,10 @@ class DecisionMaker:
             if sale_end_info is not None:
                 days_lasted = sale_end_info["days_lasted"]
                 days_since_the_end = sale_end_info["days_since_the_end"]
+                logger.info(
+                    f"{product_cod}.{product_var}: recently-ended sale ({days_lasted}d, ended {days_since_the_end}d ago) "
+                    f"-> removing that window from sales_sets to avoid skewing avg_daily_sales"
+                )
                 sales_sets = sales_sets[:days_since_the_end] + sales_sets[days_since_the_end + days_lasted:]
                 sale_info = None
             else :
@@ -331,15 +335,14 @@ class DecisionMaker:
                     correction = 1.5 if null_rate >= 1.0 else min(1.0 / (1.0 - null_rate), 1.5)
                     logger.warning(
                         f"OOS correction {product_cod}.{product_var} '{descrizione}': "
-                        f"{null_count}/7 OOS days → ×{correction:.2f} "
-                        f"(req_stock {req_stock:.2f} → {req_stock * correction:.2f})"
+                        f"{null_count}/7 OOS days → req_stock {req_stock:.2f} (pre-correction) ×{correction:.2f}"
                     )
                     req_stock *= correction
 
             logger.info(f"Required stock = {req_stock:.2f}")
 
-            package_consumption = req_stock / package_size 
-            logger.info(f"Package consumption = {package_consumption:.2f}")
+            package_consumption = req_stock / package_size
+            logger.info(f"Package consumption = {package_consumption:.2f} (package_size={package_size})")
 
             if sale_info is not None:
                 if self.skip_sale:
@@ -361,7 +364,7 @@ class DecisionMaker:
 
                 if self.is_in_first_60_percent(today, sale_start, sale_end):
                     req_stock += req_stock * 0.10
-                    logger.info("Stock buff applied")
+                    logger.info(f"Stock buff applied (+10%): req_stock now {req_stock:.2f}")
                 else:
                     logger.info("Sale buff NOT applied (late sale phase)")
             else:

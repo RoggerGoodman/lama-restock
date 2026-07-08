@@ -23,21 +23,30 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     else:
         minimum_stock = minimum_stock_base
     leftover_stock = stock - req_stock
-    
+
     if avg_daily_sales >= 0.6:
         buff = max(0, round(math.sqrt(max(0, req_stock - 1))) - 1)
         minimum_stock += buff
         if discount != None:
             minimum_stock += (buff * 2)
+            logger.info(
+                f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} >= 0.6 -> +{buff}, "
+                f"plus +{buff * 2} on-sale bonus (total +{buff * 3})"
+            )
+        else:
+            logger.info(f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} >= 0.6 -> +{buff}")
     elif avg_daily_sales < 0.6:
-        minimum_stock -= 1
+        reduction = 1
         if avg_daily_sales <= 0.1:
-            minimum_stock -= 1
+            reduction += 1
             if avg_daily_sales <= 0.05:
-                minimum_stock -= 1
+                reduction += 1
+        minimum_stock -= reduction
+        logger.info(f"Slow-mover reduction: avg_daily_sales={avg_daily_sales:.2f} < 0.6 -> -{reduction}")
 
-    logger.info(f"Minimum Stock = {minimum_stock} (base: {minimum_stock_base}, override: {minimum_stock_override})")
+    logger.info(f"Minimum Stock after velocity adjustment = {minimum_stock} (base: {minimum_stock_base}, override: {minimum_stock_override})")
 
+    pre_deviation = minimum_stock
     if deviation_corrected >= 40:
         minimum_stock = math.floor(minimum_stock * 1.3)
     elif deviation_corrected >= 20:
@@ -46,27 +55,42 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
         minimum_stock = math.ceil(minimum_stock * 0.6)
     elif deviation_corrected <= -20:
         minimum_stock = math.ceil(minimum_stock * 0.8)
+    if minimum_stock != pre_deviation:
+        logger.info(f"Deviation adjustment: deviation={deviation_corrected:.1f}% -> minimum_stock {pre_deviation} -> {minimum_stock}")
 
     minimum_stock = round(minimum_stock)
 
+    pre_floor = minimum_stock
     if minimum_stock_override is not None:
         minimum_stock = max(minimum_stock_override, minimum_stock)
     else:
         minimum_stock = max(1, minimum_stock)
+    if minimum_stock != pre_floor:
+        floor_value = minimum_stock_override if minimum_stock_override is not None else 1
+        logger.info(f"Floor clamp: minimum_stock raised {pre_floor} -> {minimum_stock} (floor={floor_value})")
 
     shelf_life_has_buffer = False
     if shelf_life_days is not None:
         max_safe_buffer = shelf_life_days * avg_daily_sales - req_stock
+        pre_shelf_life = minimum_stock
         minimum_stock = min(minimum_stock, max(0, int(max_safe_buffer)))
         # Only raise the post-nerf floor if the shelf life supports at least 1 full unit
         # of buffer (msb >= 1). Fractional capacity (0 < msb < 1) means ordering 1 extra
         # would already exceed what can sell before expiry.
         shelf_life_has_buffer = max_safe_buffer >= 1
+        if minimum_stock != pre_shelf_life:
+            logger.info(
+                f"Shelf-life cap: {shelf_life_days}d shelf life, max_safe_buffer={max_safe_buffer:.1f} "
+                f"-> minimum_stock capped {pre_shelf_life} -> {minimum_stock}"
+            )
 
     if expiry_factor is not None:
+        pre_expiry = minimum_stock
         minimum_stock = math.floor(minimum_stock * expiry_factor)
+        logger.info(f"Expiry factor {expiry_factor} applied -> minimum_stock {pre_expiry} -> {minimum_stock}")
 
     if batch_expiry_factor:
+        logger.info(f"Batch expiry risk detected -> minimum_stock forced from {minimum_stock} to 1")
         minimum_stock = 1
 
     minimum_stock = max(1 if shelf_life_has_buffer else 0, minimum_stock)
@@ -84,14 +108,24 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
             order = math.ceil(order)
 
         if order >= 1:
+            logger.info(
+                f"Order decision: {order} package(s) — formula "
+                f"(req_stock={req_stock} + minimum_stock={minimum_stock} - stock={stock}) / package_size={package_size}"
+            )
             return order, 1, True, discount
-        
+
     if leftover_stock < minimum_stock:
         order = 1
+        logger.info(f"Order decision: forced 1 package — leftover_stock={leftover_stock} < minimum_stock={minimum_stock}")
         return order, 2, True, discount
-    
+
     if discount != None and stock <= package_size*0.2 or stock <= package_size*0.1:
         order = 1
+        threshold_desc = "20% of package (on sale)" if discount is not None else "10% of package"
+        logger.info(f"Order decision: forced 1 package — stock={stock} at or below {threshold_desc} (package_size={package_size})")
         return order, 3, True, discount
-       
+
+    logger.info(
+        f"No order: leftover_stock={leftover_stock} >= minimum_stock={minimum_stock} and stock={stock} not critically low"
+    )
     return None, 0, False, discount
