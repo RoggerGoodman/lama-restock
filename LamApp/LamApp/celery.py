@@ -119,6 +119,12 @@ app.conf.beat_schedule = {
         'task': 'supermarkets.tasks.cleanup_old_recipe_cost_alerts',
         'schedule': crontab(hour=1, minute=10, day_of_week='sunday'),
     },
+
+    # Sunday 01:15 — delete per-order decision_maker log files older than 7 days
+    'cleanup-old-decision-maker-logs': {
+        'task': 'supermarkets.tasks.cleanup_old_decision_maker_logs',
+        'schedule': crontab(hour=1, minute=15, day_of_week='sunday'),
+    },
 }
 
 @app.task(bind=True)

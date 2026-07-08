@@ -9,6 +9,13 @@ from django.utils import timezone
 from django.conf import settings
 import logging
 from .automation_services import AutomatedRestockService
+from .logging_context import (
+    SupermarketLogContext,
+    enter_supermarket_log,
+    exit_supermarket_log,
+    enter_order_log,
+    exit_order_log,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,29 +48,30 @@ def record_losses_all_supermarkets(self):
         error_count = 0
         
         for supermarket in supermarkets:
-            try:
-                logger.info(f"[CELERY] Recording losses for: {supermarket.name}")
-                
-                first_storage = supermarket.storages.first()
-                
-                if not first_storage:
-                    logger.warning(f"[CELERY] No storages found for {supermarket.name}")
+            with SupermarketLogContext(supermarket.name):
+                try:
+                    logger.info(f"[CELERY] Recording losses for: {supermarket.name}")
+
+                    first_storage = supermarket.storages.first()
+
+                    if not first_storage:
+                        logger.warning(f"[CELERY] No storages found for {supermarket.name}")
+                        error_count += 1
+                        continue
+
+                    with AutomatedRestockService(first_storage) as service:
+                        try:
+                            service.record_losses()
+                            logger.info(f"✓ [CELERY] Losses recorded for {supermarket.name}")
+                            success_count += 1
+                        except Exception as e:
+                            logger.exception(f"✗ [CELERY] Failed to record losses for {supermarket.name}")
+                            error_count += 1
+
+                except Exception as e:
+                    logger.exception(f"✗ [CELERY] Error processing {supermarket.name}")
                     error_count += 1
                     continue
-                
-                with AutomatedRestockService(first_storage) as service:
-                    try:
-                        service.record_losses()
-                        logger.info(f"✓ [CELERY] Losses recorded for {supermarket.name}")
-                        success_count += 1
-                    except Exception as e:
-                        logger.exception(f"✗ [CELERY] Failed to record losses for {supermarket.name}")
-                        error_count += 1
-                    
-            except Exception as e:
-                logger.exception(f"✗ [CELERY] Error processing {supermarket.name}")
-                error_count += 1
-                continue
         
         result_msg = f"Loss recording complete: {success_count} successful, {error_count} failed out of {supermarkets.count()} total"
         logger.info(f"[CELERY] {result_msg}")
@@ -141,8 +149,10 @@ def import_ddt_for_supermarket(self, supermarket_id):
     from .models import Supermarket, RestockLog
     from .scripts.web_lister import WebLister
 
+    _log_ctx = None
     try:
         supermarket = Supermarket.objects.prefetch_related('storages').get(id=supermarket_id)
+        _log_ctx = enter_supermarket_log(supermarket.name)
         storages = list(supermarket.storages.all())
 
         if not storages:
@@ -298,6 +308,8 @@ def import_ddt_for_supermarket(self, supermarket_id):
     except Exception as exc:
         logger.exception(f"[DDT] Fatal error for supermarket {supermarket_id}")
         raise self.retry(exc=exc)
+    finally:
+        exit_supermarket_log(_log_ctx)
 
 
 @shared_task
@@ -330,6 +342,7 @@ def run_daily_calibration():
             continue  # already completed (e.g. task ran twice)
 
         storage = report.storage
+        _log_ctx = enter_supermarket_log(storage.supermarket.name)
         try:
             raw_stock = raw_data.get('raw_stock', {})
 
@@ -360,6 +373,8 @@ def run_daily_calibration():
         except Exception:
             logger.exception(f"[CAL] Failed for {storage.name}")
             failed_count += 1
+        finally:
+            exit_supermarket_log(_log_ctx)
 
     return f"Calibration done: {ok_count} ok, {failed_count} failed"
 
@@ -384,12 +399,16 @@ def retry_restock_from_checkpoint(self, log_id):
     log.retry_count = (log.retry_count or 0) + 1
     log.save()
 
-    logger.info(f"[CELERY-RETRY] Retrying log #{log_id} for {storage.name} (fresh run)")
+    _log_ctx = enter_supermarket_log(storage.supermarket.name)
+    try:
+        logger.info(f"[CELERY-RETRY] Retrying log #{log_id} for {storage.name} (fresh run)")
 
-    with AutomatedRestockService(storage) as service:
-        service.run_full_restock_workflow(log=log)
+        with AutomatedRestockService(storage) as service:
+            service.run_full_restock_workflow(log=log)
 
-    logger.info(f"[CELERY-RETRY] Log #{log_id} completed successfully")
+        logger.info(f"[CELERY-RETRY] Log #{log_id} completed successfully")
+    finally:
+        exit_supermarket_log(_log_ctx)
 
 
 @shared_task(
@@ -412,8 +431,10 @@ def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=T
     """
     from .models import Storage, RestockLog
 
+    _log_ctx = None
     try:
         storage = Storage.objects.select_related('supermarket', 'schedule').get(id=storage_id)
+        _log_ctx = enter_supermarket_log(storage.supermarket.name)
         logger.info(
             f"[CELERY-ORDER] Running restock for {storage.name} "
             f"(coverage={coverage}, skip_stats={skip_stats_update})"
@@ -477,6 +498,8 @@ def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=T
             meta={'error': str(exc)}
         )
         raise self.retry(exc=exc)
+    finally:
+        exit_supermarket_log(_log_ctx)
 
 
 @shared_task(
@@ -516,44 +539,48 @@ def run_scheduled_list_updates(self):
         error_count = 0
 
         for storage in storages:
-            from .models import is_closure_day
-            if is_closure_day(storage.supermarket):
-                logger.info(f"[CELERY] Skipping list update for {storage.name} — closure day")
-                continue
-
-            # Create a log entry for this scheduled update
-            log = RestockLog.objects.create(
-                storage=storage,
-                status='processing',
-                operation_type='list_update'
-            )
-
+            _log_ctx = enter_supermarket_log(storage.supermarket.name)
             try:
-                logger.info(f"[CELERY] Updating product list for {storage.name}")
+                from .models import is_closure_day
+                if is_closure_day(storage.supermarket):
+                    logger.info(f"[CELERY] Skipping list update for {storage.name} — closure day")
+                    continue
 
-                with ListUpdateService(storage) as service:
-                    result = service.update_and_import()
+                # Create a log entry for this scheduled update
+                log = RestockLog.objects.create(
+                    storage=storage,
+                    status='processing',
+                    operation_type='list_update'
+                )
 
-                    if result['success']:
-                        log.status = 'completed'
-                        log.completed_at = timezone.now()
-                        logger.info(f"✓ [CELERY] List updated for {storage.name}")
-                        success_count += 1
-                    else:
-                        log.status = 'failed'
-                        log.error_message = result['message']
-                        logger.warning(f"⚠ [CELERY] List update failed for {storage.name}: {result['message']}")
-                        error_count += 1
+                try:
+                    logger.info(f"[CELERY] Updating product list for {storage.name}")
 
+                    with ListUpdateService(storage) as service:
+                        result = service.update_and_import()
+
+                        if result['success']:
+                            log.status = 'completed'
+                            log.completed_at = timezone.now()
+                            logger.info(f"✓ [CELERY] List updated for {storage.name}")
+                            success_count += 1
+                        else:
+                            log.status = 'failed'
+                            log.error_message = result['message']
+                            logger.warning(f"⚠ [CELERY] List update failed for {storage.name}: {result['message']}")
+                            error_count += 1
+
+                        log.save()
+
+                except Exception as e:
+                    log.status = 'failed'
+                    log.error_message = str(e)
                     log.save()
-
-            except Exception as e:
-                log.status = 'failed'
-                log.error_message = str(e)
-                log.save()
-                logger.exception(f"✗ [CELERY] Error updating list for {storage.name}")
-                error_count += 1
-                continue
+                    logger.exception(f"✗ [CELERY] Error updating list for {storage.name}")
+                    error_count += 1
+                    continue
+            finally:
+                exit_supermarket_log(_log_ctx)
 
         result_msg = f"List updates complete: {success_count} successful, {error_count} failed"
         logger.info(f"[CELERY] {result_msg}")
@@ -564,6 +591,7 @@ def run_scheduled_list_updates(self):
         purge_total = 0
         supermarket_ids = storages.values_list('supermarket_id', flat=True).distinct()
         for sm in Supermarket.objects.filter(id__in=supermarket_ids):
+            _log_ctx = enter_supermarket_log(sm.name)
             try:
                 from .scripts.DatabaseManager import DatabaseManager
                 db = DatabaseManager(supermarket_name=sm.name)
@@ -582,6 +610,8 @@ def run_scheduled_list_updates(self):
                 logger.exception(
                     f"[CELERY] Error during obsolete-product purge for {sm.name}"
                 )
+            finally:
+                exit_supermarket_log(_log_ctx)
 
         if purge_total:
             logger.info(f"[CELERY] Purged {purge_total} obsolete product(s) total")
@@ -611,9 +641,11 @@ def add_products_unified_task(self, storage_id, products_list, settore):
     from django.utils import timezone
     import shutil
     
+    _log_ctx = None
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
-        
+        _log_ctx = enter_supermarket_log(storage.supermarket.name)
+
         logger.info(f"[ADD PRODUCTS] Starting for {storage.name}: {len(products_list)} products")
         
         log = RestockLog.objects.create(
@@ -715,6 +747,8 @@ def add_products_unified_task(self, storage_id, products_list, settore):
     except Exception as exc:
         logger.exception(f"[ADD PRODUCTS] Error for storage {storage_id}")
         raise self.retry(exc=exc)
+    finally:
+        exit_supermarket_log(_log_ctx)
 
 @shared_task(
     bind=True,
@@ -730,9 +764,11 @@ def manual_list_update_task(self, storage_id):
     from .list_update_service import ListUpdateService
     from django.utils import timezone
     
+    _log_ctx = None
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
-        
+        _log_ctx = enter_supermarket_log(storage.supermarket.name)
+
         logger.info(f"[LIST UPDATE] Starting for {storage.name}")
         
         # UPDATED: Create log with operation_type
@@ -762,7 +798,9 @@ def manual_list_update_task(self, storage_id):
     except Exception as exc:
         logger.exception(f"[LIST UPDATE] Error for storage {storage_id}")
         raise self.retry(exc=exc)
-    
+    finally:
+        exit_supermarket_log(_log_ctx)
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -775,9 +813,11 @@ def assign_clusters_task(self, storage_id, pdf_file_path, cluster):
     from .scripts.inventory_reader import assign_clusters_from_pdf
     from django.utils import timezone
     
+    _log_ctx = None
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
-        
+        _log_ctx = enter_supermarket_log(storage.supermarket.name)
+
         logger.info(f"[ASSIGN CLUSTERS] Starting for {storage.name}: cluster='{cluster}'")
         
         # UPDATED: Create log with operation_type
@@ -817,7 +857,9 @@ def assign_clusters_task(self, storage_id, pdf_file_path, cluster):
     except Exception as exc:
         logger.exception(f"[ASSIGN CLUSTERS] Error for storage {storage_id}")
         raise self.retry(exc=exc)
-    
+    finally:
+        exit_supermarket_log(_log_ctx)
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -837,8 +879,10 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
     from pathlib import Path
     import os
 
+    _log_ctx = None
     try:
         supermarket = Supermarket.objects.get(id=supermarket_id)
+        _log_ctx = enter_supermarket_log(supermarket.name)
 
         logger.info(f"[PROCESS PROMOS] Starting for {supermarket.name}")
 
@@ -871,7 +915,9 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
     except Exception as exc:
         logger.exception(f"[PROCESS PROMOS] Error for supermarket {supermarket_id}")
         raise self.retry(exc=exc)
-    
+    finally:
+        exit_supermarket_log(_log_ctx)
+
 @shared_task(
     bind=True,
     max_retries=2,
@@ -893,9 +939,11 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
     import os
     import shutil
     
+    _log_ctx = None
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
-        
+        _log_ctx = enter_supermarket_log(storage.supermarket.name)
+
         logger.info(f"[VERIFY+AUTO-ADD] Starting for {storage.name}")
         
         # ✅ Report initial progress
@@ -1154,13 +1202,15 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
             
     except Exception as exc:
         logger.exception(f"[VERIFY+AUTO-ADD] ❌ Error for storage {storage_id}")
-        
+
         # ✅ Report error state
         self.update_state(
             state='FAILURE',
             meta={'error': str(exc)}
         )
         raise self.retry(exc=exc)
+    finally:
+        exit_supermarket_log(_log_ctx)
 
 
 @shared_task(
@@ -1205,32 +1255,40 @@ def order_promo_products_task(self, user_id, orders_list):
         # Process each supermarket
         for sm_id, sm_data in by_supermarket.items():
             supermarket = Supermarket.objects.get(id=sm_id, owner_id=user_id)
-
-            logger.info(f"[ORDER PROMO] Processing supermarket {supermarket.name}")
-
-            orderer = Orderer(
-                username=supermarket.username,
-                password=supermarket.password
-            )
+            _sm_log_ctx = enter_supermarket_log(supermarket.name)
 
             try:
-                orderer.login()
+                logger.info(f"[ORDER PROMO] Processing supermarket {supermarket.name}")
 
-                # Process each storage within this supermarket
-                for storage_name, products in sm_data['storages'].items():
-                    logger.info(f"[ORDER PROMO] Ordering {len(products)} products for {storage_name}")
+                orderer = Orderer(
+                    username=supermarket.username,
+                    password=supermarket.password
+                )
 
-                    successful_orders, order_skipped = orderer.make_orders(
-                        storage_name,
-                        products
-                    )
+                try:
+                    orderer.login()
 
-                    total_ordered += len(successful_orders)
-                    total_skipped += len(order_skipped)
-                    all_skipped_products.extend(order_skipped)
+                    # Process each storage within this supermarket
+                    for storage_name, products in sm_data['storages'].items():
+                        _order_log_ctx = enter_order_log(supermarket.name, storage_name)
+                        try:
+                            logger.info(f"[ORDER PROMO] Ordering {len(products)} products for {storage_name}")
 
+                            successful_orders, order_skipped = orderer.make_orders(
+                                storage_name,
+                                products
+                            )
+
+                            total_ordered += len(successful_orders)
+                            total_skipped += len(order_skipped)
+                            all_skipped_products.extend(order_skipped)
+                        finally:
+                            exit_order_log(_order_log_ctx)
+
+                finally:
+                    orderer.driver.quit()
             finally:
-                orderer.driver.quit()
+                exit_supermarket_log(_sm_log_ctx)
 
         logger.info(
             f"✅ [ORDER PROMO] Complete: {total_ordered} ordered, "
@@ -1267,9 +1325,11 @@ def process_ddt_task(self, storage_id, pdf_file_path):
     from .scripts.ddt_parser import parse_ddt_pdf, process_ddt_deliveries
     import os
     
+    _log_ctx = None
     try:
         storage = Storage.objects.select_related('supermarket').get(id=storage_id)
-        
+        _log_ctx = enter_supermarket_log(storage.supermarket.name)
+
         logger.info(f"[PROCESS DDT] Starting for {storage.name}")
         
         # Create log
@@ -1345,6 +1405,8 @@ def process_ddt_task(self, storage_id, pdf_file_path):
     except Exception as exc:
         logger.exception(f"[PROCESS DDT] Error for storage {storage_id}")
         raise self.retry(exc=exc)
+    finally:
+        exit_supermarket_log(_log_ctx)
 
 
 @shared_task(
@@ -1376,6 +1438,7 @@ def prepend_monthly_loss_zeros(self):
         error_count = 0
 
         for supermarket in supermarkets:
+            _log_ctx = enter_supermarket_log(supermarket.name)
             try:
                 first_storage = supermarket.storages.first()
 
@@ -1392,6 +1455,8 @@ def prepend_monthly_loss_zeros(self):
                 logger.exception(f"[CELERY] Error prepending zeros for {supermarket.name}")
                 error_count += 1
                 continue
+            finally:
+                exit_supermarket_log(_log_ctx)
 
         result_msg = f"Monthly loss zero-prepend complete: {success_count} successful, {error_count} failed"
         logger.info(f"[CELERY] {result_msg}")
@@ -1430,6 +1495,7 @@ def create_monthly_stock_snapshots(self):
         error_count = 0
 
         for supermarket in supermarkets:
+            _log_ctx = enter_supermarket_log(supermarket.name)
             try:
                 logger.info(f"[SNAPSHOT] Creating snapshot for {supermarket.name}")
 
@@ -1502,6 +1568,8 @@ def create_monthly_stock_snapshots(self):
                 logger.exception(f"✗ [SNAPSHOT] Error creating snapshot for {supermarket.name}")
                 error_count += 1
                 continue
+            finally:
+                exit_supermarket_log(_log_ctx)
 
         result_msg = f"Stock snapshots complete: {success_count} successful, {error_count} failed"
         logger.info(f"[CELERY] {result_msg}")
@@ -1528,8 +1596,10 @@ def sync_storages_task(self, supermarket_id):
     from .services import StorageService
     from .scripts.web_lister import WebLister
 
+    _log_ctx = None
     try:
         supermarket = Supermarket.objects.get(id=supermarket_id)
+        _log_ctx = enter_supermarket_log(supermarket.name)
         logger.info(f"[SYNC STORAGES] Starting for {supermarket.name}")
         StorageService.sync_storages(supermarket)
         logger.info(f"[SYNC STORAGES] Storages synced for {supermarket.name}")
@@ -1572,6 +1642,8 @@ def sync_storages_task(self, supermarket_id):
     except Exception as exc:
         logger.exception(f"[SYNC STORAGES] Error for supermarket #{supermarket_id}")
         raise self.retry(exc=exc)
+    finally:
+        exit_supermarket_log(_log_ctx)
 
 
 @shared_task(
@@ -1607,79 +1679,83 @@ def backfill_ean_and_id_for_verified_products(self):
         total_failed = 0
 
         for storage in storages:
-            # Query missing EANs for this storage's settore only
-            with RestockService(storage) as service:
-                cur = service.db.cursor()
-                cur.execute("""
-                    SELECT p.cod, p.v
-                    FROM products p
-                    JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                    WHERE ps.verified = TRUE AND p.ean IS NULL AND p.settore = %s
-                """, (storage.settore,))
-                missing = cur.fetchall()
-
-            if not missing:
-                logger.info(f"[EAN BACKFILL] No verified products with missing EAN in {storage.name}")
-                continue
-
-            logger.info(f"[EAN BACKFILL] Found {len(missing)} products to fill in {storage.name}")
-
-            temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
-            temp_dir.mkdir(exist_ok=True)
-
-            lister = WebLister(
-                username=storage.supermarket.username,
-                password=storage.supermarket.password,
-                storage_name=storage.name,
-                download_dir=str(temp_dir),
-                id_cod_mag=storage.id_cod_mag,
-                id_cliente=storage.supermarket.id_cliente,
-                id_azienda=storage.supermarket.id_azienda,
-                id_marchio=storage.supermarket.id_marchio,
-                id_clienti_canale=storage.supermarket.id_clienti_canale,
-                id_clienti_area=storage.supermarket.id_clienti_area,
-                headless=True
-            )
-
+            _log_ctx = enter_supermarket_log(storage.supermarket.name)
             try:
-                lister.login()
-                lister.navigate_to_lists()
-
+                # Query missing EANs for this storage's settore only
                 with RestockService(storage) as service:
-                    for row in missing:
-                        cod, v = row['cod'], row['v']
-                        try:
-                            product_data = lister.gather_missing_product_data(cod, v)
-                            if not product_data:
-                                logger.debug(f"[EAN BACKFILL] No data returned for {cod}.{v}")
+                    cur = service.db.cursor()
+                    cur.execute("""
+                        SELECT p.cod, p.v
+                        FROM products p
+                        JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                        WHERE ps.verified = TRUE AND p.ean IS NULL AND p.settore = %s
+                    """, (storage.settore,))
+                    missing = cur.fetchall()
+
+                if not missing:
+                    logger.info(f"[EAN BACKFILL] No verified products with missing EAN in {storage.name}")
+                    continue
+
+                logger.info(f"[EAN BACKFILL] Found {len(missing)} products to fill in {storage.name}")
+
+                temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
+                temp_dir.mkdir(exist_ok=True)
+
+                lister = WebLister(
+                    username=storage.supermarket.username,
+                    password=storage.supermarket.password,
+                    storage_name=storage.name,
+                    download_dir=str(temp_dir),
+                    id_cod_mag=storage.id_cod_mag,
+                    id_cliente=storage.supermarket.id_cliente,
+                    id_azienda=storage.supermarket.id_azienda,
+                    id_marchio=storage.supermarket.id_marchio,
+                    id_clienti_canale=storage.supermarket.id_clienti_canale,
+                    id_clienti_area=storage.supermarket.id_clienti_area,
+                    headless=True
+                )
+
+                try:
+                    lister.login()
+                    lister.navigate_to_lists()
+
+                    with RestockService(storage) as service:
+                        for row in missing:
+                            cod, v = row['cod'], row['v']
+                            try:
+                                product_data = lister.gather_missing_product_data(cod, v)
+                                if not product_data:
+                                    logger.debug(f"[EAN BACKFILL] No data returned for {cod}.{v}")
+                                    total_failed += 1
+                                    continue
+
+                                ean = product_data[7]
+
+                                if ean is None:
+                                    logger.debug(f"[EAN BACKFILL] No EAN found for {cod}.{v}")
+                                    total_failed += 1
+                                    continue
+
+                                cur = service.db.cursor()
+                                cur.execute(
+                                    "UPDATE products SET ean = %s WHERE cod = %s AND v = %s",
+                                    (ean, cod, v)
+                                )
+                                service.db.conn.commit()
+                                total_updated += 1
+                                logger.info(f"[EAN BACKFILL] {cod}.{v} -> EAN {ean}")
+
+                            except Exception as e:
+                                logger.warning(f"[EAN BACKFILL] Failed for {cod}.{v}: {e}")
                                 total_failed += 1
-                                continue
 
-                            ean = product_data[7]
+                            time.sleep(0.1)
 
-                            if ean is None:
-                                logger.debug(f"[EAN BACKFILL] No EAN found for {cod}.{v}")
-                                total_failed += 1
-                                continue
-
-                            cur = service.db.cursor()
-                            cur.execute(
-                                "UPDATE products SET ean = %s WHERE cod = %s AND v = %s",
-                                (ean, cod, v)
-                            )
-                            service.db.conn.commit()
-                            total_updated += 1
-                            logger.info(f"[EAN BACKFILL] {cod}.{v} -> EAN {ean}")
-
-                        except Exception as e:
-                            logger.warning(f"[EAN BACKFILL] Failed for {cod}.{v}: {e}")
-                            total_failed += 1
-
-                        time.sleep(0.1)
-
+                finally:
+                    lister.driver.quit()
+                    shutil.rmtree(lister.user_data_dir, ignore_errors=True)
             finally:
-                lister.driver.quit()
-                shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+                exit_supermarket_log(_log_ctx)
 
         result_msg = f"EAN backfill complete: {total_updated} updated, {total_failed} failed/missing"
         logger.info(f"[EAN BACKFILL] {result_msg}")
@@ -1703,6 +1779,7 @@ def fetch_single_ean(storage_id, cod, v):
     import shutil
 
     storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+    _log_ctx = enter_supermarket_log(storage.supermarket.name)
 
     temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
     temp_dir.mkdir(exist_ok=True)
@@ -1740,6 +1817,7 @@ def fetch_single_ean(storage_id, cod, v):
     finally:
         lister.driver.quit()
         shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+        exit_supermarket_log(_log_ctx)
 
 
 @shared_task(queue='selenium', acks_late=True, reject_on_worker_lost=True)
@@ -1756,6 +1834,7 @@ def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
     import shutil
 
     storage = Storage.objects.select_related('supermarket').get(id=storage_id)
+    _log_ctx = enter_supermarket_log(storage.supermarket.name)
 
     temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
     temp_dir.mkdir(exist_ok=True)
@@ -1810,6 +1889,7 @@ def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
     finally:
         lister.driver.quit()
         shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+        exit_supermarket_log(_log_ctx)
 
 
 @shared_task(
@@ -2024,6 +2104,37 @@ def cleanup_old_recipe_cost_alerts(self, read_max_age_days=30, unread_max_age_da
         raise self.retry(exc=exc)
 
 
+@shared_task(bind=True, max_retries=2, default_retry_delay=300)
+def cleanup_old_decision_maker_logs(self, max_age_days=7):
+    """
+    Delete per-order decision_maker log files (logs/<supermarket-slug>/decision_maker/*.log*)
+    older than max_age_days. Runs weekly (Sunday 01:15).
+    """
+    from datetime import timedelta
+    from pathlib import Path
+
+    try:
+        cutoff = timezone.now().timestamp() - timedelta(days=max_age_days).total_seconds()
+        logs_dir = Path(settings.BASE_DIR) / 'logs'
+
+        deleted = 0
+        for path in logs_dir.glob('*/decision_maker/*.log*'):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    deleted += 1
+            except OSError:
+                continue
+
+        msg = f"Decision-maker log cleanup complete: {deleted} file(s) deleted (older than {max_age_days} days)"
+        logger.info(f"[CELERY-CLEANUP] {msg}")
+        return msg
+
+    except Exception as exc:
+        logger.exception("[CELERY-CLEANUP] Fatal error in cleanup_old_decision_maker_logs")
+        raise self.retry(exc=exc)
+
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -2045,6 +2156,7 @@ def prepend_monthly_bought_zeros(self):
         total_updated = 0
 
         for supermarket in supermarkets:
+            _log_ctx = enter_supermarket_log(supermarket.name)
             db = DatabaseManager(supermarket_name=supermarket.name)
             try:
                 updated = db.rollover_bought_last_24()
@@ -2059,6 +2171,7 @@ def prepend_monthly_bought_zeros(self):
                 )
             finally:
                 db.close()
+                exit_supermarket_log(_log_ctx)
 
         msg = f"Monthly bought_last_24 rollover complete: {total_updated} product(s) updated across all supermarkets"
         logger.info(f"[MONTHLY-ROLLOVER] {msg}")
@@ -2092,6 +2205,7 @@ def prepend_monthly_sold_zeros(self):
         total_updated = 0
 
         for supermarket in supermarkets:
+            _log_ctx = enter_supermarket_log(supermarket.name)
             db = DatabaseManager(supermarket_name=supermarket.name)
             try:
                 updated = db.rollover_sold_last_24()
@@ -2106,6 +2220,7 @@ def prepend_monthly_sold_zeros(self):
                 )
             finally:
                 db.close()
+                exit_supermarket_log(_log_ctx)
 
         msg = f"Monthly sold_last_24 rollover complete: {total_updated} product(s) updated across all supermarkets"
         logger.info(f"[MONTHLY-ROLLOVER] {msg}")

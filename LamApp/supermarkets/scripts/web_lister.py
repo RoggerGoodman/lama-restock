@@ -314,7 +314,7 @@ class WebLister:
         if "GENERI VARI" in self.settore:
             self.reparto_groups = [[28], [44], [76], [50], [52]]
         elif "DEPERIBILI" in self.settore:
-            self.reparto_groups = [[28], [30], [34], [44]]
+            self.reparto_groups = [[30], [34], [44]]
         elif "SURGELATI" in self.settore:
             self.reparto_groups = [[38]]
         else:
@@ -399,7 +399,7 @@ class WebLister:
         response = session.post(url, data=payload, headers=headers, timeout=600)
         response.raise_for_status()
 
-        return response.json()
+        return response.json() or []
 
     def save_listino_to_csv(self, data: list[dict], column_map: dict = CSV_COLUMN_MAP):
         products = [row for row in data if is_real_product(row)]

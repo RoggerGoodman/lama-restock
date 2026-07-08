@@ -17,6 +17,12 @@ from .scripts.helpers import Helper
 from .scripts.inventory_scrapper import Inventory_Scrapper
 from .scripts.inventory_reader import verify_lost_stock_from_excel_combined
 from .scripts.orderer import Orderer
+from .logging_context import (
+    enter_supermarket_log,
+    exit_supermarket_log,
+    enter_order_log,
+    exit_order_log,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +351,8 @@ class AutomatedRestockService(RestockService):
                 started_at=timezone.now()
             )
 
+        _sm_log_ctx = enter_supermarket_log(self.supermarket.name)
+        _order_log_ctx = enter_order_log(self.supermarket.name, self.storage.name)
         try:
             if not skip_stats_update:
                 if progress_callback:
@@ -458,3 +466,6 @@ class AutomatedRestockService(RestockService):
             log.error_message = str(e)
             log.save()
             raise
+        finally:
+            exit_order_log(_order_log_ctx)
+            exit_supermarket_log(_sm_log_ctx)

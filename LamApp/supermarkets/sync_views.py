@@ -21,6 +21,7 @@ from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 from .models import Blacklist, BlacklistEntry, SalesSyncLog, Storage, Supermarket
 from .scripts.DatabaseManager import DatabaseManager
+from .logging_context import enter_supermarket_log, exit_supermarket_log
 
 logger = logging.getLogger(__name__)
 
@@ -64,71 +65,75 @@ def vensetar_sales_sync_view(request):
         logger.warning(f"[VENSETAR SYNC] Rejected request — unknown token (first 8: {token[:8]})")
         return HttpResponse('Invalid token', status=401)
 
+    _log_ctx = enter_supermarket_log(supermarket.name)
     try:
-        sync_date = date.fromisoformat(sync_date_str)
-    except ValueError:
-        return HttpResponse('Invalid sync_date, expected YYYY-MM-DD', status=400)
-
-    daily_sales = []
-    shelf_life_map = {}
-    skipped_float = 0
-    for entry in products_raw:
         try:
-            cod = int(entry['cod'])
-            var = int(entry['var'])
-            sold_raw = entry['sold']
-            # Skip kg-based articles (fractional quantities — system only handles whole units)
-            if isinstance(sold_raw, float) and sold_raw != int(sold_raw):
-                skipped_float += 1
+            sync_date = date.fromisoformat(sync_date_str)
+        except ValueError:
+            return HttpResponse('Invalid sync_date, expected YYYY-MM-DD', status=400)
+
+        daily_sales = []
+        shelf_life_map = {}
+        skipped_float = 0
+        for entry in products_raw:
+            try:
+                cod = int(entry['cod'])
+                var = int(entry['var'])
+                sold_raw = entry['sold']
+                # Skip kg-based articles (fractional quantities — system only handles whole units)
+                if isinstance(sold_raw, float) and sold_raw != int(sold_raw):
+                    skipped_float += 1
+                    continue
+                daily_sales.append((cod, var, int(sold_raw)))
+                sl = entry.get('shelf_life')
+                if sl is not None:
+                    shelf_life_map[(cod, var)] = int(sl)
+            except (KeyError, ValueError, TypeError):
                 continue
-            daily_sales.append((cod, var, int(sold_raw)))
-            sl = entry.get('shelf_life')
-            if sl is not None:
-                shelf_life_map[(cod, var)] = int(sl)
-        except (KeyError, ValueError, TypeError):
-            continue
-    if skipped_float:
-        logger.info(f"[VENSETAR SYNC] skipped {skipped_float} float-qty products (kg-based, not supported)")
+        if skipped_float:
+            logger.info(f"[VENSETAR SYNC] skipped {skipped_float} float-qty products (kg-based, not supported)")
 
-    if not daily_sales:
-        return HttpResponse('No valid product entries found', status=400)
+        if not daily_sales:
+            return HttpResponse('No valid product entries found', status=400)
 
-    db = DatabaseManager(supermarket_name=supermarket.name)
-    try:
-        result = db.apply_daily_vensetar_sales(daily_sales, sync_date, shelf_life_map=shelf_life_map)
-    except Exception:
-        logger.exception(f"[VENSETAR SYNC] DB error for supermarket '{supermarket.name}'")
-        return HttpResponse('Internal server error', status=500)
+        db = DatabaseManager(supermarket_name=supermarket.name)
+        try:
+            result = db.apply_daily_vensetar_sales(daily_sales, sync_date, shelf_life_map=shelf_life_map)
+        except Exception:
+            logger.exception(f"[VENSETAR SYNC] DB error for supermarket '{supermarket.name}'")
+            return HttpResponse('Internal server error', status=500)
+        finally:
+            db.close()
+
+        # Filter out products already in any blacklist for this supermarket
+        blacklisted = set(
+            BlacklistEntry.objects.filter(
+                blacklist__storage__supermarket=supermarket
+            ).values_list('product_code', 'product_var')
+        )
+        unverified_filtered = [
+            p for p in result['unverified_products']
+            if (p['cod'], p['v']) not in blacklisted
+        ]
+
+        SalesSyncLog.objects.create(
+            supermarket=supermarket,
+            sync_date=sync_date,
+            received=len(daily_sales),
+            applied=result['applied'],
+            already_synced=result['already_synced'],
+            not_in_db=result['not_in_db'],
+            unverified_products=unverified_filtered,
+        )
+
+        logger.info(
+            f"[VENSETAR SYNC] supermarket='{supermarket.name}' "
+            f"sync_date={sync_date_str} received={len(daily_sales)} "
+            f"applied={result['applied']} unverified={len(unverified_filtered)}"
+        )
+        return HttpResponse('OK', status=200)
     finally:
-        db.close()
-
-    # Filter out products already in any blacklist for this supermarket
-    blacklisted = set(
-        BlacklistEntry.objects.filter(
-            blacklist__storage__supermarket=supermarket
-        ).values_list('product_code', 'product_var')
-    )
-    unverified_filtered = [
-        p for p in result['unverified_products']
-        if (p['cod'], p['v']) not in blacklisted
-    ]
-
-    SalesSyncLog.objects.create(
-        supermarket=supermarket,
-        sync_date=sync_date,
-        received=len(daily_sales),
-        applied=result['applied'],
-        already_synced=result['already_synced'],
-        not_in_db=result['not_in_db'],
-        unverified_products=unverified_filtered,
-    )
-
-    logger.info(
-        f"[VENSETAR SYNC] supermarket='{supermarket.name}' "
-        f"sync_date={sync_date_str} received={len(daily_sales)} "
-        f"applied={result['applied']} unverified={len(unverified_filtered)}"
-    )
-    return HttpResponse('OK', status=200)
+        exit_supermarket_log(_log_ctx)
 
 
 # ---------------------------------------------------------------------------
