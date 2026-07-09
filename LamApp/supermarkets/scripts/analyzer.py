@@ -12,12 +12,14 @@ class Analyzer:
     # ----------------------------
     # Recorders
     # ----------------------------
-    def stat_recorder(self, qty: int, success: bool):
+    def stat_recorder(self, qty: int, success: bool, check: int = None):
         self.number_of_packages += qty
         if success:
             self.success += 1
         else:
             self.fail += 1
+        if check is not None:
+            self.check_counts[check] = self.check_counts.get(check, 0) + 1
 
     def low_sale_recorder(self, product_name: str, product_cod: int, product_var: int):
         self.low_list.append((product_name, product_cod, product_var))
@@ -26,24 +28,16 @@ class Analyzer:
         self.anomalous_stock_list.append(note)
 
     # ----------------------------
-    # Helpers
-    # ----------------------------
-    @staticmethod
-    def safe_div(numerator: float, denominator: float) -> float:
-        """Safely divide two numbers and return percentage."""
-        return (numerator / denominator * 100) if denominator > 0 else 0.0
-
-    # ----------------------------
     # Logging
     # ----------------------------
     def log_statistics(self):
-        total = self.success + self.fail
-
         logger.info(f"{self.CLASS_NAME} orders : {self.success}")
         logger.info(f"{self.CLASS_NAME} fails : {self.fail}")
         logger.info(
-            f"{self.CLASS_NAME} class success rate = "
-            f"{self.safe_div(self.success, total):.2f}%"
+            f"{self.CLASS_NAME} order breakdown: "
+            f"{self.CLASS_NAME}1(formula)={self.check_counts.get(1, 0)}, "
+            f"{self.CLASS_NAME}2(forced-leftover)={self.check_counts.get(2, 0)}, "
+            f"{self.CLASS_NAME}3(forced-low-stock)={self.check_counts.get(3, 0)}"
         )
 
         logger.info(f"Total packages : {self.number_of_packages}")
@@ -74,6 +68,7 @@ class Analyzer:
         self.number_of_packages = 0
         self.success = 0
         self.fail = 0
+        self.check_counts = {}
 
 
 analyzer = Analyzer()

@@ -397,10 +397,10 @@ class DecisionMaker:
             if result:
                 if avg_daily_sales <= 0.2:
                     analyzer.low_sale_recorder(descrizione, product_cod, product_var)
-                analyzer.stat_recorder(result, status)
+                analyzer.stat_recorder(result, status, check)
                 Helper.order_this(order_list, product_cod, product_var, result, descrizione, category, check, returned_discount)
             else:
-                analyzer.stat_recorder(0, status)
+                analyzer.stat_recorder(0, status, check)
                 self.helper.order_denied(product_cod, product_var, package_size, descrizione, category, check)
 
         analyzer.log_statistics()

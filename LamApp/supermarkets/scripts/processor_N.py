@@ -30,11 +30,11 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
         if discount != None:
             minimum_stock += (buff * 2)
             logger.info(
-                f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} >= 0.6 -> +{buff}, "
-                f"plus +{buff * 2} on-sale bonus (total +{buff * 3})"
+                f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} -> "
+                f"+{buff}, +{buff * 2} on-sale bonus (total +{buff * 3})"
             )
         else:
-            logger.info(f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} >= 0.6 -> +{buff}")
+            logger.info(f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} -> +{buff}")
     elif avg_daily_sales < 0.6:
         reduction = 1
         if avg_daily_sales <= 0.1:
@@ -42,7 +42,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
             if avg_daily_sales <= 0.05:
                 reduction += 1
         minimum_stock -= reduction
-        logger.info(f"Slow-mover reduction: avg_daily_sales={avg_daily_sales:.2f} < 0.6 -> -{reduction}")
+        logger.info(f"Slow-mover reduction: avg_daily_sales={avg_daily_sales:.2f} -> -{reduction}")
 
     logger.info(f"Minimum Stock after velocity adjustment = {minimum_stock} (base: {minimum_stock_base}, override: {minimum_stock_override})")
 
@@ -89,14 +89,15 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
         minimum_stock = math.floor(minimum_stock * expiry_factor)
         logger.info(f"Expiry factor {expiry_factor} applied -> minimum_stock {pre_expiry} -> {minimum_stock}")
 
-    if batch_expiry_factor:
-        logger.info(f"Batch expiry risk detected -> minimum_stock forced from {minimum_stock} to 1")
+    if batch_expiry_factor and minimum_stock > 1:
+        logger.info(f"Batch expiry risk detected -> minimum_stock capped from {minimum_stock} to 1")
         minimum_stock = 1
 
     minimum_stock = max(1 if shelf_life_has_buffer else 0, minimum_stock)
     logger.info(f"Minimum Stock (final) = {minimum_stock}")
 
-    order = (req_stock + minimum_stock - stock) / package_size
+    raw_order = (req_stock + minimum_stock - stock) / package_size
+    order = raw_order
     if order >= 0:
         tollerance_threshold = avg_daily_sales/package_size
         decimal_part = order % 1
@@ -109,12 +110,12 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
 
         if order >= 1:
             logger.info(
-                f"Order decision: {order} package(s) — formula "
+                f"Order decision: {order} package(s) (raw={raw_order:.2f}) — formula "
                 f"(req_stock={req_stock} + minimum_stock={minimum_stock} - stock={stock}) / package_size={package_size}"
             )
             return order, 1, True, discount
 
-    if leftover_stock < minimum_stock:
+    if leftover_stock <= minimum_stock:
         order = 1
         logger.info(f"Order decision: forced 1 package — leftover_stock={leftover_stock} < minimum_stock={minimum_stock}")
         return order, 2, True, discount

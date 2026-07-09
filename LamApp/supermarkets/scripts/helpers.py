@@ -237,16 +237,14 @@ class Helper:
 
         expiry_rate = total_expired / denominator
         
-        if expiry_rate <= 0.01:
+        if expiry_rate <= 0.05:
             return None
-        elif expiry_rate <= 0.05:
-            factor = 0.7
         elif expiry_rate <= 0.1:
-            factor = 0.4
+            factor = 0.7
         elif expiry_rate <= 0.2:
-            factor = 0.2
+            factor = 0.4
         else:
-            factor = 0.1
+            factor = 0.2
 
         logger.info(f"Expiry factor: rate={expiry_rate:.1%} ({total_expired} expired / {denominator} total) → factor={factor}")
         return factor
