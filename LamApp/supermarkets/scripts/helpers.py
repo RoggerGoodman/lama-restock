@@ -240,7 +240,7 @@ class Helper:
         if expiry_rate <= 0.05:
             return None
         elif expiry_rate <= 0.1:
-            factor = 0.7
+            factor = 0.6
         elif expiry_rate <= 0.2:
             factor = 0.4
         else:
@@ -296,7 +296,7 @@ class Helper:
         days_left = shelf_life_days - i_batch
 
         if days_left <= 0:
-            logger.info(f"Batch expiry: delivery ({qty_batch} units, {i_batch}d ago) already past shelf life")
+            logger.info(f"Batch expiry: delivery ({qty_batch} units, {i_batch}d ago) already past {shelf_life_days}d shelf life")
             return True
 
         sold_from_batch = qty_batch - remaining
@@ -314,7 +314,7 @@ class Helper:
         if days_to_clear < days_left:
             return None
 
-        logger.info(f"Batch expiry risk: {remaining:.1f} units remaining, {days_left}d left, {days_to_clear:.1f}d to clear (rate={recent_rate:.2f})")
+        logger.info(f"Batch expiry risk: {remaining:.1f} units remaining, {days_left}d left of {shelf_life_days}d shelf life, {days_to_clear:.1f}d to clear (rate={recent_rate:.2f})")
         return True
 
     @staticmethod

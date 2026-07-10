@@ -13,61 +13,67 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
 
     Args:
         minimum_stock_base: Base minimum stock from the storage (set per-storage in the UI)
-        minimum_stock_override: Product-level override; if set, bypasses the max(avg, base) logic
+        minimum_stock_override: Product-level override. If set, used as-is in place of the
+            base/velocity/slow-mover/deviation/expiry-rate calculation below — those all
+            reflect the algorithm's own judgment, which the override exists to replace.
+            Shelf-life cap and active batch-expiry-risk cap still apply on top of it, since
+            those are physical facts about today's stock, not judgment calls the override
+            can account for in advance.
     """
     order = 1
     req_stock = round(req_stock)
+    leftover_stock = stock - req_stock
 
     if minimum_stock_override is not None:
         minimum_stock = minimum_stock_override
+        logger.info(f"Minimum stock override = {minimum_stock} (velocity/deviation/expiry-rate adjustments skipped)")
     else:
-        minimum_stock = minimum_stock_base
-    leftover_stock = stock - req_stock
+        presence_target = minimum_stock_base  # always-on-the-shelf baseline, storage-configured
 
-    if avg_daily_sales >= 0.6:
-        buff = max(0, round(math.sqrt(max(0, req_stock - 1))) - 1)
-        minimum_stock += buff
-        if discount != None:
-            minimum_stock += (buff * 2)
-            logger.info(
-                f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} -> "
-                f"+{buff}, +{buff * 2} on-sale bonus (total +{buff * 3})"
-            )
+        if avg_daily_sales >= 0.6:
+            buff = max(0, round(math.sqrt(max(0, req_stock - 1))) - 1)
+            demand_margin = buff
+            if discount != None:
+                demand_margin += (buff * 2)
+                logger.info(
+                    f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} -> "
+                    f"+{buff}, +{buff * 2} on-sale bonus (total +{buff * 3})"
+                )
+            else:
+                logger.info(f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} -> +{buff}")
         else:
-            logger.info(f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} -> +{buff}")
-    elif avg_daily_sales < 0.6:
-        reduction = 1
-        if avg_daily_sales <= 0.1:
-            reduction += 1
-            if avg_daily_sales <= 0.05:
+            reduction = 1
+            if avg_daily_sales <= 0.1:
                 reduction += 1
-        minimum_stock -= reduction
-        logger.info(f"Slow-mover reduction: avg_daily_sales={avg_daily_sales:.2f} -> -{reduction}")
+                if avg_daily_sales <= 0.05:
+                    reduction += 1
+            demand_margin = -reduction
+            logger.info(f"Slow-mover reduction: avg_daily_sales={avg_daily_sales:.2f} -> -{reduction}")
 
-    logger.info(f"Minimum Stock after velocity adjustment = {minimum_stock} (base: {minimum_stock_base}, override: {minimum_stock_override})")
+        minimum_stock = presence_target + demand_margin
+        logger.info(f"Baseline={presence_target}, demand margin={demand_margin:+d} -> minimum_stock={minimum_stock}")
 
-    pre_deviation = minimum_stock
-    if deviation_corrected >= 40:
-        minimum_stock = math.floor(minimum_stock * 1.3)
-    elif deviation_corrected >= 20:
-        minimum_stock = math.floor(minimum_stock * 1.2)
-    elif deviation_corrected <= -40:
-        minimum_stock = math.ceil(minimum_stock * 0.6)
-    elif deviation_corrected <= -20:
-        minimum_stock = math.ceil(minimum_stock * 0.8)
-    if minimum_stock != pre_deviation:
-        logger.info(f"Deviation adjustment: deviation={deviation_corrected:.1f}% -> minimum_stock {pre_deviation} -> {minimum_stock}")
+        pre_deviation = minimum_stock
+        if deviation_corrected >= 40:
+            minimum_stock = math.floor(minimum_stock * 1.3)
+        elif deviation_corrected >= 20:
+            minimum_stock = math.floor(minimum_stock * 1.2)
+        elif deviation_corrected <= -40:
+            minimum_stock = math.ceil(minimum_stock * 0.6)
+        elif deviation_corrected <= -20:
+            minimum_stock = math.ceil(minimum_stock * 0.8)
+        if minimum_stock != pre_deviation:
+            logger.info(f"Deviation adjustment: deviation={deviation_corrected:.1f}% -> minimum_stock {pre_deviation} -> {minimum_stock}")
 
-    minimum_stock = round(minimum_stock)
+        pre_floor = minimum_stock
+        minimum_stock = max(1, round(minimum_stock))
+        if minimum_stock != pre_floor:
+            logger.info(f"Floor clamp: minimum_stock raised {pre_floor} -> {minimum_stock} (floor=1)")
 
-    pre_floor = minimum_stock
-    if minimum_stock_override is not None:
-        minimum_stock = max(minimum_stock_override, minimum_stock)
-    else:
-        minimum_stock = max(1, minimum_stock)
-    if minimum_stock != pre_floor:
-        floor_value = minimum_stock_override if minimum_stock_override is not None else 1
-        logger.info(f"Floor clamp: minimum_stock raised {pre_floor} -> {minimum_stock} (floor={floor_value})")
+    if expiry_factor is not None and minimum_stock_override is None:
+        pre_expiry = minimum_stock
+        minimum_stock = math.floor(minimum_stock * expiry_factor)
+        logger.info(f"Expiry factor {expiry_factor} applied -> minimum_stock {pre_expiry} -> {minimum_stock}")
 
     shelf_life_has_buffer = False
     if shelf_life_days is not None:
@@ -84,11 +90,6 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
                 f"-> minimum_stock capped {pre_shelf_life} -> {minimum_stock}"
             )
 
-    if expiry_factor is not None:
-        pre_expiry = minimum_stock
-        minimum_stock = math.floor(minimum_stock * expiry_factor)
-        logger.info(f"Expiry factor {expiry_factor} applied -> minimum_stock {pre_expiry} -> {minimum_stock}")
-
     if batch_expiry_factor and minimum_stock > 1:
         logger.info(f"Batch expiry risk detected -> minimum_stock capped from {minimum_stock} to 1")
         minimum_stock = 1
@@ -99,7 +100,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     raw_order = (req_stock + minimum_stock - stock) / package_size
     order = raw_order
     if order >= 0:
-        tollerance_threshold = avg_daily_sales/package_size
+        tollerance_threshold = min(0.5, minimum_stock/package_size)
         decimal_part = order % 1
         if batch_expiry_factor:
             order = math.floor(order)

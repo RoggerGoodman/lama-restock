@@ -370,17 +370,21 @@ class DecisionMaker:
             else:
                 discount = None
 
-            expiry_factor = None
-            if (product_cod, product_var) in expired_lookup:
-                expiry_factor = Helper.compute_expiry_factor(
-                    expired_lookup[(product_cod, product_var)], sold_array
-                )
+            if shelf_life_days is not None and shelf_life_days <= 90:
+                expiry_factor = None
+                if (product_cod, product_var) in expired_lookup:
+                    expiry_factor = Helper.compute_expiry_factor(
+                        expired_lookup[(product_cod, product_var)], sold_array
+                    )
 
-            batch_expiry_factor = None
-            if shelf_life_days is not None:
-                batch_expiry_factor = Helper.compute_batch_expiry_factor(
-                    bought_sets, sales_sets, stock, shelf_life_days, avg_daily_sales
-                )
+                batch_expiry_factor = None
+                if shelf_life_days is not None:
+                    batch_expiry_factor = Helper.compute_batch_expiry_factor(
+                        bought_sets, sales_sets, stock, shelf_life_days, avg_daily_sales
+                    )
+            else:
+                expiry_factor = None
+                batch_expiry_factor = None
 
             if verified:
                 category = "N"

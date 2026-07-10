@@ -391,7 +391,12 @@ class DatabaseManager:
 
         # For verified products absent from today's VENSETAR payload:
         # - stock >= 1: insert 0 (available but didn't sell)
-        # - stock == 0 AND disponibilita != 'No': insert None (supermarket stockout — demand censored)
+        # - stock == 0 AND disponibilita != 'No' AND last known sale > 0: insert None
+        #   (demand-driven stockout — demand censored)
+        # - stock == 0 AND disponibilita != 'No' AND last known sale <= 0: insert 0
+        #   (stock reached zero without a preceding sale — e.g. expiry/loss write-off —
+        #   so the shortfall isn't demand we need to hide; recording 0 preserves the
+        #   low-demand signal instead of inflating the average once restocked)
         # - stock == 0 AND disponibilita == 'No': insert 0 (supplier-OOS, not our fault)
         payload_keys = {(cod, var) for cod, var, _ in daily_sales}
         cur.execute("""
@@ -407,7 +412,9 @@ class DatabaseManager:
             if bool(absent['verified']):
                 stock_zero = (absent['stock'] or 0) == 0
                 supplier_oos = absent['disponibilita'] == 'No'
-                entry = None if (stock_zero and not supplier_oos) else 0
+                last_known_sale = next((v for v in ss if v is not None), None)
+                demand_driven = last_known_sale is not None and last_known_sale > 0
+                entry = None if (stock_zero and not supplier_oos and demand_driven) else 0
             else:
                 entry = 0
             ss.insert(0, entry)
