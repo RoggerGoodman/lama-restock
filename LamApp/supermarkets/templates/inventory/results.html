@@ -401,8 +401,8 @@
                     
                     <div class="mb-3">
                         <label for="adjustment" class="form-label">Rettifica</label>
-                        <input type="number" class="form-control" id="adjustment" name="adjustment" 
-                               placeholder="e.g., -5 or +10" required>
+                        <input type="number" class="form-control" id="adjustment" name="adjustment"
+                               placeholder="es. -5 o +10" required>
                         <div class="form-text">Utilizzare il negativo per rimuovere dalla giacenza, il positivo per aggiungere</div>
                     </div>
                     
@@ -423,8 +423,8 @@
                         <label for="cluster" class="form-label">
                             <i class="bi bi-folder"></i> Cluster
                         </label>
-                        <input type="text" class="form-control" id="cluster" name="cluster" 
-                               placeholder="e.g., FREEZER, DAIRY" style="text-transform: uppercase;">
+                        <input type="text" class="form-control" id="cluster" name="cluster"
+                               placeholder="es. SURGELATI, LATTICINI" style="text-transform: uppercase;">
                         <div class="form-text">
                             Assegna o modifica il cluster (lascia vuoto per mantenerlo invariato, digita 'NONE' per rimuoverlo)
                         </div>
@@ -434,14 +434,14 @@
                         <label for="reason" class="form-label">Motivazione per Rettifica</label>
                         <select class="form-select" id="reason" name="reason" required>
                             <option value="" selected disabled>-- Seleziona motivazione --</option>
-                            <optgroup label="Loss Categories (recorded in analytics)">
+                            <optgroup label="Categorie di perdita (registrate nelle analisi)">
                                 <option value="broken">Rotto/Danneggiato (registrato come perdita)</option>
                                 <option value="expired">Scaduto (registrato come perdita)</option>
                                 <option value="internal_use">Uso interno (registrato come perdita)</option>
                                 <option value="stolen">Furti (registrato come perdita)</option>
                                 <option value="shrinkage">Differenze inventariali (registrato come perdita)</option>
                             </optgroup>
-                            <optgroup label="Other Reasons">
+                            <optgroup label="Altri motivi">
                                 <option value="undelivered">Pacco non consegnato</option>
                                 <option value="extra_delivery">Pacco extra consegnato</option>
                                 <option value="miscount">Errore di calcolo</option>

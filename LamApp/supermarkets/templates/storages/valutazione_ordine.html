@@ -1126,7 +1126,9 @@
                         if (row.querySelector('td.excess-deficit-cell.has-big-excess')) bigCounts[f]++;
                     }
                 } else {
-                    if (row.dataset.calibOutcome === 'critical') bigCounts[f]++;
+                    if (isMachine) {
+                        if (getMachineOutcome(row) === 'critical') bigCounts[f]++;
+                    } else if (row.dataset.calibOutcome === 'critical') bigCounts[f]++;
                 }
             }
         });

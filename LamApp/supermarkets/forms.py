@@ -156,10 +156,10 @@ class BlacklistForm(forms.ModelForm):
         fields = ['storage', 'name', 'description']
         widgets = {
             'storage': forms.Select(attrs={'class': 'form-select'}),
-            'name': forms.TextInput(attrs={'placeholder': 'e.g., Seasonal Products', 'class': 'form-control'}),
+            'name': forms.TextInput(attrs={'placeholder': 'es. Prodotti stagionali', 'class': 'form-control'}),
             'description': forms.Textarea(attrs={
                 'rows': 3,
-                'placeholder': 'Optional description of this blacklist',
+                'placeholder': 'Descrizione facoltativa di questa blacklist',
                 'class': 'form-control'
             }),
         }
@@ -363,10 +363,10 @@ class InventorySearchForm(forms.Form):
         required=False,
         widget=forms.NumberInput(attrs={
             'class': 'form-control',
-            'placeholder': 'e.g., 12345'
+            'placeholder': 'es. 12345'
         })
     )
-    
+
     product_var = forms.IntegerField(
         required=False,
         initial=1,

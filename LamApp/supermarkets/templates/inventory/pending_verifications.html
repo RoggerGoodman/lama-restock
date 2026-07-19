@@ -144,11 +144,11 @@ function verifyProduct(cod, var_, supermarketId, settore) {
     const newPackageSize = parseInt(pkgInput.value);
     
     if (newPackageSize < 1) {
-        alert('Package size must be at least 1');
+        alert('La dimensione della confezione deve essere almeno 1');
         return;
     }
-    
-    if (!confirm(`Verify product ${cod}.${var_} with package size ${newPackageSize}?`)) {
+
+    if (!confirm(`Verificare il prodotto ${cod}.${var_} con confezione da ${newPackageSize}?`)) {
         return;
     }
     

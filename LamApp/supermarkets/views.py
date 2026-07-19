@@ -65,7 +65,7 @@ def signup(request):
         if form.is_valid():
             user = form.save()
             login(request, user)
-            messages.success(request, "Account created successfully!")
+            messages.success(request, "Account creato con successo!")
             return redirect("dashboard")
     else:
         form = UserCreationForm()
@@ -455,7 +455,7 @@ class SupermarketDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView)
         return self.get_object().owner == self.request.user
 
     def delete(self, request, *args, **kwargs):
-        messages.success(request, f"Supermarket '{self.get_object().name}' deleted successfully!")
+        messages.success(request, f"Punto vendita '{self.get_object().name}' eliminato con successo!")
         return super().delete(request, *args, **kwargs)
 
 
@@ -1123,7 +1123,7 @@ class StorageDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         return reverse_lazy('supermarket-detail', kwargs={'pk': self.object.supermarket.pk})
 
     def delete(self, request, *args, **kwargs):
-        messages.success(request, f"Storage '{self.get_object().name}' deleted successfully!")
+        messages.success(request, f"Magazzino '{self.get_object().name}' eliminato con successo!")
         return super().delete(request, *args, **kwargs)
 
 
@@ -1215,7 +1215,7 @@ class RestockScheduleDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteV
         return reverse_lazy('storage-detail', kwargs={'pk': self.object.storage.pk})
 
     def delete(self, request, *args, **kwargs):
-        messages.success(request, "Schedule deleted successfully!")
+        messages.success(request, "Agenda eliminata con successo!")
         return super().delete(request, *args, **kwargs)
 
 
@@ -1564,7 +1564,7 @@ def retry_restock_view(request, log_id):
         if is_ajax:
             return JsonResponse({'success': True, 'log_id': log_id})
         else:
-            messages.success(request, f"Retry queued — the order will be processed shortly.")
+            messages.success(request, f"Nuovo tentativo in coda — l'ordine verrà elaborato a breve.")
             return redirect('restock-log-detail', pk=log_id)
     except Exception as e:
         logger.exception(f"Error retrying restock from checkpoint")
@@ -1572,7 +1572,7 @@ def retry_restock_view(request, log_id):
         if is_ajax:
             return JsonResponse({'success': False, 'message': str(e)}, status=500)
         
-        messages.error(request, f"Retry failed: {str(e)}")
+        messages.error(request, f"Tentativo fallito: {str(e)}")
         return redirect('restock-log-detail', pk=log_id)
 
 class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
@@ -1985,7 +1985,7 @@ class BlacklistDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         return self.get_object().storage.supermarket.owner == self.request.user
 
     def delete(self, request, *args, **kwargs):
-        messages.success(request, f"Blacklist '{self.get_object().name}' deleted successfully!")
+        messages.success(request, f"Blacklist '{self.get_object().name}' eliminata con successo!")
         return super().delete(request, *args, **kwargs)
 
 
@@ -2115,7 +2115,7 @@ def upload_promos_view(request, supermarket_id):
                 
             except Exception as e:
                 logger.exception("Error saving promo file")
-                messages.error(request, f"Error: {str(e)}")
+                messages.error(request, f"Errore: {str(e)}")
                 return redirect('supermarket-detail', pk=supermarket_id)
     else:
         form = PromoUploadForm()
@@ -2982,7 +2982,7 @@ def purge_products_view(request, storage_id):
                     return redirect('storage-detail', pk=storage_id)               
             except Exception as e:
                 logger.exception("Error in purge operation")
-                messages.error(request, f"Error: {str(e)}")
+                messages.error(request, f"Errore: {str(e)}")
     else:        
         form = PurgeProductsForm()    
     # Get pending purges
@@ -3013,11 +3013,11 @@ def check_purge_flagged_view(request, storage_id):
                 f"Automatically purged {len(purged)} flagged products that reached zero stock"
             )
         else:
-            messages.info(request, "No flagged products ready for purging")
+            messages.info(request, "Nessun prodotto segnalato pronto per l'eliminazione")
         
     except Exception as e:
         logger.exception("Error checking flagged products")
-        messages.error(request, f"Error: {str(e)}")
+        messages.error(request, f"Errore: {str(e)}")
     
     return redirect('purge-products', storage_id=storage_id)
 
@@ -3216,7 +3216,7 @@ def inventory_results_view(request, search_type):
             # Search for specific product
             cod = int(request.GET.get('cod'))
             var = int(request.GET.get('var'))
-            search_description = f"Product {cod}.{var}"
+            search_description = f"Prodotto {cod}.{var}"
             
             found = False
             for sm in Supermarket.objects.filter(owner=request.user):
@@ -3308,14 +3308,14 @@ def inventory_results_view(request, search_type):
             clusters = [c.strip() for c in cluster_param.split(',') if c.strip()]
 
             if not supermarket_id or not settore:
-                messages.error(request, "Missing search parameters")
+                messages.error(request, "Parametri di ricerca mancanti")
                 return redirect('inventory-search')
 
             try:
                 supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
             except Exception as e:
                 logger.exception("Supermarket not found")
-                messages.error(request, f"Supermarket not found: {e}")
+                messages.error(request, f"Punto vendita non trovato: {e}")
                 return redirect('inventory-search')
 
             settore_name = settore
@@ -3323,12 +3323,12 @@ def inventory_results_view(request, search_type):
             if clusters:
                 search_description = f"{supermarket.name} - {settore} - Cluster: {', '.join(clusters)}"
             else:
-                search_description = f"{supermarket.name} - {settore} (All Clusters)"
+                search_description = f"{supermarket.name} - {settore} (Tutti i cluster)"
 
             storage = supermarket.storages.filter(settore=settore).first()
 
             if not storage:
-                messages.warning(request, f"No storage found for settore: {settore}")
+                messages.warning(request, f"Nessun magazzino trovato per il settore: {settore}")
                 return redirect('inventory-search')
 
             with RestockService(storage) as service:
@@ -3369,12 +3369,12 @@ def inventory_results_view(request, search_type):
 
                 except Exception as e:
                     logger.exception(f"Database error in settore search")
-                    messages.error(request, f"Database error: {e}")
+                    messages.error(request, f"Errore del database: {e}")
                     return redirect('inventory-search')
     
     except Exception as e:
         logger.exception("Error in inventory search")
-        messages.error(request, f"Search error: {str(e)}")
+        messages.error(request, f"Errore di ricerca: {str(e)}")
         return redirect('inventory-search')
     
     context = {
@@ -3817,7 +3817,7 @@ def verify_stock_unified_enhanced_view(request):
         cluster = request.POST.get('cluster', '').strip().upper()
         
         if not supermarket_id or not storage_id:
-            messages.error(request, "Please select both supermarket and storage")
+            messages.error(request, "Seleziona sia il punto vendita che il magazzino")
             return redirect('verify-stock-unified-enhanced')
         
         storage = get_object_or_404(
@@ -3828,13 +3828,13 @@ def verify_stock_unified_enhanced_view(request):
         )
         
         if 'pdf_file' not in request.FILES:
-            messages.error(request, "No file uploaded")
+            messages.error(request, "Nessun file caricato")
             return redirect('verify-stock-unified-enhanced')
         
         pdf_file = request.FILES['pdf_file']
         
         if not pdf_file.name.endswith('.pdf'):
-            messages.error(request, "File must be .pdf format")
+            messages.error(request, "Il file deve essere in formato .pdf")
             return redirect('verify-stock-unified-enhanced')
         
         try:
@@ -3869,7 +3869,7 @@ def verify_stock_unified_enhanced_view(request):
             
         except Exception as e:
             logger.exception("Error starting verification")
-            messages.error(request, f"Error: {str(e)}")
+            messages.error(request, f"Errore: {str(e)}")
             return redirect('verify-stock-unified-enhanced')
     
     # GET request - load existing clusters for dropdown
@@ -3907,11 +3907,11 @@ def assign_clusters_view(request):
         cluster = request.POST.get('cluster', '').strip().upper()
         
         if not supermarket_id or not storage_id:
-            messages.error(request, "Please select both supermarket and storage")
+            messages.error(request, "Seleziona sia il punto vendita che il magazzino")
             return redirect('assign-clusters')
         
         if not cluster:
-            messages.error(request, "Please provide a cluster name")
+            messages.error(request, "Inserisci un nome per il cluster")
             return redirect('assign-clusters')
         
         storage = get_object_or_404(
@@ -3922,13 +3922,13 @@ def assign_clusters_view(request):
         )
         
         if 'pdf_file' not in request.FILES:
-            messages.error(request, "No file uploaded")
+            messages.error(request, "Nessun file caricato")
             return redirect('assign-clusters')
         
         pdf_file = request.FILES['pdf_file']
         
         if not pdf_file.name.endswith('.pdf'):
-            messages.error(request, "File must be .pdf format (not CSV)")
+            messages.error(request, "Il file deve essere in formato .pdf (non CSV)")
             return redirect('assign-clusters')
         
         try:
@@ -3960,7 +3960,7 @@ def assign_clusters_view(request):
             
         except Exception as e:
             logger.exception("Error assigning clusters")
-            messages.error(request, f"Error: {str(e)}")
+            messages.error(request, f"Errore: {str(e)}")
             return redirect('assign-clusters')
     
     # Load existing clusters for reference
@@ -4144,14 +4144,14 @@ def verification_report_unified_view(request):
             }
         else:
             # Task not ready or failed
-            messages.warning(request, "Verification still in progress or failed")
+            messages.warning(request, "Verifica ancora in corso o non riuscita")
             return redirect('inventory-search')
     else:
         # Fallback to session (for backward compatibility)
         report = request.session.get('verification_report')
     
     if not report:
-        messages.warning(request, "No verification report available")
+        messages.warning(request, "Nessun report di verifica disponibile")
         return redirect('inventory-search')
     
     # Calculate statistics
@@ -5015,7 +5015,7 @@ def upload_ddt_view(request, storage_id):
 
             except Exception as e:
                 logger.exception("Error saving DDT file")
-                messages.error(request, f"Error: {str(e)}")
+                messages.error(request, f"Errore: {str(e)}")
                 return redirect('upload-ddt', storage_id=storage_id)
     else:
         form = DDTUploadForm()

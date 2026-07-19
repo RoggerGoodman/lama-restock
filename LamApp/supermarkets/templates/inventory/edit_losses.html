@@ -38,7 +38,7 @@
                     <div class="col-md-6">
                         <label for="storage_id" class="form-label">Magazzino</label>
                         <select name="storage_id" id="storage_id" class="form-select" onchange="this.form.submit()">
-                            <option value="">Tutti i Punti vendita</option>
+                            <option value="">Tutti i Settori</option>
                             {% for storage in storages %}
                             <option value="{{ storage.id }}" 
                                     {% if storage.id|stringformat:"s" == selected_storage %}selected{% endif %}>
