@@ -930,13 +930,13 @@ class DatabaseManager:
         }
 
     def check_and_purge_flagged(self):
-        """Purge all flagged products whose stock has reached 0."""
+        """Purge all flagged products whose stock has reached (or dropped below) 0."""
         cur = self.cursor()
         cur.execute("""
             SELECT p.cod, p.v
             FROM products p
             JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-            WHERE p.purge_flag = TRUE AND ps.stock = 0
+            WHERE p.purge_flag = TRUE AND ps.stock <= 0
         """)
         return [self.purge_product(row['cod'], row['v']) for row in cur.fetchall()]
 
@@ -945,7 +945,7 @@ class DatabaseManager:
         Delete products that are confirmed gone:
           - verified=FALSE (never confirmed in stock)
           - disponibilita='No' (unavailable from supplier)
-          - stock=0
+          - stock<=0
 
         Called after list updates so that disponibilita is fresh.
         """
@@ -956,6 +956,6 @@ class DatabaseManager:
             JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
             WHERE ps.verified = FALSE
               AND p.disponibilita = 'No'
-              AND ps.stock = 0
+              AND ps.stock <= 0
         """)
         return [self.purge_product(row['cod'], row['v']) for row in cur.fetchall()]

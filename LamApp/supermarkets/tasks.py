@@ -604,6 +604,8 @@ def run_scheduled_list_updates(self):
                                 f"[CELERY] Purged obsolete product {p['cod']}.{p['v']} "
                                 f"from {sm.name}"
                             )
+                        from .services import delete_blacklist_entries_for_purged
+                        delete_blacklist_entries_for_purged(purged, supermarket=sm)
                 finally:
                     db.close()
             except Exception as e:

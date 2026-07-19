@@ -61,6 +61,42 @@ class RestockService:
             logger.warning(f"Error closing database connection: {e}")
 
 
+def delete_blacklist_entries_for_purged(purged_products, *, storage=None, supermarket=None):
+    """
+    Remove BlacklistEntry rows left behind after purge_product() clears a
+    product's stats. purge_product() intentionally keeps the `products` row
+    (losses reference it) and has no notion of Storage/Blacklist, so callers
+    must reconcile the blacklist tables themselves once a purge completes.
+
+    purged_products: list of dicts as returned by DatabaseManager.purge_product()
+    (or a list of such dicts from purge_obsolete_products/check_and_purge_flagged).
+    Pass `storage` when the purge ran against a single Storage, or `supermarket`
+    when it ran across all storages of a Supermarket (e.g. purge_obsolete_products).
+    """
+    from django.db.models import Q
+    from .models import BlacklistEntry
+
+    codes = [(p['cod'], p['v']) for p in purged_products if p.get('action') == 'purged']
+    if not codes:
+        return 0
+
+    if storage is not None:
+        qs = BlacklistEntry.objects.filter(blacklist__storage=storage)
+    elif supermarket is not None:
+        qs = BlacklistEntry.objects.filter(blacklist__storage__supermarket=supermarket)
+    else:
+        raise ValueError("delete_blacklist_entries_for_purged requires storage or supermarket")
+
+    code_filter = Q()
+    for cod, v in codes:
+        code_filter |= Q(product_code=cod, product_var=v)
+
+    deleted, _ = qs.filter(code_filter).delete()
+    if deleted:
+        logger.info(f"Removed {deleted} stale blacklist entr{'y' if deleted == 1 else 'ies'} for purged products")
+    return deleted
+
+
 # Optional: Keep StorageService for discovery operations
 class StorageService:
     """Service to manage storage discovery and setup"""

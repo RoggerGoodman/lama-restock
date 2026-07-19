@@ -300,6 +300,8 @@ class AutomatedRestockService(RestockService):
         purged_products = self.db.check_and_purge_flagged()
         if purged_products:
             logger.info(f"[AUTO-PURGE] Purged {len(purged_products)} products for {self.storage.name}")
+            from .services import delete_blacklist_entries_for_purged
+            delete_blacklist_entries_for_purged(purged_products, storage=self.storage)
 
         # Filter not_found against the 'Non gestiti' blacklist for this storage
         from .models import BlacklistEntry

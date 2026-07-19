@@ -85,15 +85,35 @@
                                     <th>Codice Articolo</th>
                                     <th>Descrizione</th>
                                     <th>Giacenza</th>
+                                    <th>Giorni dall'ultima vendita</th>
+                                    <th>Stato</th>
                                     <th>Azioni</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for entry in entries_with_desc %}
-                                <tr>
+                                <tr class="{% if entry.is_missing or entry.is_purged %}text-muted{% endif %}">
                                     <td><strong>{{ entry.product_code }}.{{ entry.product_var }}</strong></td>
                                     <td>{{ entry.description|default:"-" }}</td>
                                     <td><span class="badge bg-secondary">{{ entry.stock }}</span></td>
+                                    <td>
+                                        {% if entry.days_without_sales is not None %}
+                                            {{ entry.days_without_sales }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if entry.is_missing %}
+                                            <span class="badge bg-dark" title="Nessun prodotto corrispondente in anagrafica">Dati mancanti</span>
+                                        {% elif entry.is_purged %}
+                                            <span class="badge bg-light text-dark border" title="Statistiche già eliminate da un purge precedente">Già eliminato</span>
+                                        {% elif entry.purge_flag %}
+                                            <span class="badge bg-warning text-dark">In attesa di eliminazione</span>
+                                        {% else %}
+                                            <span class="badge bg-info text-dark">Blacklist manuale</span>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         <a href="{% url 'blacklistentry-delete' pk=entry.pk %}" class="btn btn-sm btn-outline-danger">
                                             <i class="bi bi-trash"></i> Rimuovi

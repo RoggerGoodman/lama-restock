@@ -38,7 +38,7 @@ from .forms import (
     RecordLossesForm, DDTUploadForm, DayWeightsForm, OrderComparisonForm,
 )
 
-from .services import RestockService
+from .services import RestockService, delete_blacklist_entries_for_purged
 from .scripts.helpers import Helper
 import logging
 
@@ -1934,7 +1934,15 @@ class BlacklistDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     params = [item for pair in codes for item in pair]
 
                     cursor.execute(f"""
-                        SELECT p.cod, p.v, p.descrizione, ps.stock
+                        SELECT p.cod, p.v, p.descrizione, p.purge_flag, ps.stock,
+                            (
+                                SELECT COALESCE(
+                                    (SELECT (MIN(t.ord) - 1)::int
+                                     FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY AS t(elem, ord)
+                                     WHERE t.elem::numeric != 0),
+                                    jsonb_array_length(ps.sales_sets)
+                                )
+                            ) AS days_without_sales
                         FROM products p
                         LEFT JOIN product_stats ps ON ps.cod = p.cod AND ps.v = p.v
                         WHERE (p.cod, p.v) IN ({placeholders})
@@ -1943,16 +1951,26 @@ class BlacklistDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     # Create lookup dict
                     info = {(row['cod'], row['v']): row for row in cursor.fetchall()}
 
-                    # Attach descriptions and stock to entries
+                    # Attach descriptions, stock and purge status to entries
                     for entry in entries:
                         row = info.get((entry.product_code, entry.product_var))
                         entry.description = row['descrizione'] if row else '-'
                         entry.stock = row['stock'] if row and row['stock'] is not None else 0
+                        entry.purge_flag = bool(row['purge_flag']) if row else False
+                        entry.days_without_sales = row['days_without_sales'] if row else None
+                        # products row exists but product_stats was already cleared by a purge
+                        entry.is_purged = row is not None and row['stock'] is None
+                        # no matching products row at all (predates current purge_product() logic)
+                        entry.is_missing = row is None
             except Exception:
                 # If DB query fails, set empty descriptions
                 for entry in entries:
                     entry.description = '-'
                     entry.stock = '-'
+                    entry.purge_flag = False
+                    entry.days_without_sales = None
+                    entry.is_purged = False
+                    entry.is_missing = False
 
         context['entries_with_desc'] = entries
         return context
@@ -3684,6 +3702,7 @@ def inventory_flag_for_purge_ajax_view(request):
                     service.db.register_losses(cod, var, shrinkage_qty, 'shrinkage')
                     logger.info(f"Registered shrinkage of {shrinkage_qty} units for {cod}.{var}")
                 result = service.db.purge_product(cod, var)
+                delete_blacklist_entries_for_purged([result], storage=storage)
                 return JsonResponse({'success': True, 'message': result['message']})
             elif stock > 0:
                 # Has stock - add to "In fase di eliminazione" blacklist
@@ -3722,6 +3741,7 @@ def inventory_flag_for_purge_ajax_view(request):
             else:
                 # No stock - delete immediately
                 result = service.db.purge_product(cod, var)
+                delete_blacklist_entries_for_purged([result], storage=storage)
                 return JsonResponse({'success': True, 'message': result['message']})
 
 
