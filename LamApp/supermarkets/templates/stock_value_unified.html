@@ -38,7 +38,8 @@
                         <select name="storage_id" id="storage_id" class="form-select" onchange="updateClusters()">
                             <option value="">Tutti i Magazzini</option>
                             {% for storage in storages %}
-                            <option value="{{ storage.id }}" data-supermarket="{{ storage.supermarket.id }}" 
+                            <option value="{{ storage.id }}" data-supermarket="{{ storage.supermarket.id }}"
+                                    data-settore="{{ storage.settore }}"
                                     {% if storage.id|stringformat:"s" == selected_storage %}selected{% endif %}>
                                 {{ storage.settore }}
                             </option>
@@ -299,13 +300,33 @@ function updateStorages() {
     });
     
     storageSelect.value = '';
-    document.getElementById('cluster').value = '';
+    document.getElementById('cluster').innerHTML = '<option value="">Tutti i Clusters</option>';
 }
 
 function updateClusters() {
-    // Clusters will be loaded from backend based on storage
-    // For now just clear selection
-    document.getElementById('cluster').value = '';
+    const clusterSelect = document.getElementById('cluster');
+    clusterSelect.innerHTML = '<option value="">Tutti i Clusters</option>';
+
+    const storageSelect = document.getElementById('storage_id');
+    const selectedOption = storageSelect.options[storageSelect.selectedIndex];
+    const supermarketId = selectedOption ? selectedOption.dataset.supermarket : '';
+    const settore = selectedOption ? selectedOption.dataset.settore : '';
+
+    if (!supermarketId || !settore) {
+        return;
+    }
+
+    fetch(`/inventory/api/clusters/${encodeURIComponent(supermarketId)}/${encodeURIComponent(settore)}/`)
+        .then(r => r.json())
+        .then(data => {
+            (data.clusters || []).forEach(cluster => {
+                const opt = document.createElement('option');
+                opt.value = cluster;
+                opt.textContent = cluster;
+                clusterSelect.appendChild(opt);
+            });
+        })
+        .catch(err => console.error('Error loading clusters:', err));
 }
 </script>
 {% endblock %}

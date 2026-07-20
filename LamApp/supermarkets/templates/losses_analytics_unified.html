@@ -546,21 +546,7 @@ function clearProductFilter() {
     document.querySelector('form').submit();
 }
 
-// Map English month abbreviations to Italian
-const monthMap = {
-    'Jan': 'Gen', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Apr',
-    'May': 'Mag', 'Jun': 'Giu', 'Jul': 'Lug', 'Aug': 'Ago',
-    'Sep': 'Set', 'Oct': 'Ott', 'Nov': 'Nov', 'Dec': 'Dic'
-};
-const rawLabels = {{ chart_labels|safe }};
-const monthLabels = rawLabels.map(label => {
-    for (const [eng, ita] of Object.entries(monthMap)) {
-        if (label.includes(eng)) {
-            return label.replace(eng, ita);
-        }
-    }
-    return label;
-});
+const monthLabels = {{ chart_labels|safe }};
 const showType = '{{ show_type }}';
 
 // Build datasets based on type filter, using pre-sliced chart data from the view

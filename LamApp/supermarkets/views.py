@@ -2378,8 +2378,10 @@ def losses_analytics_unified_view(request):
     Auto-selects single supermarket if user has only one
     """
     from datetime import datetime
-    from calendar import month_abbr
-    
+
+    month_abbr = ['', 'Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu',
+                  'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
+
     # Get user's supermarkets
     supermarkets = Supermarket.objects.filter(owner=request.user)
     
