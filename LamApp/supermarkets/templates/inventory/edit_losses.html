@@ -93,7 +93,7 @@
                                 <th class="text-center">Scaduto</th>
                                 <th class="text-center">Uso interno</th>
                                 <th class="text-center">Diff. inv.</th>
-                                <th>Actions</th>
+                                <th>Azioni</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -238,21 +238,22 @@ function renderLossArray(lossType, array) {
     container.innerHTML = '';
     
     if (!array || array.length === 0) {
-        container.innerHTML = '<p class="text-muted">No losses recorded</p>';
+        container.innerHTML = '<p class="text-muted">Nessuna perdita registrata</p>';
         return;
     }
-    
+
     const monthsToShow = Math.min(12, array.length);
-    
+
     for (let i = 0; i < monthsToShow; i++) {
         const item = array[i];
+
+        // Handle the data format from Python: {qty, cost, value}; older entries may be a bare number
+        const isObj = item !== null && typeof item === 'object';
+        const qty = isObj ? (item.qty ?? 0) : (item ?? 0);
+        const cost = isObj ? (item.cost ?? 0) : 0;
+        const value = isObj && item.value !== undefined ? item.value : (qty * cost);
         
-        // Handle the data format from Python: {qty, cost, value}
-        const qty = item.qty || item;
-        const cost = item.cost || 0;
-        const value = item.value || (qty * cost);
-        
-        const monthLabel = i === 0 ? 'Current' : `${i} mo ago`;
+        const monthLabel = i === 0 ? 'Attuale' : (i === 1 ? '1 mese fa' : `${i} mesi fa`);
         
         const col = document.createElement('div');
         col.className = 'col-md-4';
@@ -284,8 +285,8 @@ function renderLossArray(lossType, array) {
     infoDiv.innerHTML = `
         <div class="alert alert-info alert-sm mb-0">
             <i class="bi bi-info-circle"></i>
-            <small>Cost values are historical snapshots from when losses were recorded. 
-            Editing quantity preserves the original cost.</small>
+            <small>I valori di costo sono istantanee storiche rilevate al momento della registrazione della perdita.
+            Modificare la quantità mantiene il costo originale.</small>
         </div>
     `;
     container.appendChild(infoDiv);
@@ -337,7 +338,7 @@ function updateLossValue(event, lossType, monthIndex, newValue) {
                     <div class="toast show" role="alert">
                         <div class="toast-header bg-success text-white">
                             <i class="bi bi-check-circle me-2"></i>
-                            <strong class="me-auto">Updated</strong>
+                            <strong class="me-auto">Aggiornato</strong>
                             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
                         </div>
                         <div class="toast-body">
@@ -353,12 +354,12 @@ function updateLossValue(event, lossType, monthIndex, newValue) {
             
             setTimeout(() => toastContainer.remove(), 3000);
         } else {
-            alert('Error: ' + data.message);
+            alert('Errore: ' + data.message);
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('Error updating loss value: ' + error);
+        alert('Errore durante l\'aggiornamento della perdita: ' + error);
     });
 }
 </script>

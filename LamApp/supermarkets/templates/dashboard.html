@@ -337,14 +337,9 @@
                                     </td>
                                     <td>
                                         <div class="btn-group btn-group-sm">
-                                            <a href="{% url 'run-restock' storage_id=storage.id %}" 
-                                               class="btn btn-outline-primary" 
-                                               title="Run Restock">
-                                                <i class="bi bi-play-circle"></i>
-                                            </a>
-                                            <a href="{% url 'storage-detail' pk=storage.id %}" 
+                                            <a href="{% url 'storage-detail' pk=storage.id %}"
                                                class="btn btn-outline-secondary"
-                                               title="View Details">
+                                               title="Vedi dettagli">
                                                 <i class="bi bi-eye"></i>
                                             </a>
                                         </div>
@@ -456,13 +451,13 @@
                                                             {% elif log.status == 'completed' %}
                                                                 <a href="{% url 'storage-detail' pk=log.storage.id %}"
                                                                 class="btn btn-sm btn-outline-secondary"
-                                                                title="View Magazzino">
+                                                                title="Vedi magazzino">
                                                                     <i class="bi bi-box"></i>
                                                                 </a>
                                                             {% elif log.status == 'failed' %}
                                                                 <a href="{% url 'restock-log-detail' pk=log.id %}"
                                                                 class="btn btn-sm btn-outline-danger"
-                                                                title="View Error">
+                                                                title="Vedi errore">
                                                                     <i class="bi bi-exclamation-triangle"></i>
                                                                 </a>
                                                             {% else %}
