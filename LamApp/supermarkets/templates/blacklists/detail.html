@@ -79,31 +79,31 @@
 
                 {% if entries_with_desc %}
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-hover" id="blacklist-entries-table">
                             <thead>
                                 <tr>
-                                    <th>Codice Articolo</th>
-                                    <th>Descrizione</th>
-                                    <th>Giacenza</th>
-                                    <th>Giorni dall'ultima vendita</th>
-                                    <th>Stato</th>
+                                    <th class="sortable-hdr" data-sort="number" style="cursor:pointer;white-space:nowrap;">Codice Articolo</th>
+                                    <th class="sortable-hdr" data-sort="text" style="cursor:pointer;white-space:nowrap;">Descrizione</th>
+                                    <th class="sortable-hdr" data-sort="number" style="cursor:pointer;white-space:nowrap;">Giacenza</th>
+                                    <th class="sortable-hdr" data-sort="number" style="cursor:pointer;white-space:nowrap;">Giorni dall'ultima vendita</th>
+                                    <th class="sortable-hdr" data-sort="number" style="cursor:pointer;white-space:nowrap;">Stato</th>
                                     <th>Azioni</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for entry in entries_with_desc %}
                                 <tr class="{% if entry.is_missing or entry.is_purged %}text-muted{% endif %}">
-                                    <td><strong>{{ entry.product_code }}.{{ entry.product_var }}</strong></td>
-                                    <td>{{ entry.description|default:"-" }}</td>
-                                    <td><span class="badge bg-secondary">{{ entry.stock }}</span></td>
-                                    <td>
+                                    <td data-value="{{ entry.product_code }}.{{ entry.product_var|stringformat:'03d' }}"><strong>{{ entry.product_code }}.{{ entry.product_var }}</strong></td>
+                                    <td data-value="{{ entry.description|default:'' }}">{{ entry.description|default:"-" }}</td>
+                                    <td data-value="{{ entry.stock }}"><span class="badge bg-secondary">{{ entry.stock }}</span></td>
+                                    <td data-value="{% if entry.days_without_sales is not None %}{{ entry.days_without_sales }}{% else %}-1{% endif %}">
                                         {% if entry.days_without_sales is not None %}
                                             {{ entry.days_without_sales }}
                                         {% else %}
                                             -
                                         {% endif %}
                                     </td>
-                                    <td>
+                                    <td data-value="{% if entry.is_missing %}3{% elif entry.is_purged %}2{% elif entry.purge_flag %}1{% else %}0{% endif %}">
                                         {% if entry.is_missing %}
                                             <span class="badge bg-dark" title="Nessun prodotto corrispondente in anagrafica">Dati mancanti</span>
                                         {% elif entry.is_purged %}
@@ -140,4 +140,58 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var table = document.getElementById('blacklist-entries-table');
+    if (!table) return;
+    var tbody = table.querySelector('tbody');
+    var headers = table.querySelectorAll('th.sortable-hdr');
+    var state = { col: -1, dir: 1 };
+
+    function updateIndicators(activeIdx) {
+        headers.forEach(function (h) {
+            h.querySelectorAll('.sort-indicator').forEach(function (el) { el.remove(); });
+            var idx = Array.prototype.indexOf.call(h.parentNode.children, h);
+            if (idx === activeIdx) {
+                var span = document.createElement('span');
+                span.className = 'sort-indicator';
+                span.innerHTML = state.dir === 1 ? ' ▲' : ' ▼';
+                h.appendChild(span);
+            }
+        });
+    }
+
+    headers.forEach(function (th) {
+        th.addEventListener('click', function () {
+            var colIdx = Array.prototype.indexOf.call(th.parentNode.children, th);
+            var type = th.getAttribute('data-sort');
+            state.dir = (state.col === colIdx) ? -state.dir : 1;
+            state.col = colIdx;
+
+            var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+            rows.sort(function (a, b) {
+                var aCell = a.children[colIdx];
+                var bCell = b.children[colIdx];
+                var aVal = aCell.getAttribute('data-value');
+                var bVal = bCell.getAttribute('data-value');
+                if (aVal === null) aVal = aCell.textContent.trim();
+                if (bVal === null) bVal = bCell.textContent.trim();
+
+                if (type === 'number') {
+                    aVal = parseFloat(aVal); if (isNaN(aVal)) aVal = -Infinity;
+                    bVal = parseFloat(bVal); if (isNaN(bVal)) bVal = -Infinity;
+                    return (aVal - bVal) * state.dir;
+                }
+                return aVal.localeCompare(bVal, 'it', { sensitivity: 'base' }) * state.dir;
+            });
+
+            rows.forEach(function (row) { tbody.appendChild(row); });
+            updateIndicators(colIdx);
+        });
+    });
+});
+</script>
 {% endblock %}
