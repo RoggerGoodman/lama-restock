@@ -38,6 +38,28 @@
         align-items: center;
         gap: 8px;
     }
+    #productsTable th.sortable {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+    #productsTable th.sortable:hover {
+        background-color: #f1f3f5;
+    }
+    #productsTable th.sortable::after {
+        content: '\2195';
+        color: #adb5bd;
+        margin-left: 4px;
+        font-size: 0.85em;
+    }
+    #productsTable th.sortable.sort-asc::after {
+        content: '\2191';
+        color: #495057;
+    }
+    #productsTable th.sortable.sort-desc::after {
+        content: '\2193';
+        color: #495057;
+    }
 </style>
 {% endblock %}
 
@@ -322,27 +344,27 @@
                                 
                                 <!-- ✅ FIXED: Only show selected type columns -->
                                 {% if show_type == 'all' or show_type == 'broken' %}
-                                <th class="text-end">Rotture</th>
+                                <th class="text-end sortable" data-sort="numeric">Rotture</th>
                                 {% endif %}
-                                
+
                                 {% if show_type == 'all' or show_type == 'expired' %}
-                                <th class="text-end">Scaduto</th>
+                                <th class="text-end sortable" data-sort="numeric">Scaduto</th>
                                 {% endif %}
-                                
+
                                 {% if show_type == 'all' or show_type == 'internal' %}
-                                <th class="text-end">Utilizzo interno</th>
+                                <th class="text-end sortable" data-sort="numeric">Utilizzo interno</th>
                                 {% endif %}
-                                
+
                                 {% if show_type == 'all' or show_type == 'stolen' %}
-                                <th class="text-end">Furti</th>
+                                <th class="text-end sortable" data-sort="numeric">Furti</th>
                                 {% endif %}
 
                                 {% if show_type == 'all' or show_type == 'shrinkage' %}
-                                <th class="text-end">Diff. inventariali</th>
+                                <th class="text-end sortable" data-sort="numeric">Diff. inventariali</th>
                                 {% endif %}
 
-                                <th class="text-end">Unità totali</th>
-                                <th class="text-end">Valore totale</th>
+                                <th class="text-end sortable" data-sort="numeric">Unità totali</th>
+                                <th class="text-end sortable" data-sort="numeric">Valore totale</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -353,7 +375,7 @@
                                 <td><small class="text-muted">{{ product.category }}</small></td>
                                 
                                 {% if show_type == 'all' or show_type == 'broken' %}
-                                <td class="text-end">
+                                <td class="text-end" data-value="{{ product.broken_units }}">
                                     {% if product.broken_units > 0 %}
                                         <span class="badge bg-danger">{{ product.broken_units }}</span>
                                         <small class="text-muted d-block">€{{ product.broken_value|floatformat:2 }}</small>
@@ -362,9 +384,9 @@
                                     {% endif %}
                                 </td>
                                 {% endif %}
-                                
+
                                 {% if show_type == 'all' or show_type == 'expired' %}
-                                <td class="text-end">
+                                <td class="text-end" data-value="{{ product.expired_units }}">
                                     {% if product.expired_units > 0 %}
                                         <span class="badge bg-warning">{{ product.expired_units }}</span>
                                         <small class="text-muted d-block">€{{ product.expired_value|floatformat:2 }}</small>
@@ -373,9 +395,9 @@
                                     {% endif %}
                                 </td>
                                 {% endif %}
-                                
+
                                 {% if show_type == 'all' or show_type == 'internal' %}
-                                <td class="text-end">
+                                <td class="text-end" data-value="{{ product.internal_units }}">
                                     {% if product.internal_units > 0 %}
                                         <span class="badge bg-info">{{ product.internal_units }}</span>
                                         <small class="text-muted d-block">€{{ product.internal_value|floatformat:2 }}</small>
@@ -384,9 +406,9 @@
                                     {% endif %}
                                 </td>
                                 {% endif %}
-                                
+
                                 {% if show_type == 'all' or show_type == 'stolen' %}
-                                <td class="text-end">
+                                <td class="text-end" data-value="{{ product.stolen_units }}">
                                     {% if product.stolen_units > 0 %}
                                         <span class="badge" style="background-color: #856404;">{{ product.stolen_units }}</span>
                                         <small class="text-muted d-block">€{{ product.stolen_value|floatformat:2 }}</small>
@@ -397,7 +419,7 @@
                                 {% endif %}
 
                                 {% if show_type == 'all' or show_type == 'shrinkage' %}
-                                <td class="text-end">
+                                <td class="text-end" data-value="{{ product.shrinkage_units }}">
                                     {% if product.shrinkage_units > 0 %}
                                         <span class="badge" style="background-color: #6f42c1;">{{ product.shrinkage_units }}</span>
                                         <small class="text-muted d-block">€{{ product.shrinkage_value|floatformat:2 }}</small>
@@ -407,10 +429,10 @@
                                 </td>
                                 {% endif %}
 
-                                <td class="text-end">
+                                <td class="text-end" data-value="{{ product.total_units }}">
                                     <strong>{{ product.total_units }}</strong>
                                 </td>
-                                <td class="text-end">
+                                <td class="text-end" data-value="{{ product.total_value }}">
                                     <strong class="text-danger">€{{ product.total_value|floatformat:2 }}</strong>
                                 </td>
                             </tr>
@@ -725,5 +747,32 @@ function exportToCSV() {
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
 }
+
+// Sortable columns for the products table
+(function() {
+    const table = document.getElementById('productsTable');
+    if (!table) return;
+    const tbody = table.querySelector('tbody');
+    const headers = table.querySelectorAll('thead th.sortable');
+
+    headers.forEach(th => {
+        th.addEventListener('click', function() {
+            const index = Array.from(th.parentNode.children).indexOf(th);
+            const currentlyAsc = th.classList.contains('sort-asc');
+            const nextDir = currentlyAsc ? 'desc' : 'asc';
+
+            headers.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+            th.classList.add(nextDir === 'asc' ? 'sort-asc' : 'sort-desc');
+
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort((a, b) => {
+                const aVal = parseFloat(a.children[index].dataset.value) || 0;
+                const bVal = parseFloat(b.children[index].dataset.value) || 0;
+                return nextDir === 'asc' ? aVal - bVal : bVal - aVal;
+            });
+            rows.forEach(row => tbody.appendChild(row));
+        });
+    });
+})();
 </script>
 {% endblock %}
