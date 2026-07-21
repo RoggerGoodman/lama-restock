@@ -750,15 +750,28 @@ function calculateCoverageDays(orderDayIndex, orderDays, deliveryOffsets) {
 }
 
 // Calculate weighted coverage for a specific order day
+// Mirrors RestockSchedule._calculate_weighted_days: the sum is normalised by the
+// mean of the seven weights so coverage stays in "average days" and the weights
+// only redistribute it, never scale it up or down as a whole.
 function calculateCoverage(orderDayIndex, orderDays, deliveryOffsets) {
     const numDays = calculateCoverageDays(orderDayIndex, orderDays, deliveryOffsets);
     const weights = getDayWeights();
+
+    let meanWeight = 0;
+    for (let d = 0; d < 7; d++) {
+        meanWeight += weights[d];
+    }
+    meanWeight /= 7;
 
     // Sum weights for each day in coverage period
     let weightedSum = 0;
     for (let i = 0; i < numDays; i++) {
         const dayIndex = (orderDayIndex + i) % 7;
         weightedSum += weights[dayIndex];
+    }
+
+    if (meanWeight > 0) {
+        weightedSum /= meanWeight;
     }
 
     return Math.round(weightedSum * 100) / 100;  // Round to 2 decimals

@@ -126,24 +126,36 @@ class Helper:
         # p95 captures the "normal ceiling" of the product's sales.
         # Outliers are capped to the highest non-outlier value in the set,
         # preserving position and temporal structure.
-        # If p95 == 0 (product barely sells), skip — no meaningful reference.
+        #
+        # The threshold is floored at the second-highest observed day, which is
+        # what makes this work on sparse sellers. When 95%+ of days are zero the
+        # p95 carries no scale information: it collapses to 0 (multiplicative
+        # gate disabled entirely — a single 500-unit day on a product that sells
+        # three times in 60 days would set avg_daily_sales on its own) or to a
+        # near-zero fraction (gate so tight it caps the product's genuine sales
+        # down to 0). The floor covers both: for [500, 0, 0, ...] it is 0 so the
+        # spike is discarded, for [500, 3, 2, 0, ...] it is 3 so the real days
+        # survive and only the spike is capped. On a normal seller outlier_k×p95
+        # dominates and the floor never binds.
         sorted_vals = sorted(daily_sales)
         idx = 0.95 * (len(sorted_vals) - 1)
         lo = int(idx)
         hi = min(lo + 1, len(sorted_vals) - 1)
         p95 = sorted_vals[lo] + (idx - lo) * (sorted_vals[hi] - sorted_vals[lo])
-        if p95 > 0:
-            threshold = outlier_k * p95
-            outlier_indices = [i for i, v in enumerate(daily_sales) if v > threshold]
-            if outlier_indices:
-                safe_max = max(v for v in daily_sales if v <= threshold)
-                if not silent:
-                    logger.warning(
-                        f"avg_daily_sales_from_sales_sets: capped outliers to {safe_max} "
-                        f"(threshold={threshold:.1f}, p95={p95:.1f}): "
-                        f"{[(i, daily_sales[i]) for i in outlier_indices]}"
-                    )
-                daily_sales = [safe_max if v > threshold else v for v in daily_sales]
+
+        threshold = max(outlier_k * p95, sorted_vals[-2])
+        outlier_indices = [i for i, v in enumerate(daily_sales) if v > threshold]
+        if outlier_indices:
+            # Never empty: threshold >= sorted_vals[-2], so every value except
+            # the maximum is at or below it, and observed_days >= min_days.
+            safe_max = max(v for v in daily_sales if v <= threshold)
+            if not silent:
+                logger.warning(
+                    f"avg_daily_sales_from_sales_sets: capped outliers to {safe_max} "
+                    f"(threshold={threshold:.1f}, p95={p95:.1f}): "
+                    f"{[(i, daily_sales[i]) for i in outlier_indices]}"
+                )
+            daily_sales = [safe_max if v > threshold else v for v in daily_sales]
 
         lam = math.log(2) / half_life
 

@@ -170,3 +170,17 @@ docs/screenshots/app-mobile-inventario.png
 docs/screenshots/inventario-rettifica-motivazioni.png
 docs/screenshots/pv-chiusure-calendario.png
 docs/screenshots/inventario-modifica-perdite-edit.png
+docs/screenshots/valore-inventario.png
+.gitignore
+docs/screenshots/analisi-perdite-tabella.png
+docs/screenshots/analisi-perdite-riepiloghi.png
+.gitignore
+docs/screenshots/analisi-perdite-intervallo.png
+docs/screenshots/analisi-perdite-filtri.png
+docs/screenshots/articoli-disponibili.png
+docs/screenshots/giacenza-anomala.png
+.gitignore
+docs/screenshots/articoli-esauriti.png
+docs/screenshots/magazzino-blacklist.png
+.gitignore
+docs/screenshots/blacklist-dettaglio.png

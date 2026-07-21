@@ -280,19 +280,33 @@ class RestockSchedule(models.Model):
         """
         Sum the day weights for a period starting from start_day_index.
 
+        The sum is normalised by the mean of the seven weights, so the result is
+        always expressed in "average days". This matters because the consumer is
+        `req_stock = avg_daily_sales * coverage` (decision_maker), and
+        avg_daily_sales is the mean demand across all weekdays. The product is
+        only correct when the weights average to 1.0 — otherwise every order in
+        the store is scaled by mean(weights). Normalising here makes the weights
+        a pure shape control: raising Saturday redistributes coverage toward
+        Saturday instead of silently inflating every order.
+
         Args:
             start_day_index: Starting day (0=Monday, 6=Sunday)
             num_days: Number of days to cover
 
         Returns:
-            float: Sum of weights for the coverage period
+            float: Coverage for the period, in average-traffic days
         """
         supermarket = self.storage.supermarket
-        weighted_sum = 0.0
+        weights = [supermarket.get_day_weight(d) for d in range(7)]
+        mean_weight = sum(weights) / 7
 
+        weighted_sum = 0.0
         for i in range(num_days):
             day_index = (start_day_index + i) % 7
-            weighted_sum += supermarket.get_day_weight(day_index)
+            weighted_sum += weights[day_index]
+
+        if mean_weight > 0:
+            weighted_sum /= mean_weight
 
         return round(weighted_sum, 2)
 

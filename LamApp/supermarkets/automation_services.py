@@ -164,9 +164,15 @@ class AutomatedRestockService(RestockService):
             sale_end = row.get('sale_end')
             on_sale = bool(sale_start and sale_end and sale_start <= today <= sale_end)
 
+            # Same fallback chain as decision_maker: under 14 observed days
+            # sales_sets can't produce a rate, so fall back to the monthly
+            # estimator rather than assuming zero demand. Assuming zero collapses
+            # eff_min to 0 via the slow-mover ladder and the shelf-life cap, which
+            # makes `stock < eff_min` unreachable — a product that genuinely sells
+            # but lacks 14 days of history can never be reported understocked.
             avg_daily_sales = self.helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True)
             if avg_daily_sales is None:
-                avg_daily_sales = 0.0
+                avg_daily_sales, _ = self.helper.calculate_weighted_avg_sales_new(sold_last_24, silent=True)
 
             req_stock = round(avg_daily_sales * coverage_days)
 
