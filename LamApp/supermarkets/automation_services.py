@@ -194,7 +194,7 @@ class AutomatedRestockService(RestockService):
                     if avg_daily_sales <= 0.05:
                         eff_min -= 1
 
-            deviation = self.helper.calculate_deviation(sales_sets)
+            deviation = self.helper.calculate_deviation(sales_sets, silent=True)
             if deviation >= 40:
                 eff_min = math.floor(eff_min * 1.2)
             elif deviation >= 20:

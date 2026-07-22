@@ -135,9 +135,19 @@ def admin_create_user(request):
 
 @login_required
 def dashboard_view(request):
+    from django.db.models import Prefetch
+
+    # The "ultima operazione" column reads storage.restock_logs.first. RestockLog has
+    # no default ordering, and loss_recording logs are supermarket-wide despite being
+    # pinned to an arbitrary storage — so filter them out and order explicitly here.
     supermarkets = Supermarket.objects.filter(owner=request.user).prefetch_related(
         'storages__schedule',
-        'storages__restock_logs',
+        Prefetch(
+            'storages__restock_logs',
+            queryset=RestockLog.objects.exclude(
+                operation_type='loss_recording'
+            ).order_by('-started_at')
+        ),
         'storages__blacklists'
     )
     
@@ -591,7 +601,12 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['recent_logs'] = self.object.restock_logs.select_related(
+        # loss_recording logs are supermarket-wide but the RestockLog FK forces a
+        # storage, so they carry an arbitrary one (see record_losses_all_supermarkets).
+        # They belong on the supermarket page, not in a single storage's history.
+        context['recent_logs'] = self.object.restock_logs.exclude(
+            operation_type='loss_recording'
+        ).select_related(
             'storage__supermarket'
         ).order_by('-started_at')[:20]
         

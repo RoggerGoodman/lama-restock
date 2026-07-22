@@ -24,9 +24,6 @@ class Analyzer:
     def low_sale_recorder(self, product_name: str, product_cod: int, product_var: int):
         self.low_list.append((product_name, product_cod, product_var))
 
-    def anomalous_stock_recorder(self, note: str):
-        self.anomalous_stock_list.append(note)
-
     # ----------------------------
     # Logging
     # ----------------------------
@@ -49,12 +46,6 @@ class Analyzer:
                 + "\n".join(", ".join(map(str, item)) for item in self.low_list)
             )
 
-        if self.anomalous_stock_list:
-            logger.info(
-                "The following products have an anomalous negative stock oscillation:\n"
-                + "\n".join(self.anomalous_stock_list)
-            )
-
         # Reset statistics for next run
         self.reset_statistics()
 
@@ -63,7 +54,6 @@ class Analyzer:
     # ----------------------------
     def reset_statistics(self):
         self.low_list = []
-        self.anomalous_stock_list = []
 
         self.number_of_packages = 0
         self.success = 0

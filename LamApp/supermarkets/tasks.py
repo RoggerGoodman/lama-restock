@@ -19,6 +19,54 @@ from .logging_context import (
 
 logger = logging.getLogger(__name__)
 
+
+# Days to wait after a promotion ends before measuring its lift. VENSETAR syncs
+# "yesterday" at ~05:30, so 3 days guarantees the final promo day has landed.
+# The exact-day match in get_promos_ended_days_ago is what makes this
+# idempotent: each promotion is seen on exactly one nightly pass, so no
+# "already measured" marker is needed on the row.
+PROMO_MEASURE_AFTER_DAYS = 3
+
+
+def _measure_finished_promos(db):
+    """
+    Measure and store the lift of every promotion that ended
+    PROMO_MEASURE_AFTER_DAYS ago for this supermarket. Returns how many were
+    recorded.
+
+    Deliberately reads raw sales_sets: this is measurement, not ordering, so it
+    must see the promo days the ordering path excises.
+    """
+    from .scripts.helpers import Helper
+
+    recorded = 0
+
+    for row in db.get_promos_ended_days_ago(PROMO_MEASURE_AFTER_DAYS):
+        days_lasted = (row["sale_end"] - row["sale_start"]).days + 1
+
+        lift = Helper.measure_promo_lift(
+            row["sales_sets"] or [],
+            PROMO_MEASURE_AFTER_DAYS,
+            days_lasted,
+        )
+        if lift is None:
+            continue
+
+        price_std, price_s = row["price_std"], row["price_s"]
+        if not price_std or not price_s or price_std <= price_s:
+            continue
+        discount = round((price_std - price_s) / price_std * 100, 2)
+
+        db.append_promo_lift(row["cod"], row["v"], lift, discount)
+        recorded += 1
+        logger.info(
+            f"[PROMO] {row['cod']}.{row['v']}: lift={lift}x at {discount}% off "
+            f"({days_lasted}d promo)"
+        )
+
+    return recorded
+
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -60,6 +108,26 @@ def record_losses_all_supermarkets(self):
                         continue
 
                     with AutomatedRestockService(first_storage) as service:
+                        # Piggybacked on this task because the schema connection
+                        # is already open. Runs BEFORE record_losses on purpose:
+                        # that is a long Selenium job (login, file download, then
+                        # DB writes) and a failure part-way through leaves the
+                        # connection in an aborted transaction, which would make
+                        # every later statement fail. Since a promo is matched on
+                        # exactly one night, a measurement lost that way would
+                        # never be retried.
+                        try:
+                            measured = _measure_finished_promos(service.db)
+                            if measured:
+                                logger.info(f"[PROMO] {supermarket.name}: {measured} promo lift(s) recorded")
+                        except Exception:
+                            logger.exception(f"[PROMO] Lift measurement failed for {supermarket.name}")
+                            # Don't let a poisoned transaction take losses down too
+                            try:
+                                service.db.conn.rollback()
+                            except Exception:
+                                pass
+
                         try:
                             service.record_losses()
                             logger.info(f"✓ [CELERY] Losses recorded for {supermarket.name}")
@@ -1425,7 +1493,7 @@ def prepend_monthly_loss_zeros(self):
     products that haven't had a new loss registered in months.
     """
     from .models import Supermarket
-    from .services import RestockService
+    from .scripts.DatabaseManager import DatabaseManager
 
     try:
         logger.info("[CELERY] Starting monthly loss zero-prepend for all supermarkets")
@@ -1442,16 +1510,15 @@ def prepend_monthly_loss_zeros(self):
         for supermarket in supermarkets:
             _log_ctx = enter_supermarket_log(supermarket.name)
             try:
-                first_storage = supermarket.storages.first()
-
-                if not first_storage:
-                    logger.warning(f"[CELERY] No storages found for {supermarket.name}")
-                    continue
-
-                with RestockService(first_storage) as service:
-                    updated = service.db.prepend_monthly_loss_zeros()
+                # extra_losses is schema-wide, so this needs the supermarket connection
+                # and nothing else — no Storage involved.
+                db = DatabaseManager(supermarket_name=supermarket.name)
+                try:
+                    updated = db.prepend_monthly_loss_zeros()
                     logger.info(f"[CELERY] {supermarket.name}: {updated} loss rows updated")
                     success_count += 1
+                finally:
+                    db.close()
 
             except Exception as e:
                 logger.exception(f"[CELERY] Error prepending zeros for {supermarket.name}")
@@ -1606,34 +1673,35 @@ def sync_storages_task(self, supermarket_id):
         StorageService.sync_storages(supermarket)
         logger.info(f"[SYNC STORAGES] Storages synced for {supermarket.name}")
 
-        first_storage = supermarket.storages.first()
-        if first_storage:
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                lister = WebLister(
-                    username=supermarket.username,
-                    password=supermarket.password,
-                    storage_name=first_storage.name,
-                    download_dir=tmp_dir,
-                    headless=True,
-                )
-                try:
-                    lister.login()
-                    client_data = lister.gather_client_data()
-                finally:
-                    lister.driver.quit()
+        # gather_client_data() reads client-level IDs off the Dropzone menus and never
+        # touches storage_name, so pass '' rather than an arbitrary storage — same as
+        # import_ddt_for_supermarket does.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            lister = WebLister(
+                username=supermarket.username,
+                password=supermarket.password,
+                storage_name='',
+                download_dir=tmp_dir,
+                headless=True,
+            )
+            try:
+                lister.login()
+                client_data = lister.gather_client_data()
+            finally:
+                lister.driver.quit()
 
-            supermarket.id_cliente = client_data.get('id_cliente')
-            supermarket.id_azienda = client_data.get('id_azienda')
-            supermarket.id_marchio = client_data.get('id_marchio')
-            supermarket.id_clienti_canale = client_data.get('id_clienti_canale')
-            supermarket.id_clienti_area = client_data.get('id_clienti_area')
-            supermarket.id_user = client_data.get('id_user')
-            supermarket.x5cper = client_data.get('x5cper')
-            supermarket.save(update_fields=[
-                'id_cliente', 'id_azienda', 'id_marchio',
-                'id_clienti_canale', 'id_clienti_area', 'id_user', 'x5cper',
-            ])
-            logger.info(f"[SYNC STORAGES] Client data saved for {supermarket.name}")
+        supermarket.id_cliente = client_data.get('id_cliente')
+        supermarket.id_azienda = client_data.get('id_azienda')
+        supermarket.id_marchio = client_data.get('id_marchio')
+        supermarket.id_clienti_canale = client_data.get('id_clienti_canale')
+        supermarket.id_clienti_area = client_data.get('id_clienti_area')
+        supermarket.id_user = client_data.get('id_user')
+        supermarket.x5cper = client_data.get('x5cper')
+        supermarket.save(update_fields=[
+            'id_cliente', 'id_azienda', 'id_marchio',
+            'id_clienti_canale', 'id_clienti_area', 'id_user', 'x5cper',
+        ])
+        logger.info(f"[SYNC STORAGES] Client data saved for {supermarket.name}")
 
         return {
             'success': True,

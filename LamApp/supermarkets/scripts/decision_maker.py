@@ -50,7 +50,7 @@ class DecisionMaker:
         query = """
             SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
                 ps.bought_sets, p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag,
-                ps.minimum_stock, p.shelf_life_days
+                ps.minimum_stock, p.shelf_life_days, ps.promo_lifts
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
             WHERE p.settore = %s
@@ -61,8 +61,8 @@ class DecisionMaker:
     def get_extra_losses(self):
         """
         Single-query fetch of extra_losses.
-        Returns (internal_list, expired_dict):
-          internal_list: list of {cod, v, internal} for products with internal losses
+        Returns (internal_dict, expired_dict):
+          internal_dict: {(cod, v): internal_array} for products with internal losses
           expired_dict:  {(cod, v): expired_array} for products with expired losses
         """
         self.cursor.execute("""
@@ -72,41 +72,17 @@ class DecisionMaker:
         """)
         rows = self.cursor.fetchall()
 
-        internal_list = []
+        internal_dict = {}
         expired_dict = {}
         for row in rows:
             if row["internal"] is not None:
-                internal_list.append({
-                    "cod": row["cod"],
-                    "v": row["v"],
-                    "internal": row["internal"] or [],
-                })
+                internal_dict[(row["cod"], row["v"])] = row["internal"] or []
             if row["expired"] is not None:
                 expired_dict[(row["cod"], row["v"])] = row["expired"]
 
-        return internal_list, expired_dict
+        return internal_dict, expired_dict
 
-    def integrate_internal_losses(self, cod, v, sold_array, extra_losses):
-        """Element-wise sum of internal losses with sold_array.
-        Arrays are kept aligned by the monthly zero-prepend task."""
 
-        match = next((r for r in extra_losses if r["cod"] == cod and r["v"] == v), None)
-        internal = match["internal"]
-
-        summed = []
-        for i in range(len(sold_array)):
-            internal_value = internal[i] if i < len(internal) else 0
-
-            # Handle both old format (int) and new format ([qty, cost])
-            if isinstance(internal_value, list) and len(internal_value) == 2:
-                internal_qty = internal_value[0]
-            else:
-                internal_qty = internal_value
-
-            summed.append(internal_qty + sold_array[i])
-
-        return summed
-    
     def retrieve_products_on_sale(self, days_ahead=0):
         today = date.today()
         future = today + timedelta(days=int(days_ahead))
@@ -173,8 +149,9 @@ class DecisionMaker:
             sale_start = row["sale_start"]
             sale_end = row["sale_end"]
 
-            # Duration of the sale
-            days_lasted = (sale_end - sale_start).days
+            # Duration of the sale, inclusive of both endpoints: a sale running
+            # 6->15 July occupies 10 days, not 9. timedelta.days is exclusive.
+            days_lasted = (sale_end - sale_start).days + 1
 
             # Days passed since sale ended
             days_since_the_end = (today - sale_end).days
@@ -207,8 +184,7 @@ class DecisionMaker:
         products = self.get_products_by_settore(settore)
         logger.info(f"Found {len(products)} products in settore '{settore}'")
         
-        extra_losses_list, expired_lookup = self.get_extra_losses()
-        extra_losses_lookup = {(item["cod"], item["v"]) for item in extra_losses_list}
+        internal_lookup, expired_lookup = self.get_extra_losses()
 
         self.sale_discounts = self.retrieve_products_on_sale(coverage)
         logger.info(f"Products on sale (including upcoming within {coverage} days): {len(self.sale_discounts)}")
@@ -284,11 +260,18 @@ class DecisionMaker:
                 })
                 continue
 
+            # Package size is a divisor from here on. A NULL or 0 would raise and
+            # abort the whole settore mid-run, so skip the product instead — but
+            # skip it, don't default to 1: a fabricated package size would silently
+            # order loose units against a supplier that only ships full cases.
+            if not package_size or not package_multi:
+                reason = f"Invalid package size (pz_x_collo={package_size}, rapp={package_multi}) — catalog data missing"
+                logger.warning(f"{product_cod}.{product_var} - {descrizione}: {reason}")
+                Helper.next_article(product_cod, product_var, package_size, descrizione, reason)
+                continue
+
             package_size *= package_multi
-            
-            if stock < 0 and verified:
-                analyzer.anomalous_stock_recorder(f"Article {descrizione}, with code {product_cod}.{product_var}")
-            
+
             if bought_array[0] == 0 and sold_array[0] == 0:
                 if not verified and (disponibilita == "Si" or settore == "DEPERIBILI"):
                     reason = "Never been in system (brand new product)"
@@ -299,19 +282,22 @@ class DecisionMaker:
                     Helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     continue
 
-            if (product_cod, product_var) in extra_losses_lookup:
-                sold_array = self.integrate_internal_losses(product_cod, product_var, sold_array, extra_losses_list)
-
             sale_end_info = self.get_ended_discount_for(product_cod, product_var)
 
             if sale_end_info is not None:
                 days_lasted = sale_end_info["days_lasted"]
                 days_since_the_end = sale_end_info["days_since_the_end"]
+                # sales_sets[i] holds the day (today - 1 - i), so the sale's last day
+                # sits at index (days_since_the_end - 1), not days_since_the_end.
+                # Slicing from days_since_the_end left the final promo day in place —
+                # the worst one to keep, since end-of-promo often carries clearance
+                # volume and that index sits near the top of the exponential weighting.
+                start = days_since_the_end - 1
                 logger.info(
                     f"{product_cod}.{product_var}: recently-ended sale ({days_lasted}d, ended {days_since_the_end}d ago) "
-                    f"-> removing that window from sales_sets to avoid skewing avg_daily_sales"
+                    f"-> removing sales_sets[{start}:{start + days_lasted}] to avoid skewing avg_daily_sales"
                 )
-                sales_sets = sales_sets[:days_since_the_end] + sales_sets[days_since_the_end + days_lasted:]
+                sales_sets = sales_sets[:start] + sales_sets[start + days_lasted:]
                 sale_info = None
             else :
                 sale_info = self.get_discount_for(product_cod, product_var)
@@ -322,8 +308,20 @@ class DecisionMaker:
             else:
                 avg_daily_sales, _ = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
+            # Staff consumption is real depletion the shelf has to absorb, so it
+            # belongs in the rate that drives req_stock. Added as a separate rate
+            # rather than merged into sales_sets — see Helper.internal_loss_daily_rate.
+            internal_array = internal_lookup.get((product_cod, product_var))
+            if internal_array:
+                internal_daily = Helper.internal_loss_daily_rate(internal_array)
+                if internal_daily > 0:
+                    logger.info(
+                        f"{product_cod}.{product_var}: internal consumption "
+                        f"+{internal_daily:.2f}/day (sales {avg_daily_sales:.2f}/day)"
+                    )
+                    avg_daily_sales += internal_daily
+
             deviation_corrected = Helper.calculate_deviation(sales_sets)
-            logger.info(f"Deviation = {deviation_corrected} %")
 
             req_stock = avg_daily_sales * coverage
 
@@ -363,8 +361,20 @@ class DecisionMaker:
                     logger.info(f"This product is currently on sale: {discount}%")
 
                 if self.is_in_first_60_percent(today, sale_start, sale_end):
-                    req_stock += req_stock * 0.10
-                    logger.info(f"Stock buff applied (+10%): req_stock now {req_stock:.2f}")
+                    # Prefer this product's own measured promo history over the
+                    # flat guess. The first-60% gate still applies either way:
+                    # late in a promo the trailing average has already absorbed
+                    # the lift, so buffing again would double-count it.
+                    measured_lift = Helper.expected_promo_lift(row.get("promo_lifts"), discount)
+                    if measured_lift is not None:
+                        req_stock *= measured_lift
+                        logger.info(
+                            f"Stock buff applied (measured lift x{measured_lift:.2f} "
+                            f"from {len(row['promo_lifts'])} past promo(s)): req_stock now {req_stock:.2f}"
+                        )
+                    else:
+                        req_stock += req_stock * 0.10
+                        logger.info(f"Stock buff applied (+10%, no measured history): req_stock now {req_stock:.2f}")
                 else:
                     logger.info("Sale buff NOT applied (late sale phase)")
             else:

@@ -77,6 +77,7 @@ class DatabaseManager:
                 minimum_stock INTEGER DEFAULT 6,
                 last_update_sold DATE,
                 last_update_bought DATE,
+                promo_lifts JSONB,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)
             )
@@ -178,6 +179,59 @@ class DatabaseManager:
             "sales_sets": row["sales_sets"] or [],
             "stock": row["stock"] or 0,
         }
+
+    def get_promos_ended_days_ago(self, days_ago: int):
+        """
+        Products whose promotion ended exactly `days_ago` days ago, with the
+        sales_sets needed to measure the lift.
+
+        The exact-day match is what makes measurement idempotent: the sweep runs
+        once daily, so each promotion is seen exactly once and no "already
+        measured" marker is needed on the row.
+        """
+        cur = self.cursor()
+        cur.execute("""
+            SELECT e.cod, e.v, e.sale_start, e.sale_end, e.price_std, e.price_s,
+                   ps.sales_sets
+            FROM economics e
+            JOIN product_stats ps ON ps.cod = e.cod AND ps.v = e.v
+            WHERE e.sale_start IS NOT NULL
+              AND e.sale_end IS NOT NULL
+              AND (CURRENT_DATE - e.sale_end) = %s
+              AND ps.verified = TRUE
+        """, (days_ago,))
+        return cur.fetchall()
+
+    def append_promo_lift(self, cod, v, lift, discount, keep=3):
+        """Prepend a measured promo lift, keeping only the most recent `keep`."""
+        cur = self.cursor()
+        cur.execute("SELECT promo_lifts FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
+        row = cur.fetchone()
+        if not row:
+            return False
+
+        lifts = row["promo_lifts"] or []
+
+        # Guard against a re-measurement of the same promo. The nightly task can
+        # rerun (Celery retries the whole task when every loss recording fails,
+        # which happens on things like a ChromeDriver mismatch), and economics
+        # holds one row per product, so only one promo period can ever match on a
+        # given night. An identical (lift, discount) at the head therefore means
+        # we already recorded this one — writing it again would evict a genuine
+        # older promo from the 3 slots.
+        if lifts and isinstance(lifts[0], dict):
+            if lifts[0].get("lift") == lift and lifts[0].get("discount") == discount:
+                return False
+
+        lifts.insert(0, {"lift": lift, "discount": discount})
+        lifts = lifts[:keep]
+
+        cur.execute(
+            "UPDATE product_stats SET promo_lifts=%s WHERE cod=%s AND v=%s",
+            (Json(lifts), cod, v)
+        )
+        self.conn.commit()
+        return True
 
     def get_stock(self, cod, v):
         cur = self.cursor()

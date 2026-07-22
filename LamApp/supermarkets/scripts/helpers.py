@@ -179,35 +179,257 @@ class Helper:
         return avg_daily_sales
 
     @staticmethod
-    def calculate_deviation(sales_sets: list):
+    def internal_loss_daily_rate(internal_array: list, months: int = 3, today=None):
         """
-        Calculate sales deviation from daily sales data.
-        Compares median of recent 8 days vs median of baseline (days 8-30).
-        Uses median for outlier resistance.
+        Daily rate of internal consumption (goods taken by store staff — cleaning
+        products and the like) derived from the monthly `extra_losses.internal`
+        array.
 
-        Returns: deviation percentage clamped to [-50, 50]. 0 if insufficient data or baseline median < 2 (slow mover).
+        This is deliberately kept OUT of sales_sets. Spreading a monthly total
+        across daily slots would fabricate observations that never happened, and
+        the recency weighting, outlier capping and deviation calc would then all
+        run on invented numbers. Staff consumption and till sales are two
+        independent streams measured at different granularities: add the rates,
+        never the series. Monthly resolution is plenty for a term that feeds a
+        3-6 day coverage window.
+
+        Index 0 is the current month-to-date and is skipped — dividing a partial
+        month by its full length would understate the rate. Uses the last
+        `months` COMPLETE months and divides by their real calendar lengths.
+
+        Returns 0.0 when there is no usable history.
         """
-        min_days = 14
-        recent_window = 8
+        if not internal_array:
+            return 0.0
+
+        today = today or datetime.now().date()
+
+        total_qty = 0.0
+        total_days = 0
+
+        for i in range(1, months + 1):
+            if i >= len(internal_array):
+                break
+
+            month = today.month - i
+            year = today.year
+            while month <= 0:
+                month += 12
+                year -= 1
+
+            entry = internal_array[i]
+            # Losses are stored as [qty, cost]; tolerate the legacy plain-int form.
+            if isinstance(entry, list) and len(entry) >= 1:
+                qty = entry[0] or 0
+            elif isinstance(entry, (int, float)):
+                qty = entry
+            else:
+                qty = 0
+
+            total_qty += qty
+            total_days += monthrange(year, month)[1]
+
+        if total_days == 0:
+            return 0.0
+
+        return total_qty / total_days
+
+    # Promo-lift measurement constants
+    PROMO_BASELINE_DAYS = 14   # length of the pre-promo comparison window
+    PROMO_BASELINE_GAP = 3     # days skipped immediately before the promo
+    PROMO_MIN_OBSERVED = 0.6   # fraction of promo days that must be in stock
+    PROMO_MIN_BASELINE_UNITS = 10
+    PROMO_MAX_LIFT = 5.0
+    PROMO_MAX_DEPTH_RATIO = 2.0   # how far a measured lift may be rescaled
+
+    @staticmethod
+    def measure_promo_lift(sales_sets: list, days_since_the_end: int, days_lasted: int):
+        """
+        Measure how much a finished promotion actually lifted daily sales, by
+        comparing the promo days against a pre-promo baseline in the same
+        sales_sets array.
+
+        Returns the lift as a ratio (2.4 == sold 2.4x its normal rate), or None
+        when the promo cannot be measured cleanly.
+
+        sales_sets[i] holds the day (today - 1 - i), so with the promo ending
+        `days_since_the_end` days ago its last day sits at index
+        (days_since_the_end - 1) and it runs `days_lasted` slots from there.
+        The baseline is taken further back, after a short gap: demand usually
+        dips just before a promo starts (flyers are distributed in advance), and
+        including that dip would inflate the measured lift.
+        """
+        if not sales_sets or days_since_the_end < 1 or days_lasted < 1:
+            return None
+
+        promo_start = days_since_the_end - 1
+        promo_end = promo_start + days_lasted
+        base_start = promo_end + Helper.PROMO_BASELINE_GAP
+        base_end = base_start + Helper.PROMO_BASELINE_DAYS
+
+        if len(sales_sets) < base_end:
+            return None
+
+        promo_days = sales_sets[promo_start:promo_end]
+        baseline_days = sales_sets[base_start:base_end]
+
+        # Stockout days carry no demand information. A promo that sold out is
+        # censored downward, so require most of it to have been in stock.
+        promo_obs = [v for v in promo_days if v is not None]
+        base_obs = [v for v in baseline_days if v is not None]
+
+        if not promo_obs or not base_obs:
+            return None
+        if len(promo_obs) / len(promo_days) < Helper.PROMO_MIN_OBSERVED:
+            return None
+        if sum(base_obs) < Helper.PROMO_MIN_BASELINE_UNITS:
+            return None
+
+        promo_rate = sum(promo_obs) / len(promo_obs)
+        base_rate = sum(base_obs) / len(base_obs)
+
+        if base_rate <= 0 or promo_rate <= 0:
+            return None
+
+        return round(min(promo_rate / base_rate, Helper.PROMO_MAX_LIFT), 3)
+
+    @staticmethod
+    def expected_promo_lift(promo_lifts, discount=None):
+        """
+        Expected lift for an upcoming promotion, from this product's own measured
+        history. Returns None when there is nothing usable, so the caller can
+        fall back to its default behaviour.
+
+        Each stored entry is {"lift": <ratio>, "discount": <pct it was measured at>}.
+
+        Depth is used only to rescale WITHIN a product, never to predict lift for
+        a product that has no history. Across products depth is endogenous — the
+        buyer picks 10% for an elastic staple and 40% for a niche item precisely
+        because of their elasticities — so depth correlates with lift the wrong
+        way round and is useless as a cross-product predictor. Within a single
+        product it is a genuine driver: the same item discounted deeper does move
+        more.
+
+        The rescaling applies to (lift - 1), not to lift: a 2.4x measured at 30%
+        scaled linearly to 10% would give 0.8x, i.e. a promotion that reduces
+        sales. Scaling the excess gives 1 + 1.4 * (1/3) = 1.47x. The depth ratio
+        is clamped so a much deeper promo than anything measured cannot
+        extrapolate without limit.
+        """
+        if not promo_lifts:
+            return None
+
+        lifts, depths = [], []
+        for entry in promo_lifts:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                lift = float(entry.get("lift"))
+            except (TypeError, ValueError):
+                continue
+            lifts.append(lift)
+            try:
+                depth = float(entry.get("discount"))
+                if depth > 0:
+                    depths.append(depth)
+            except (TypeError, ValueError):
+                pass
+
+        if not lifts:
+            return None
+
+        mean_lift = sum(lifts) / len(lifts)
+
+        # Rescale to the upcoming depth only when both depths are known
+        if discount and depths:
+            mean_depth = sum(depths) / len(depths)
+            if mean_depth > 0:
+                ratio = min(discount / mean_depth, Helper.PROMO_MAX_DEPTH_RATIO)
+                mean_lift = 1.0 + (mean_lift - 1.0) * ratio
+
+        return max(1.0, min(mean_lift, Helper.PROMO_MAX_LIFT))
+
+    @staticmethod
+    def calculate_deviation(sales_sets: list, silent: bool = False):
+        """
+        Detect a genuine shift in daily demand: recent window vs baseline window.
+
+        Returns the percentage change clamped to [-50, 50], or 0 when the change
+        cannot be distinguished from sampling noise.
+
+        Three design choices, each fixing a measured defect of the previous
+        8-day-median version:
+
+        - Whole-week windows (14 / 42). An 8-day window is one week plus a day,
+          so it double-counts whichever weekday the run lands on, and which one
+          depends on the run day. On perfectly stationary demand with a 1.9x
+          Saturday that alone produced +11% deviation when the order ran on a
+          Sunday, and -3% when it ran on a Monday.
+
+        - Means, not medians. Daily counts are small integers, so a median can
+          only take a handful of values: at ~3 units/day the old statistic
+          collapsed to about 20 distinct outcomes across 4000 trials, 28% of them
+          exactly 0. The outlier resistance a median buys is already provided by
+          the winsorisation in avg_daily_sales_from_sales_sets.
+
+        - A noise gate (Welch), not a fixed percentage. A 20% gap means something
+          very different at 20 units/day than at 2, so a constant threshold fired
+          on 55% of stationary slow movers and reported the wrong sign on 11% of
+          genuine trends. Comparing the gap to its own standard error holds false
+          positives near-constant across velocities, and removes the need for the
+          arbitrary "median_baseline < 2" cut: a slow mover simply never reaches
+          significance, which is the correct reason to skip it.
+        """
+        recent_window = 14
+        min_baseline = 14
+        z_min = 1.5
 
         # Filter out None entries (out-of-stock days where demand was censored)
         sales_sets = [v for v in sales_sets if v is not None]
 
-        if not sales_sets or len(sales_sets) < min_days:
+        # Needs both a full recent week-pair and a comparable baseline
+        if len(sales_sets) < recent_window + min_baseline:
             return 0
 
         recent = sales_sets[:recent_window]
         baseline = sales_sets[recent_window:]
 
-        median_recent = statistics.median(recent)
-        median_baseline = statistics.median(baseline)
+        mean_recent = statistics.mean(recent)
+        mean_baseline = statistics.mean(baseline)
 
-        if median_baseline < 2:
+        if mean_baseline <= 0:
             return 0
 
-        deviation = ((median_recent - median_baseline) / median_baseline) * 100
-        deviation = round(deviation, 2)
-        return max(-50, min(deviation, 50))
+        # Welch standard error of the difference between the two window means —
+        # unequal window sizes and unequal variances are both expected here.
+        se = math.sqrt(
+            statistics.variance(recent) / len(recent)
+            + statistics.variance(baseline) / len(baseline)
+        )
+
+        if se > 0:
+            z = (mean_recent - mean_baseline) / se
+            if abs(z) < z_min:
+                return 0
+        else:
+            # Both windows are internally constant. Degenerate for a t-test, but
+            # a difference in level here is a perfectly clean signal rather than
+            # an absent one — don't report it as "no change".
+            if mean_recent == mean_baseline:
+                return 0
+            z = math.inf if mean_recent > mean_baseline else -math.inf
+
+        deviation = round((mean_recent - mean_baseline) / mean_baseline * 100, 2)
+        deviation = max(-50, min(deviation, 50))
+
+        if not silent:
+            logger.info(
+                f"Deviation {deviation:+.1f}% (z={z:.2f}, "
+                f"recent={mean_recent:.2f}/day over {len(recent)}d, "
+                f"baseline={mean_baseline:.2f}/day over {len(baseline)}d)"
+            )
+
+        return deviation
 
     @staticmethod
     def merge_sales_sets(primary: list, secondary: list) -> list:
