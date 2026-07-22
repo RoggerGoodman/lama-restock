@@ -32,6 +32,19 @@ import argparse
 import statistics
 from collections import defaultdict
 from datetime import date
+from pathlib import Path
+
+# Load the same .env Django loads, so this runs from a bare shell with nothing
+# exported. Do NOT `source .env.production` in bash instead: it is a dotenv file,
+# not a shell script, and values such as SECRET_KEY contain ( ) & $ * which bash
+# tries to interpret as syntax.
+try:
+    from dotenv import load_dotenv
+    _ENV = Path(__file__).resolve().parents[3] / ".env.production"
+    if _ENV.exists():
+        load_dotenv(_ENV)
+except ImportError:
+    pass
 
 from DatabaseManager import DatabaseManager
 
