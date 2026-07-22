@@ -186,6 +186,16 @@ class DecisionMaker:
         
         internal_lookup, expired_lookup = self.get_extra_losses()
 
+        # Closure / sync-gap days sit in every sales_sets as real zeros and would
+        # inflate every sigma. Computed once per run.
+        closure_mask = Helper.closure_day_mask(self.db.get_store_daily_totals())
+        excluded = sum(1 for c in closure_mask if c)
+        if excluded:
+            logger.info(f"Excluding {excluded} closure/no-sync day(s) from sigma estimation")
+
+        safety_z = Helper.safety_z_for(settore)
+        logger.info(f"Safety-stock z for settore '{settore}' = {safety_z}")
+
         self.sale_discounts = self.retrieve_products_on_sale(coverage)
         logger.info(f"Products on sale (including upcoming within {coverage} days): {len(self.sale_discounts)}")
 
@@ -260,10 +270,9 @@ class DecisionMaker:
                 })
                 continue
 
-            # Package size is a divisor from here on. A NULL or 0 would raise and
-            # abort the whole settore mid-run, so skip the product instead — but
-            # skip it, don't default to 1: a fabricated package size would silently
-            # order loose units against a supplier that only ships full cases.
+            # Divisor from here on: a NULL/0 would abort the whole settore. Skip
+            # rather than default to 1, which would order loose units against a
+            # supplier that ships full cases.
             if not package_size or not package_multi:
                 reason = f"Invalid package size (pz_x_collo={package_size}, rapp={package_multi}) — catalog data missing"
                 logger.warning(f"{product_cod}.{product_var} - {descrizione}: {reason}")
@@ -287,11 +296,9 @@ class DecisionMaker:
             if sale_end_info is not None:
                 days_lasted = sale_end_info["days_lasted"]
                 days_since_the_end = sale_end_info["days_since_the_end"]
-                # sales_sets[i] holds the day (today - 1 - i), so the sale's last day
-                # sits at index (days_since_the_end - 1), not days_since_the_end.
-                # Slicing from days_since_the_end left the final promo day in place —
-                # the worst one to keep, since end-of-promo often carries clearance
-                # volume and that index sits near the top of the exponential weighting.
+                # sales_sets[i] holds day (today - 1 - i), so the sale's last day is
+                # at (days_since_the_end - 1). Slicing from days_since_the_end left
+                # that day in place — clearance volume at near-top weighting.
                 start = days_since_the_end - 1
                 logger.info(
                     f"{product_cod}.{product_var}: recently-ended sale ({days_lasted}d, ended {days_since_the_end}d ago) "
@@ -308,9 +315,8 @@ class DecisionMaker:
             else:
                 avg_daily_sales, _ = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
-            # Staff consumption is real depletion the shelf has to absorb, so it
-            # belongs in the rate that drives req_stock. Added as a separate rate
-            # rather than merged into sales_sets — see Helper.internal_loss_daily_rate.
+            # Staff consumption is real depletion, so it belongs in the rate that
+            # drives req_stock — as a separate rate, not merged into sales_sets.
             internal_array = internal_lookup.get((product_cod, product_var))
             if internal_array:
                 internal_daily = Helper.internal_loss_daily_rate(internal_array)
@@ -361,10 +367,9 @@ class DecisionMaker:
                     logger.info(f"This product is currently on sale: {discount}%")
 
                 if self.is_in_first_60_percent(today, sale_start, sale_end):
-                    # Prefer this product's own measured promo history over the
-                    # flat guess. The first-60% gate still applies either way:
-                    # late in a promo the trailing average has already absorbed
-                    # the lift, so buffing again would double-count it.
+                    # Prefer this product's own measured history over the flat guess.
+                    # The first-60% gate applies either way: late in a promo the
+                    # trailing average has already absorbed the lift.
                     measured_lift = Helper.expected_promo_lift(row.get("promo_lifts"), discount)
                     if measured_lift is not None:
                         req_stock *= measured_lift
@@ -398,10 +403,14 @@ class DecisionMaker:
 
             if verified:
                 category = "N"
+                sigma_daily = Helper.demand_sigma_daily(sales_sets, closure_mask)
+                sigma_L = sigma_daily * (max(coverage, 1) ** 0.5) if sigma_daily is not None else None
+
                 result, check, status, returned_discount = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales,
                     req_stock, stock, discount, minimum_stock_base, minimum_stock_override,
-                    expiry_factor, shelf_life_days, batch_expiry_factor
+                    expiry_factor, shelf_life_days, batch_expiry_factor,
+                    sigma_L, safety_z
                 )
             else:
                 reason = "Not verified in system"

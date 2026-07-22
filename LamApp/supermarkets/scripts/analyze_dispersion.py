@@ -1,32 +1,20 @@
 """
-Read-only diagnostic: measure the real demand dispersion of a supermarket.
+Read-only diagnostic: measure a supermarket's real demand dispersion
+(variance / mean), which is what sizes the safety stock in processor_N.
 
-Nothing in the restock chain sets an explicit service level. It emerges from
-`minimum_stock = presence_target + (sqrt(req_stock - 1) - 1)`, which is a Poisson
-safety-stock rule in disguise: for Poisson demand sigma = sqrt(mu), and req_stock
-IS mu over the coverage window, so the buff tracks sigma.
+1.0 == Poisson, the assumption baked into the legacy sqrt(req_stock) rule.
+Simulating the policy end to end: dispersion 1.0 gives 98-99.7% fill rate,
+2.0 gives 96-99%, 3.0 falls to 91-98%.
 
-That is only sound if demand actually is Poisson. Simulating the shipped policy
-end to end gives:
-
-    dispersion 1.0 (Poisson)   -> 98.0 - 99.7% fill rate   (excellent)
-    dispersion 2.0             -> 96.1 - 99.4% fill rate   (acceptable)
-    dispersion 3.0             -> 91.3 - 98.4% fill rate   (a real problem)
-
-So the entire question is which of those columns this store lives in, and that is
-an empirical fact nobody has measured. This script measures it. Run it before
-changing anything in the safety-stock formula.
-
-Dispersion is measured on WEEKDAY-ADJUSTED RESIDUALS, not on raw daily sales.
-The weekday pattern is predictable and `coverage` already accounts for it through
-the day weights, so counting it again as uncertainty double-charges. Measured
-against simulated data, raw sigma overstates true uncertainty by 22-70% and the
-overstatement grows with velocity - enough to badly over-order fast movers if
-anyone implements z*sigma using raw sigma.
+Measured on WEEKDAY-ADJUSTED RESIDUALS — the weekday pattern is predictable and
+`coverage` already prices it in via the day weights, so counting it again as
+uncertainty double-charges (worth 22-70% on simulated data, growing with
+velocity). Also reports promo contamination and serial correlation, the two
+things that would otherwise inflate the headline number.
 
 Usage:
     python analyze_dispersion.py "Todis Gubbio"
-    python analyze_dispersion.py "Todis Gubbio" --settore DEPERIBILI
+    python analyze_dispersion.py "Todis Gubbio" --settore DEPERIBILI --coverage 4
 """
 import argparse
 import statistics

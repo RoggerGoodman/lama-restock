@@ -2,23 +2,35 @@
 import math
 import logging
 
+from .helpers import Helper
+
 # Use Django's logging system
 logger = logging.getLogger(__name__)
 
+
 def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
                    req_stock, stock, discount=None, minimum_stock_base=None, minimum_stock_override=None,
-                   expiry_factor=None, shelf_life_days=None, batch_expiry_factor=None):
+                   expiry_factor=None, shelf_life_days=None, batch_expiry_factor=None,
+                   sigma_L=None, safety_z=1.0):
     """
     Process N category sales and calculate order quantity.
 
+    minimum_stock = presence (merchandising facings) + safety (z * sigma_L).
+
     Args:
-        minimum_stock_base: Base minimum stock from the storage (set per-storage in the UI)
+        minimum_stock_base: per-storage presence target — units that must face the
+            customer. Reduced for slow movers, never touched by the trend factor.
         minimum_stock_override: Product-level override. If set, used as-is in place of the
             base/velocity/slow-mover/deviation/expiry-rate calculation below — those all
             reflect the algorithm's own judgment, which the override exists to replace.
             Shelf-life cap and active batch-expiry-risk cap still apply on top of it, since
             those are physical facts about today's stock, not judgment calls the override
             can account for in advance.
+        sigma_L: measured demand sigma over the coverage window. Replaces the legacy
+            sqrt(req_stock) buff, which assumes Poisson (variance == mean); real
+            dispersion is 2.67 volume-weighted and 20-60 for pack-bought beverages.
+            None (thin history) keeps the legacy rule unchanged.
+        safety_z: standard deviations of cushion, per settore — Helper.safety_z_for.
     """
     order = 1
     req_stock = round(req_stock)
@@ -27,13 +39,45 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     if minimum_stock_override is not None:
         minimum_stock = minimum_stock_override
         logger.info(f"Minimum stock override = {minimum_stock} (velocity/deviation/expiry-rate adjustments skipped)")
+    elif sigma_L is not None:
+        # The slow-mover ladder applies to presence, not to the buffer: it is the
+        # judgement that a product selling 0.05/day does not deserve full facings.
+        reduction = Helper.slow_mover_reduction(avg_daily_sales)
+        presence_target = max(0, minimum_stock_base - reduction)
+        if reduction:
+            logger.info(
+                f"Slow-mover presence reduction: avg_daily_sales={avg_daily_sales:.2f} "
+                f"-> presence floor {minimum_stock_base} -> {presence_target}"
+            )
+
+        safety = safety_z * sigma_L
+        # Never hold more buffer than one coverage window of demand
+        capped = min(safety, float(req_stock)) if req_stock > 0 else safety
+
+        factor = Helper.deviation_factor(deviation_corrected)
+        adjusted = capped * factor
+
+        # Additive, not max(): minimum_stock is the expected leftover at the end of
+        # the protection interval, so keeping `presence_target` facings once the
+        # variance has played out needs presence PLUS z*sigma. max() would spend the
+        # facings absorbing the variance and empty the shelf when demand ran high.
+        minimum_stock = presence_target + round(adjusted)
+        logger.info(
+            f"Safety stock: z={safety_z} x sigma_L={sigma_L:.1f} = {safety:.1f}"
+            + (f" (capped to req_stock={req_stock})" if capped < safety else "")
+            + (f" x deviation {deviation_corrected:+.0f}% = {adjusted:.1f}" if factor != 1.0 else "")
+            + f" -> minimum_stock = presence {presence_target} + safety {round(adjusted)} = {minimum_stock}"
+        )
+
+        # No on-sale bonus here on purpose: the measured promo lift has already
+        # scaled req_stock upstream, so a second multiplier would double-count.
     else:
         presence_target = minimum_stock_base  # always-on-the-shelf baseline, storage-configured
 
         if avg_daily_sales >= 0.6:
             buff = max(0, round(math.sqrt(max(0, req_stock - 1))) - 1)
             demand_margin = buff
-            if discount != None:
+            if discount is not None:
                 demand_margin += (buff * 2)
                 logger.info(
                     f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} -> "
@@ -42,26 +86,19 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
             else:
                 logger.info(f"Velocity buff: avg_daily_sales={avg_daily_sales:.2f} -> +{buff}")
         else:
-            reduction = 1
-            if avg_daily_sales <= 0.1:
-                reduction += 1
-                if avg_daily_sales <= 0.05:
-                    reduction += 1
-            demand_margin = -reduction
-            logger.info(f"Slow-mover reduction: avg_daily_sales={avg_daily_sales:.2f} -> -{reduction}")
+            demand_margin = -Helper.slow_mover_reduction(avg_daily_sales)
+            logger.info(f"Slow-mover reduction: avg_daily_sales={avg_daily_sales:.2f} -> {demand_margin}")
 
         minimum_stock = presence_target + demand_margin
         logger.info(f"Baseline={presence_target}, demand margin={demand_margin:+d} -> minimum_stock={minimum_stock}")
 
         pre_deviation = minimum_stock
-        if deviation_corrected >= 40:
-            minimum_stock = math.floor(minimum_stock * 1.3)
-        elif deviation_corrected >= 20:
-            minimum_stock = math.floor(minimum_stock * 1.2)
-        elif deviation_corrected <= -40:
-            minimum_stock = math.ceil(minimum_stock * 0.6)
-        elif deviation_corrected <= -20:
-            minimum_stock = math.ceil(minimum_stock * 0.8)
+        factor = Helper.deviation_factor(deviation_corrected)
+        if factor != 1.0:
+            # Round toward the unadjusted value: floor when buffing up, ceil when
+            # cutting. Applies slightly less of the trend than the raw multiplier.
+            scaled = minimum_stock * factor
+            minimum_stock = math.floor(scaled) if factor > 1.0 else math.ceil(scaled)
         if minimum_stock != pre_deviation:
             logger.info(f"Deviation adjustment: deviation={deviation_corrected:.1f}% -> minimum_stock {pre_deviation} -> {minimum_stock}")
 

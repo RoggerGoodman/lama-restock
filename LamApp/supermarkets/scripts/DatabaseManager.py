@@ -180,14 +180,30 @@ class DatabaseManager:
             "stock": row["stock"] or 0,
         }
 
+    def get_store_daily_totals(self):
+        """
+        Element-wise sum of sales_sets across every verified product: one total per
+        day slot, newest first. Feeds Helper.closure_day_mask, which uses it to
+        spot closures and missed syncs.
+        """
+        cur = self.cursor()
+        cur.execute("""
+            SELECT t.ord, SUM((t.elem)::numeric) AS total
+            FROM product_stats ps,
+                 LATERAL jsonb_array_elements(ps.sales_sets) WITH ORDINALITY AS t(elem, ord)
+            WHERE ps.verified = TRUE
+              AND ps.sales_sets IS NOT NULL
+              AND jsonb_typeof(t.elem) = 'number'
+            GROUP BY t.ord
+            ORDER BY t.ord
+        """)
+        return [float(r["total"] or 0) for r in cur.fetchall()]
+
     def get_promos_ended_days_ago(self, days_ago: int):
         """
         Products whose promotion ended exactly `days_ago` days ago, with the
-        sales_sets needed to measure the lift.
-
-        The exact-day match is what makes measurement idempotent: the sweep runs
-        once daily, so each promotion is seen exactly once and no "already
-        measured" marker is needed on the row.
+        sales_sets needed to measure the lift. The exact-day match is what makes
+        measurement idempotent — each promo is seen on exactly one nightly sweep.
         """
         cur = self.cursor()
         cur.execute("""
@@ -212,13 +228,10 @@ class DatabaseManager:
 
         lifts = row["promo_lifts"] or []
 
-        # Guard against a re-measurement of the same promo. The nightly task can
-        # rerun (Celery retries the whole task when every loss recording fails,
-        # which happens on things like a ChromeDriver mismatch), and economics
-        # holds one row per product, so only one promo period can ever match on a
-        # given night. An identical (lift, discount) at the head therefore means
-        # we already recorded this one — writing it again would evict a genuine
-        # older promo from the 3 slots.
+        # Skip a re-measurement: the nightly task retries when every loss recording
+        # fails, and economics holds one row per product, so only one promo can
+        # match on a given night. An identical head entry means we already have it,
+        # and re-writing would evict a genuine older promo from the 3 slots.
         if lifts and isinstance(lifts[0], dict):
             if lifts[0].get("lift") == lift and lifts[0].get("discount") == discount:
                 return False

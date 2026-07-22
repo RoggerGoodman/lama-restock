@@ -139,6 +139,11 @@ class AutomatedRestockService(RestockService):
         cur.execute("SELECT cod, v, expired FROM extra_losses WHERE expired IS NOT NULL")
         expired_lookup = {(r['cod'], r['v']): r['expired'] for r in cur.fetchall()}
 
+        # Same exclusions and z as the ordering path, so the report grades against
+        # the thresholds that produced the order.
+        closure_mask = Helper.closure_day_mask(self.db.get_store_daily_totals())
+        safety_z = Helper.safety_z_for(self.storage.settore)
+
         critical = []
         understocked = []
         overstocked = []
@@ -164,45 +169,46 @@ class AutomatedRestockService(RestockService):
             sale_end = row.get('sale_end')
             on_sale = bool(sale_start and sale_end and sale_start <= today <= sale_end)
 
-            # Same fallback chain as decision_maker: under 14 observed days
-            # sales_sets can't produce a rate, so fall back to the monthly
-            # estimator rather than assuming zero demand. Assuming zero collapses
-            # eff_min to 0 via the slow-mover ladder and the shelf-life cap, which
-            # makes `stock < eff_min` unreachable — a product that genuinely sells
-            # but lacks 14 days of history can never be reported understocked.
+            # Same fallback chain as decision_maker. Assuming zero instead would
+            # collapse eff_min to 0, making `stock < eff_min` unreachable — a new
+            # product that genuinely sells could never be reported understocked.
             avg_daily_sales = self.helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True)
             if avg_daily_sales is None:
                 avg_daily_sales, _ = self.helper.calculate_weighted_avg_sales_new(sold_last_24, silent=True)
 
             req_stock = round(avg_daily_sales * coverage_days)
 
+            deviation = self.helper.calculate_deviation(sales_sets, silent=True)
+
+            sigma_daily = Helper.demand_sigma_daily(sales_sets, closure_mask)
+            sigma_L = sigma_daily * (max(coverage_days, 1) ** 0.5) if sigma_daily is not None else None
+
             if min_override is not None:
                 eff_min = min_override
+            elif sigma_L is not None:
+                # Mirrors processor_N: minimum_stock = presence + z*sigma, the
+                # slow-mover ladder cuts presence, the trend scales only the buffer.
+                presence = max(0, min_floor - Helper.slow_mover_reduction(avg_daily_sales))
+                safety = min(safety_z * sigma_L, float(req_stock)) if req_stock > 0 else safety_z * sigma_L
+                eff_min = presence + round(safety * Helper.deviation_factor(deviation))
             else:
+                # Mirrors processor_N's legacy branch. These used to be a hand-copied
+                # 1.2/1.1/0.7/0.9 ladder against processor_N's 1.3/1.2/0.6/0.8, so the
+                # report graded orders against thresholds the ordering never used.
                 eff_min = min_floor
 
-            # Mirror processor_N buff formula exactly
-            if avg_daily_sales >= 0.6:
-                buff = max(0, round(math.sqrt(max(0, req_stock - 1))) - 1)
-                eff_min += buff
-                if on_sale:
-                    eff_min += buff * 2
-            elif avg_daily_sales < 0.6:
-                eff_min -= 1
-                if avg_daily_sales <= 0.1:
-                    eff_min -= 1
-                    if avg_daily_sales <= 0.05:
-                        eff_min -= 1
+                if avg_daily_sales >= 0.6:
+                    buff = max(0, round(math.sqrt(max(0, req_stock - 1))) - 1)
+                    eff_min += buff
+                    if on_sale:
+                        eff_min += buff * 2
+                else:
+                    eff_min -= Helper.slow_mover_reduction(avg_daily_sales)
 
-            deviation = self.helper.calculate_deviation(sales_sets, silent=True)
-            if deviation >= 40:
-                eff_min = math.floor(eff_min * 1.2)
-            elif deviation >= 20:
-                eff_min = math.floor(eff_min * 1.1)
-            elif deviation <= -40:
-                eff_min = math.ceil(eff_min * 0.7)
-            elif deviation <= -20:
-                eff_min = math.ceil(eff_min * 0.9)
+                factor = Helper.deviation_factor(deviation)
+                if factor != 1.0:
+                    scaled = eff_min * factor
+                    eff_min = math.floor(scaled) if factor > 1.0 else math.ceil(scaled)
 
             eff_min = round(eff_min)
             if min_override is not None:
