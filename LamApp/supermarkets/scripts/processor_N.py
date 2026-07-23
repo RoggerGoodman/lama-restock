@@ -18,70 +18,53 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     minimum_stock = presence (merchandising facings) + safety (z * sigma_L).
 
     Args:
-        minimum_stock_base: per-storage presence target — units that must face the
-            customer. Reduced for slow movers, never touched by the trend factor.
-        minimum_stock_override: Product-level override. If set, used as-is in place of the
-            base/velocity/slow-mover/deviation/expiry-rate calculation below — those all
-            reflect the algorithm's own judgment, which the override exists to replace.
-            Shelf-life cap and active batch-expiry-risk cap still apply on top of it, since
-            those are physical facts about today's stock, not judgment calls the override
-            can account for in advance.
+        minimum_stock_base: per-storage presence target (facings). Reduced for slow
+            movers, never touched by the trend factor.
+        minimum_stock_override: product-level presence target. Replaces the algorithm's
+            judgement terms (velocity ladder, deviation trend, expiry rate); shelf-life
+            and batch-expiry caps still apply, being facts about today's stock.
         sigma_L: measured demand sigma over the coverage window. Replaces the legacy
-            sqrt(req_stock) buff for products above SLOW_MOVER_THRESHOLD, since that
-            rule assumes Poisson (variance == mean) while real dispersion is 2.67
-            volume-weighted and 20-60 for pack-bought beverages. None (thin history)
-            or a slow mover keeps the legacy rule unchanged.
+            sqrt(req_stock) buff above SLOW_MOVER_THRESHOLD (that buff assumes Poisson;
+            real dispersion is far higher). None or a slow mover keeps the legacy rule.
         safety_z: standard deviations of cushion, per settore — Helper.safety_z_for.
     """
     order = 1
     req_stock = round(req_stock)
     leftover_stock = stock - req_stock
 
-    if minimum_stock_override is not None:
-        minimum_stock = minimum_stock_override
-        logger.info(f"Minimum stock override = {minimum_stock} (velocity/deviation/expiry-rate adjustments skipped)")
-    elif sigma_L is not None and avg_daily_sales >= Helper.SLOW_MOVER_THRESHOLD:
-        # Gated at the same velocity threshold the legacy buff used, and for the
-        # same reason: below it the pack size IS the safety stock. A product
-        # selling 0.16/day with req_stock under 1 unit ships in packs of 8 — 50
-        # days of cover — so a statistical buffer on top is meaningless, and the
-        # legacy branch deliberately applied a penalty there instead of a buff.
-        presence_target = minimum_stock_base
+    # An override sets the presence target only — it says nothing about that
+    # product's demand volatility, so sigma still applies.
+    has_override = minimum_stock_override is not None
+    presence_target = minimum_stock_override if has_override else minimum_stock_base
 
+    if sigma_L is not None and avg_daily_sales >= Helper.SLOW_MOVER_THRESHOLD:
+        # Gated at the legacy buff's velocity threshold: below it the pack size is
+        # already many weeks of cover, so a statistical buffer adds nothing.
         safety = safety_z * sigma_L
         # Never hold more buffer than one coverage window of demand
         capped = min(safety, float(req_stock)) if req_stock > 0 else safety
 
-        factor = Helper.deviation_factor(deviation_corrected)
+        # The trend is judgement, so an override suppresses it
+        factor = 1.0 if has_override else Helper.deviation_factor(deviation_corrected)
         adjusted = capped * factor
 
-        # Combine the two requirements in quadrature rather than by sum or by max.
-        # minimum_stock is the expected residual at the end of the protection
-        # interval, and it carries two independent jobs: hold z*sigma so demand
-        # variance does not stock us out, and hold `presence_target` facings so the
-        # shelf does not look empty.
-        #   sum      -> double-counts; a steady seller with presence 5 already has
-        #               ~3 sigma of cover, so adding sigma on top buys nothing
-        #   max      -> the larger swallows the smaller, leaving minimum_stock flat
-        #               at `presence` for every product with sigma < presence. That
-        #               dead zone widens with the storage's presence setting, so a
-        #               store configured at 20 would have sigma inert almost
-        #               everywhere.
-        #   quadrature -> collapses to the larger when either dominates (both ends
-        #               behave like max), gives 1.41x when they are comparable, and
-        #               is strictly increasing in sigma at every presence value, so
-        #               there is no dead zone. It also reproduces the legacy buff
-        #               through the mid band.
+        # Quadrature, not sum (double-counts) or max (leaves sigma inert whenever
+        # it sits below presence): behaves like max at both extremes, 1.41x when
+        # the two terms are comparable, and always increasing in sigma.
         minimum_stock = round(math.sqrt(presence_target ** 2 + adjusted ** 2))
         logger.info(
             f"Safety stock: z={safety_z} x sigma_L={sigma_L:.1f} = {safety:.1f}"
             + (f" (capped to req_stock={req_stock})" if capped < safety else "")
             + (f" x deviation {deviation_corrected:+.0f}% = {adjusted:.1f}" if factor != 1.0 else "")
-            + f" -> minimum_stock = hypot(presence {presence_target}, safety {adjusted:.1f}) = {minimum_stock}"
+            + f" -> minimum_stock = hypot({'override' if has_override else 'presence'} {presence_target},"
+            + f" safety {adjusted:.1f}) = {minimum_stock}"
         )
 
-        # No on-sale bonus here on purpose: the measured promo lift has already
-        # scaled req_stock upstream, so a second multiplier would double-count.
+        # No on-sale bonus: promo lift already scaled req_stock upstream.
+    elif has_override:
+        # No usable sigma (thin history or slow mover) — the override stands alone.
+        minimum_stock = presence_target
+        logger.info(f"Minimum stock override = {minimum_stock} (no sigma available; judgement terms skipped)")
     else:
         presence_target = minimum_stock_base  # always-on-the-shelf baseline, storage-configured
 
@@ -128,9 +111,8 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
         max_safe_buffer = shelf_life_days * avg_daily_sales - req_stock
         pre_shelf_life = minimum_stock
         minimum_stock = min(minimum_stock, max(0, int(max_safe_buffer)))
-        # Only raise the post-nerf floor if the shelf life supports at least 1 full unit
-        # of buffer (msb >= 1). Fractional capacity (0 < msb < 1) means ordering 1 extra
-        # would already exceed what can sell before expiry.
+        # Floor of 1 only if shelf life supports a full unit of buffer; fractional
+        # capacity means the extra unit would expire unsold.
         shelf_life_has_buffer = max_safe_buffer >= 1
         if minimum_stock != pre_shelf_life:
             logger.info(

@@ -7,8 +7,7 @@ from .helpers import Helper
 from .analyzer import analyzer
 from .processor_N import process_N_sales
 
-# Use Django's logging system - configured in settings.py
-# This logger will write to decision_maker.log (separate from other logs due to high volume)
+# Writes to decision_maker.log — separate from other logs due to high volume
 logger = logging.getLogger(__name__)
 
 
@@ -149,8 +148,7 @@ class DecisionMaker:
             sale_start = row["sale_start"]
             sale_end = row["sale_end"]
 
-            # Duration of the sale, inclusive of both endpoints: a sale running
-            # 6->15 July occupies 10 days, not 9. timedelta.days is exclusive.
+            # Inclusive of both endpoints — timedelta.days is not
             days_lasted = (sale_end - sale_start).days + 1
 
             # Days passed since sale ended
@@ -186,8 +184,7 @@ class DecisionMaker:
         
         internal_lookup, expired_lookup = self.get_extra_losses()
 
-        # Closure / sync-gap days sit in every sales_sets as real zeros and would
-        # inflate every sigma. Computed once per run.
+        # Closure / sync-gap days look like real zeros and would inflate every sigma
         closure_mask = Helper.closure_day_mask(self.db.get_store_daily_totals())
         excluded = sum(1 for c in closure_mask if c)
         if excluded:
@@ -270,9 +267,8 @@ class DecisionMaker:
                 })
                 continue
 
-            # Divisor from here on: a NULL/0 would abort the whole settore. Skip
-            # rather than default to 1, which would order loose units against a
-            # supplier that ships full cases.
+            # Divisor from here on. Skip rather than default to 1, which would order
+            # loose units against a supplier that ships full cases.
             if not package_size or not package_multi:
                 reason = f"Invalid package size (pz_x_collo={package_size}, rapp={package_multi}) — catalog data missing"
                 logger.warning(f"{product_cod}.{product_var} - {descrizione}: {reason}")
@@ -296,9 +292,8 @@ class DecisionMaker:
             if sale_end_info is not None:
                 days_lasted = sale_end_info["days_lasted"]
                 days_since_the_end = sale_end_info["days_since_the_end"]
-                # sales_sets[i] holds day (today - 1 - i), so the sale's last day is
-                # at (days_since_the_end - 1). Slicing from days_since_the_end left
-                # that day in place — clearance volume at near-top weighting.
+                # sales_sets[i] holds day (today - 1 - i), so the sale's last day —
+                # peak clearance volume — sits at (days_since_the_end - 1)
                 start = days_since_the_end - 1
                 logger.info(
                     f"{product_cod}.{product_var}: recently-ended sale ({days_lasted}d, ended {days_since_the_end}d ago) "
@@ -315,8 +310,7 @@ class DecisionMaker:
             else:
                 avg_daily_sales, _ = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
-            # Staff consumption is real depletion, so it belongs in the rate that
-            # drives req_stock — as a separate rate, not merged into sales_sets.
+            # Staff consumption is real depletion: added to the rate, not to sales_sets
             internal_array = internal_lookup.get((product_cod, product_var))
             if internal_array:
                 internal_daily = Helper.internal_loss_daily_rate(internal_array)
@@ -367,9 +361,7 @@ class DecisionMaker:
                     logger.info(f"This product is currently on sale: {discount}%")
 
                 if self.is_in_first_60_percent(today, sale_start, sale_end):
-                    # Prefer this product's own measured history over the flat guess.
-                    # The first-60% gate applies either way: late in a promo the
-                    # trailing average has already absorbed the lift.
+                    # Prefer measured history over the flat +10% guess
                     measured_lift = Helper.expected_promo_lift(row.get("promo_lifts"), discount)
                     if measured_lift is not None:
                         req_stock *= measured_lift

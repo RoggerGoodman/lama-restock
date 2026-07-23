@@ -249,7 +249,7 @@
                             {% for product in results %}
                             <tr data-stock="{{ product.stock }}"
                                 data-status="{{ product.disponibilita }}"
-                                data-minimum-stock="{{ product.minimum_stock|default:6 }}"
+                                data-minimum-stock="{{ product.minimum_stock|default:'' }}"
                                 data-codice="{{ product.cod }}"
                                 data-imballo="{{ product.pz_x_collo }}">
                                 <!-- ✅ PRINT: Empty checkbox for manual checking -->

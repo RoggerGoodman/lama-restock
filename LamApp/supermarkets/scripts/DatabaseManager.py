@@ -74,7 +74,8 @@ class DatabaseManager:
                 bought_sets JSONB,
                 stock INTEGER DEFAULT 0,
                 verified BOOLEAN DEFAULT FALSE,
-                minimum_stock INTEGER DEFAULT 6,
+                -- No default: NULL means "no per-product override"
+                minimum_stock INTEGER,
                 last_update_sold DATE,
                 last_update_bought DATE,
                 promo_lifts JSONB,
@@ -142,9 +143,10 @@ class DatabaseManager:
         cur = self.cursor()
         cur.execute("""
             INSERT INTO product_stats (
-                cod, v, sold_last_24, bought_last_24, stock, verified, last_update_sold
+                cod, v, sold_last_24, bought_last_24, stock, verified, last_update_sold,
+                minimum_stock
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NULL)
             ON CONFLICT (cod, v) DO NOTHING
         """, (cod, v, Json(sold), Json(bought), stock, bool(verified), today))
         self.conn.commit()
@@ -228,10 +230,8 @@ class DatabaseManager:
 
         lifts = row["promo_lifts"] or []
 
-        # Skip a re-measurement: the nightly task retries when every loss recording
-        # fails, and economics holds one row per product, so only one promo can
-        # match on a given night. An identical head entry means we already have it,
-        # and re-writing would evict a genuine older promo from the 3 slots.
+        # An identical head entry means the nightly task retried — re-writing would
+        # evict a genuine older promo from the 3 slots.
         if lifts and isinstance(lifts[0], dict):
             if lifts[0].get("lift") == lift and lifts[0].get("discount") == discount:
                 return False
@@ -383,11 +383,8 @@ class DatabaseManager:
 
         - Skips products not present in product_stats.
         - Idempotent: skips if last_update_sold already equals sync_date.
-        - sold_last_24[0] accumulates sold_qty for the current month. The monthly
-          slot-shift is handled separately by rollover_sold_last_24() (Celery Beat,
-          2nd of month) — NOT inferred here from a per-product date, since
-          last_update_sold only advances when sold_qty > 0 and can't be used to
-          detect "new month" without repeatedly re-triggering on every zero-sale day.
+        - sold_last_24[0] accumulates sold_qty for the current month; the monthly
+          slot-shift belongs to rollover_sold_last_24() (Celery Beat, 2nd of month).
         - sales_sets: inserts sold_qty at front, trims to 60.
         - stock: decremented by sold_qty.
         - Does NOT touch bought_last_24.
@@ -456,15 +453,9 @@ class DatabaseManager:
                 unverified_updated += 1
                 unverified_products.append({'cod': cod, 'v': var})
 
-        # For verified products absent from today's VENSETAR payload:
-        # - stock >= 1: insert 0 (available but didn't sell)
-        # - stock == 0 AND disponibilita != 'No' AND last known sale > 0: insert None
-        #   (demand-driven stockout — demand censored)
-        # - stock == 0 AND disponibilita != 'No' AND last known sale <= 0: insert 0
-        #   (stock reached zero without a preceding sale — e.g. expiry/loss write-off —
-        #   so the shortfall isn't demand we need to hide; recording 0 preserves the
-        #   low-demand signal instead of inflating the average once restocked)
-        # - stock == 0 AND disponibilita == 'No': insert 0 (supplier-OOS, not our fault)
+        # Products absent from today's payload get a 0 (no demand), except a
+        # demand-driven stockout — empty, available, and last known sale > 0 —
+        # which gets None so the censored day is excluded from the averages.
         payload_keys = {(cod, var) for cod, var, _ in daily_sales}
         cur.execute("""
             SELECT ps.cod, ps.v, ps.sales_sets, ps.bought_sets, ps.stock, p.disponibilita, ps.verified

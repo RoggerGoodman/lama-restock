@@ -183,14 +183,18 @@ class AutomatedRestockService(RestockService):
             sigma_daily = Helper.demand_sigma_daily(sales_sets, closure_mask)
             sigma_L = sigma_daily * (max(coverage_days, 1) ** 0.5) if sigma_daily is not None else None
 
-            if min_override is not None:
-                eff_min = min_override
-            elif sigma_L is not None and avg_daily_sales >= Helper.SLOW_MOVER_THRESHOLD:
-                # Mirrors processor_N: minimum_stock = hypot(presence, z*sigma),
-                # gated at the slow-mover threshold, trend scaling the buffer only.
+            # Mirrors processor_N: an override replaces the presence target, not
+            # the whole calculation, so measured volatility still applies on top.
+            has_override = min_override is not None
+            presence = min_override if has_override else min_floor
+
+            if sigma_L is not None and avg_daily_sales >= Helper.SLOW_MOVER_THRESHOLD:
                 safety = min(safety_z * sigma_L, float(req_stock)) if req_stock > 0 else safety_z * sigma_L
-                safety *= Helper.deviation_factor(deviation)
-                eff_min = round(math.sqrt(min_floor ** 2 + safety ** 2))
+                if not has_override:
+                    safety *= Helper.deviation_factor(deviation)
+                eff_min = round(math.sqrt(presence ** 2 + safety ** 2))
+            elif has_override:
+                eff_min = presence
             else:
                 # Mirrors processor_N's legacy branch. These used to be a hand-copied
                 # 1.2/1.1/0.7/0.9 ladder against processor_N's 1.3/1.2/0.6/0.8, so the
