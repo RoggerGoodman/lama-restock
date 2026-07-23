@@ -118,23 +118,29 @@ class Helper:
         min_days = 14
         half_life = 14
         outlier_k = 10
+        # No single day below this is worth winsorising, however extreme it looks
+        # against a mostly-zero history. Without it the threshold collapses on
+        # sparse sellers — a lone 1-unit sale in 60 days was being erased to 0,
+        # and a 3-unit day clipped to 1 — because both p95 and the second-highest
+        # day are 0 or 1 there. The case this guards against is a 500-unit spike
+        # on a dead product, not a customer buying three jars.
+        outlier_min_abs = 10
 
         observed_days = len(daily_sales)
         if observed_days < min_days:
             return None
 
-        # Cap outliers above outlier_k × p95 to the highest non-outlier value,
-        # preserving position. The threshold is floored at the second-highest day
-        # for sparse sellers: when 95%+ of days are zero, p95 carries no scale —
-        # it is either 0 (gate disabled, one freak day sets the average) or a tiny
-        # fraction (gate so tight it zeroes genuine sales).
+        # Cap outliers above the threshold to the highest non-outlier value,
+        # preserving position. Floored at the second-highest day so that when
+        # 95%+ of days are zero (p95 carries no scale) the gate does not tighten
+        # onto genuine sales.
         sorted_vals = sorted(daily_sales)
         idx = 0.95 * (len(sorted_vals) - 1)
         lo = int(idx)
         hi = min(lo + 1, len(sorted_vals) - 1)
         p95 = sorted_vals[lo] + (idx - lo) * (sorted_vals[hi] - sorted_vals[lo])
 
-        threshold = max(outlier_k * p95, sorted_vals[-2])
+        threshold = max(outlier_k * p95, sorted_vals[-2], outlier_min_abs)
         outlier_indices = [i for i, v in enumerate(daily_sales) if v > threshold]
         if outlier_indices:
             # Never empty: threshold >= sorted_vals[-2], so every value except
@@ -350,11 +356,16 @@ class Helper:
             return 0.8
         return 1.0
 
+    # Below this daily rate a product is a slow mover: it gets a facings penalty
+    # instead of a demand buffer, because the pack size already dwarfs its demand
+    # (0.16/day against a pack of 8 is 50 days of cover).
+    SLOW_MOVER_THRESHOLD = 0.6
+
     @staticmethod
     def slow_mover_reduction(avg_daily_sales):
         """Units to shave off a slow mover, 0 if it isn't one. A judgement about
         how many facings a near-dead product earns, not a statistical statement."""
-        if avg_daily_sales >= 0.6:
+        if avg_daily_sales >= Helper.SLOW_MOVER_THRESHOLD:
             return 0
         reduction = 1
         if avg_daily_sales <= 0.1:
@@ -438,9 +449,10 @@ class Helper:
 
         Three choices, each fixing a measured defect of the old 8-day-median form:
 
-        - Whole-week windows (14/42). An 8-day window is a week plus a day, so it
-          double-counts whichever weekday the run lands on — worth +11% on
-          stationary demand when the order ran on a Sunday.
+        - Whole-week windows, both of them. An 8-day window is a week plus a day,
+          so it double-counts whichever weekday the run lands on — worth +11% on
+          stationary demand when the order ran on a Sunday. The baseline is
+          truncated to a multiple of 7 for the same reason.
         - Means, not medians. Daily counts are small integers; at ~3 units/day the
           median took only ~20 distinct values, 28% of them exactly 0. Outliers
           are already winsorised in avg_daily_sales_from_sales_sets.
@@ -461,7 +473,11 @@ class Helper:
             return 0
 
         recent = sales_sets[:recent_window]
+        # Whole weeks only: a 46-day baseline counts four weekdays seven times and
+        # the other three six times, reintroducing the run-day bias the 14-day
+        # recent window was sized to avoid.
         baseline = sales_sets[recent_window:]
+        baseline = baseline[:(len(baseline) // 7) * 7]
 
         mean_recent = statistics.mean(recent)
         mean_baseline = statistics.mean(baseline)
@@ -471,22 +487,29 @@ class Helper:
 
         # Welch standard error of the difference between the two window means —
         # unequal window sizes and unequal variances are both expected here.
-        se = math.sqrt(
+        se_welch = math.sqrt(
             statistics.variance(recent) / len(recent)
             + statistics.variance(baseline) / len(baseline)
         )
 
-        if se > 0:
-            z = (mean_recent - mean_baseline) / se
-            if abs(z) < z_min:
-                return 0
-        else:
-            # Both windows are internally constant. Degenerate for a t-test, but
-            # a difference in level here is a perfectly clean signal rather than
-            # an absent one — don't report it as "no change".
-            if mean_recent == mean_baseline:
-                return 0
-            z = math.inf if mean_recent > mean_baseline else -math.inf
+        # Floor it at the Poisson standard error under "both rates are equal".
+        # Sample variance collapses to 0 on a window of all zeros, which reads as
+        # perfect certainty and inflates z: at 0.1 units/day that fired on 22% of
+        # stationary products, 91% of them pinned to the -50% clamp. Counts can
+        # never really be that certain. Taking the larger of the two keeps the
+        # empirical estimate wherever demand is over-dispersed, which is most of
+        # the catalogue, and only binds where the sample has gone degenerate.
+        pooled_rate = (sum(recent) + sum(baseline)) / (len(recent) + len(baseline))
+        se_poisson = math.sqrt(pooled_rate * (1 / len(recent) + 1 / len(baseline)))
+
+        se = max(se_welch, se_poisson)
+
+        if se <= 0:
+            return 0
+
+        z = (mean_recent - mean_baseline) / se
+        if abs(z) < z_min:
+            return 0
 
         deviation = round((mean_recent - mean_baseline) / mean_baseline * 100, 2)
         deviation = max(-50, min(deviation, 50))

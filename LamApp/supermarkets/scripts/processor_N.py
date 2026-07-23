@@ -27,9 +27,10 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
             those are physical facts about today's stock, not judgment calls the override
             can account for in advance.
         sigma_L: measured demand sigma over the coverage window. Replaces the legacy
-            sqrt(req_stock) buff, which assumes Poisson (variance == mean); real
-            dispersion is 2.67 volume-weighted and 20-60 for pack-bought beverages.
-            None (thin history) keeps the legacy rule unchanged.
+            sqrt(req_stock) buff for products above SLOW_MOVER_THRESHOLD, since that
+            rule assumes Poisson (variance == mean) while real dispersion is 2.67
+            volume-weighted and 20-60 for pack-bought beverages. None (thin history)
+            or a slow mover keeps the legacy rule unchanged.
         safety_z: standard deviations of cushion, per settore — Helper.safety_z_for.
     """
     order = 1
@@ -39,16 +40,13 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     if minimum_stock_override is not None:
         minimum_stock = minimum_stock_override
         logger.info(f"Minimum stock override = {minimum_stock} (velocity/deviation/expiry-rate adjustments skipped)")
-    elif sigma_L is not None:
-        # The slow-mover ladder applies to presence, not to the buffer: it is the
-        # judgement that a product selling 0.05/day does not deserve full facings.
-        reduction = Helper.slow_mover_reduction(avg_daily_sales)
-        presence_target = max(0, minimum_stock_base - reduction)
-        if reduction:
-            logger.info(
-                f"Slow-mover presence reduction: avg_daily_sales={avg_daily_sales:.2f} "
-                f"-> presence floor {minimum_stock_base} -> {presence_target}"
-            )
+    elif sigma_L is not None and avg_daily_sales >= Helper.SLOW_MOVER_THRESHOLD:
+        # Gated at the same velocity threshold the legacy buff used, and for the
+        # same reason: below it the pack size IS the safety stock. A product
+        # selling 0.16/day with req_stock under 1 unit ships in packs of 8 — 50
+        # days of cover — so a statistical buffer on top is meaningless, and the
+        # legacy branch deliberately applied a penalty there instead of a buff.
+        presence_target = minimum_stock_base
 
         safety = safety_z * sigma_L
         # Never hold more buffer than one coverage window of demand
@@ -57,16 +55,29 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
         factor = Helper.deviation_factor(deviation_corrected)
         adjusted = capped * factor
 
-        # Additive, not max(): minimum_stock is the expected leftover at the end of
-        # the protection interval, so keeping `presence_target` facings once the
-        # variance has played out needs presence PLUS z*sigma. max() would spend the
-        # facings absorbing the variance and empty the shelf when demand ran high.
-        minimum_stock = presence_target + round(adjusted)
+        # Combine the two requirements in quadrature rather than by sum or by max.
+        # minimum_stock is the expected residual at the end of the protection
+        # interval, and it carries two independent jobs: hold z*sigma so demand
+        # variance does not stock us out, and hold `presence_target` facings so the
+        # shelf does not look empty.
+        #   sum      -> double-counts; a steady seller with presence 5 already has
+        #               ~3 sigma of cover, so adding sigma on top buys nothing
+        #   max      -> the larger swallows the smaller, leaving minimum_stock flat
+        #               at `presence` for every product with sigma < presence. That
+        #               dead zone widens with the storage's presence setting, so a
+        #               store configured at 20 would have sigma inert almost
+        #               everywhere.
+        #   quadrature -> collapses to the larger when either dominates (both ends
+        #               behave like max), gives 1.41x when they are comparable, and
+        #               is strictly increasing in sigma at every presence value, so
+        #               there is no dead zone. It also reproduces the legacy buff
+        #               through the mid band.
+        minimum_stock = round(math.sqrt(presence_target ** 2 + adjusted ** 2))
         logger.info(
             f"Safety stock: z={safety_z} x sigma_L={sigma_L:.1f} = {safety:.1f}"
             + (f" (capped to req_stock={req_stock})" if capped < safety else "")
             + (f" x deviation {deviation_corrected:+.0f}% = {adjusted:.1f}" if factor != 1.0 else "")
-            + f" -> minimum_stock = presence {presence_target} + safety {round(adjusted)} = {minimum_stock}"
+            + f" -> minimum_stock = hypot(presence {presence_target}, safety {adjusted:.1f}) = {minimum_stock}"
         )
 
         # No on-sale bonus here on purpose: the measured promo lift has already

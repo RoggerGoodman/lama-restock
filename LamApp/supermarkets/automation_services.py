@@ -185,12 +185,12 @@ class AutomatedRestockService(RestockService):
 
             if min_override is not None:
                 eff_min = min_override
-            elif sigma_L is not None:
-                # Mirrors processor_N: minimum_stock = presence + z*sigma, the
-                # slow-mover ladder cuts presence, the trend scales only the buffer.
-                presence = max(0, min_floor - Helper.slow_mover_reduction(avg_daily_sales))
+            elif sigma_L is not None and avg_daily_sales >= Helper.SLOW_MOVER_THRESHOLD:
+                # Mirrors processor_N: minimum_stock = hypot(presence, z*sigma),
+                # gated at the slow-mover threshold, trend scaling the buffer only.
                 safety = min(safety_z * sigma_L, float(req_stock)) if req_stock > 0 else safety_z * sigma_L
-                eff_min = presence + round(safety * Helper.deviation_factor(deviation))
+                safety *= Helper.deviation_factor(deviation)
+                eff_min = round(math.sqrt(min_floor ** 2 + safety ** 2))
             else:
                 # Mirrors processor_N's legacy branch. These used to be a hand-copied
                 # 1.2/1.1/0.7/0.9 ladder against processor_N's 1.3/1.2/0.6/0.8, so the
