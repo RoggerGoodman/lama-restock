@@ -215,7 +215,7 @@
                         <thead>
                             <tr>
                                 <th>Punto vendita</th>
-                                <th>Dominante</th>
+                                <th>Primario</th>
                                 <th></th>
                                 <th>Secondario</th>
                                 <th>Creato da</th>
@@ -227,7 +227,7 @@
                             {% for notif in product_link_notifications %}
                             <tr>
                                 <td><strong>{{ notif.supermarket.name }}</strong></td>
-                                <td><code class="text-primary">{{ notif.dominant_cod }}.{{ notif.dominant_v }}</code></td>
+                                <td><code class="text-primary">{{ notif.primary_cod }}.{{ notif.primary_v }}</code></td>
                                 <td class="text-muted"><i class="bi bi-arrow-right"></i></td>
                                 <td><code class="text-secondary">{{ notif.secondary_cod }}.{{ notif.secondary_v }}</code></td>
                                 <td><small class="text-muted">{% if notif.created_by %}{{ notif.created_by.username }}{% else %}—{% endif %}</small></td>

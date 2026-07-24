@@ -168,18 +168,27 @@ class DatabaseManager:
         }
 
     def get_linked_product_stats(self, cod, v):
-        """Fetch sales_sets and stock for a product regardless of settore (used for linked product merging)."""
+        """
+        Fetch the data needed to handle a product link regardless of settore:
+        the stats to merge, plus the availability flags used to decide which
+        side of the link is the one to order.
+        """
         cur = self.cursor()
-        cur.execute(
-            "SELECT sales_sets, stock FROM product_stats WHERE cod=%s AND v=%s",
-            (cod, v)
-        )
+        cur.execute("""
+            SELECT ps.sales_sets, ps.stock, ps.verified, p.disponibilita, p.purge_flag
+            FROM products p
+            LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+            WHERE p.cod = %s AND p.v = %s
+        """, (cod, v))
         row = cur.fetchone()
         if not row:
             return None
         return {
             "sales_sets": row["sales_sets"] or [],
             "stock": row["stock"] or 0,
+            "verified": row["verified"],
+            "disponibilita": row["disponibilita"],
+            "purge_flag": row["purge_flag"],
         }
 
     def get_store_daily_totals(self):

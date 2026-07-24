@@ -877,9 +877,13 @@ class StockValueSnapshot(models.Model):
 class ProductLink(models.Model):
     """
     Per-supermarket link between two products that represent the same item
-    (one replacing the other). The dominant product is the one to order;
-    the secondary is being phased out. Both products' sales and stock are
-    merged when evaluating the dominant's order quantity.
+    (one replacing the other). The primary product is the one to order by
+    default; the secondary is being phased out. Both products' sales and
+    stock are merged when evaluating the order quantity.
+
+    If the primary is not orderable (disponibilita = "No") while the secondary
+    still is, the roles are flipped at decision time — see
+    DecisionMaker._resolve_product_links.
 
     Links are independent per supermarket — one store can unlink without
     affecting other stores. Chain-wide propagation is a UI convenience
@@ -888,8 +892,8 @@ class ProductLink(models.Model):
     supermarket = models.ForeignKey(
         'Supermarket', on_delete=models.CASCADE, related_name='product_links'
     )
-    dominant_cod = models.IntegerField()
-    dominant_v = models.IntegerField(default=0)
+    primary_cod = models.IntegerField()
+    primary_v = models.IntegerField(default=0)
     secondary_cod = models.IntegerField()
     secondary_v = models.IntegerField(default=0)
     notes = models.TextField(blank=True)
@@ -901,32 +905,30 @@ class ProductLink(models.Model):
     class Meta:
         # Each product may appear in at most one link per supermarket.
         unique_together = [
-            ('supermarket', 'dominant_cod', 'dominant_v'),
+            ('supermarket', 'primary_cod', 'primary_v'),
             ('supermarket', 'secondary_cod', 'secondary_v'),
         ]
 
     def __str__(self):
         return (
             f"{self.supermarket.name}: "
-            f"[{self.dominant_cod}.{self.dominant_v}] → "
+            f"[{self.primary_cod}.{self.primary_v}] → "
             f"[{self.secondary_cod}.{self.secondary_v}]"
         )
 
     @classmethod
-    def build_lookup(cls, supermarket):
+    def build_pairs(cls, supermarket):
         """
-        Returns two dicts for fast lookup during order processing for one supermarket:
-          secondary_set:         {(cod, v)} — products to skip when iterating
-          dominant_to_secondary: {(dom_cod, dom_v): (sec_cod, sec_v)}
+        Returns the supermarket's links as a list of pairs for order processing:
+          [((pri_cod, pri_v), (sec_cod, sec_v)), ...]
+
+        Which side is actually ordered is decided later by the DecisionMaker,
+        which can fall back to the secondary when the primary is unavailable.
         """
-        secondary_set = set()
-        dominant_to_secondary = {}
-        for link in cls.objects.filter(supermarket=supermarket):
-            key_d = (link.dominant_cod, link.dominant_v)
-            key_s = (link.secondary_cod, link.secondary_v)
-            secondary_set.add(key_s)
-            dominant_to_secondary[key_d] = key_s
-        return secondary_set, dominant_to_secondary
+        return [
+            ((link.primary_cod, link.primary_v), (link.secondary_cod, link.secondary_v))
+            for link in cls.objects.filter(supermarket=supermarket)
+        ]
 
 
 class ProductLinkNotification(models.Model):
@@ -937,8 +939,8 @@ class ProductLinkNotification(models.Model):
     supermarket = models.ForeignKey(
         'Supermarket', on_delete=models.CASCADE, related_name='product_link_notifications'
     )
-    dominant_cod = models.IntegerField()
-    dominant_v = models.IntegerField(default=0)
+    primary_cod = models.IntegerField()
+    primary_v = models.IntegerField(default=0)
     secondary_cod = models.IntegerField()
     secondary_v = models.IntegerField(default=0)
     created_by = models.ForeignKey(
@@ -954,5 +956,5 @@ class ProductLinkNotification(models.Model):
     def __str__(self):
         return (
             f"{self.supermarket.name}: "
-            f"{self.dominant_cod}.{self.dominant_v} → {self.secondary_cod}.{self.secondary_v}"
+            f"{self.primary_cod}.{self.primary_v} → {self.secondary_cod}.{self.secondary_v}"
         )

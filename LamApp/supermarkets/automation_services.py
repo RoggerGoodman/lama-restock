@@ -400,14 +400,12 @@ class AutomatedRestockService(RestockService):
 
             try:
                 from .models import ProductLink
-                secondary_products, dominant_to_secondary = ProductLink.build_lookup(self.supermarket)
                 decision_maker = DecisionMaker(
                     self.db,
                     self.helper,
                     blacklist_set=self.get_blacklist_set(),
                     skip_sale=skip_sale,
-                    secondary_products=secondary_products,
-                    dominant_to_secondary=dominant_to_secondary,
+                    product_links=ProductLink.build_pairs(self.supermarket),
                 )
                 decision_maker.decide_orders_for_settore(self.settore, coverage, self.storage.minimum_stock)
                 orders_list = decision_maker.orders_list

@@ -3455,13 +3455,11 @@ def cluster_order_preview_view(request):
     try:
         with RestockService(storage) as service:
             from .models import ProductLink
-            secondary_products, dominant_to_secondary = ProductLink.build_lookup(supermarket)
             blacklist = service.get_blacklist_set()
             dm = DecisionMaker(
                 service.db, service.helper,
                 blacklist_set=blacklist,
-                secondary_products=secondary_products,
-                dominant_to_secondary=dominant_to_secondary,
+                product_links=ProductLink.build_pairs(supermarket),
             )
             dm.decide_orders_for_settore(settore, coverage, storage.minimum_stock)
 
@@ -5819,7 +5817,7 @@ def recipe_get_base_items_view(request, pk):
 def product_links_view(request):
     """
     Per-supermarket product link management.
-    Allows creating and deleting links between a dominant product (the one to keep
+    Allows creating and deleting links between a primary product (the one to keep
     ordering) and a secondary product (being phased out). A 'propagate to all'
     option creates the same link for every supermarket owned by the user.
     """
@@ -5847,23 +5845,23 @@ def product_links_view(request):
 
         if action == 'create':
             try:
-                dominant_cod = int(request.POST['dominant_cod'])
-                dominant_v = int(request.POST.get('dominant_v') or 0)
+                primary_cod = int(request.POST['primary_cod'])
+                primary_v = int(request.POST.get('primary_v') or 0)
                 secondary_cod = int(request.POST['secondary_cod'])
                 secondary_v = int(request.POST.get('secondary_v') or 0)
                 notes = request.POST.get('notes', '').strip()
                 propagate = request.POST.get('propagate') == '1'
 
-                if dominant_cod == secondary_cod and dominant_v == secondary_v:
-                    error = "Il prodotto dominante e il prodotto secondario non possono essere lo stesso articolo."
+                if primary_cod == secondary_cod and primary_v == secondary_v:
+                    error = "Il prodotto primario e il prodotto secondario non possono essere lo stesso articolo."
                 else:
                     targets = user_supermarkets if propagate else [selected_sm]
                     created, skipped = 0, 0
                     for sm in targets:
                         _, was_created = ProductLink.objects.get_or_create(
                             supermarket=sm,
-                            dominant_cod=dominant_cod,
-                            dominant_v=dominant_v,
+                            primary_cod=primary_cod,
+                            primary_v=primary_v,
                             defaults={
                                 'secondary_cod': secondary_cod,
                                 'secondary_v': secondary_v,
@@ -5875,8 +5873,8 @@ def product_links_view(request):
                             created += 1
                             ProductLinkNotification.objects.create(
                                 supermarket=sm,
-                                dominant_cod=dominant_cod,
-                                dominant_v=dominant_v,
+                                primary_cod=primary_cod,
+                                primary_v=primary_v,
                                 secondary_cod=secondary_cod,
                                 secondary_v=secondary_v,
                                 created_by=request.user,
@@ -5890,7 +5888,7 @@ def product_links_view(request):
                             success += f" {skipped} già esistente/i (saltati)."
                     else:
                         if created:
-                            success = f"Collegamento creato: {dominant_cod}.{dominant_v} → {secondary_cod}.{secondary_v}"
+                            success = f"Collegamento creato: {primary_cod}.{primary_v} → {secondary_cod}.{secondary_v}"
                         else:
                             error = "Uno dei prodotti selezionati fa già parte di un collegamento per questo punto vendita."
             except ValueError:
@@ -5910,10 +5908,10 @@ def product_links_view(request):
             try:
                 link_id = int(request.POST['link_id'])
                 link = ProductLink.objects.get(id=link_id, supermarket__owner=request.user)
-                link.dominant_cod, link.secondary_cod = link.secondary_cod, link.dominant_cod
-                link.dominant_v, link.secondary_v = link.secondary_v, link.dominant_v
+                link.primary_cod, link.secondary_cod = link.secondary_cod, link.primary_cod
+                link.primary_v, link.secondary_v = link.secondary_v, link.primary_v
                 link.save()
-                success = f"Dominanza invertita: {link.dominant_cod}.{link.dominant_v} e' ora il dominante."
+                success = f"Ruoli invertiti: {link.primary_cod}.{link.primary_v} e' ora il primario."
             except ProductLink.DoesNotExist:
                 error = "Collegamento non trovato."
             except Exception as e:

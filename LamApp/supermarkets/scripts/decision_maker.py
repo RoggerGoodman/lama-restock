@@ -13,13 +13,14 @@ logger = logging.getLogger(__name__)
 
 class DecisionMaker:
     def __init__(self, db: DatabaseManager, helper: Helper, blacklist_set=None, skip_sale: bool = False,
-                 secondary_products=None, dominant_to_secondary=None):
+                 product_links=None):
         """
         Initialize decision maker with PostgreSQL support.
 
-        secondary_products:      set of (cod, v) that are the phased-out side of a ProductLink.
-                                 These are skipped for ordering; their stats are merged into the dominant.
-        dominant_to_secondary:   dict {(dom_cod, dom_v): (sec_cod, sec_v)} for stat merging.
+        product_links: list of ProductLink pairs [((pri_cod, pri_v), (sec_cod, sec_v)), ...].
+                       Only one side of each pair is ordered; the other side's stats are
+                       merged into it. Which side that is gets resolved in
+                       _resolve_product_links.
         """
         self.helper = helper
         self.conn = db.conn
@@ -36,11 +37,44 @@ class DecisionMaker:
         # Store blacklist - if None, create empty set
         self.blacklist = blacklist_set if blacklist_set is not None else set()
 
-        # Product link lookups (global, chain-level)
-        self.secondary_products = secondary_products if secondary_products is not None else set()
-        self.dominant_to_secondary = dominant_to_secondary if dominant_to_secondary is not None else {}
+        # Product link lookups — resolved once, used while iterating every settore
+        self.link_partner = {}      # (cod, v) of the side to order -> (cod, v) of the side merged into it
+        self.link_suppressed = {}   # (cod, v) not to order -> (cod, v) of the side that carries the order
+        self._resolve_product_links(product_links or [])
 
         logger.info(f"DecisionMaker initialized with {len(self.blacklist)} blacklisted products")
+
+    @staticmethod
+    def _link_side_is_available(info):
+        """A link side can carry the order unless the catalog marks it unavailable."""
+        if info is None:
+            return False
+        return str(info.get("disponibilita") or "").strip().lower() != "no"
+
+    def _resolve_product_links(self, product_links):
+        """
+        Pick which side of each link is the one to order.
+
+        Normally that is the primary. When the primary is no longer available
+        from the supplier but the secondary still is, the roles are flipped so
+        the order can still go through on the secondary — the merged sales
+        history and stock stay the same either way.
+        """
+        for primary, secondary in product_links:
+            primary_info = self.db.get_linked_product_stats(*primary)
+            secondary_info = self.db.get_linked_product_stats(*secondary)
+
+            order_side, merged_side = primary, secondary
+            if not self._link_side_is_available(primary_info) and self._link_side_is_available(secondary_info):
+                order_side, merged_side = secondary, primary
+                logger.info(
+                    f"Product link {primary[0]}.{primary[1]} → {secondary[0]}.{secondary[1]}: "
+                    f"primary is not available (disponibilita=No), falling back to the secondary "
+                    f"{secondary[0]}.{secondary[1]} as the order target"
+                )
+
+            self.link_partner[order_side] = merged_side
+            self.link_suppressed[merged_side] = order_side
 
     def get_products_by_settore(self, settore):
         """
@@ -215,9 +249,13 @@ class DecisionMaker:
                 logger.info(f"Skipping purging product: {product_cod}.{product_var}")
                 continue
 
-            # CHECK PRODUCT LINK — skip secondaries; merge into dominant later
-            if (product_cod, product_var) in self.secondary_products:
-                logger.info(f"Skipping secondary linked product: {product_cod}.{product_var} (handled by dominant)")
+            # CHECK PRODUCT LINK — only one side of a link is ordered; merge into it later
+            link_carrier = self.link_suppressed.get((product_cod, product_var))
+            if link_carrier is not None:
+                logger.info(
+                    f"Skipping linked product: {product_cod}.{product_var} "
+                    f"(handled by {link_carrier[0]}.{link_carrier[1]})"
+                )
                 continue
 
             descrizione = row["descrizione"]
@@ -233,17 +271,17 @@ class DecisionMaker:
             sales_sets = row["sales_sets"] or []
             bought_sets = row["bought_sets"] or []
 
-            # PRODUCT LINK — merge secondary's sales_sets and stock into this dominant
-            linked_secondary = self.dominant_to_secondary.get((product_cod, product_var))
-            if linked_secondary is not None:
-                sec_stats = self.db.get_linked_product_stats(linked_secondary[0], linked_secondary[1])
-                if sec_stats is not None:
-                    sales_sets = Helper.merge_sales_sets(sales_sets, sec_stats["sales_sets"])
-                    stock = stock + max(0, sec_stats["stock"])
+            # PRODUCT LINK — merge the other side's sales_sets and stock into this one
+            linked_partner = self.link_partner.get((product_cod, product_var))
+            if linked_partner is not None:
+                partner_stats = self.db.get_linked_product_stats(linked_partner[0], linked_partner[1])
+                if partner_stats is not None:
+                    sales_sets = Helper.merge_sales_sets(sales_sets, partner_stats["sales_sets"])
+                    stock = stock + max(0, partner_stats["stock"])
                     logger.info(
-                        f"Merged linked secondary {linked_secondary[0]}.{linked_secondary[1]} "
-                        f"into dominant {product_cod}.{product_var}: "
-                        f"stock+={sec_stats['stock']}"
+                        f"Merged linked product {linked_partner[0]}.{linked_partner[1]} "
+                        f"into {product_cod}.{product_var}: "
+                        f"stock+={partner_stats['stock']}"
                     )
             package_size = row["pz_x_collo"]
             package_multi = row["rapp"]
