@@ -105,6 +105,7 @@ urlpatterns = [
     path('inventory/stock-value/snapshot/', views.create_stock_snapshot_view, name='create-stock-snapshot'),
     path('inventory/stock-value/snapshot/<int:pk>/delete/', views.delete_stock_snapshot_view, name='delete-stock-snapshot'),
     path('inventory/losses-analytics/', views.losses_analytics_unified_view, name='losses-analytics-unified'),
+    path('inventory/stock-profit/', views.stock_profit_view, name='stock-profit'),
     path('inventory/promo-products/', views.promo_products_view, name='promo-products'),
     path('inventory/order-promo-products/', views.order_promo_products_view, name='order-promo-products'),
     path('inventory/product-links/', views.product_links_view, name='product-links'),

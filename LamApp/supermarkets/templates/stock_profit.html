@@ -1,0 +1,713 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Analisi della redditività{% endblock %}
+{% block page_title %}Analisi della redditività{% endblock %}
+
+{% block extra_css %}
+<style>
+    .product-search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 0 0 6px 6px;
+        max-height: 300px;
+        overflow-y: auto;
+        z-index: 1000;
+        display: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .product-search-results .dropdown-item {
+        padding: 10px 15px;
+        border-bottom: 1px solid #eee;
+        cursor: pointer;
+    }
+    .product-search-results .dropdown-item:hover {
+        background-color: #f8f9fa;
+    }
+    .product-search-results .dropdown-item:last-child {
+        border-bottom: none;
+    }
+    .selected-product-badge {
+        background-color: #e8f4f8;
+        border-radius: 4px;
+        padding: 4px 8px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .cluster-checklist {
+        border: 1px solid #ced4da;
+        border-radius: 6px;
+        max-height: 150px;
+        overflow-y: auto;
+        padding: 6px 10px;
+        background: #fff;
+    }
+    .cluster-checklist .form-check {
+        margin-bottom: 2px;
+    }
+    .cluster-checklist label {
+        font-size: 0.875rem;
+        cursor: pointer;
+    }
+
+    /* Hierarchy rows */
+    #profitTable .row-settore > td {
+        background-color: #eef2f7;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    #profitTable .row-cluster > td {
+        background-color: #f7f9fb;
+        cursor: pointer;
+    }
+    #profitTable .row-product > td:first-child {
+        padding-left: 2.6rem;
+    }
+    #profitTable .row-cluster > td:first-child {
+        padding-left: 1.3rem;
+    }
+    #profitTable .toggle-caret {
+        display: inline-block;
+        width: 1rem;
+        transition: transform .15s ease;
+    }
+    #profitTable tr.collapsed-node .toggle-caret {
+        transform: rotate(-90deg);
+    }
+    .incidence-bar {
+        display: inline-block;
+        height: 4px;
+        background-color: #388e3c;
+        border-radius: 2px;
+        vertical-align: middle;
+        margin-left: 6px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item active">Analisi della redditività</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Filter Form -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3"><i class="bi bi-funnel"></i> Filtri</h5>
+                <form method="get" class="row g-3" id="filterForm">
+                    <div class="col-md-3">
+                        <label for="supermarket_id" class="form-label">Punto vendita</label>
+                        <select name="supermarket_id" id="supermarket_id" class="form-select" onchange="resetClustersAndSubmit()">
+                            <option value="">Tutti i Punti vendita</option>
+                            {% for sm in supermarkets %}
+                            <option value="{{ sm.id }}" {% if sm.id|stringformat:"s" == selected_supermarket %}selected{% endif %}>
+                                {{ sm.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label for="storage_id" class="form-label">Magazzino (Settore)</label>
+                        <select name="storage_id" id="storage_id" class="form-select" onchange="resetClustersAndSubmit()">
+                            <option value="">Tutti i Magazzini</option>
+                            {% for storage in storages %}
+                            <option value="{{ storage.id }}"
+                                    {% if storage.id|stringformat:"s" == selected_storage %}selected{% endif %}>
+                                {{ storage.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-md-2">
+                        <label for="period_mode" class="form-label">Modalità periodo</label>
+                        <select name="period_mode" id="period_mode" class="form-select" onchange="onPeriodModeChange()">
+                            <option value="current" {% if period_mode == 'current' %}selected{% endif %}>Mese corrente</option>
+                            <option value="range" {% if period_mode == 'range' %}selected{% endif %}>Intervallo personalizzato</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-2" id="from_month_col" {% if period_mode != 'range' %}style="display:none"{% endif %}>
+                        <label for="from_month" class="form-label">Dal mese</label>
+                        <select name="from_month" id="from_month" class="form-select" onchange="this.form.submit()">
+                            {% for m in available_months %}
+                            <option value="{{ m.value }}" {% if from_month == m.value %}selected{% endif %}>
+                                {{ m.label }}{% if m.is_current %} ★{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-md-2" id="to_month_col" {% if period_mode != 'range' %}style="display:none"{% endif %}>
+                        <label for="to_month" class="form-label">Al mese</label>
+                        <select name="to_month" id="to_month" class="form-select" onchange="this.form.submit()">
+                            {% for m in available_months %}
+                            <option value="{{ m.value }}" {% if to_month == m.value %}selected{% endif %}>
+                                {{ m.label }}{% if m.is_current %} ★{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Cluster Filter (multi-select) -->
+                    <div class="col-md-4">
+                        <label class="form-label d-flex justify-content-between align-items-center">
+                            <span>Filtro Cluster</span>
+                            <span>
+                                <a href="#" class="small text-decoration-none" onclick="setAllClusters(true); return false;">Tutti</a>
+                                <span class="text-muted small">|</span>
+                                <a href="#" class="small text-decoration-none" onclick="setAllClusters(false); return false;">Nessuno</a>
+                            </span>
+                        </label>
+                        {% if all_clusters %}
+                        <div class="cluster-checklist" id="clusterChecklist">
+                            {% for c in all_clusters %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="clusters"
+                                       value="{{ c }}" id="cluster_{{ forloop.counter }}"
+                                       {% if c in selected_clusters %}checked{% endif %}>
+                                <label class="form-check-label" for="cluster_{{ forloop.counter }}">{{ c }}</label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <small class="text-muted">Nessuna selezione = tutto il settore</small>
+                        {% else %}
+                        <div class="cluster-checklist text-muted small">Nessun cluster disponibile</div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Product Code Filter (ILIKE Search) -->
+                    <div class="col-md-4">
+                        <label class="form-label">Filtro Articolo</label>
+                        <input type="hidden" name="product_code" id="product_code_hidden" value="{{ product_code_filter|default:'' }}">
+
+                        {% if product_code_filter %}
+                        <div class="selected-product-badge">
+                            <code>{{ product_code_filter }}</code>
+                            <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="clearProductFilter()">
+                                <i class="bi bi-x-circle"></i>
+                            </button>
+                        </div>
+                        {% else %}
+                        <div class="position-relative">
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="productSearchInput"
+                                       placeholder="Cerca per nome (min. 3 car.)">
+                                <button type="submit" class="btn btn-outline-primary">
+                                    <i class="bi bi-search"></i>
+                                </button>
+                            </div>
+                            <div class="product-search-results" id="productSearchResults"></div>
+                        </div>
+                        {% endif %}
+                        <small class="text-muted">Cerca e seleziona un articolo per filtrare</small>
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check2"></i> Applica filtri
+                        </button>
+                        <a href="{% url 'stock-profit' %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Togli i Filtri
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scope Info -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="alert alert-primary mb-2">
+                <strong>Analizzando:</strong> {{ scope_description }} |
+                <strong>{{ total_products }}</strong> articoli venduti |
+                {{ selected_period_label }}
+                {% if selected_clusters %}
+                | <strong>Cluster:</strong> {{ selected_clusters|join:", " }}
+                {% endif %}
+                {% if missing_economics %}
+                <br>
+                <small>
+                    <i class="bi bi-exclamation-triangle"></i>
+                    {{ missing_economics }} articol{{ missing_economics|pluralize:"o,i" }} vendut{{ missing_economics|pluralize:"o,i" }}
+                    esclus{{ missing_economics|pluralize:"o,i" }}: prezzo o costo di listino mancante.
+                </small>
+                {% endif %}
+            </div>
+            <div class="alert alert-warning py-2 mb-0">
+                <i class="bi bi-info-circle"></i>
+                <small>
+                    I prezzi e i costi storici non sono archiviati: i mesi passati sono
+                    rivalutati ai prezzi di listino attuali. Le promozioni non sono
+                    scorporate. <strong>Lordo</strong> = fatturato (venduto × prezzo),
+                    <strong>Netto</strong> = margine (venduto × (prezzo − costo)).
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-blue">
+                    <i class="bi bi-cash-coin"></i>
+                </div>
+                <h3 class="mb-1">€{{ total_lordo|floatformat:2 }}</h3>
+                <p class="text-muted mb-1">Lordo (fatturato)</p>
+                <small class="text-muted">{{ selected_period_label }}</small>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-green">
+                    <i class="bi bi-graph-up-arrow"></i>
+                </div>
+                <h3 class="mb-1">€{{ total_netto|floatformat:2 }}</h3>
+                <p class="text-muted mb-1">Netto (margine)</p>
+                <small class="text-muted">{{ selected_period_label }}</small>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-orange">
+                    <i class="bi bi-percent"></i>
+                </div>
+                <h3 class="mb-1">{{ total_margin_pct|floatformat:1 }}%</h3>
+                <p class="text-muted mb-1">Margine medio</p>
+                <small class="text-muted">Netto / Lordo</small>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="icon icon-blue">
+                    <i class="bi bi-box-seam"></i>
+                </div>
+                <h3 class="mb-1">{{ total_units }}</h3>
+                <p class="text-muted mb-1">Pezzi venduti</p>
+                <small class="text-muted">{{ total_products }} articol{{ total_products|pluralize:"o,i" }}</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="stat-card">
+                <h5 class="mb-4"><i class="bi bi-bar-chart"></i> Andamento mensile Lordo / Netto (€)</h5>
+                <canvas id="profitChart" height="110"></canvas>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="stat-card">
+                <h5 class="mb-4"><i class="bi bi-pie-chart"></i> Top cluster per margine netto</h5>
+                {% if top_clusters %}
+                <canvas id="clusterChart" height="220"></canvas>
+                {% else %}
+                <p class="text-muted mb-0">Nessun dato disponibile.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Hierarchy Table -->
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h5 class="mb-0">
+                        <i class="bi bi-diagram-3"></i> Redditività per Settore → Cluster → Articolo
+                    </h5>
+                    <div class="d-flex gap-2">
+                        <button onclick="expandAll(false)" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-chevron-contract"></i> Comprimi tutto
+                        </button>
+                        <button onclick="expandAll(true)" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-chevron-expand"></i> Espandi tutto
+                        </button>
+                        <button onclick="exportToCSV()" class="btn btn-success btn-sm">
+                            <i class="bi bi-download"></i> Esporta in CSV
+                        </button>
+                    </div>
+                </div>
+
+                {% if tree %}
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm align-middle" id="profitTable">
+                        <thead>
+                            <tr>
+                                <th>Settore / Cluster / Articolo</th>
+                                <th class="text-end">Venduto</th>
+                                <th class="text-end">Lordo</th>
+                                <th class="text-end">Netto</th>
+                                <th class="text-end">Margine %</th>
+                                <th class="text-end">Incidenza prodotto</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for s in tree %}
+                            <tr class="row-settore" data-level="settore" data-node="{{ s.slug }}">
+                                <td>
+                                    <span class="toggle-caret"><i class="bi bi-caret-down-fill"></i></span>
+                                    <i class="bi bi-building"></i> {{ s.label }}
+                                    <span class="badge bg-secondary ms-2">{{ s.product_count }} articoli</span>
+                                </td>
+                                <td class="text-end">{{ s.units }}</td>
+                                <td class="text-end">€{{ s.lordo|floatformat:2 }}</td>
+                                <td class="text-end text-success"><strong>€{{ s.netto|floatformat:2 }}</strong></td>
+                                <td class="text-end">{{ s.margin_pct|floatformat:1 }}%</td>
+                                <td class="text-end">
+                                    <span class="text-muted">{{ s.share_of_total|floatformat:1 }}% del totale</span>
+                                </td>
+                            </tr>
+
+                            {% for c in s.clusters %}
+                            <tr class="row-cluster" data-level="cluster"
+                                data-node="{{ c.slug }}" data-parent="{{ s.slug }}">
+                                <td>
+                                    <span class="toggle-caret"><i class="bi bi-caret-down-fill"></i></span>
+                                    <i class="bi bi-folder"></i> {{ c.cluster }}
+                                    <span class="badge bg-light text-dark ms-2">{{ c.product_count }}</span>
+                                </td>
+                                <td class="text-end">{{ c.units }}</td>
+                                <td class="text-end">€{{ c.lordo|floatformat:2 }}</td>
+                                <td class="text-end text-success">€{{ c.netto|floatformat:2 }}</td>
+                                <td class="text-end">{{ c.margin_pct|floatformat:1 }}%</td>
+                                <td class="text-end">
+                                    <span class="text-muted">{{ c.share_of_settore|floatformat:1 }}% del settore</span>
+                                </td>
+                            </tr>
+
+                            {% for p in c.products %}
+                            <tr class="row-product" data-level="product" data-parent="{{ c.slug }}">
+                                <td>
+                                    <code>{{ p.cod }}.{{ p.var }}</code>
+                                    {{ p.description|truncatewords:8 }}
+                                    {% if p.category %}
+                                    <small class="text-muted">({{ p.category }})</small>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">{{ p.units }}</td>
+                                <td class="text-end">€{{ p.lordo|floatformat:2 }}</td>
+                                <td class="text-end text-success">€{{ p.netto|floatformat:2 }}</td>
+                                <td class="text-end">{{ p.margin_pct|floatformat:1 }}%</td>
+                                <td class="text-end">
+                                    <strong>{{ p.incidenza_netto|floatformat:1 }}%</strong>
+                                    <span class="incidence-bar" style="width: {{ p.incidenza_netto|floatformat:0 }}px"></span>
+                                    <small class="text-muted d-block">lordo {{ p.incidenza_lordo|floatformat:1 }}%</small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            {% endfor %}
+                            {% endfor %}
+                        </tbody>
+                        <tfoot class="table-light">
+                            <tr>
+                                <td><strong>Totale</strong></td>
+                                <td class="text-end"><strong>{{ total_units }}</strong></td>
+                                <td class="text-end"><strong>€{{ total_lordo|floatformat:2 }}</strong></td>
+                                <td class="text-end"><strong class="text-success">€{{ total_netto|floatformat:2 }}</strong></td>
+                                <td class="text-end"><strong>{{ total_margin_pct|floatformat:1 }}%</strong></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle"></i>
+                    Nessun dato di vendita disponibile per i filtri selezionati.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// ---- Filters ----------------------------------------------------------
+function onPeriodModeChange() {
+    const mode = document.getElementById('period_mode').value;
+    const fromCol = document.getElementById('from_month_col');
+    const toCol = document.getElementById('to_month_col');
+    if (mode === 'range') {
+        fromCol.style.display = '';
+        toCol.style.display = '';
+    } else {
+        fromCol.style.display = 'none';
+        toCol.style.display = 'none';
+        document.getElementById('filterForm').submit();
+    }
+}
+
+function setAllClusters(checked) {
+    document.querySelectorAll('#clusterChecklist input[name="clusters"]').forEach(cb => {
+        cb.checked = checked;
+    });
+}
+
+// Cluster names are scope-dependent: dropping the selection avoids carrying
+// over clusters that do not exist in the newly selected scope.
+function resetClustersAndSubmit() {
+    setAllClusters(false);
+    document.getElementById('filterForm').submit();
+}
+
+function clearProductFilter() {
+    document.getElementById('product_code_hidden').value = '';
+    document.getElementById('filterForm').submit();
+}
+
+// ILIKE product search
+document.addEventListener('DOMContentLoaded', function() {
+    const productSearchInput = document.getElementById('productSearchInput');
+    const productSearchResults = document.getElementById('productSearchResults');
+    const productCodeHidden = document.getElementById('product_code_hidden');
+    const supermarketSelect = document.getElementById('supermarket_id');
+
+    if (!productSearchInput) return;
+
+    let searchTimeout = null;
+    const DEBOUNCE_MS = 500;
+    const MIN_CHARS = 3;
+
+    productSearchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+        if (searchTimeout) clearTimeout(searchTimeout);
+
+        if (query.length < MIN_CHARS) {
+            productSearchResults.style.display = 'none';
+            return;
+        }
+
+        const supermarketId = supermarketSelect ? supermarketSelect.value : '';
+        if (!supermarketId) {
+            alert('Seleziona prima un Punto Vendita');
+            return;
+        }
+
+        productSearchResults.innerHTML = '<div class="dropdown-item text-muted"><i class="bi bi-hourglass-split"></i> Ricerca...</div>';
+        productSearchResults.style.display = 'block';
+
+        searchTimeout = setTimeout(() => {
+            fetch(`/inventory/api/search-products/?q=${encodeURIComponent(query)}&supermarket_id=${supermarketId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        productSearchResults.innerHTML = `<div class="dropdown-item text-danger">${data.error}</div>`;
+                    } else if (data.products.length === 0) {
+                        productSearchResults.innerHTML = '<div class="dropdown-item text-muted">Nessun risultato</div>';
+                    } else {
+                        productSearchResults.innerHTML = data.products.map(p => `
+                            <div class="dropdown-item" data-cod="${p.cod}" data-var="${p.var}">
+                                <strong>${p.cod}.${p.var}</strong> - ${p.description}
+                            </div>
+                        `).join('');
+
+                        productSearchResults.querySelectorAll('.dropdown-item').forEach(item => {
+                            item.addEventListener('click', function() {
+                                productCodeHidden.value = `${this.dataset.cod}.${this.dataset.var}`;
+                                document.getElementById('filterForm').submit();
+                            });
+                        });
+                    }
+                    productSearchResults.style.display = 'block';
+                })
+                .catch(err => {
+                    console.error('Search error:', err);
+                    productSearchResults.innerHTML = '<div class="dropdown-item text-danger">Errore di ricerca</div>';
+                    productSearchResults.style.display = 'block';
+                });
+        }, DEBOUNCE_MS);
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!productSearchInput.contains(e.target) && !productSearchResults.contains(e.target)) {
+            productSearchResults.style.display = 'none';
+        }
+    });
+});
+
+// ---- Hierarchy expand / collapse --------------------------------------
+(function() {
+    const table = document.getElementById('profitTable');
+    if (!table) return;
+
+    function setVisible(row, visible) {
+        row.style.display = visible ? '' : 'none';
+    }
+
+    // A node is shown only when every ancestor is expanded.
+    function refresh() {
+        table.querySelectorAll('tr.row-cluster').forEach(row => {
+            const parent = table.querySelector(`tr.row-settore[data-node="${row.dataset.parent}"]`);
+            setVisible(row, parent && !parent.classList.contains('collapsed-node'));
+        });
+        table.querySelectorAll('tr.row-product').forEach(row => {
+            const cluster = table.querySelector(`tr.row-cluster[data-node="${row.dataset.parent}"]`);
+            const visible = cluster
+                && cluster.style.display !== 'none'
+                && !cluster.classList.contains('collapsed-node');
+            setVisible(row, visible);
+        });
+    }
+
+    table.querySelectorAll('tr.row-settore, tr.row-cluster').forEach(row => {
+        row.addEventListener('click', function() {
+            this.classList.toggle('collapsed-node');
+            refresh();
+        });
+    });
+
+    // Start with clusters visible but products hidden
+    table.querySelectorAll('tr.row-cluster').forEach(r => r.classList.add('collapsed-node'));
+    refresh();
+
+    window.expandAll = function(expand) {
+        table.querySelectorAll('tr.row-settore, tr.row-cluster').forEach(r => {
+            r.classList.toggle('collapsed-node', !expand);
+        });
+        refresh();
+    };
+})();
+
+// ---- Charts -----------------------------------------------------------
+const monthLabels = {{ chart_labels|safe }};
+const lordoData = {{ chart_lordo|safe }};
+const nettoData = {{ chart_netto|safe }};
+
+new Chart(document.getElementById('profitChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: monthLabels,
+        datasets: [
+            {
+                label: 'Lordo (fatturato)',
+                data: lordoData,
+                backgroundColor: 'rgba(25, 118, 210, 0.6)',
+                order: 2
+            },
+            {
+                type: 'line',
+                label: 'Netto (margine)',
+                data: nettoData,
+                borderColor: 'rgb(56, 142, 60)',
+                backgroundColor: 'rgba(56, 142, 60, 0.15)',
+                tension: 0.35,
+                order: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: { position: 'top' },
+            tooltip: {
+                callbacks: {
+                    label: ctx => `${ctx.dataset.label}: €${ctx.parsed.y.toFixed(2)}`
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: { display: true, text: '€' }
+            }
+        }
+    }
+});
+
+{% if top_clusters %}
+new Chart(document.getElementById('clusterChart').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+        labels: {{ chart_cluster_labels|safe }},
+        datasets: [{
+            data: {{ chart_cluster_values|safe }},
+            backgroundColor: [
+                'rgba(25, 118, 210, 0.8)',
+                'rgba(56, 142, 60, 0.8)',
+                'rgba(245, 124, 0, 0.8)',
+                'rgba(211, 47, 47, 0.8)',
+                'rgba(111, 66, 193, 0.8)',
+                'rgba(0, 150, 136, 0.8)'
+            ]
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+                callbacks: {
+                    label: ctx => `${ctx.label}: €${ctx.parsed.toFixed(2)}`
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+// ---- CSV export (full hierarchy, ignores collapsed state) -------------
+function exportToCSV() {
+    const table = document.getElementById('profitTable');
+    if (!table) return;
+
+    const csv = ['Livello,Settore/Cluster/Articolo,Venduto,Lordo,Netto,Margine %,Incidenza %'];
+
+    let currentSettore = '';
+    let currentCluster = '';
+
+    table.querySelectorAll('tbody tr').forEach(tr => {
+        const level = tr.dataset.level;
+        const cells = Array.from(tr.querySelectorAll('td')).map(td =>
+            td.textContent.trim().replace(/\s+/g, ' ')
+        );
+        if (level === 'settore') currentSettore = cells[0];
+        if (level === 'cluster') currentCluster = cells[0];
+
+        const label = level === 'product'
+            ? `${currentSettore} > ${currentCluster} > ${cells[0]}`
+            : cells[0];
+
+        const row = [level, label, cells[1], cells[2], cells[3], cells[4], cells[5]]
+            .map(v => (v || '').includes(',') ? `"${v}"` : v);
+        csv.push(row.join(','));
+    });
+
+    const blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'redditivita_' + new Date().toISOString().split('T')[0] + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}
