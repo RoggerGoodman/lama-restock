@@ -146,15 +146,14 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
             )
             return order, 1, True, discount
 
-    if leftover_stock <= minimum_stock:
+    if leftover_stock < minimum_stock:
         order = 1
         logger.info(f"Order decision: forced 1 package — leftover_stock={leftover_stock} < minimum_stock={minimum_stock}")
         return order, 2, True, discount
 
-    if discount != None and stock <= package_size*0.2 or stock <= package_size*0.1:
+    if leftover_stock <= min(presence_target, minimum_stock):
         order = 1
-        threshold_desc = "20% of package (on sale)" if discount is not None else "10% of package"
-        logger.info(f"Order decision: forced 1 package — stock={stock} at or below {threshold_desc} (package_size={package_size})")
+        logger.info(f"forced 1 package — leftover_stock={leftover_stock} at presence floor")
         return order, 3, True, discount
 
     logger.info(
