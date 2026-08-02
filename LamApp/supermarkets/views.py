@@ -187,55 +187,63 @@ def dashboard_view(request):
         if sm.storages.exists():
             supermarkets_with_storages[sm.id] = sm
     
-    # Process each supermarket's database once
+    # Process each supermarket's database once.
+    # Count ALL pending verifications across every supermarket (drives the
+    # dashboard "Attenzione" card, which only shows when the count is > 0),
+    # and collect up to 5 sample products for the preview.
     top_pending_products = []
-    for sm_id, sm in list(supermarkets_with_storages.items())[:3]:  # Limit to 3 supermarkets
+    for sm_id, sm in supermarkets_with_storages.items():
         try:
             storage = sm.storages.first()
             with RestockService(storage) as service:
                 cursor = service.db.cursor()
                 settores = list(sm.storages.values_list('settore', flat=True).distinct())
-                
+
                 if not settores:
                     continue
-                
+
                 settore_placeholders = ','.join(['%s'] * len(settores))
-                
-                query = f"""
-                    SELECT 
-                        p.cod, p.v, p.descrizione,
-                        ps.stock
+
+                # Keep this WHERE clause in sync with pending_verifications_view()
+                pending_where = f"""
                     FROM product_stats ps
                     JOIN products p ON ps.cod = p.cod AND ps.v = p.v
                     WHERE ps.verified = FALSE
+                    AND p.purge_flag = FALSE
+                    AND ps.stock <> 0
                     AND ps.bought_last_24 IS NOT NULL
                     AND jsonb_typeof(ps.bought_last_24) = 'array'
                     AND EXISTS (
                         SELECT 1
-                        FROM jsonb_array_elements(ps.bought_last_24)
+                        FROM jsonb_array_elements(ps.bought_last_24) WITH ORDINALITY AS elem(val, idx)
+                        WHERE idx <= 4
+                        AND jsonb_typeof(elem.val) = 'number'
+                        AND (elem.val)::text::numeric <> 0
                     )
                     AND p.settore IN ({settore_placeholders})
-                    LIMIT 5
                 """
-                
-                cursor.execute(query, settores)
-                
-                for row in cursor.fetchall():
-                    top_pending_products.append({
-                        'supermarket': sm.name,
-                        'cod': row['cod'],
-                        'var': row['v'],
-                        'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
-                        'stock': row['stock'] or 0
-                    })
-                    
-                    if len(top_pending_products) >= 5:
-                        break
-                
-                if len(top_pending_products) >= 5:
-                    break
+
+                cursor.execute(f"SELECT COUNT(*) AS n {pending_where}", settores)
+                pending_verifications += cursor.fetchone()['n']
+
+                # Collect a few samples for the dashboard preview
+                if len(top_pending_products) < 5:
+                    cursor.execute(
+                        f"SELECT p.cod, p.v, p.descrizione, ps.stock {pending_where} LIMIT 5",
+                        settores,
+                    )
+                    for row in cursor.fetchall():
+                        top_pending_products.append({
+                            'supermarket': sm.name,
+                            'cod': row['cod'],
+                            'var': row['v'],
+                            'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
+                            'stock': row['stock'] or 0
+                        })
+                        if len(top_pending_products) >= 5:
+                            break
         except Exception as e:
-            logger.warning(f"Could not load sample verifications for {sm.name}: {e}")
+            logger.warning(f"Could not load pending verifications for {sm.name}: {e}")
             continue
 
     logger.info(f"Dashboard: {pending_verifications} total pending verifications across {len(supermarkets_with_storages)} supermarkets")
@@ -2882,7 +2890,7 @@ def stock_profit_view(request):
                 settores = sorted(sm_data['settores'])
                 cursor.execute("""
                     SELECT
-                        p.cod, p.v, p.descrizione, p.settore, p.cluster,
+                        p.cod, p.v, p.descrizione, p.settore, p.cluster, p.rapp,
                         e.price_std, e.cost_std, e.category,
                         ps.sold_last_24
                     FROM products p
@@ -2909,8 +2917,13 @@ def stock_profit_view(request):
                     if not isinstance(sold_array, list):
                         continue
 
+                    # price_std is per selling piece, but cost_std is stored per
+                    # collo (pack). sold_last_24 counts pieces, so bring the cost
+                    # down to per-piece with rapp — same convention as the stock
+                    # valuation view (SUM(cost_std / rapp * stock)).
+                    rapp = int(row['rapp'] or 1) or 1
                     price = float(row['price_std'] or 0.0)
-                    cost = float(row['cost_std'] or 0.0)
+                    cost = float(row['cost_std'] or 0.0) / rapp
                     unit_netto = price - cost
 
                     # Period totals
@@ -3119,6 +3132,7 @@ def promo_products_view(request):
                         p.cod,
                         p.v,
                         p.descrizione,
+                        p.rapp,
                         e.cost_s,
                         e.cost_std,
                         e.price_std,
@@ -3136,8 +3150,12 @@ def promo_products_view(request):
                 """, (today, storage.settore))
 
                 for row in cur.fetchall():
-                    cost_s = float(row['cost_s'] or 0)
-                    cost_std = float(row['cost_std'] or 0)
+                    # cost_s/cost_std are per collo (pack); price_std is per
+                    # selling piece. Bring costs down to per-piece with rapp so
+                    # the margins are correct for multi-packs (rapp != 1).
+                    rapp = int(row['rapp'] or 1) or 1
+                    cost_s = float(row['cost_s'] or 0) / rapp
+                    cost_std = float(row['cost_std'] or 0) / rapp
                     price_std = float(row['price_std'] or 0)
                     stock = int(row['stock'] or 0)
 
@@ -5611,16 +5629,19 @@ def pending_verifications_view(request):
         
         try:
             storage = sm.storages.first()
-            
+            # Map settore -> storage id so each row can target the right storage
+            # (e.g. for the "Non gestiti" action).
+            storage_by_settore = {s.settore: s.id for s in sm.storages.all()}
+
             with RestockService(storage) as service:
                 cursor = service.db.cursor()
-                
+
                 # Get all settores for this supermarket
                 settores = list(sm.storages.values_list('settore', flat=True).distinct())
-                
+
                 if not settores:
                     continue
-                
+
                 settore_placeholders = ','.join(['%s'] * len(settores))
                 
                 # ✅ FIXED: Add type check to prevent "non-array" error
@@ -5633,15 +5654,18 @@ def pending_verifications_view(request):
                     JOIN products p ON ps.cod = p.cod AND ps.v = p.v
                     WHERE ps.verified = FALSE
                     AND p.purge_flag = FALSE
+                    AND ps.stock <> 0
                     AND ps.bought_last_24 IS NOT NULL
                     AND jsonb_typeof(ps.bought_last_24) = 'array'
                     AND EXISTS (
                         SELECT 1
-                        FROM jsonb_array_elements(ps.bought_last_24)
+                        FROM jsonb_array_elements(ps.bought_last_24) WITH ORDINALITY AS elem(val, idx)
+                        WHERE idx <= 4
+                        AND jsonb_typeof(elem.val) = 'number'
+                        AND (elem.val)::text::numeric <> 0
                     )
                     AND p.settore IN ({settore_placeholders})
                     ORDER BY ps.last_update_bought DESC
-                    LIMIT 20
                 """
                 
                 cursor.execute(query, settores)
@@ -5655,6 +5679,7 @@ def pending_verifications_view(request):
                         all_pending.append({
                             'supermarket_name': sm.name,
                             'supermarket_id': sm.id,
+                            'storage_id': storage_by_settore.get(row['settore']),
                             'settore': row['settore'],
                             'cod': row['cod'],
                             'var': row['v'],

@@ -41,11 +41,13 @@
         <div class="col-12">
             <div class="alert alert-info">
                 <h6><i class="bi bi-info-circle"></i> Cosa sono questi?</h6>
-                <p class="mb-2">Questi articoli sono stati ordinati (acquistati) ma non sono ancora stati venduti. È necessaria una verifica per confermare la giacenza.</p>
+                <p class="mb-2">Questi articoli hanno una consegna registrata (acquistati) ma non sono ancora stati verificati in LamApp. La verifica ne conferma la giacenza e li abilita al riordino automatico.</p>
+                <p class="mb-2 small text-muted">Compaiono qui solo gli articoli con giacenza diversa da zero e con un acquisto in uno degli ultimi mesi.</p>
                 <ul class="mb-0">
                     <li>Fare clic su "Verifica" per confermare la giacenza</li>
-                    <li>Ciò consente al articolo di apparire nei futuri ordini di riassortimento</li>
-                    <li>I articoli appena aggiunti necessitano sempre di verifica</li>
+                    <li>Ciò consente all'articolo di apparire nei futuri ordini di riassortimento</li>
+                    <li>In alternativa, usare "Non gestiti" per escluderlo dal riordino</li>
+                    <li>Gli articoli appena aggiunti necessitano sempre di verifica</li>
                 </ul>
             </div>
         </div>
@@ -76,7 +78,8 @@
                             </thead>
                             <tbody>
                                 {% for product in pending_products %}
-                                <tr id="row-{{ product.cod }}-{{ product.var }}">
+                                <tr id="row-{{ product.cod }}-{{ product.var }}"
+                                    data-storage-id="{{ product.storage_id }}">
                                     <td>
                                         <small>{{ product.supermarket_name }}</small>
                                     </td>
@@ -110,10 +113,17 @@
                                         </small>
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-success" 
-                                                onclick="verifyProduct({{ product.cod }}, {{ product.var }}, {{ product.supermarket_id }}, '{{ product.settore }}')">
-                                            <i class="bi bi-check-circle"></i> Verifica
-                                        </button>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-sm btn-success"
+                                                    onclick="verifyProduct({{ product.cod }}, {{ product.var }}, {{ product.supermarket_id }}, '{{ product.settore }}')">
+                                                <i class="bi bi-check-circle"></i> Verifica
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger"
+                                                    onclick="nonGestiti({{ product.cod }}, {{ product.var }})"
+                                                    {% if not product.storage_id %}disabled title="Storage non disponibile"{% endif %}>
+                                                <i class="bi bi-slash-circle"></i> Non gestiti
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -206,6 +216,61 @@ function verifyProduct(cod, var_, supermarketId, settore) {
             
             // Auto-dismiss after 3 seconds
             setTimeout(() => alertDiv.remove(), 3000);
+        } else {
+            alert('Error: ' + data.message);
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error);
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    });
+}
+
+function nonGestiti(cod, var_) {
+    const row = document.getElementById(`row-${cod}-${var_}`);
+    const storageId = row ? parseInt(row.dataset.storageId) : NaN;
+
+    if (!storageId) {
+        alert('Storage non disponibile per questo prodotto.');
+        return;
+    }
+
+    if (!confirm(`Aggiungere il prodotto ${cod}.${var_} ai "Non gestiti"? Verrà ignorato nel riordino automatico.`)) {
+        return;
+    }
+
+    const btn = event.target.closest('button');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    fetch("{% url 'add-to-non-gestiti' %}", {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            storage_id: storageId,
+            cod: cod,
+            var: var_
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            row.style.transition = 'opacity 0.3s';
+            row.style.opacity = '0';
+            setTimeout(() => {
+                row.remove();
+                const tbody = document.querySelector('tbody');
+                if (tbody.children.length === 0) {
+                    location.reload();
+                }
+            }, 300);
         } else {
             alert('Error: ' + data.message);
             btn.disabled = false;

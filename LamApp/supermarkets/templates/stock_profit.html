@@ -86,6 +86,28 @@
         vertical-align: middle;
         margin-left: 6px;
     }
+    #profitTable th.sortable {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+    #profitTable th.sortable:hover {
+        background-color: #f1f3f5;
+    }
+    #profitTable th.sortable::after {
+        content: '\2195';
+        color: #adb5bd;
+        margin-left: 4px;
+        font-size: 0.85em;
+    }
+    #profitTable th.sortable.sort-asc::after {
+        content: '\2191';
+        color: #495057;
+    }
+    #profitTable th.sortable.sort-desc::after {
+        content: '\2193';
+        color: #495057;
+    }
 </style>
 {% endblock %}
 
@@ -356,16 +378,18 @@
                         <thead>
                             <tr>
                                 <th>Settore / Cluster / Articolo</th>
-                                <th class="text-end">Venduto</th>
-                                <th class="text-end">Lordo</th>
-                                <th class="text-end">Netto</th>
-                                <th class="text-end">Margine %</th>
-                                <th class="text-end">Incidenza prodotto</th>
+                                <th class="text-end sortable" data-key="units">Venduto</th>
+                                <th class="text-end sortable" data-key="lordo">Lordo</th>
+                                <th class="text-end sortable" data-key="netto">Netto</th>
+                                <th class="text-end sortable" data-key="margin">Margine %</th>
+                                <th class="text-end sortable" data-key="netto">Incidenza prodotto</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for s in tree %}
-                            <tr class="row-settore" data-level="settore" data-node="{{ s.slug }}">
+                            <tr class="row-settore" data-level="settore" data-node="{{ s.slug }}"
+                                data-units="{{ s.units }}" data-lordo="{{ s.lordo|floatformat:4 }}"
+                                data-netto="{{ s.netto|floatformat:4 }}" data-margin="{{ s.margin_pct|floatformat:4 }}">
                                 <td>
                                     <span class="toggle-caret"><i class="bi bi-caret-down-fill"></i></span>
                                     <i class="bi bi-building"></i> {{ s.label }}
@@ -382,7 +406,9 @@
 
                             {% for c in s.clusters %}
                             <tr class="row-cluster" data-level="cluster"
-                                data-node="{{ c.slug }}" data-parent="{{ s.slug }}">
+                                data-node="{{ c.slug }}" data-parent="{{ s.slug }}"
+                                data-units="{{ c.units }}" data-lordo="{{ c.lordo|floatformat:4 }}"
+                                data-netto="{{ c.netto|floatformat:4 }}" data-margin="{{ c.margin_pct|floatformat:4 }}">
                                 <td>
                                     <span class="toggle-caret"><i class="bi bi-caret-down-fill"></i></span>
                                     <i class="bi bi-folder"></i> {{ c.cluster }}
@@ -398,7 +424,9 @@
                             </tr>
 
                             {% for p in c.products %}
-                            <tr class="row-product" data-level="product" data-parent="{{ c.slug }}">
+                            <tr class="row-product" data-level="product" data-parent="{{ c.slug }}"
+                                data-units="{{ p.units }}" data-lordo="{{ p.lordo|floatformat:4 }}"
+                                data-netto="{{ p.netto|floatformat:4 }}" data-margin="{{ p.margin_pct|floatformat:4 }}">
                                 <td>
                                     <code>{{ p.cod }}.{{ p.var }}</code>
                                     {{ p.description|truncatewords:8 }}
@@ -591,6 +619,66 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         refresh();
     };
+
+    // ---- Sorting (keeps the Settore -> Cluster -> Articolo grouping) ----
+    const tbody = table.querySelector('tbody');
+    const headers = table.querySelectorAll('thead th.sortable');
+    let sortState = { key: 'netto', dir: 'desc' };  // matches server default
+
+    function sortBy(key, dir) {
+        const mult = dir === 'asc' ? 1 : -1;
+        const val = row => parseFloat(row.dataset[key]) || 0;
+        const cmp = (a, b) => (val(a) - val(b)) * mult;
+
+        // Rebuild the tree from the current DOM order
+        const settori = [];
+        let curS = null, curC = null;
+        Array.from(tbody.children).forEach(tr => {
+            if (tr.classList.contains('row-settore')) {
+                curS = { row: tr, clusters: [] };
+                settori.push(curS);
+                curC = null;
+            } else if (tr.classList.contains('row-cluster')) {
+                curC = { row: tr, products: [] };
+                if (curS) curS.clusters.push(curC);
+            } else if (tr.classList.contains('row-product') && curC) {
+                curC.products.push(tr);
+            }
+        });
+
+        settori.sort((a, b) => cmp(a.row, b.row));
+        settori.forEach(s => {
+            s.clusters.sort((a, b) => cmp(a.row, b.row));
+            s.clusters.forEach(c => c.products.sort(cmp));
+        });
+
+        settori.forEach(s => {
+            tbody.appendChild(s.row);
+            s.clusters.forEach(c => {
+                tbody.appendChild(c.row);
+                c.products.forEach(p => tbody.appendChild(p));
+            });
+        });
+        refresh();
+    }
+
+    headers.forEach(th => {
+        th.addEventListener('click', function() {
+            const key = th.dataset.key;
+            if (sortState.key === key) {
+                sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortState = { key: key, dir: 'desc' };
+            }
+            headers.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+            th.classList.add(sortState.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+            sortBy(key, sortState.dir);
+        });
+    });
+
+    // Reflect the server's default sort (Netto desc) on the header indicator
+    table.querySelector('thead th.sortable[data-key="netto"]')
+        ?.classList.add('sort-desc');
 })();
 
 // ---- Charts -----------------------------------------------------------
@@ -606,17 +694,12 @@ new Chart(document.getElementById('profitChart').getContext('2d'), {
             {
                 label: 'Lordo (fatturato)',
                 data: lordoData,
-                backgroundColor: 'rgba(25, 118, 210, 0.6)',
-                order: 2
+                backgroundColor: 'rgba(25, 118, 210, 0.6)'
             },
             {
-                type: 'line',
                 label: 'Netto (margine)',
                 data: nettoData,
-                borderColor: 'rgb(56, 142, 60)',
-                backgroundColor: 'rgba(56, 142, 60, 0.15)',
-                tension: 0.35,
-                order: 1
+                backgroundColor: 'rgba(56, 142, 60, 0.7)'
             }
         ]
     },
@@ -664,7 +747,7 @@ new Chart(document.getElementById('clusterChart').getContext('2d'), {
             legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
             tooltip: {
                 callbacks: {
-                    label: ctx => `${ctx.label}: €${ctx.parsed.toFixed(2)}`
+                    label: ctx => ` €${ctx.parsed.toFixed(2)}`
                 }
             }
         }
