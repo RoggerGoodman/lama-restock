@@ -98,6 +98,52 @@ class Helper:
 
         return avg_daily_sales, avg_sales_base
 
+    # Outlier winsorizing, shared by avg / sigma / deviation via winsorize_series.
+    OUTLIER_K = 10               # gate: median + K * 1.4826 * MAD
+    OUTLIER_MIN_ABS = 10         # never cap a day below this
+    OUTLIER_RECUR_FRAC = 0.05    # a level seen on >5% of days is a pattern, not a spike
+    OUTLIER_MIN_DAYS = 14
+
+    @staticmethod
+    def winsorize_series(series: list, silent: bool = False) -> list:
+        """
+        Cap isolated demand spikes to the highest non-outlier day, preserving
+        length, position and None entries. Unchanged if too little history.
+
+        Robust (median + K*MAD) not p95: p95 is dragged up by the spike it should
+        catch. The abs floor stops MAD collapsing on a mostly-zero history and
+        spares small real sales; the recurrence gate spares recurring high days.
+        """
+        vals = [v for v in series if v is not None]
+        if len(vals) < Helper.OUTLIER_MIN_DAYS:
+            return series
+
+        median = statistics.median(vals)
+        mad = statistics.median([abs(v - median) for v in vals])
+        threshold = median + Helper.OUTLIER_K * (1.4826 * mad)
+        n = len(vals)
+
+        def is_spike(v):
+            if v is None or v < Helper.OUTLIER_MIN_ABS or v <= threshold:
+                return False
+            return (sum(1 for x in vals if x >= v) / n) <= Helper.OUTLIER_RECUR_FRAC
+
+        spikes = {i for i, v in enumerate(series) if is_spike(v)}
+        if not spikes:
+            return series
+
+        safe_max = max(
+            (v for i, v in enumerate(series) if v is not None and i not in spikes),
+            default=median,
+        )
+        if not silent:
+            logger.warning(
+                f"winsorize_series: capped {len(spikes)} spike(s) to {safe_max} "
+                f"(threshold={threshold:.1f}, median={median}): "
+                f"{sorted((i, series[i]) for i in spikes)}"
+            )
+        return [safe_max if i in spikes else v for i, v in enumerate(series)]
+
     @staticmethod
     def avg_daily_sales_from_sales_sets(daily_sales: list, silent: bool = False):
         """
@@ -117,42 +163,13 @@ class Helper:
 
         min_days = 14
         half_life = 14
-        outlier_k = 10
-        # No single day below this is worth winsorising, however extreme it looks
-        # against a mostly-zero history. Without it the threshold collapses on
-        # sparse sellers — a lone 1-unit sale in 60 days was being erased to 0,
-        # and a 3-unit day clipped to 1 — because both p95 and the second-highest
-        # day are 0 or 1 there. The case this guards against is a 500-unit spike
-        # on a dead product, not a customer buying three jars.
-        outlier_min_abs = 10
 
         observed_days = len(daily_sales)
         if observed_days < min_days:
             return None
 
-        # Cap outliers above the threshold to the highest non-outlier value,
-        # preserving position. Floored at the second-highest day so that when
-        # 95%+ of days are zero (p95 carries no scale) the gate does not tighten
-        # onto genuine sales.
-        sorted_vals = sorted(daily_sales)
-        idx = 0.95 * (len(sorted_vals) - 1)
-        lo = int(idx)
-        hi = min(lo + 1, len(sorted_vals) - 1)
-        p95 = sorted_vals[lo] + (idx - lo) * (sorted_vals[hi] - sorted_vals[lo])
-
-        threshold = max(outlier_k * p95, sorted_vals[-2], outlier_min_abs)
-        outlier_indices = [i for i, v in enumerate(daily_sales) if v > threshold]
-        if outlier_indices:
-            # Never empty: threshold >= sorted_vals[-2], so every value except
-            # the maximum is at or below it, and observed_days >= min_days.
-            safe_max = max(v for v in daily_sales if v <= threshold)
-            if not silent:
-                logger.warning(
-                    f"avg_daily_sales_from_sales_sets: capped outliers to {safe_max} "
-                    f"(threshold={threshold:.1f}, p95={p95:.1f}): "
-                    f"{[(i, daily_sales[i]) for i in outlier_indices]}"
-                )
-            daily_sales = [safe_max if v > threshold else v for v in daily_sales]
+        # Cap isolated bulk-purchase spikes before weighting (shared policy)
+        daily_sales = Helper.winsorize_series(daily_sales, silent=silent)
 
         lam = math.log(2) / half_life
 
@@ -412,6 +429,7 @@ class Helper:
         if not sales_sets:
             return None
 
+        sales_sets = Helper.winsorize_series(sales_sets, silent=True)
         base_dow = (today or datetime.now().date()).weekday()
 
         observed = []
@@ -455,7 +473,7 @@ class Helper:
           truncated to a multiple of 7 for the same reason.
         - Means, not medians. Daily counts are small integers; at ~3 units/day the
           median took only ~20 distinct values, 28% of them exactly 0. Outliers
-          are already winsorised in avg_daily_sales_from_sales_sets.
+          are winsorised up front via winsorize_series.
         - A Welch noise gate, not a fixed percentage. A 20% gap means something
           different at 20 units/day than at 2: the constant threshold fired on 55%
           of stationary slow movers and got the sign wrong on 11% of real trends.
@@ -465,7 +483,8 @@ class Helper:
         min_baseline = 14
         z_min = 1.5
 
-        # Filter out None entries (out-of-stock days where demand was censored)
+        # Winsorize isolated spikes (shared policy), then drop censored (None) days
+        sales_sets = Helper.winsorize_series(sales_sets, silent=True)
         sales_sets = [v for v in sales_sets if v is not None]
 
         # Needs both a full recent week-pair and a comparable baseline

@@ -2069,6 +2069,38 @@ class BlacklistEntryDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteVi
         return reverse_lazy('blacklist-detail', kwargs={'pk': self.object.blacklist.pk})
 
 
+@login_required
+@require_POST
+def blacklist_entry_reintegrate_view(request, pk):
+    """
+    AJAX: reintegrate a blacklisted product back into the assortment.
+    Removes the BlacklistEntry and clears the product's purge_flag so it
+    returns to normal restock consideration (undoing an "In fase di
+    eliminazione" flag).
+    """
+    entry = get_object_or_404(
+        BlacklistEntry,
+        pk=pk,
+        blacklist__storage__supermarket__owner=request.user,
+    )
+    storage = entry.blacklist.storage
+    cod, var = entry.product_code, entry.product_var
+    try:
+        with RestockService(storage) as service:
+            cursor = service.db.cursor()
+            cursor.execute(
+                "UPDATE products SET purge_flag = FALSE WHERE cod = %s AND v = %s",
+                (cod, var),
+            )
+            service.db.conn.commit()
+        entry.delete()
+        logger.info(f"Reintegrated {cod}.{var} from blacklist (storage {storage.name})")
+        return JsonResponse({'success': True})
+    except Exception as e:
+        logger.exception("Error reintegrating blacklist entry")
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+
 # ============ Data Management Views ============
 
 @login_required

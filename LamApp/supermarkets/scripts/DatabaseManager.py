@@ -407,9 +407,11 @@ class DatabaseManager:
 
         for cod, var, sold_qty in daily_sales:
             cur.execute("""
-                SELECT sold_last_24, sales_sets, bought_sets, stock, last_update_sold, verified
-                FROM product_stats
-                WHERE cod=%s AND v=%s
+                SELECT ps.sold_last_24, ps.sales_sets, ps.bought_sets, ps.stock,
+                       ps.last_update_sold, ps.verified, p.disponibilita
+                FROM product_stats ps
+                LEFT JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+                WHERE ps.cod=%s AND ps.v=%s
             """, (cod, var))
             row = cur.fetchone()
 
@@ -442,7 +444,24 @@ class DatabaseManager:
 
             sold_array[0] = (sold_array[0] or 0) + sold_qty
 
-            sales_sets.insert(0, sold_qty)
+            # A verified product reporting zero on a day it sat out of stock (while the
+            # supplier still had it) is a censored stockout, not real zero demand — store
+            # None so the averages/sigma exclude it. Mirrors the absent-from-payload
+            # branch below: VENSETAR lists the product with an explicit 0 rather than
+            # dropping it, so without this every out-of-stock day is recorded as a
+            # genuine zero and drags the product's rate down.
+            if sold_qty > 0:
+                entry = sold_qty
+            elif verified:
+                stock_zero = stock == 0
+                supplier_oos = row["disponibilita"] == 'No'
+                last_known_sale = next((v for v in sales_sets if v is not None), None)
+                demand_driven = last_known_sale is not None and last_known_sale > 0
+                entry = None if (stock_zero and not supplier_oos and demand_driven) else 0
+            else:
+                entry = 0
+
+            sales_sets.insert(0, entry)
             sales_sets = sales_sets[:60]
 
             # Open a fresh slot for today's deliveries; yesterday's total shifts to [1]

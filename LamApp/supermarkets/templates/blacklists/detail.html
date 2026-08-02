@@ -76,6 +76,7 @@
                 <h5 class="mb-3">
                     <i class="bi bi-list-check"></i> Articoli in Blacklist
                 </h5>
+                {% csrf_token %}
 
                 {% if entries_with_desc %}
                     <div class="table-responsive">
@@ -92,7 +93,7 @@
                             </thead>
                             <tbody>
                                 {% for entry in entries_with_desc %}
-                                <tr class="{% if entry.is_missing or entry.is_purged %}text-muted{% endif %}">
+                                <tr id="bl-row-{{ entry.pk }}" class="{% if entry.is_missing or entry.is_purged %}text-muted{% endif %}">
                                     <td data-value="{{ entry.product_code }}.{{ entry.product_var|stringformat:'03d' }}"><strong>{{ entry.product_code }}.{{ entry.product_var }}</strong></td>
                                     <td data-value="{{ entry.description|default:'' }}">{{ entry.description|default:"-" }}</td>
                                     <td data-value="{{ entry.stock }}"><span class="badge bg-secondary">{{ entry.stock }}</span></td>
@@ -115,9 +116,23 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <a href="{% url 'blacklistentry-delete' pk=entry.pk %}" class="btn btn-sm btn-outline-danger">
-                                            <i class="bi bi-trash"></i> Rimuovi
-                                        </a>
+                                        <div class="btn-group btn-group-sm">
+                                            {% if not entry.is_purged and not entry.is_missing %}
+                                            <button type="button" class="btn btn-sm btn-danger bl-btn-azzera"
+                                                    data-entry-pk="{{ entry.pk }}"
+                                                    data-cod="{{ entry.product_code }}"
+                                                    data-v="{{ entry.product_var }}"
+                                                    data-stock="{{ entry.stock }}">
+                                                <i class="bi bi-trash"></i> Azzera + Elim
+                                            </button>
+                                            {% endif %}
+                                            <button type="button" class="btn btn-sm btn-outline-success bl-btn-reintegra"
+                                                    data-entry-pk="{{ entry.pk }}"
+                                                    data-cod="{{ entry.product_code }}"
+                                                    data-v="{{ entry.product_var }}">
+                                                <i class="bi bi-arrow-counterclockwise"></i> Reintegra
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -145,6 +160,67 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    function getCsrf() {
+        var input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        if (input) return input.value;
+        var m = document.cookie.match(/csrftoken=([^;]+)/);
+        return m ? m[1] : '';
+    }
+
+    var STORAGE_ID = {{ blacklist.storage.pk }};
+
+    function removeRow(pk) {
+        var row = document.getElementById('bl-row-' + pk);
+        if (!row) return;
+        row.style.transition = 'opacity 0.3s';
+        row.style.opacity = '0';
+        setTimeout(function () { row.remove(); }, 300);
+    }
+
+    // Azzera + Elim: register stock as shrinkage and purge immediately
+    document.querySelectorAll('.bl-btn-azzera').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var pk = this.dataset.entryPk;
+            var cod = parseInt(this.dataset.cod);
+            var v = parseInt(this.dataset.v);
+            var stock = parseInt(this.dataset.stock) || 0;
+            if (!confirm('Impostare giacenza a 0 ed eliminare ' + cod + '.' + v + ' dal sistema?')) return;
+
+            fetch('/inventory/flag-for-purge/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+                body: JSON.stringify({ cod: cod, var: v, storage_id: STORAGE_ID, stock: stock })
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.success) { removeRow(pk); }
+                else { alert('Errore: ' + data.message); }
+            })
+            .catch(function (err) { alert('Errore: ' + err); });
+        });
+    });
+
+    // Reintegra: remove from blacklist and clear the purge flag
+    document.querySelectorAll('.bl-btn-reintegra').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var pk = this.dataset.entryPk;
+            var cod = parseInt(this.dataset.cod);
+            var v = parseInt(this.dataset.v);
+            if (!confirm('Reintegrare ' + cod + '.' + v + ' e rimuoverlo dalla blacklist?')) return;
+
+            fetch('/blacklists/entries/' + pk + '/reintegrate/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() }
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.success) { removeRow(pk); }
+                else { alert('Errore: ' + data.message); }
+            })
+            .catch(function (err) { alert('Errore: ' + err); });
+        });
+    });
+
     var table = document.getElementById('blacklist-entries-table');
     if (!table) return;
     var tbody = table.querySelector('tbody');

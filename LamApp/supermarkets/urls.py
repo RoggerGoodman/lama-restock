@@ -71,6 +71,7 @@ urlpatterns = [
     path('blacklists/<int:pk>/delete/', views.BlacklistDeleteView.as_view(), name='blacklist-delete'),
     path('blacklists/<int:blacklist_pk>/entries/add/', views.BlacklistEntryCreateView.as_view(), name='blacklistentry-add'),
     path('blacklists/entries/<int:pk>/delete/', views.BlacklistEntryDeleteView.as_view(), name='blacklistentry-delete'),
+    path('blacklists/entries/<int:pk>/reintegrate/', views.blacklist_entry_reintegrate_view, name='blacklistentry-reintegrate'),
 
     # ============ Recipes ============
     path('recipes/', views.RecipeListView.as_view(), name='recipe-list'),
