@@ -145,6 +145,18 @@ class Helper:
         return [safe_max if i in spikes else v for i, v in enumerate(series)]
 
     @staticmethod
+    def sales_history(sales_sets: list) -> list:
+        """
+        The completed days of a sales_sets array, newest first.
+
+        Slot 0 is the current day and still filling, so it must never reach the
+        statistics — a part-finished day drags averages down and reads as collapsing
+        demand. Dropping it makes `[i]` the day `today - 1 - i`, which is what every
+        consumer's index arithmetic expects. Today's figure belongs to coverage instead.
+        """
+        return list(sales_sets or [])[1:]
+
+    @staticmethod
     def avg_daily_sales_from_sales_sets(daily_sales: list, silent: bool = False):
         """
         Compute a recency-weighted average daily sales rate.
@@ -395,7 +407,7 @@ class Helper:
     def closure_day_mask(store_daily_totals, threshold=0.05):
         """
         Flag slots where the whole store sold ~nothing — closures, or days the
-        VENSETAR sync never delivered. Returns list[bool], True = ignore.
+        sales sync never delivered. Returns list[bool], True = ignore.
 
         These land in sales_sets as real zeros (the absent-product branch writes 0
         for any verified product with stock) and wreck sigma, since variance is

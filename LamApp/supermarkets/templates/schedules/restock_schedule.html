@@ -82,7 +82,7 @@
                             </ul>
                         </li>
                         <li><strong>Copertura:</strong> Calcolata automaticamente - indica quanti giorni copre ogni ordine</li>
-                        <li><strong>Orario:</strong> Gli ordini vengono eseguiti automaticamente alle 6:00</li>
+                        <li><strong>Orario:</strong> Ogni giorno attivo ha la sua ora di invio. Piu' tardi si ordina, meno copertura serve per la giornata in corso (le vendite di oggi sono gia' scalate dalla giacenza)</li>
                     </ul>
                 </div>
 
@@ -195,6 +195,10 @@
                                                 <small class="text-muted">Consegna: </small>
                                                 <span class="badge bg-success" id="delivery_monday">Martedì</span>
                                             </div>
+                                            <div class="mt-2 d-flex align-items-center justify-content-center gap-2">
+                                                <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
+                                                <div style="width: 105px;">{{ form.monday_order_time }}</div>
+                                            </div>
                                             {{ form.monday_delivery_offset }}
                                         </div>
                                     </div>
@@ -241,6 +245,10 @@
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
                                                 <span class="badge bg-success" id="delivery_tuesday">Mercoledì</span>
+                                            </div>
+                                            <div class="mt-2 d-flex align-items-center justify-content-center gap-2">
+                                                <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
+                                                <div style="width: 105px;">{{ form.tuesday_order_time }}</div>
                                             </div>
                                             {{ form.tuesday_delivery_offset }}
                                         </div>
@@ -289,6 +297,10 @@
                                                 <small class="text-muted">Consegna: </small>
                                                 <span class="badge bg-success" id="delivery_wednesday">Giovedì</span>
                                             </div>
+                                            <div class="mt-2 d-flex align-items-center justify-content-center gap-2">
+                                                <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
+                                                <div style="width: 105px;">{{ form.wednesday_order_time }}</div>
+                                            </div>
                                             {{ form.wednesday_delivery_offset }}
                                         </div>
                                     </div>
@@ -335,6 +347,10 @@
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
                                                 <span class="badge bg-success" id="delivery_thursday">Venerdì</span>
+                                            </div>
+                                            <div class="mt-2 d-flex align-items-center justify-content-center gap-2">
+                                                <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
+                                                <div style="width: 105px;">{{ form.thursday_order_time }}</div>
                                             </div>
                                             {{ form.thursday_delivery_offset }}
                                         </div>
@@ -383,6 +399,10 @@
                                                 <small class="text-muted">Consegna: </small>
                                                 <span class="badge bg-success" id="delivery_friday">Sabato</span>
                                             </div>
+                                            <div class="mt-2 d-flex align-items-center justify-content-center gap-2">
+                                                <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
+                                                <div style="width: 105px;">{{ form.friday_order_time }}</div>
+                                            </div>
                                             {{ form.friday_delivery_offset }}
                                         </div>
                                     </div>
@@ -430,6 +450,10 @@
                                                 <small class="text-muted">Consegna: </small>
                                                 <span class="badge bg-success" id="delivery_saturday">Domenica</span>
                                             </div>
+                                            <div class="mt-2 d-flex align-items-center justify-content-center gap-2">
+                                                <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
+                                                <div style="width: 105px;">{{ form.saturday_order_time }}</div>
+                                            </div>
                                             {{ form.saturday_delivery_offset }}
                                         </div>
                                     </div>
@@ -476,6 +500,10 @@
                                             <div class="mt-2 text-center">
                                                 <small class="text-muted">Consegna: </small>
                                                 <span class="badge bg-success" id="delivery_sunday">Lunedì</span>
+                                            </div>
+                                            <div class="mt-2 d-flex align-items-center justify-content-center gap-2">
+                                                <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
+                                                <div style="width: 105px;">{{ form.sunday_order_time }}</div>
                                             </div>
                                             {{ form.sunday_delivery_offset }}
                                         </div>

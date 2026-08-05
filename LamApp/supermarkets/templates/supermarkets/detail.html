@@ -92,10 +92,29 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="stat-card">
-                <h5 class="mb-3">
-                    <i class="bi bi-arrow-repeat text-primary"></i>
-                    Ultime sincronizzazioni vendite
+                <h5 class="mb-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <span>
+                        <i class="bi bi-arrow-repeat text-primary"></i>
+                        Ultime sincronizzazioni vendite
+                    </span>
+                    {% if last_sales_sync_at %}
+                    <span class="badge {% if sync_is_stale %}bg-warning text-dark{% else %}bg-success{% endif %} fw-normal">
+                        <i class="bi {% if sync_is_stale %}bi-exclamation-triangle{% else %}bi-check-circle{% endif %}"></i>
+                        Ultimo sync {{ last_sales_sync_at|date:"H:i" }}
+                        ({{ sync_age_minutes }} min fa)
+                    </span>
+                    {% else %}
+                    <span class="badge bg-secondary fw-normal">
+                        <i class="bi bi-dash-circle"></i> Nessun sync ricevuto
+                    </span>
+                    {% endif %}
                 </h5>
+                {% if sync_is_stale %}
+                <div class="alert alert-warning py-2 px-3 small mb-3">
+                    Le vendite di oggi non arrivano da oltre 45 minuti: giacenze e ordini
+                    potrebbero basarsi su dati non aggiornati. Controllare il PC del punto vendita.
+                </div>
+                {% endif %}
                 <div class="table-responsive">
                     <table class="table table-sm table-hover align-middle mb-0">
                         <thead class="table-light">

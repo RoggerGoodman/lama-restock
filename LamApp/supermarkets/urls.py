@@ -124,8 +124,9 @@ urlpatterns = [
     path('inventory/api/fermi-blacklist/', views.fermi_blacklist_view, name='api-fermi-blacklist'),
 
     # ============ Sync API (supermarket PC → server) ============
-    path('api/sync/vensetar-sales/', sync_views.vensetar_sales_sync_view, name='vensetar-sales-sync'),
-    path('api/sync/setup/<str:token>/bootstrap/', sync_views.sync_bootstrap_view, name='sync-bootstrap'),
+    path('api/sync/realtime-sales/', sync_views.realtime_sales_sync_view, name='realtime-sales-sync'),
+    path('api/sync/intraday-curve/', sync_views.intraday_curve_sync_view, name='intraday-curve-sync'),
+    path('api/sync/setup/<str:token>/bootstrap-rt/', sync_views.sync_bootstrap_realtime_view, name='sync-bootstrap-rt'),
     path('api/sync/add-to-non-gestiti/', sync_views.add_to_non_gestiti_view, name='add-to-non-gestiti'),
 
     # ============ Sync Setup UI (admin) ============

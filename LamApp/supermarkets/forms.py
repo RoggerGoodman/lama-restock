@@ -66,13 +66,13 @@ class RestockScheduleForm(forms.ModelForm):
     class Meta:
         model = RestockSchedule
         fields = [
-            'monday', 'monday_delivery_offset',
-            'tuesday', 'tuesday_delivery_offset',
-            'wednesday', 'wednesday_delivery_offset',
-            'thursday', 'thursday_delivery_offset',
-            'friday', 'friday_delivery_offset',
-            'saturday', 'saturday_delivery_offset',
-            'sunday', 'sunday_delivery_offset'
+            'monday', 'monday_delivery_offset', 'monday_order_time',
+            'tuesday', 'tuesday_delivery_offset', 'tuesday_order_time',
+            'wednesday', 'wednesday_delivery_offset', 'wednesday_order_time',
+            'thursday', 'thursday_delivery_offset', 'thursday_order_time',
+            'friday', 'friday_delivery_offset', 'friday_order_time',
+            'saturday', 'saturday_delivery_offset', 'saturday_order_time',
+            'sunday', 'sunday_delivery_offset', 'sunday_order_time',
         ]
         
         widgets = {
@@ -147,6 +147,25 @@ class RestockScheduleForm(forms.ModelForm):
             'saturday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
             'sunday_delivery_offset': '0=same day, 1=next day, 2=two days later, etc.',
         }
+
+    DAYS = ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Not in Meta.widgets: <input type="time"> posts "HH:MM", which Django's default
+        # TimeField does not accept, so input_formats needs widening too.
+        for day in self.DAYS:
+            field = self.fields[f'{day}_order_time']
+            field.widget = forms.TimeInput(
+                format='%H:%M',
+                attrs={
+                    'class': 'form-control form-control-sm',
+                    'type': 'time',
+                    'onchange': 'updateCoveragePreview()',
+                },
+            )
+            field.input_formats = ['%H:%M', '%H:%M:%S']
+            field.help_text = 'Ora di invio ordine'
 
 class BlacklistForm(forms.ModelForm):
     """Form for creating blacklists"""

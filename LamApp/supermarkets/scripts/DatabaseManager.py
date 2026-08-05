@@ -3,7 +3,7 @@ import pandas as pd
 import psycopg2
 import psycopg2.extras
 import os
-from psycopg2.extras import Json
+from psycopg2.extras import Json, execute_values
 from datetime import date
 import logging
 
@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
+
+    # Ceiling on how far back a single losses batch is spread. A client who stops
+    # recording for a month would otherwise smear one batch across the whole window.
+    LOSS_MAX_SPREAD_DAYS = 7
 
     # --- Connection & Cursor ---
 
@@ -386,143 +390,170 @@ class DatabaseManager:
 
     # --- Data Sync ---
 
-    def apply_daily_vensetar_sales(self, daily_sales, sync_date, shelf_life_map=None):
+    def _rollover_sales_day(self, cur, sync_date) -> int:
         """
-        Apply one day's sold quantities from the VENSETAR sync (runs at 06:00, data = yesterday).
+        Close every product's current slot and open a fresh one for `sync_date`.
 
-        - Skips products not present in product_stats.
-        - Idempotent: skips if last_update_sold already equals sync_date.
-        - sold_last_24[0] accumulates sold_qty for the current month; the monthly
-          slot-shift belongs to rollover_sold_last_24() (Celery Beat, 2nd of month).
-        - sales_sets: inserts sold_qty at front, trims to 60.
-        - stock: decremented by sold_qty.
-        - Does NOT touch bought_last_24.
+        Idempotent: products already at `sync_date` are skipped.
+
+        Closing applies the censored-stockout rule — a verified product that ended on zero
+        with an empty shelf while the supplier still had stock was unbuyable, not
+        demandless, so its slot becomes None and drops out of the averages.
+        """
+        cur.execute("""
+            SELECT ps.cod, ps.v, ps.sales_sets, ps.bought_sets, ps.stock, ps.verified,
+                   p.disponibilita
+            FROM product_stats ps
+            LEFT JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+            WHERE ps.last_update_sold IS NULL OR ps.last_update_sold < %s
+        """, (sync_date,))
+        rows = cur.fetchall()
+        if not rows:
+            return 0
+
+        updates = []
+        for r in rows:
+            ss = r["sales_sets"] or []
+            if ss and (ss[0] or 0) == 0 and bool(r["verified"]):
+                stock_zero = (r["stock"] or 0) == 0
+                supplier_oos = r["disponibilita"] == 'No'
+                # Look past slot 0 — that is the day being closed, not history
+                last_known_sale = next((v for v in ss[1:] if v is not None), None)
+                demand_driven = last_known_sale is not None and last_known_sale > 0
+                if stock_zero and not supplier_oos and demand_driven:
+                    ss[0] = None
+
+            ss.insert(0, 0)
+            bs = r["bought_sets"] or []
+            bs.insert(0, 0)
+            updates.append((r["cod"], r["v"], Json(ss[:60]), Json(bs[:60]), sync_date))
+
+        # Batched: a full pass covers every product in the schema, and one UPDATE each
+        # meant thousands of round trips. Alias is `d`, not `v` — product_stats has a
+        # column called v and the collision would silently match the wrong rows.
+        execute_values(cur, """
+            UPDATE product_stats AS ps
+            SET sales_sets       = d.sets::jsonb,
+                bought_sets      = d.bought::jsonb,
+                last_update_sold = d.day::date
+            FROM (VALUES %s) AS d(cod, var, sets, bought, day)
+            WHERE ps.cod = d.cod::int AND ps.v = d.var::int
+        """, updates, page_size=1000)
+
+        self.conn.commit()
+        return len(rows)
+
+    def roll_sales_day(self, sync_date) -> int:
+        """
+        Open slot 0 for `sync_date` across every product, independently of any sync.
+
+        Runs just after midnight so "slot 0 is today" holds from the date change. Left to
+        the first sync at 08:30, anything ordering or calibrating before then would slice
+        off yesterday as if it were the running day.
         """
         cur = self.cursor()
-        updated = 0
-        skipped_already = 0
-        skipped_not_found = 0
-        unverified_updated = 0
+        return self._rollover_sales_day(cur, sync_date)
+
+    def apply_realtime_sales(self, totals, sync_date, shelf_life_map=None) -> dict:
+        """
+        Apply running per-product totals for `sync_date` from the Everest till feed.
+
+        `totals` is [(cod, var, sold_today), ...] holding the day's total SO FAR, not an
+        increment. Only the difference is booked, so every call is idempotent: a repeated
+        payload is a no-op, a missed run is made up by the next, and the store keeps no
+        state. sales_sets[0] is rewritten in place; the day boundary is crossed only by
+        _rollover_sales_day.
+        """
+        cur = self.cursor()
+        rolled = self._rollover_sales_day(cur, sync_date)
+
+        # Dedupe first: the batched update would count a repeated (cod, var) twice, where
+        # the old per-product loop happened to absorb it.
+        wanted = {(int(c), int(v)): int(s) for c, v, s in totals}
+
+        applied = 0
+        unchanged = 0
+        total_delta = 0
         unverified_products = []
+        stat_updates = []
+        shelf_updates = []
 
-        for cod, var, sold_qty in daily_sales:
+        rows = []
+        if wanted:
             cur.execute("""
-                SELECT ps.sold_last_24, ps.sales_sets, ps.bought_sets, ps.stock,
-                       ps.last_update_sold, ps.verified, p.disponibilita
+                SELECT ps.cod, ps.v, ps.sold_last_24, ps.sales_sets, ps.stock, ps.verified
                 FROM product_stats ps
-                LEFT JOIN products p ON p.cod = ps.cod AND p.v = ps.v
-                WHERE ps.cod=%s AND ps.v=%s
-            """, (cod, var))
-            row = cur.fetchone()
+                JOIN unnest(%s::int[], %s::int[]) AS t(cod, v)
+                  ON ps.cod = t.cod AND ps.v = t.v
+            """, ([k[0] for k in wanted], [k[1] for k in wanted]))
+            rows = cur.fetchall()
 
-            if not row:
-                skipped_not_found += 1
-                continue
+        not_in_db = len(wanted) - len(rows)
 
-            last_update_sold = row["last_update_sold"]
+        for row in rows:
+            cod, var = row["cod"], row["v"]
+            sold_today = wanted[(cod, var)]
 
-            if last_update_sold == sync_date:
-                skipped_already += 1
-                continue
-
-            sold_array = row["sold_last_24"]
-            sales_sets = row["sales_sets"] or []
-            bought_sets = row["bought_sets"] or []
-            stock = row["stock"] or 0
             verified = bool(row["verified"])
+            if not verified:
+                unverified_products.append({'cod': cod, 'v': var})
+
+            ss = row["sales_sets"] or [0]
+            if not ss:
+                ss = [0]
+
+            delta = sold_today - (ss[0] or 0)
+            if delta == 0:
+                unchanged += 1
+                continue
 
             if shelf_life_map and verified:
                 sl = shelf_life_map.get((cod, var))
                 if sl is not None:
-                    cur.execute(
-                        "UPDATE products SET shelf_life_days = %s WHERE cod = %s AND v = %s",
-                        (sl, cod, var)
-                    )
+                    shelf_updates.append((cod, var, int(sl)))
 
+            sold_array = row["sold_last_24"]
             if not isinstance(sold_array, list) or not sold_array:
                 sold_array = [0]
+            sold_array[0] = (sold_array[0] or 0) + delta
 
-            sold_array[0] = (sold_array[0] or 0) + sold_qty
+            ss[0] = sold_today
+            stock = (row["stock"] or 0) - delta
 
-            # A verified product reporting zero on a day it sat out of stock (while the
-            # supplier still had it) is a censored stockout, not real zero demand — store
-            # None so the averages/sigma exclude it. Mirrors the absent-from-payload
-            # branch below: VENSETAR lists the product with an explicit 0 rather than
-            # dropping it, so without this every out-of-stock day is recorded as a
-            # genuine zero and drags the product's rate down.
-            if sold_qty > 0:
-                entry = sold_qty
-            elif verified:
-                stock_zero = stock == 0
-                supplier_oos = row["disponibilita"] == 'No'
-                last_known_sale = next((v for v in sales_sets if v is not None), None)
-                demand_driven = last_known_sale is not None and last_known_sale > 0
-                entry = None if (stock_zero and not supplier_oos and demand_driven) else 0
-            else:
-                entry = 0
+            stat_updates.append((cod, var, Json(sold_array), Json(ss), stock))
+            applied += 1
+            total_delta += delta
 
-            sales_sets.insert(0, entry)
-            sales_sets = sales_sets[:60]
+        if stat_updates:
+            execute_values(cur, """
+                UPDATE product_stats AS ps
+                SET sold_last_24 = d.sold::jsonb,
+                    sales_sets   = d.sets::jsonb,
+                    stock        = d.stock::int
+                FROM (VALUES %s) AS d(cod, var, sold, sets, stock)
+                WHERE ps.cod = d.cod::int AND ps.v = d.var::int
+            """, stat_updates, page_size=1000)
 
-            # Open a fresh slot for today's deliveries; yesterday's total shifts to [1]
-            bought_sets.insert(0, 0)
-            bought_sets = bought_sets[:60]
-
-            cur.execute("""
-                UPDATE product_stats
-                SET sold_last_24=%s, sales_sets=%s, bought_sets=%s, stock=%s,
-                    last_update_sold = CASE WHEN %s > 0 THEN %s ELSE last_update_sold END
-                WHERE cod=%s AND v=%s
-            """, (Json(sold_array), Json(sales_sets), Json(bought_sets), stock - sold_qty, sold_qty, sync_date, cod, var))
-
-            if sold_qty > 0:
-                updated += 1
-            if not verified:
-                unverified_updated += 1
-                unverified_products.append({'cod': cod, 'v': var})
-
-        # Products absent from today's payload get a 0 (no demand), except a
-        # demand-driven stockout — empty, available, and last known sale > 0 —
-        # which gets None so the censored day is excluded from the averages.
-        payload_keys = {(cod, var) for cod, var, _ in daily_sales}
-        cur.execute("""
-            SELECT ps.cod, ps.v, ps.sales_sets, ps.bought_sets, ps.stock, p.disponibilita, ps.verified
-            FROM product_stats ps
-            JOIN products p ON p.cod = ps.cod AND p.v = ps.v
-            WHERE (ps.last_update_sold IS NULL OR ps.last_update_sold < %s)
-        """, (sync_date,))
-        for absent in cur.fetchall():
-            if (absent['cod'], absent['v']) in payload_keys:
-                continue
-            ss = absent['sales_sets'] or []
-            if bool(absent['verified']):
-                stock_zero = (absent['stock'] or 0) == 0
-                supplier_oos = absent['disponibilita'] == 'No'
-                last_known_sale = next((v for v in ss if v is not None), None)
-                demand_driven = last_known_sale is not None and last_known_sale > 0
-                entry = None if (stock_zero and not supplier_oos and demand_driven) else 0
-            else:
-                entry = 0
-            ss.insert(0, entry)
-            ss = ss[:60]
-            bs = absent['bought_sets'] or []
-            bs.insert(0, 0)
-            bs = bs[:60]
-            cur.execute("""
-                UPDATE product_stats SET sales_sets=%s, bought_sets=%s
-                WHERE cod=%s AND v=%s
-            """, (Json(ss), Json(bs), absent['cod'], absent['v']))
+        if shelf_updates:
+            execute_values(cur, """
+                UPDATE products AS p
+                SET shelf_life_days = d.sl::int
+                FROM (VALUES %s) AS d(cod, var, sl)
+                WHERE p.cod = d.cod::int AND p.v = d.var::int
+            """, shelf_updates, page_size=1000)
 
         self.conn.commit()
         logger.info(
-            f"[VENSETAR SYNC] schema={self.schema} "
-            f"applied={updated} already_synced={skipped_already} not_in_db={skipped_not_found} "
-            f"sold_but_unverified={unverified_updated}"
+            f"[RT SYNC] schema={self.schema} date={sync_date} rolled_over={rolled} "
+            f"applied={applied} unchanged={unchanged} not_in_db={not_in_db} "
+            f"units={total_delta} unverified={len(unverified_products)}"
         )
         return {
-            'applied': updated,
-            'already_synced': skipped_already,
-            'not_in_db': skipped_not_found,
+            'applied': applied,
+            'unchanged': unchanged,
+            'not_in_db': not_in_db,
+            'rolled_over': rolled,
+            'units_applied': total_delta,
             'unverified_products': unverified_products,
         }
 
@@ -665,11 +696,16 @@ class DatabaseManager:
         row = cur.fetchone()
         return dict(row) if row else None
 
-    def register_losses(self, cod: int, v: int, delta: int, type: str):
+    def register_losses(self, cod: int, v: int, delta: int, type: str, spread_days: int = 1):
         """
         Register a loss event (broken, expired, internal, stolen, shrinkage).
         Stores [[qty, cost], ...] arrays in extra_losses, max 24 months.
         Auto-creates the extra_losses row if missing.
+
+        spread_days applies only to type="internal", the one loss that counts as
+        depletion through use and so reaches sales_sets. Pass the gap between this
+        rilevazione and the previous one, since a batch covers several days; callers
+        correcting a single product leave it at 1.
         """
         allowed = ("broken", "expired", "internal", "stolen", "shrinkage")
         delta = int(delta)
@@ -682,10 +718,15 @@ class DatabaseManager:
             cur.execute("SELECT sales_sets FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
             ss_row = cur.fetchone()
             if ss_row:
-                sales_sets = ss_row["sales_sets"] or [0]
-                if not sales_sets:
-                    sales_sets = [0]
-                sales_sets[0] += delta
+                sales_sets = ss_row["sales_sets"] or []
+                # Start at slot 1: slot 0 is today and each sync rewrites it wholesale.
+                days = max(1, min(int(spread_days), self.LOSS_MAX_SPREAD_DAYS))
+                while len(sales_sets) < 1 + days:
+                    sales_sets.append(0)
+                base, rem = divmod(delta, days)
+                for i in range(days):
+                    # Remainder lands on the most recent days
+                    sales_sets[1 + i] += base + (1 if i < rem else 0)
                 cur.execute(
                     "UPDATE product_stats SET sales_sets=%s WHERE cod=%s AND v=%s",
                     (Json(sales_sets), cod, v)

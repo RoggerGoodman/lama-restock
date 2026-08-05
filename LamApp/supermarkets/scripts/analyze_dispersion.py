@@ -188,14 +188,17 @@ def main():
 
     results = []
     for row in rows:
-        out = weekday_adjusted_residuals(row["sales_sets"] or [], today)
+        # Drop slot 0: a part-finished day reads as a dip and inflates dispersion.
+        history = (row["sales_sets"] or [])[1:]
+
+        out = weekday_adjusted_residuals(history, today)
         if out is None:
             continue
         var_resid, mean_daily, observed, residuals = out
         if mean_daily <= 0:
             continue
 
-        raw_values = [float(v) for v in (row["sales_sets"] or []) if v is not None]
+        raw_values = [float(v) for v in history if v is not None]
 
         win = window_sigma(raw_values, args.coverage)
         acf = lag1_autocorrelation(residuals)

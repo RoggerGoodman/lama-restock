@@ -20,8 +20,8 @@ from .logging_context import (
 logger = logging.getLogger(__name__)
 
 
-# Days to wait after a promotion ends before measuring its lift. VENSETAR syncs
-# "yesterday" at ~05:30, so 3 days guarantees the final promo day has landed.
+# Days to wait after a promotion ends before measuring its lift. A day closes at its
+# 21:30 sync, so 3 days comfortably guarantees the final promo day has landed.
 # The exact-day match in get_promos_ended_days_ago is what makes this
 # idempotent: each promotion is seen on exactly one nightly pass, so no
 # "already measured" marker is needed on the row.
@@ -34,8 +34,9 @@ def _measure_finished_promos(db):
     PROMO_MEASURE_AFTER_DAYS ago for this supermarket. Returns how many were
     recorded.
 
-    Deliberately reads raw sales_sets: this is measurement, not ordering, so it
-    must see the promo days the ordering path excises.
+    Deliberately reads sales_sets un-excised: this is measurement, not ordering, so it
+    must see the promo days the ordering path removes. Still completed days only —
+    measure_promo_lift indexes by "days ago" and the running day would shift every slot.
     """
     from .scripts.helpers import Helper
 
@@ -45,7 +46,7 @@ def _measure_finished_promos(db):
         days_lasted = (row["sale_end"] - row["sale_start"]).days + 1
 
         lift = Helper.measure_promo_lift(
-            row["sales_sets"] or [],
+            Helper.sales_history(row["sales_sets"]),
             PROMO_MEASURE_AFTER_DAYS,
             days_lasted,
         )
@@ -306,7 +307,7 @@ def import_ddt_for_supermarket(self, supermarket_id):
                 with AutomatedRestockService(matched_storage) as service:
                     # Stock snapshot BEFORE delivery stock is applied.
                     # Saved as a pending OrderCalibrationReport; the full analysis
-                    # runs at 08:00 once VENSETAR has updated sales data.
+                    # runs at 08:00, against yesterday's now-final sales data.
                     try:
                         from .models import OrderCalibrationReport
 
@@ -352,7 +353,7 @@ def import_ddt_for_supermarket(self, supermarket_id):
                         )
                         cal_report.set_results({'status': 'pending', 'raw_stock': raw_stock})
                         cal_report.save()
-                        logger.info(f"[DDT] Stock snapshot saved for {matched_storage.name} ({len(raw_stock)} products) — report pending VENSETAR")
+                        logger.info(f"[DDT] Stock snapshot saved for {matched_storage.name} ({len(raw_stock)} products) — report pending calibration")
                     except Exception:
                         logger.exception(f"[DDT] Stock snapshot failed for {matched_storage.name} — DDT import continues")
 
@@ -386,8 +387,8 @@ def run_daily_calibration():
     08:00 daily task — completes calibration reports seeded during the 05:00 DDT import.
 
     The DDT import stores a pre-delivery stock snapshot as a pending
-    OrderCalibrationReport. By 08:00 the VENSETAR sync (~06:00) has refreshed
-    sales_sets, so avg_daily_sales figures are current. This task finds all
+    OrderCalibrationReport. Yesterday closed at its 21:30 sync, so by 08:00 its figures
+    are final and avg_daily_sales is current. This task finds all
     pending reports from today, runs the full classification using the stored
     pre-delivery stock + fresh sales data, and saves the completed report.
     Storages with no DDT import today are skipped — nothing to evaluate.
@@ -1962,6 +1963,92 @@ def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
         exit_supermarket_log(_log_ctx)
 
 
+@shared_task(bind=True, max_retries=2, default_retry_delay=300)
+def roll_sales_day_for_supermarket(self, supermarket_id, day_iso):
+    """Open today's slot in sales_sets for one supermarket."""
+    from .models import Supermarket
+    from .scripts.DatabaseManager import DatabaseManager
+    import datetime
+
+    supermarket = Supermarket.objects.get(id=supermarket_id)
+    day = datetime.date.fromisoformat(day_iso)
+
+    _ctx = enter_supermarket_log(supermarket.name)
+    db = None
+    try:
+        db = DatabaseManager(supermarket_name=supermarket.name)
+        rolled = db.roll_sales_day(day)
+        logger.info(f"[DAY-ROLL] {supermarket.name}: {rolled} products rolled to {day}")
+        return f"{supermarket.name}: {rolled}"
+    finally:
+        if db:
+            db.close()
+        exit_supermarket_log(_ctx)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=300)
+def roll_sales_day_all_supermarkets(self):
+    """
+    Queue a day-roll per supermarket, just after midnight.
+
+    Keeps "slot 0 is today" true from the date change rather than from the first sync at
+    08:30, so anything running early does not slice off yesterday as the running day.
+
+    Fans out rather than looping: a full roll touches every product in a schema, and one
+    task doing that for every store serially would outgrow the task time limit.
+    """
+    from .models import Supermarket
+
+    today = timezone.localtime().date().isoformat()
+    ids = list(Supermarket.objects.values_list('id', flat=True))
+    for sm_id in ids:
+        roll_sales_day_for_supermarket.apply_async(args=[sm_id, today])
+
+    msg = f"Day roll {today}: queued {len(ids)} supermarkets"
+    logger.info(f"[DAY-ROLL] {msg}")
+    return msg
+
+
+RT_SYNC_STALE_BLOCK_HOURS = 3
+
+
+def _realtime_sync_is_usable(supermarket, now_local, today, storage_name) -> bool:
+    """
+    Whether stock is fresh enough to order against.
+
+    Accepts a recent sync, or any sync while today has barely started — an order firing
+    before the store warms up has nothing newer to know. The curve decides which case,
+    so no opening hour is hardcoded.
+
+    Blocks rather than warns: ordering on hours-stale stock quietly buys the wrong
+    quantity for every product at once instead of failing visibly.
+    """
+    last_sync = supermarket.last_sales_sync_at
+    if not last_sync:
+        logger.warning(
+            f"[CELERY-SCHED] BLOCCATO {storage_name} — nessun sync real-time ricevuto. "
+            f"Ordine annullato."
+        )
+        return False
+
+    age_hours = (timezone.now() - last_sync).total_seconds() / 3600
+    if age_hours <= RT_SYNC_STALE_BLOCK_HOURS:
+        return True
+
+    # Stale. Tolerable only while today has barely begun — measured at NOW, not at the
+    # sync, since the question is how much trading we are blind to.
+    remaining_now = supermarket.remaining_day_fraction(now_local, on_date=today)
+    if remaining_now >= 0.98:
+        return True
+
+    logger.warning(
+        f"[CELERY-SCHED] BLOCCATO {storage_name} — sync real-time fermo da {age_hours:.1f}h "
+        f"(ultimo: {timezone.localtime(last_sync):%Y-%m-%d %H:%M}), giornata gia' al "
+        f"{1 - remaining_now:.0%}. Ordine annullato."
+    )
+    return False
+
+
 @shared_task(
     bind=True,
     max_retries=3,
@@ -1969,40 +2056,41 @@ def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
 )
 def run_scheduled_orders(self):
     """
-    Fan-out task: queue run_restock_for_storage for every storage whose
-    schedule includes today as an order day.  Fires at 06:00 daily via
-    Celery Beat (after stats are updated at 05:00).
+    Fan-out task: queue run_restock_for_storage for every storage whose schedule says
+    today, once that storage's own configured firing time has arrived.
+
+    Runs every 15 minutes because order times are per storage AND per weekday, which a
+    single daily trigger cannot express. OrderDispatch keeps it to once per day.
+
+    Fires late rather than not at all: a missed order costs a stockout, a late one just
+    covers a shorter window, which coverage already accounts for.
     """
-    from .models import Storage, is_closure_day, ScheduleException
-    import datetime
+    from .models import Storage, is_closure_day, ScheduleException, OrderDispatch
+
+    LATE_WARN_MINUTES = 120
 
     try:
-        today = datetime.date.today()
+        now_local = timezone.localtime()
+        today = now_local.date()
         today_index = today.weekday()  # 0=Monday … 6=Sunday
 
         storages = Storage.objects.filter(
             schedule__isnull=False
         ).select_related('supermarket', 'schedule')
 
-        if not storages.exists():
-            logger.info("[CELERY-SCHED] No storages with schedules found")
-            return "No storages to check"
-
         queued = 0
         skipped = 0
 
-        from .models import SalesSyncLog
-        yesterday = today - datetime.timedelta(days=1)
-
         for storage in storages:
+            # Routine skips stay at debug: this runs 96 times a day, and at info level
+            # every storage would log a line on every pass.
             if is_closure_day(storage.supermarket):
-                logger.info(f"[CELERY-SCHED] Skipping {storage.name} — closure day")
+                logger.debug(f"[CELERY-SCHED] Skipping {storage.name} — closure day")
                 skipped += 1
                 continue
 
             order_days = storage.schedule.get_order_days()
             if today_index not in order_days:
-                logger.info(f"[CELERY-SCHED] {storage.name} — no order today (day {today_index})")
                 skipped += 1
                 continue
 
@@ -2017,35 +2105,53 @@ def run_scheduled_orders(self):
                 skipped += 1
                 continue
 
-            if storage.supermarket.sync_api_token and not is_closure_day(storage.supermarket, yesterday):
-                last_sync = SalesSyncLog.objects.filter(
-                    supermarket=storage.supermarket
-                ).order_by('-sync_date').first()
-                if not last_sync or last_sync.sync_date < yesterday:
-                    last_date = last_sync.sync_date if last_sync else 'mai'
-                    logger.warning(
-                        f"[CELERY-SCHED] BLOCCATO {storage.name} — sync VENSETAR non aggiornato "
-                        f"(ultimo: {last_date}, atteso: {yesterday}). Ordine annullato."
-                    )
+            supermarket = storage.supermarket
+
+            order_time = storage.schedule.get_order_time(today_index)
+            if now_local.time() < order_time:
+                skipped += 1
+                continue
+
+            # Same calendar day and now >= order_time, so plain minutes avoid any
+            # naive/aware mismatch.
+            late_minutes = (
+                (now_local.hour * 60 + now_local.minute)
+                - (order_time.hour * 60 + order_time.minute)
+            )
+            if late_minutes > LATE_WARN_MINUTES:
+                logger.warning(
+                    f"[CELERY-SCHED] {storage.name} firing {late_minutes} min after its "
+                    f"{order_time:%H:%M} slot — was the scheduler down?"
+                )
+
+            if supermarket.sync_api_token:
+                if not _realtime_sync_is_usable(supermarket, now_local, today, storage.name):
                     skipped += 1
                     continue
-                if last_sync.applied == 0:
-                    logger.warning(
-                        f"[CELERY-SCHED] BLOCCATO {storage.name} — sync VENSETAR del {yesterday} "
-                        f"ha aggiornato 0 prodotti (vendite anomale). Ordine annullato."
-                    )
-                    skipped += 1
-                    continue
+
+            # Claim the day before queueing; the unique constraint settles any race.
+            _, claimed = OrderDispatch.objects.get_or_create(
+                storage=storage,
+                order_date=today,
+                defaults={'order_time': order_time},
+            )
+            if not claimed:
+                skipped += 1
+                continue
 
             run_restock_for_storage.apply_async(
                 args=[storage.id],
                 kwargs={'skip_stats_update': True},
             )
-            logger.info(f"[CELERY-SCHED] Queued restock for {storage.name}")
+            logger.info(
+                f"[CELERY-SCHED] Queued restock for {storage.name} "
+                f"(slot {order_time:%H:%M}, fired {now_local:%H:%M})"
+            )
             queued += 1
 
         msg = f"Scheduled orders: {queued} queued, {skipped} skipped"
-        logger.info(f"[CELERY-SCHED] {msg}")
+        if queued:
+            logger.info(f"[CELERY-SCHED] {msg}")
         return msg
 
     except Exception as exc:
@@ -2259,13 +2365,12 @@ def prepend_monthly_bought_zeros(self):
 )
 def prepend_monthly_sold_zeros(self):
     """
-    2nd of month — prepend a 0 to sold_last_24 for every product with sales
+    1st of month — prepend a 0 to sold_last_24 for every product with sales
     history, across all supermarkets. Opens a fresh accumulator slot for the
-    new month; apply_daily_vensetar_sales only ever adds into slot [0].
+    new month; apply_realtime_sales only ever adds into slot [0].
 
-    Runs on the 2nd (not the 1st): VENSETAR syncs "yesterday's" sales, so the
-    1st's sync run still needs the previous month's slot open to file the
-    previous month's last day correctly.
+    Must run before the day's first sync (08:30): the feed books sales on the day they
+    happen, so the 1st's own sales belong in the new month's slot.
     """
     from .models import Supermarket
     from .scripts.DatabaseManager import DatabaseManager

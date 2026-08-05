@@ -1,4 +1,6 @@
 # LamApp/supermarkets/models.py
+from datetime import time
+
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -20,10 +22,28 @@ class Supermarket(models.Model):
     x5cper = models.IntegerField(null=True, blank=True, help_text="N1CPER from Dropzone (counterpart code for ScorporoAmministrativo)")
     sync_api_token = models.CharField(
         max_length=64, unique=True, null=True, blank=True,
-        help_text="API token for VENSETAR sales sync (PowerShell script on supermarket PC)"
+        help_text="API token for the sales sync (PowerShell script on supermarket PC)"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # [weekday][hour] share of that weekday's units, measured on the store PC and shipped
+    # with the sync. Per weekday because the shape differs sharply (Gubbio sells 71% of
+    # Sunday before 14:00 vs ~50% on weekdays). Empty = count the order day in full.
+    intraday_curve = models.JSONField(
+        default=list, blank=True,
+        help_text="Per-weekday, per-hour share of daily sales (7x24), measured from the till log"
+    )
+    intraday_curve_updated_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the store last shipped an intraday curve"
+    )
+    # The moment `stock` was last known accurate. Coverage measures the remaining share of
+    # the order day from here, not the wall clock, so the two stay consistent when stale.
+    last_sales_sync_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Last successful real-time sales sync from the store PC"
+    )
 
     # Day weights for coverage calculation (1.0 = normal, 0.9 = less traffic, 1.2 = more traffic)
     monday_weight = models.DecimalField(max_digits=3, decimal_places=2, default=1.0, help_text="Traffic weight for Monday")
@@ -47,6 +67,45 @@ class Supermarket(models.Model):
             'thursday_weight', 'friday_weight', 'saturday_weight', 'sunday_weight'
         ]
         return float(getattr(self, weight_fields[day_index]))
+
+    def remaining_day_fraction(self, at_dt, on_date=None):
+        """
+        Share of `on_date`'s demand still to come after `at_dt`, in [0.0, 1.0].
+
+        Read off the measured intraday_curve, not clock time: demand is far from uniform,
+        so linear time overstates what is left (~2x at 18:00) and would over-order.
+
+        `at_dt` should be when `stock` was last accurate (the last sync), not now, so the
+        two stay consistent. `on_date` is the day being covered — an earlier `at_dt` means
+        none of it has happened yet and the full day is still ahead.
+
+        No curve stored returns 1.0, i.e. count the order day in full.
+        """
+        curve = self.intraday_curve
+        if not curve or len(curve) != 7:
+            return 1.0
+
+        ref_date = on_date or at_dt.date()
+        if at_dt.date() < ref_date:
+            return 1.0
+        if at_dt.date() > ref_date:
+            return 0.0
+
+        hours = curve[ref_date.weekday()]
+        if not hours or len(hours) != 24 or sum(hours) <= 0:
+            # Thin or missing weekday: fall back to the blended shape rather than
+            # silently counting the day whole.
+            hours = [
+                sum(day[h] for day in curve if day and len(day) == 24)
+                for h in range(24)
+            ]
+
+        total = sum(hours)
+        if total <= 0:
+            return 1.0
+
+        elapsed = sum(hours[:at_dt.hour]) + hours[at_dt.hour] * (at_dt.minute / 60.0)
+        return max(0.0, min(1.0, 1.0 - (elapsed / total)))
 
     def get_all_day_weights(self):
         """Return dict of all day weights for JSON serialization"""
@@ -181,10 +240,30 @@ class RestockSchedule(models.Model):
     saturday_delivery_offset = models.IntegerField(default=1, help_text="Days until delivery after Saturday order")
     sunday_delivery_offset = models.IntegerField(default=1, help_text="Days until delivery after Sunday order")
 
+    # Defaults to 06:00 — before opening, so the order day counts in full. Only read for
+    # days flagged active.
+    monday_order_time = models.TimeField(default=time(6, 0), help_text="When the Monday order fires")
+    tuesday_order_time = models.TimeField(default=time(6, 0), help_text="When the Tuesday order fires")
+    wednesday_order_time = models.TimeField(default=time(6, 0), help_text="When the Wednesday order fires")
+    thursday_order_time = models.TimeField(default=time(6, 0), help_text="When the Thursday order fires")
+    friday_order_time = models.TimeField(default=time(6, 0), help_text="When the Friday order fires")
+    saturday_order_time = models.TimeField(default=time(6, 0), help_text="When the Saturday order fires")
+    sunday_order_time = models.TimeField(default=time(6, 0), help_text="When the Sunday order fires")
+
     def get_order_days(self):
         """Returns list of day indices where orders happen (0=Monday, 6=Sunday)"""
         weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         return [i for i, day_name in enumerate(weekday_fields) if getattr(self, day_name)]
+
+    def get_order_time(self, order_day_index):
+        """
+        Firing time for a given order day (0=Monday, 6=Sunday).
+
+        Per day because a storage's schedule genuinely varies across the week. Ignored on
+        days not flagged active.
+        """
+        weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        return getattr(self, f"{weekday_fields[order_day_index]}_order_time")
     
     def get_delivery_offset(self, order_day_index):
         """Get delivery offset for a specific order day"""
@@ -200,7 +279,7 @@ class RestockSchedule(models.Model):
         offset = self.get_delivery_offset(order_day_index)
         return (order_day_index + offset) % 7
 
-    def calculate_coverage_for_day(self, order_day_index, reference_date=None):
+    def calculate_coverage_for_day(self, order_day_index, reference_date=None, first_day_fraction=1.0):
         """
         Calculate weighted coverage (sum of day weights from order day to next delivery).
 
@@ -213,6 +292,9 @@ class RestockSchedule(models.Model):
             order_day_index: 0=Monday, 6=Sunday
             reference_date: The actual date of this order (datetime.date). Required to
                             resolve ScheduleException entries on upcoming dates.
+            first_day_fraction: Share of the order day's demand still ahead, from
+                            Supermarket.remaining_day_fraction(). 1.0 counts the order
+                            day whole, as before order times existed.
 
         Returns:
             float: Weighted number of days to cover
@@ -269,16 +351,19 @@ class RestockSchedule(models.Model):
 
         # Fallback: no schedule and no exceptions, or everything skipped
         if next_days_ahead is None:
-            return self._calculate_weighted_days(order_day_index, 9)
+            return self._calculate_weighted_days(order_day_index, 9, first_day_fraction)
 
         # num_days: from order day (inclusive) through delivery day (inclusive)
         num_days = next_days_ahead + next_delivery_offset + 1
 
-        return self._calculate_weighted_days(order_day_index, num_days)
+        return self._calculate_weighted_days(order_day_index, num_days, first_day_fraction)
 
-    def _calculate_weighted_days(self, start_day_index, num_days):
+    def _calculate_weighted_days(self, start_day_index, num_days, first_day_fraction=1.0):
         """
         Sum the day weights for a period starting from start_day_index.
+
+        first_day_fraction scales the order day to the share of demand still ahead —
+        today's sales are already out of `stock`, so a full day would double-count them.
 
         The sum is normalised by the mean of the seven weights, so the result is
         always expressed in "average days". This matters because the consumer is
@@ -303,7 +388,8 @@ class RestockSchedule(models.Model):
         weighted_sum = 0.0
         for i in range(num_days):
             day_index = (start_day_index + i) % 7
-            weighted_sum += weights[day_index]
+            share = first_day_fraction if i == 0 else 1.0
+            weighted_sum += weights[day_index] * share
 
         if mean_weight > 0:
             weighted_sum /= mean_weight
@@ -360,6 +446,29 @@ class RestockSchedule(models.Model):
 
     def __str__(self):
         return f"Schedule for {self.storage.name}"
+
+
+class OrderDispatch(models.Model):
+    """
+    One row per storage per day, written when the dispatcher fires that day's order.
+
+    Makes dispatch idempotent across the 15-minute passes. RestockLog cannot serve: it is
+    created inside the worker, so a queued task can sit long enough to be queued twice.
+    The unique constraint is what enforces it.
+    """
+    storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='order_dispatches')
+    order_date = models.DateField()
+    order_time = models.TimeField(help_text="The scheduled time this dispatch was firing for")
+    fired_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['storage', 'order_date'], name='uniq_order_dispatch_per_day'),
+        ]
+        ordering = ['-order_date']
+
+    def __str__(self):
+        return f"{self.storage.name} — dispatched {self.order_date} (for {self.order_time})"
 
 
 class ScheduleException(models.Model):
@@ -779,12 +888,18 @@ class RecipeCostAlert(models.Model):
 
 
 class SalesSyncLog(models.Model):
-    """Log of one daily VENSETAR sync run for a supermarket."""
+    """
+    One row per supermarket per day of sales sync.
+
+    The real-time feed syncs every 30 minutes and each payload is cumulative, so the row
+    is rewritten in place rather than appended to. Otherwise the detail page would show
+    the last two hours of polling instead of the last five days.
+    """
     supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='sales_sync_logs')
-    sync_date = models.DateField(help_text="The date the sold quantities refer to (yesterday)")
+    sync_date = models.DateField(help_text="The date the sold quantities refer to")
     created_at = models.DateTimeField(auto_now_add=True)
 
-    # Counts from apply_daily_vensetar_sales
+    # Counts from apply_realtime_sales, as of the most recent run that day
     received = models.IntegerField(default=0, help_text="Total products received from PowerShell")
     applied = models.IntegerField(default=0, help_text="Products actually updated in DB")
     already_synced = models.IntegerField(default=0, help_text="Skipped — already synced for this date")

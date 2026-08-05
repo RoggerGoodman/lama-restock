@@ -283,6 +283,11 @@ class DecisionMaker:
                         f"into {product_cod}.{product_var}: "
                         f"stock+={partner_stats['stock']}"
                     )
+
+            # After the merge: merge_sales_sets pairs slots positionally and both sides
+            # still carry their running day at slot 0.
+            sales_sets = Helper.sales_history(sales_sets)
+
             package_size = row["pz_x_collo"]
             package_multi = row["rapp"]
             verified = row["verified"]

@@ -13,11 +13,13 @@ INVENTORY_FOLDER = str(settings.INVENTORY_FOLDER)
 LOSSES_FOLDER = str(settings.LOSSES_FOLDER)
 
 
-def verify_lost_stock_from_excel_combined(db: DatabaseManager):
+def verify_lost_stock_from_excel_combined(db: DatabaseManager, internal_spread_days: int = 1):
     """
     Process loss files (ROTTURE, SCADUTO, UTILIZZO INTERNO) from LOSSES_FOLDER.
     
-    UNCHANGED - works correctly as is.
+    internal_spread_days is the gap between this UTILIZZO INTERNO rilevazione and the
+    previous one; register_losses spreads the batch back over that many days instead of
+    spiking a single one. Ignored for the other loss types.
     """
     EAN_COL = "EAN"
     STOCK_COL = "Quantity"
@@ -113,7 +115,7 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager):
                 descrizione = product['descrizione']
 
                 try:
-                    db.register_losses(cod, v, delta, loss_type)
+                    db.register_losses(cod, v, delta, loss_type, spread_days=internal_spread_days)
                     processed_count += 1
                     total_losses += delta
                     logger.info(f"  {loss_type}: EAN {ean} ({descrizione}) x{delta}")

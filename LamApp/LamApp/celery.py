@@ -26,15 +26,16 @@ app.autodiscover_tasks()
 # Configure Celery Beat schedule for automated tasks
 #
 # Daily timeline:
+#   00:05  daily-sales-day-roll       (open today's slot in sales_sets)
 #   00:30  monthly-loss-zero-prepend  (1st of month only)
 #   00:35  monthly-bought-zero-prepend (1st of month only)
-#   00:40  monthly-sold-zero-prepend  (2nd of month only — see note below)
+#   00:40  monthly-sold-zero-prepend  (1st of month only — see note below)
 #   03:00  check-list-updates
 #   03:30  backfill-ean
 #   05:00  update-stats-morning       (DDT import — also saves pending calibration snapshot)
-#   05:30 VENSETAR sync              (store PC pushes yesterday's sold data)
-#   06:00  run-scheduled-orders
-#   08:00  daily-calibration          (completes pending snapshots with fresh VENSETAR data)
+#   08:00  daily-calibration          (grades yesterday, which closed at the 21:30 sync)
+#   08:30-21:30 real-time sales sync  (store PC pushes today's running totals, every 30 min)
+#   */15   run-scheduled-orders       (fires each storage at its own configured time)
 #   12:00  monthly-stock-snapshots    (1st of month only)
 #   22:30  record-losses-nightly
 #
@@ -51,13 +52,17 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=0, minute=35, day_of_month='1'),
     },
 
-    # 2nd of month — 00:40. Must run on the 2nd, not the 1st: VENSETAR always syncs
-    # "yesterday's" sales, so the 1st's 05:30 run applies the last day of the
-    # PREVIOUS month and needs that month's slot still open. Rolling over on the
-    # 1st (before 05:30) would misfile that last day into the new month's slot.
+    # 1st of month — 00:40. Must land before the day's first sync (08:30), so the 1st's
+    # own sales go into the new month's slot.
     'monthly-sold-zero-prepend': {
         'task': 'supermarkets.tasks.prepend_monthly_sold_zeros',
-        'schedule': crontab(hour=0, minute=40, day_of_month='2'),
+        'schedule': crontab(hour=0, minute=40, day_of_month='1'),
+    },
+
+    # 00:05 daily — open today's slot in sales_sets before anything reads it.
+    'daily-sales-day-roll': {
+        'task': 'supermarkets.tasks.roll_sales_day_all_supermarkets',
+        'schedule': crontab(hour=0, minute=5),
     },
 
     # 03:00 — refresh product lists for all scheduled storages
@@ -78,13 +83,14 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=5, minute=0),
     },
 
-    # 06:00 — place orders for storages scheduled today (VENSETAR sync arrives ~05:30)
+    # Every 15 min — order times are per storage and per weekday, so one daily trigger
+    # cannot express them. OrderDispatch keeps each storage to once per day.
     'run-scheduled-orders': {
         'task': 'supermarkets.tasks.run_scheduled_orders',
-        'schedule': crontab(hour=6, minute=0),
+        'schedule': crontab(minute='*/15'),
     },
 
-    # 08:00 — complete calibration reports with fresh VENSETAR sales data
+    # 08:00 — complete calibration reports against yesterday's now-final sales
     'daily-calibration': {
         'task': 'supermarkets.tasks.run_daily_calibration',
         'schedule': crontab(hour=8, minute=0),

@@ -55,10 +55,26 @@ class AutomatedRestockService(RestockService):
             try:
                 inv_scrapper.login()
                 logger.info("Downloading loss inventory files...")
+
+                # Read before the scrape, which advances LossSyncState. The gap between
+                # old and new rilevazione dates is the window the batch covers.
+                from .models import LossSyncState
+                sync_state, _ = LossSyncState.objects.get_or_create(supermarket=self.supermarket)
+                previous_internal_date = sync_state.last_date_utilizzo_interno
+
                 inv_scrapper.export_all_testate_from_day()
 
-                logger.info("Processing loss files...")
-                result = verify_lost_stock_from_excel_combined(self.db)
+                sync_state.refresh_from_db()
+                internal_spread_days = 1
+                if previous_internal_date and sync_state.last_date_utilizzo_interno:
+                    internal_spread_days = max(
+                        1, (sync_state.last_date_utilizzo_interno - previous_internal_date).days
+                    )
+
+                logger.info(f"Processing loss files (internal spread: {internal_spread_days}d)...")
+                result = verify_lost_stock_from_excel_combined(
+                    self.db, internal_spread_days=internal_spread_days
+                )
 
                 log.status = 'completed'
                 log.current_stage = 'completed'
@@ -157,7 +173,8 @@ class AutomatedRestockService(RestockService):
             cod, v = row['cod'], row['v']
             stock = raw_stock[key] if raw_stock is not None and key in raw_stock else (row['stock'] or 0)
             min_override = row['min_override']
-            sales_sets = row['sales_sets'] or []
+            # Completed days only — slot 0 is the running day (see Helper.sales_history)
+            sales_sets = Helper.sales_history(row['sales_sets'])
             bought_sets = row['bought_sets'] or []
             sold_last_24 = row['sold_last_24'] or []
             pz_x_collo = row['pz_x_collo'] or 1
@@ -354,6 +371,37 @@ class AutomatedRestockService(RestockService):
         logger.info(f"DDT import complete for {self.storage.name}: invoices={invoice_numbers}")
         return True
     
+    # Warn only — the fraction is measured from the sync timestamp, so it stays correct
+    # when stale; blocking here would risk a stockout over a reporting problem.
+    SYNC_STALE_WARN_MINUTES = 45
+
+    def _remaining_order_day_fraction(self, order_date):
+        """
+        Share of `order_date` still ahead, for the coverage window's first day.
+
+        Measured from the last sync, since that is the moment `stock` describes.
+        Returns 1.0 (whole day) when there is no sync or no curve.
+        """
+        supermarket = self.storage.supermarket
+        last_sync = supermarket.last_sales_sync_at
+        if not last_sync:
+            return 1.0
+
+        local_sync = timezone.localtime(last_sync)
+        age_minutes = (timezone.now() - last_sync).total_seconds() / 60
+        if age_minutes > self.SYNC_STALE_WARN_MINUTES:
+            logger.warning(
+                f"Sales sync for '{supermarket.name}' is {age_minutes:.0f} min old "
+                f"(last {local_sync:%Y-%m-%d %H:%M}); stock may lag reality"
+            )
+
+        fraction = supermarket.remaining_day_fraction(local_sync, on_date=order_date)
+        logger.info(
+            f"Order day {order_date} counts {fraction:.0%} of a full day "
+            f"(reference {local_sync:%H:%M})"
+        )
+        return fraction
+
     def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None, skip_stats_update=False):
         """
         Run complete restock workflow: calculate order then execute it.
@@ -384,7 +432,12 @@ class AutomatedRestockService(RestockService):
             today_date = timezone.now().date()
             if coverage is None:
                 schedule = self.storage.schedule
-                coverage = schedule.calculate_coverage_for_day(today_date.weekday(), reference_date=today_date)
+                first_day_fraction = self._remaining_order_day_fraction(today_date)
+                coverage = schedule.calculate_coverage_for_day(
+                    today_date.weekday(),
+                    reference_date=today_date,
+                    first_day_fraction=first_day_fraction,
+                )
 
             skip_sale = ScheduleException.objects.filter(
                 schedule=self.storage.schedule,

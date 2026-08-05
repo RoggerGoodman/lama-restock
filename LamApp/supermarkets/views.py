@@ -385,6 +385,20 @@ class SupermarketDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
             'blacklists__entries'   # Nested prefetch
         ).order_by('name')
         context['recent_sync_logs'] = self.object.sales_sync_logs.order_by('-created_at')[:5]
+
+        # Today's row is rewritten every 30 min, so a frozen one looks the same as a quiet
+        # morning. Surface the age so stock on screen can be trusted for a shelf check
+        # mid-day, rather than only before opening.
+        last_sync = self.object.last_sales_sync_at
+        context['last_sales_sync_at'] = last_sync
+        context['sync_age_minutes'] = None
+        context['sync_is_stale'] = False
+        if last_sync:
+            age = (timezone.now() - last_sync).total_seconds() / 60
+            context['sync_age_minutes'] = int(age)
+            # Matches the dispatcher's warning threshold so the page and the order
+            # freshness guard never disagree.
+            context['sync_is_stale'] = age > 45
         context['recent_loss_logs'] = RestockLog.objects.filter(
             storage__supermarket=self.object,
             operation_type='loss_recording',
@@ -675,7 +689,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
                 out_of_stock_products = []
                 for row in cursor.fetchall():
-                    sales_sets = row['sales_sets'] or []
+                    sales_sets = Helper.sales_history(row['sales_sets'])
                     raw = Helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True) if sales_sets else None
                     avg_daily = round(raw, 1) if raw is not None else 0.0
                     out_of_stock_products.append({
@@ -1520,10 +1534,10 @@ def run_restock_view(request, storage_id):
     )
     
     if request.method == 'POST':
-        coverage = request.POST.get('coverage')
-        if coverage:
+        coverage = (request.POST.get('coverage') or '').strip() or None
+        if coverage is not None:
             coverage = float(coverage)
-        
+
         # ✅ DISPATCH TO CELERY (non-blocking)
         from .tasks import run_restock_for_storage
 
@@ -1960,10 +1974,12 @@ class BlacklistDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         SELECT p.cod, p.v, p.descrizione, p.purge_flag, ps.stock,
                             (
                                 SELECT COALESCE(
-                                    (SELECT (MIN(t.ord) - 1)::int
+                                    -- ord 1 is today, still in progress. Counting it would
+                                    -- report a day without sales before the day is over.
+                                    (SELECT (MIN(t.ord) - 2)::int
                                      FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY AS t(elem, ord)
-                                     WHERE t.elem::numeric != 0),
-                                    jsonb_array_length(ps.sales_sets)
+                                     WHERE t.ord > 1 AND t.elem::numeric != 0),
+                                    GREATEST(jsonb_array_length(ps.sales_sets) - 1, 0)
                                 )
                             ) AS days_without_sales
                         FROM products p
@@ -3546,7 +3562,8 @@ def inventory_search_view(request):
                               FROM (
                                   SELECT value AS elem
                                   FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY
-                                  WHERE ordinality <= 14
+                                  -- from 2: ordinality 1 is today and not yet finished
+                                  WHERE ordinality BETWEEN 2 AND 15
                               ) recent
                               HAVING count(*) = 14
                           ) = TRUE
@@ -3584,10 +3601,12 @@ def fermi_products_api_view(request, storage_id):
                 SELECT p.settore, ps.cod, ps.v, p.descrizione, ps.stock, p.cluster,
                     (
                         SELECT COALESCE(
-                            (SELECT (MIN(t.ord) - 1)::int
+                            -- ord 1 is today, still in progress. Counting it would report
+                            -- a day without sales before the day is over.
+                            (SELECT (MIN(t.ord) - 2)::int
                              FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY AS t(elem, ord)
-                             WHERE t.elem::numeric != 0),
-                            jsonb_array_length(ps.sales_sets)
+                             WHERE t.ord > 1 AND t.elem::numeric != 0),
+                            GREATEST(jsonb_array_length(ps.sales_sets) - 1, 0)
                         )
                     ) AS days_without_sales
                 FROM product_stats ps
@@ -3600,7 +3619,8 @@ def fermi_products_api_view(request, storage_id):
                       FROM (
                           SELECT value AS elem
                           FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY
-                          WHERE ordinality <= 14
+                          -- from 2: ordinality 1 is today and not yet finished
+                          WHERE ordinality BETWEEN 2 AND 15
                       ) recent
                       HAVING count(*) = 14
                   ) = TRUE
