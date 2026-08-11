@@ -287,6 +287,8 @@ class RestockSchedule(models.Model):
         Accounts for ScheduleException overrides on upcoming days:
           - 'skip' exceptions are excluded (coverage extends past them)
           - 'add' exceptions are included (coverage may shorten if the extra order is sooner)
+          - 'modify' exceptions on the next order delay its delivery, so coverage
+            extends to when those goods actually land
 
         Args:
             order_day_index: 0=Monday, 6=Sunday
@@ -332,19 +334,23 @@ class RestockSchedule(models.Model):
         # Sort by proximity
         candidates.sort(key=lambda x: x[0])
 
-        # Find the first candidate that is NOT skipped
+        # Find the first candidate that is NOT skipped. A 'modify' exception on the
+        # candidate date delays its delivery, so this order must bridge the longer gap
+        # until those goods actually land — use the override offset over the static one.
         next_days_ahead = None
         next_delivery_offset = None
         for days_ahead, weekday, offset_override in candidates:
             if reference_date is not None:
                 future_date = reference_date + timedelta(days=days_ahead)
-                has_skip = ScheduleException.objects.filter(
+                exc = ScheduleException.objects.filter(
                     schedule=self,
                     date=future_date,
-                    exception_type='skip'
-                ).exists()
-                if has_skip:
+                    exception_type__in=('skip', 'modify'),
+                ).first()
+                if exc and exc.exception_type == 'skip':
                     continue
+                if exc and exc.exception_type == 'modify' and exc.delivery_offset is not None:
+                    offset_override = exc.delivery_offset
             next_days_ahead = days_ahead
             next_delivery_offset = offset_override if offset_override is not None else self.get_delivery_offset(weekday)
             break

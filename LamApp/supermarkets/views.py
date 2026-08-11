@@ -1211,6 +1211,7 @@ class RestockScheduleView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         context["supermarket"] = storage.supermarket
         context["day_weights_form"] = DayWeightsForm(instance=storage.supermarket)
         context["day_weights_json"] = json.dumps(storage.supermarket.get_all_day_weights())
+        context["intraday_curve_json"] = json.dumps(storage.supermarket.intraday_curve or [])
         return context
 
     def form_valid(self, form):

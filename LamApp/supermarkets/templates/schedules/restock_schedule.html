@@ -199,6 +199,7 @@
                                                 <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
                                                 <div style="width: 105px;">{{ form.monday_order_time }}</div>
                                             </div>
+                                            <div class="intraday-curve mt-2" data-day="0"></div>
                                             {{ form.monday_delivery_offset }}
                                         </div>
                                     </div>
@@ -250,6 +251,7 @@
                                                 <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
                                                 <div style="width: 105px;">{{ form.tuesday_order_time }}</div>
                                             </div>
+                                            <div class="intraday-curve mt-2" data-day="1"></div>
                                             {{ form.tuesday_delivery_offset }}
                                         </div>
                                     </div>
@@ -301,6 +303,7 @@
                                                 <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
                                                 <div style="width: 105px;">{{ form.wednesday_order_time }}</div>
                                             </div>
+                                            <div class="intraday-curve mt-2" data-day="2"></div>
                                             {{ form.wednesday_delivery_offset }}
                                         </div>
                                     </div>
@@ -352,6 +355,7 @@
                                                 <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
                                                 <div style="width: 105px;">{{ form.thursday_order_time }}</div>
                                             </div>
+                                            <div class="intraday-curve mt-2" data-day="3"></div>
                                             {{ form.thursday_delivery_offset }}
                                         </div>
                                     </div>
@@ -403,6 +407,7 @@
                                                 <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
                                                 <div style="width: 105px;">{{ form.friday_order_time }}</div>
                                             </div>
+                                            <div class="intraday-curve mt-2" data-day="4"></div>
                                             {{ form.friday_delivery_offset }}
                                         </div>
                                     </div>
@@ -454,6 +459,7 @@
                                                 <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
                                                 <div style="width: 105px;">{{ form.saturday_order_time }}</div>
                                             </div>
+                                            <div class="intraday-curve mt-2" data-day="5"></div>
                                             {{ form.saturday_delivery_offset }}
                                         </div>
                                     </div>
@@ -505,6 +511,7 @@
                                                 <small class="text-muted"><i class="bi bi-clock"></i> Ora ordine</small>
                                                 <div style="width: 105px;">{{ form.sunday_order_time }}</div>
                                             </div>
+                                            <div class="intraday-curve mt-2" data-day="6"></div>
                                             {{ form.sunday_delivery_offset }}
                                         </div>
                                     </div>
@@ -1594,5 +1601,85 @@ document.querySelectorAll('input[name$="_delivery_offset"], input[type="checkbox
         input.addEventListener('change', updateThreeMonthCalendar);
     }
 });
+
+// ---------------------------------------------------------------------------
+// Intraday sales curve, one per weekday.
+// Measured on the store PC from the till log: [weekday][hour] = units sold.
+// Bars left of the order time are demand already gone from stock by the time the
+// order fires; only the shaded remainder counts toward that day's coverage.
+// ---------------------------------------------------------------------------
+const INTRADAY_CURVE = {{ intraday_curve_json|safe }};
+const DAY_FIELDS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+
+function remainingFractionAt(hours, hh, mm) {
+    const total = hours.reduce((a, b) => a + b, 0);
+    if (total <= 0) return 1;
+    let elapsed = 0;
+    for (let h = 0; h < hh; h++) elapsed += hours[h];
+    elapsed += (hours[hh] || 0) * (mm / 60);
+    return Math.max(0, Math.min(1, 1 - elapsed / total));
+}
+
+function renderIntradayCurve(box) {
+    const dayIdx = parseInt(box.dataset.day, 10);
+    const hours = (INTRADAY_CURVE || [])[dayIdx];
+
+    if (!hours || hours.length !== 24 || hours.reduce((a, b) => a + b, 0) <= 0) {
+        box.innerHTML = '<div class="small text-muted fst-italic">'
+                      + 'Curva vendite non ancora disponibile</div>';
+        return;
+    }
+
+    const timeInput = document.querySelector(`input[name="${DAY_FIELDS[dayIdx]}_order_time"]`);
+    const [hh, mm] = (timeInput && timeInput.value ? timeInput.value : '06:00')
+                        .split(':').map(n => parseInt(n, 10));
+    const cutoff = hh + mm / 60;
+
+    // Trim to hours the store actually trades, so the bars are not mostly empty
+    let first = hours.findIndex(v => v > 0);
+    let last = hours.length - 1 - [...hours].reverse().findIndex(v => v > 0);
+    first = Math.max(0, first - 1);
+    last = Math.min(23, last + 1);
+
+    const peak = Math.max(...hours);
+    const W = 8, H = 34, GAP = 1;
+    let bars = '';
+    for (let h = first; h <= last; h++) {
+        const x = (h - first) * (W + GAP);
+        const bh = peak > 0 ? Math.max(1, (hours[h] / peak) * H) : 1;
+        const past = (h + 1) <= cutoff;
+        const partial = !past && h < cutoff;
+        const fill = past ? '#dee2e6' : (partial ? '#9ec5fe' : '#0d6efd');
+        bars += `<rect x="${x}" y="${H - bh}" width="${W}" height="${bh}" fill="${fill}" rx="1">`
+              + `<title>${String(h).padStart(2,'0')}:00 — ${Math.round(hours[h])} pz</title></rect>`;
+    }
+
+    const cutX = (Math.min(Math.max(cutoff, first), last + 1) - first) * (W + GAP) - GAP / 2;
+    const marker = `<line x1="${cutX}" y1="0" x2="${cutX}" y2="${H}" stroke="#dc3545" stroke-width="1.5"/>`;
+    const width = (last - first + 1) * (W + GAP);
+    const remaining = remainingFractionAt(hours, hh, mm);
+
+    box.innerHTML = `
+        <svg width="100%" viewBox="0 0 ${width} ${H}" preserveAspectRatio="none" style="height:34px">
+            ${bars}${marker}
+        </svg>
+        <div class="d-flex justify-content-between small text-muted" style="font-size:.7rem">
+            <span>${String(first).padStart(2,'0')}:00</span>
+            <span class="fw-semibold ${remaining < 0.25 ? 'text-danger' : 'text-primary'}">
+                Copre il ${Math.round(remaining * 100)}% della giornata
+            </span>
+            <span>${String(last).padStart(2,'0')}:59</span>
+        </div>`;
+}
+
+function renderAllIntradayCurves() {
+    document.querySelectorAll('.intraday-curve').forEach(renderIntradayCurve);
+}
+
+document.querySelectorAll('input[name$="_order_time"]').forEach(input => {
+    input.addEventListener('input', renderAllIntradayCurves);
+    input.addEventListener('change', renderAllIntradayCurves);
+});
+renderAllIntradayCurves();
 </script>
 {% endblock %}

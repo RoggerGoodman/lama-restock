@@ -433,9 +433,13 @@ Write-Host "  Wrote $ScriptPath"
 $TaskCmd  = "powershell.exe"
 $TaskArgs = "-ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File `"$ScriptPath`""
 $action   = New-ScheduledTaskAction -Execute $TaskCmd -Argument $TaskArgs
-$trigger  = New-ScheduledTaskTrigger -Daily -At "{start_time}" `
-                -RepetitionInterval (New-TimeSpan -Minutes 30) `
-                -RepetitionDuration (New-TimeSpan -Hours 13)
+# -Daily and -RepetitionInterval are different parameter sets, so combining them always
+# fails with AmbiguousParameterSet. Build a throwaway -Once trigger purely to borrow its
+# Repetition object and graft it onto the daily one.
+$trigger = New-ScheduledTaskTrigger -Daily -At "{start_time}"
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At "{start_time}" `
+                          -RepetitionInterval (New-TimeSpan -Minutes 30) `
+                          -RepetitionDuration (New-TimeSpan -Hours 13)).Repetition
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
                 -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
                 -MultipleInstances IgnoreNew
@@ -444,6 +448,18 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {{
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false | Out-Null
 }}
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
+
+# Verify rather than assume: an unconditional success message once hid a failed
+# registration, leaving a store that looked installed and never synced again.
+$registered = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if (-not $registered) {{
+    Write-Host "ERROR: task registration FAILED - the sync will NOT run automatically."
+    exit 1
+}}
+if (-not $registered.Triggers[0].Repetition.Interval) {{
+    Write-Host "WARNING: task registered but without a repetition interval - it will run"
+    Write-Host "         only once a day at {start_time} instead of every 30 minutes."
+}}
 Write-Host "  Scheduled task '$TaskName' registered (every 30 min from {start_time}, user: $env:USERNAME)"
 
 Write-Host ""

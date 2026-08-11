@@ -2009,19 +2009,37 @@ def roll_sales_day_all_supermarkets(self):
     return msg
 
 
-RT_SYNC_STALE_BLOCK_HOURS = 3
+# Days of demand we tolerate being blind to. One missed sync at the busiest hour is ~6%,
+# so this absorbs a couple of failures without letting a dead feed through.
+SYNC_UNSEEN_DEMAND_LIMIT = 0.15
+
+
+def _unseen_demand_days(supermarket, last_sync_local, now_local, today) -> float:
+    """
+    Demand that happened since the last sync, expressed in days.
+
+    This is what `stock` is wrong by, which is the thing worth gating on. Elapsed hours
+    are a poor proxy: overnight they mean nothing, at midday they mean everything.
+    """
+    sync_date = last_sync_local.date()
+
+    if sync_date >= today:
+        return max(0.0,
+                   supermarket.remaining_day_fraction(last_sync_local, on_date=today)
+                   - supermarket.remaining_day_fraction(now_local, on_date=today))
+
+    unseen = supermarket.remaining_day_fraction(last_sync_local, on_date=sync_date)
+    unseen += max(0, (today - sync_date).days - 1)
+    unseen += 1.0 - supermarket.remaining_day_fraction(now_local, on_date=today)
+    return unseen
 
 
 def _realtime_sync_is_usable(supermarket, now_local, today, storage_name) -> bool:
     """
     Whether stock is fresh enough to order against.
 
-    Accepts a recent sync, or any sync while today has barely started — an order firing
-    before the store warms up has nothing newer to know. The curve decides which case,
-    so no opening hour is hardcoded.
-
-    Blocks rather than warns: ordering on hours-stale stock quietly buys the wrong
-    quantity for every product at once instead of failing visibly.
+    Blocks rather than warns: ordering on stale stock quietly buys the wrong quantity for
+    every product at once instead of failing visibly.
     """
     last_sync = supermarket.last_sales_sync_at
     if not last_sync:
@@ -2031,20 +2049,20 @@ def _realtime_sync_is_usable(supermarket, now_local, today, storage_name) -> boo
         )
         return False
 
-    age_hours = (timezone.now() - last_sync).total_seconds() / 3600
-    if age_hours <= RT_SYNC_STALE_BLOCK_HOURS:
-        return True
+    last_sync_local = timezone.localtime(last_sync)
 
-    # Stale. Tolerable only while today has barely begun — measured at NOW, not at the
-    # sync, since the question is how much trading we are blind to.
-    remaining_now = supermarket.remaining_day_fraction(now_local, on_date=today)
-    if remaining_now >= 0.98:
+    # Without a curve there is no way to weigh the gap, so fall back to calendar days.
+    if not supermarket.intraday_curve:
+        return (today - last_sync_local.date()).days <= 1
+
+    unseen = _unseen_demand_days(supermarket, last_sync_local, now_local, today)
+    if unseen <= SYNC_UNSEEN_DEMAND_LIMIT:
         return True
 
     logger.warning(
-        f"[CELERY-SCHED] BLOCCATO {storage_name} — sync real-time fermo da {age_hours:.1f}h "
-        f"(ultimo: {timezone.localtime(last_sync):%Y-%m-%d %H:%M}), giornata gia' al "
-        f"{1 - remaining_now:.0%}. Ordine annullato."
+        f"[CELERY-SCHED] BLOCCATO {storage_name} — vendite non sincronizzate pari a "
+        f"{unseen:.0%} di una giornata (ultimo sync: {last_sync_local:%Y-%m-%d %H:%M}). "
+        f"Ordine annullato."
     )
     return False
 
