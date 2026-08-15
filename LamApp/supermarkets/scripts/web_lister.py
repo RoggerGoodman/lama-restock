@@ -34,6 +34,7 @@ CSV_COLUMN_MAP = {
     "cessione": "Cost",
     "vendita": "Price",
     "reDescrizione": "Category",
+    "ivAliquota": "Iva",
 }
 
 

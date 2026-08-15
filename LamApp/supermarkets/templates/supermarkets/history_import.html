@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Importa storico - {{ supermarket.name }}{% endblock %}
+{% block page_title %}Importa storico vendite{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item">
+                <a href="{% url 'supermarket-detail' pk=supermarket.pk %}">{{ supermarket.name }}</a>
+            </li>
+            <li class="breadcrumb-item active">Importa storico</li>
+        </ol>
+    </nav>
+
+    {% if error %}
+    <div class="alert alert-danger"><i class="bi bi-x-circle"></i> {{ error }}</div>
+    {% endif %}
+
+    {% if result %}
+    <div class="alert alert-success">
+        <h6 class="mb-2"><i class="bi bi-check-circle"></i> Importazione completata</h6>
+        <div class="row small">
+            <div class="col-6 col-md-3"><strong>{{ result.applied }}</strong> prodotti aggiornati</div>
+            <div class="col-6 col-md-3"><strong>{{ result.created }}</strong> nuove schede create</div>
+            <div class="col-6 col-md-3"><strong>{{ result.not_in_catalogue }}</strong> non nel catalogo</div>
+            <div class="col-6 col-md-3"><strong>{{ result.skipped_fractional }}</strong> a peso (esclusi)</div>
+        </div>
+        <div class="small mt-2">
+            Giorno e mese in corso:
+            <strong>{% if result.included_current %}importati{% else %}lasciati alla sincronizzazione live{% endif %}</strong>.
+            {% if result.created %}
+            Le schede create sono a giacenza 0 e non verificate: non entrano negli ordini
+            finche' non vengono verificate, ma lo storico e' gia' presente.
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="stat-card mb-4">
+        <h5><i class="bi bi-info-circle text-primary"></i> Come funziona</h5>
+        <ol class="mb-0">
+            <li>Copia il comando qui sotto ed eseguilo nel PowerShell del PC del punto vendita.</li>
+            <li>Il comando crea il file <code>C:\LamApp\history_export.json</code> con gli ultimi
+                24 mesi e 60 giorni di vendite.</li>
+            <li>Carica quel file nel modulo in fondo alla pagina.</li>
+        </ol>
+    </div>
+
+    <div class="stat-card mb-4">
+        <h5><i class="bi bi-terminal"></i> Comando da eseguire sul PC del punto vendita</h5>
+        {% if oneliner %}
+        <div class="input-group">
+            <input type="text" class="form-control font-monospace small" id="oneliner"
+                   value="{{ oneliner }}" readonly>
+            <button class="btn btn-outline-secondary" type="button"
+                    onclick="navigator.clipboard.writeText(document.getElementById('oneliner').value)">
+                <i class="bi bi-clipboard"></i> Copia
+            </button>
+        </div>
+        <div class="form-text">
+            Non serve connessione dal PC del punto vendita: il comando scrive solo un file locale.
+        </div>
+        {% else %}
+        <div class="alert alert-warning mb-0">
+            Genera prima il codice di sincronizzazione dalla
+            <a href="{% url 'sync-setup' pk=supermarket.pk %}">pagina di configurazione</a>.
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="stat-card">
+        <h5><i class="bi bi-upload"></i> Carica il file</h5>
+
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>L'importazione sovrascrive lo storico esistente.</strong>
+            Questo magazzino ha <strong>{{ state.products }}</strong> prodotti,
+            di cui <strong>{{ state.with_history }}</strong> con storico vendite.
+            {% if supermarket.last_sales_sync_at %}
+            La sincronizzazione live e' attiva: il giorno e il mese in corso
+            <strong>non</strong> verranno toccati.
+            {% else %}
+            Nessuna sincronizzazione live ricevuta: verranno importati anche il giorno
+            e il mese in corso.
+            {% endif %}
+        </div>
+
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class="mb-3">
+                <input type="file" name="history_file" accept=".json,application/json"
+                       class="form-control" required>
+                <div class="form-text">
+                    Il file deve essere generato oggi: gli indici sono relativi alla data di
+                    creazione e un file di ieri sposterebbe tutto lo storico di un giorno.
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary"
+                    onclick="return confirm('Sovrascrivere lo storico vendite di {{ supermarket.name }}?')">
+                <i class="bi bi-upload"></i> Importa storico
+            </button>
+        </form>
+    </div>
+
+</div>
+{% endblock %}

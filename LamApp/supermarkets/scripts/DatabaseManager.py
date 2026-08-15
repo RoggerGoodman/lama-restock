@@ -99,6 +99,7 @@ class DatabaseManager:
                 sale_start DATE,
                 sale_end DATE,
                 category TEXT NOT NULL,
+                iva INTEGER,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)
             )
@@ -313,22 +314,6 @@ class DatabaseManager:
                 "last_update_sold": row["last_update_sold"],
             })
         return results
-
-    def get_category_stock_value(self, category: str):
-        cur = self.cursor()
-        cur.execute("""
-            SELECT e.cod, e.v, e.cost_std, ps.stock
-            FROM economics e
-            JOIN product_stats ps ON e.cod = ps.cod AND e.v = ps.v
-            WHERE e.category = %s
-        """, (category,))
-
-        total_value = 0.0
-        for cod, v, cost_std, stock in cur.fetchall():
-            if cost_std is None or stock is None:
-                continue
-            total_value += float(cost_std) * int(stock)
-        return round(total_value, 2)
 
     def get_purge_pending(self):
         """Get all products flagged for purging with stock > 0."""
@@ -556,6 +541,115 @@ class DatabaseManager:
             'units_applied': total_delta,
             'unverified_products': unverified_products,
         }
+
+    def apply_history_backfill(self, entries, include_current: bool, history_date) -> dict:
+        """
+        Seed sold_last_24 and sales_sets from a store's own historical data.
+
+        `entries` is [(cod, var, monthly[24], daily[60]), ...] with index 0 = current
+        month / today, matching the arrays' own ordering.
+
+        `include_current` decides who owns index 0. A store whose live sync has never run
+        has nothing there worth keeping, so it takes the lot. Once the sync is running,
+        `sales_sets[0]` is the base its delta arithmetic works from and overwriting it
+        would make the next run re-book the difference, so index 0 is left alone.
+
+        Products in the imported catalogue get a product_stats row created if they lack
+        one, since those rows otherwise only appear on first verification. Anything not
+        in `products` is ignored: the dump carries the store's whole catalogue.
+        """
+        cur = self.cursor()
+
+        wanted = {}
+        skipped_fractional = 0
+        for cod, var, monthly, daily in entries:
+            vals = list(monthly) + list(daily)
+            if any(v != int(v) for v in vals):
+                # Weight-sold goods; the live path skips them for the same reason.
+                skipped_fractional += 1
+                continue
+            wanted[(int(cod), int(var))] = (
+                [int(v) for v in monthly][:24],
+                [int(v) for v in daily][:60],
+            )
+
+        cods = [k[0] for k in wanted]
+        vars_ = [k[1] for k in wanted]
+
+        # product_stats rows only appear when a human verifies a product, so a freshly
+        # onboarded store has none and there would be nothing to write history onto.
+        # Seed them for anything in the imported catalogue: stock 0 and verified False
+        # keeps them out of ordering until someone actually counts the shelf, and
+        # verify_stock updates in place, so the history survives that.
+        created = 0
+        if wanted:
+            cur.execute("""
+                SELECT p.cod, p.v
+                FROM products p
+                JOIN unnest(%s::int[], %s::int[]) AS t(c, vv)
+                  ON p.cod = t.c AND p.v = t.vv
+                LEFT JOIN product_stats ps ON ps.cod = p.cod AND ps.v = p.v
+                WHERE ps.cod IS NULL
+            """, (cods, vars_))
+            missing = [(r["cod"], r["v"], history_date) for r in cur.fetchall()]
+            if missing:
+                # last_update_sold must be the dump's date: left NULL, the next rollover
+                # would treat the day as unopened and shift every backfilled value by one.
+                execute_values(cur, """
+                    INSERT INTO product_stats
+                        (cod, v, sold_last_24, bought_last_24, sales_sets, bought_sets,
+                         stock, verified, last_update_sold)
+                    SELECT d.cod::int, d.var::int, '[0]'::jsonb, '[0]'::jsonb,
+                           '[0]'::jsonb, '[0]'::jsonb, 0, FALSE, d.day::date
+                    FROM (VALUES %s) AS d(cod, var, day)
+                    ON CONFLICT (cod, v) DO NOTHING
+                """, missing, page_size=1000)
+                created = len(missing)
+
+        rows = []
+        if wanted:
+            cur.execute("""
+                SELECT cod, v, sold_last_24, sales_sets
+                FROM product_stats
+                JOIN unnest(%s::int[], %s::int[]) AS t(c, vv)
+                  ON cod = t.c AND v = t.vv
+            """, (cods, vars_))
+            rows = cur.fetchall()
+
+        updates = []
+        for row in rows:
+            monthly, daily = wanted[(row["cod"], row["v"])]
+            monthly = (monthly + [0] * 24)[:24]
+            daily = (daily + [0] * 60)[:60]
+
+            if not include_current:
+                prev_sold = row["sold_last_24"] or [0]
+                prev_sets = row["sales_sets"] or [0]
+                monthly[0] = (prev_sold[0] if prev_sold else 0) or 0
+                daily[0] = (prev_sets[0] if prev_sets else 0) or 0
+
+            updates.append((row["cod"], row["v"], Json(monthly), Json(daily)))
+
+        if updates:
+            execute_values(cur, """
+                UPDATE product_stats AS ps
+                SET sold_last_24 = d.sold::jsonb,
+                    sales_sets   = d.sets::jsonb
+                FROM (VALUES %s) AS d(cod, var, sold, sets)
+                WHERE ps.cod = d.cod::int AND ps.v = d.var::int
+            """, updates, page_size=1000)
+
+        self.conn.commit()
+        result = {
+            'received': len(entries),
+            'applied': len(updates),
+            'created': created,
+            'not_in_catalogue': len(wanted) - len(rows),
+            'skipped_fractional': skipped_fractional,
+            'included_current': include_current,
+        }
+        logger.info(f"[HISTORY] schema={self.schema} {result}")
+        return result
 
     def apply_invoice_deliveries(self, cod_v_dict: dict) -> dict:
         """
@@ -868,6 +962,7 @@ class DatabaseManager:
         COST_COLS = "Cost"
         PRICE_COLS = "Price"
         REP_COLS  = "Category"
+        IVA_COLS  = "Iva"
 
         df = df[pd.to_numeric(df[COD_COLS], errors="coerce").notna()]
         df[COD_COLS] = df[COD_COLS].astype(int)
@@ -885,6 +980,7 @@ class DatabaseManager:
             cost        = float(row[COST_COLS]) if COST_COLS in df.columns else None
             price       = float(row[PRICE_COLS]) if PRICE_COLS in df.columns else None
             category    = str(row[REP_COLS]).strip() if REP_COLS in df.columns else ""
+            iva         = int(float(row[IVA_COLS])) if IVA_COLS in df.columns and not pd.isna(row[IVA_COLS]) else None
 
             rapp = None
             if RAPP_COLS in df.columns and not pd.isna(row[RAPP_COLS]):
@@ -900,7 +996,7 @@ class DatabaseManager:
                     continue
 
             prod_rows.append((cod, v, descrizione, rapp, pz_x_collo, settore, disponibilita))
-            econ_rows.append((cod, v, price, cost, None, None, None, None, category))
+            econ_rows.append((cod, v, price, cost, None, None, None, None, category, iva))
 
         cur = self.cursor()
         cur.executemany("""
@@ -920,8 +1016,8 @@ class DatabaseManager:
 
         cur.executemany("""
             INSERT INTO economics
-                (cod, v, price_std, cost_std, price_s, cost_s, sale_start, sale_end, category)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (cod, v, price_std, cost_std, price_s, cost_s, sale_start, sale_end, category, iva)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(cod, v) DO UPDATE SET
                 price_std = CASE
                     WHEN economics.sale_start IS NOT NULL
@@ -937,7 +1033,8 @@ class DatabaseManager:
                     THEN economics.cost_std
                     ELSE excluded.cost_std
                 END,
-                category = excluded.category
+                category = excluded.category,
+                iva = excluded.iva
         """, econ_rows)
 
         # Products absent from today's list are no longer available from the supplier.

@@ -45,6 +45,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def net_price_of(price, iva):
+    """
+    Strip IVA from an IVA-included sale price (price_std/price_s are stored
+    IVA-included; cost is net). iva is the whole-percent aliquot (4, 10, 22...);
+    None/0 means no adjustment. Profit margins are computed on this net price so
+    they match the supplier's Margine.
+    """
+    price = float(price or 0.0)
+    if iva:
+        return price / (1 + float(iva) / 100.0)
+    return price
+
+
 # ============ Authentication Views ============
 
 def signup(request):
@@ -708,7 +721,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 cursor.execute("""
                     SELECT
                         p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp,
-                        p.first_added_at, e.cost_std, e.price_std
+                        p.first_added_at, e.cost_std, e.price_std, e.iva
                     FROM products p
                     LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                     LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
@@ -730,12 +743,15 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     pz_x_collo = row['pz_x_collo'] or 12
                     rapp = row['rapp'] or 1
                     package_size = pz_x_collo * rapp
-                    cost_std = row['cost_std'] or 0
+                    # cost_std is per collo di cessione (rapp selling pieces);
+                    # bring it down to per-piece to match price_std and stock.
+                    unit_cost = (row['cost_std'] or 0) / rapp
                     price_std = row['price_std'] or 0
-                    package_cost = cost_std * package_size
+                    net_price = net_price_of(price_std, row['iva'])
+                    package_cost = unit_cost * package_size
                     margin_pct = 0
-                    if price_std > 0 and cost_std > 0:
-                        margin_pct = ((price_std - cost_std) / price_std) * 100
+                    if net_price > 0 and unit_cost > 0:
+                        margin_pct = ((net_price - unit_cost) / net_price) * 100
                     first_added_at = row['first_added_at']
                     is_new = first_added_at is not None and (today - first_added_at).days <= 7
                     available_products.append({
@@ -743,7 +759,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         'var': row['v'],
                         'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
                         'package_size': package_size,
-                        'unit_cost': cost_std,
+                        'unit_cost': unit_cost,
                         'unit_price': price_std,
                         'package_cost': package_cost,
                         'margin_pct': margin_pct,
@@ -1811,7 +1827,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         SELECT 
                             p.descrizione, p.pz_x_collo, p.rapp, p.disponibilita,
                             ps.stock,
-                            e.cost_std, e.price_std
+                            e.cost_std, e.price_std, e.iva
                         FROM products p
                         LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                         LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
@@ -1844,19 +1860,22 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         rapp = row['rapp'] or 1
                         package_size = pz_x_collo * rapp
                         
-                        cost_std = row['cost_std'] or 0
+                        # cost_std is per collo di cessione (rapp selling pieces);
+                        # bring it down to per-piece to match price_std and stock.
+                        unit_cost = (row['cost_std'] or 0) / rapp
                         price_std = row['price_std'] or 0
-                        
+                        net_price = net_price_of(price_std, row['iva'])
+
                         # Calculate per-unit cost and price
-                        package_cost = cost_std * package_size
-                        # Calculate margin
+                        package_cost = unit_cost * package_size
+                        # Calculate margin (on net-of-IVA price, to match supplier Margine)
                         margin_pct = 0
-                        if price_std > 0 and cost_std > 0:
-                            margin_pct = ((price_std - cost_std) / price_std) * 100
-                        
+                        if net_price > 0 and unit_cost > 0:
+                            margin_pct = ((net_price - unit_cost) / net_price) * 100
+
                         product_data.update({
                             'package_size': package_size,
-                            'unit_cost': cost_std,
+                            'unit_cost': unit_cost,
                             'unit_price': price_std,
                             'package_cost': package_cost,
                             'margin_pct': margin_pct
@@ -2940,7 +2959,7 @@ def stock_profit_view(request):
                 cursor.execute("""
                     SELECT
                         p.cod, p.v, p.descrizione, p.settore, p.cluster, p.rapp,
-                        e.price_std, e.cost_std, e.category,
+                        e.price_std, e.cost_std, e.category, e.iva,
                         ps.sold_last_24
                     FROM products p
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
@@ -2971,7 +2990,9 @@ def stock_profit_view(request):
                     # down to per-piece with rapp — same convention as the stock
                     # valuation view (SUM(cost_std / rapp * stock)).
                     rapp = int(row['rapp'] or 1) or 1
-                    price = float(row['price_std'] or 0.0)
+                    # price_std is IVA-included; strip it so lordo is true
+                    # fatturato (net of IVA) and margin matches the supplier's.
+                    price = net_price_of(row['price_std'], row['iva'])
                     cost = float(row['cost_std'] or 0.0) / rapp
                     unit_netto = price - cost
 
@@ -3185,6 +3206,7 @@ def promo_products_view(request):
                         e.cost_s,
                         e.cost_std,
                         e.price_std,
+                        e.iva,
                         e.sale_start,
                         e.sale_end,
                         ps.stock
@@ -3206,11 +3228,12 @@ def promo_products_view(request):
                     cost_s = float(row['cost_s'] or 0) / rapp
                     cost_std = float(row['cost_std'] or 0) / rapp
                     price_std = float(row['price_std'] or 0)
+                    net_price = net_price_of(price_std, row['iva'])
                     stock = int(row['stock'] or 0)
 
-                    # Calculate margins (as percentages)
-                    margin_std = ((price_std - cost_std) / price_std * 100) if price_std > 0 else 0
-                    margin_promo = ((price_std - cost_s) / price_std * 100) if price_std > 0 else 0
+                    # Margins on net-of-IVA price (matches supplier Margine)
+                    margin_std = ((net_price - cost_std) / net_price * 100) if net_price > 0 else 0
+                    margin_promo = ((net_price - cost_s) / net_price * 100) if net_price > 0 else 0
                     margin_gain = margin_promo - margin_std  # Extra margin from promo
 
                     promo_products.append({

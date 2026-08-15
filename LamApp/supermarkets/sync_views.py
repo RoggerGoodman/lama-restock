@@ -231,6 +231,243 @@ def intraday_curve_sync_view(request):
     return JsonResponse({'ok': True, 'weekdays_with_data': covered})
 
 
+@login_required
+def history_import_view(request, pk):
+    """
+    Seed a supermarket's sales history from a dump generated on its own PC.
+
+    GET shows the one-liner and what the upload would overwrite; POST applies the file.
+    """
+    supermarket = get_object_or_404(Supermarket, pk=pk, owner=request.user)
+
+    db = DatabaseManager(supermarket_name=supermarket.name)
+    try:
+        cur = db.cursor()
+        cur.execute("""
+            SELECT COUNT(*) AS products,
+                   COUNT(*) FILTER (
+                       WHERE sales_sets IS NOT NULL
+                         AND jsonb_array_length(sales_sets) > 1
+                   ) AS with_history
+            FROM product_stats
+        """)
+        state = dict(cur.fetchone())
+    finally:
+        db.close()
+
+    result = None
+    error = None
+
+    if request.method == 'POST':
+        upload = request.FILES.get('history_file')
+        if not upload:
+            error = "Nessun file selezionato."
+        else:
+            try:
+                payload = json.loads(upload.read().decode('utf-8'))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                payload = None
+                error = "Il file non e' un JSON valido."
+
+            if payload is not None:
+                generated = payload.get('generated_at')
+                today = date.today().isoformat()
+                if generated != today:
+                    # Every index is relative to the dump's own date, so a file from
+                    # another day would shift all 84 values silently.
+                    error = (f"Il file e' del {generated}, oggi e' {today}. "
+                             f"Rigenera il file sul PC del punto vendita.")
+                elif not isinstance(payload.get('products'), list):
+                    error = "Il file non contiene l'elenco prodotti."
+                else:
+                    entries = []
+                    for p in payload['products']:
+                        try:
+                            entries.append((
+                                int(p['cod']), int(p['var']),
+                                [float(x) for x in p['m']],
+                                [float(x) for x in p['d']],
+                            ))
+                        except (KeyError, TypeError, ValueError):
+                            continue
+
+                    if not entries:
+                        error = "Nessun prodotto valido nel file."
+                    else:
+                        db = DatabaseManager(supermarket_name=supermarket.name)
+                        try:
+                            result = db.apply_history_backfill(
+                                entries,
+                                include_current=supermarket.last_sales_sync_at is None,
+                                history_date=date.today(),
+                            )
+                        except Exception:
+                            logger.exception(f"[HISTORY] failed for '{supermarket.name}'")
+                            error = "Errore durante l'importazione. Controlla i log."
+                        finally:
+                            db.close()
+
+                        if result:
+                            logger.info(
+                                f"[HISTORY] supermarket='{supermarket.name}' "
+                                f"applied={result['applied']} by user={request.user}"
+                            )
+
+    script_url = request.build_absolute_uri(
+        f'/api/sync/setup/{supermarket.sync_api_token}/history-script/'
+    ) if supermarket.sync_api_token else None
+
+    oneliner = (
+        f'powershell -ExecutionPolicy Bypass -Command '
+        f'"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; '
+        f'irm \'{script_url}\' | iex"'
+    ) if script_url else None
+
+    return render(request, 'supermarkets/history_import.html', {
+        'supermarket': supermarket,
+        'oneliner': oneliner,
+        'state': state,
+        'result': result,
+        'error': error,
+    })
+
+
+def history_script_view(request, token):
+    """Serves the PowerShell dump script (plain text) for the history backfill."""
+    try:
+        Supermarket.objects.get(sync_api_token=token)
+    except Supermarket.DoesNotExist:
+        return HttpResponse('Not found', status=404)
+    return HttpResponse(_build_history_export_script(),
+                        content_type='text/plain; charset=utf-8')
+
+
+
+def _build_history_export_script() -> str:
+    """
+    PowerShell that dumps 24 monthly + 60 daily figures per product to a local JSON file.
+
+    No network and no token: it only reads the store's own databases and writes a file the
+    operator then uploads. That keeps the backfill independent of firewall whitelisting,
+    which is usually the slowest part of onboarding.
+
+    Monthly comes from VEMEART (the only source reaching 24 months, and the one table that
+    keeps pieces and kg in separate columns). Daily prefers the Everest till log so the
+    seeded days are computed by exactly the query the live sync uses; VENGART is the
+    fallback where Everest is absent.
+    """
+    return r"""# LamApp - export storico vendite
+# Auto-generated. Do not edit manually. ASCII only.
+
+$OutFile = "C:\LamApp\history_export.json"
+$Server  = "localhost"
+if (-not (Test-Path "C:\LamApp")) { New-Item -ItemType Directory -Path "C:\LamApp" | Out-Null }
+
+$hasEverest = (Invoke-Sqlcmd -ServerInstance $Server -Database "master" -Query `
+    "SET NOCOUNT ON; SELECT COUNT(*) AS n FROM sys.databases WHERE name='everest'").n -gt 0
+
+$MonthlyQuery = @"
+SET NOCOUNT ON;
+DECLARE @today date = CAST(GETDATE() AS DATE);
+DECLARE @cur date = DATEFROMPARTS(YEAR(@today), MONTH(@today), 1);
+WITH m AS (
+    SELECT v.codice_articolo AS cod, v.variante_articolo AS var,
+           DATEFROMPARTS(v.anno_di_esercizio, x.mese, 1) AS mstart, x.pz
+    FROM VEMEART v
+    CROSS APPLY (VALUES
+        (1,v.qta_vend__pezzi_gennaio),(2,v.qta_vend__pezzi_febbraio),(3,v.qta_vend__pezzi_marzo),
+        (4,v.qta_vend__pezzi_aprile),(5,v.qta_vend__pezzi_maggio),(6,v.qta_vend__pezzi_giugno),
+        (7,v.qta_vend__pezzi_luglio),(8,v.qta_vend__pezzi_agosto),(9,v.qta_vend__pezzi_settembre),
+        (10,v.qta_vend__pezzi_ottobre),(11,v.qta_vend__pezzi_novembre),(12,v.qta_vend__pezzi_dicembre)
+    ) AS x(mese, pz)
+    WHERE v.punto_vendita = 1
+      AND v.anno_di_esercizio >= YEAR(DATEADD(month,-23,@today))
+)
+SELECT cod, var, DATEDIFF(month, mstart, @cur) AS idx, SUM(pz) AS pz
+FROM m WHERE DATEDIFF(month, mstart, @cur) BETWEEN 0 AND 23
+GROUP BY cod, var, DATEDIFF(month, mstart, @cur)
+HAVING SUM(pz) <> 0;
+"@
+
+$DailyEverest = @"
+SET NOCOUNT ON;
+DECLARE @today date = CAST(GETDATE() AS DATE);
+SELECT DISTINCT TRY_CAST(LTRIM(RTRIM(cod_est)) AS BIGINT) AS ean_n, cod_art AS cod, var_art AS v
+INTO #map FROM CassaAna.dbo.CodEan
+WHERE segn = 1 AND TRY_CAST(LTRIM(RTRIM(cod_est)) AS BIGINT) IS NOT NULL;
+CREATE INDEX ix_map ON #map(ean_n);
+SELECT m.cod AS cod, m.v AS var,
+       DATEDIFF(day, CAST(li.DT_TIME_STAMP AS DATE), @today) AS idx,
+       SUM(CASE WHEN li.BL_RETURN=1 THEN -li.N0_QUANTITY ELSE li.N0_QUANTITY END) AS pz
+FROM everest.dbo.RDB_LOG_ITEM li
+JOIN #map m ON m.ean_n = TRY_CAST(LTRIM(RTRIM(li.SZ_ITEM_REF_NO)) AS BIGINT)
+WHERE CAST(li.DT_TIME_STAMP AS DATE) BETWEEN DATEADD(day,-59,@today) AND @today
+  AND li.BL_VOIDED = 0 AND li.BL_MGR_VOIDED = 0 AND li.N0_UOM_CODE <> 2
+GROUP BY m.cod, m.v, DATEDIFF(day, CAST(li.DT_TIME_STAMP AS DATE), @today)
+HAVING SUM(CASE WHEN li.BL_RETURN=1 THEN -li.N0_QUANTITY ELSE li.N0_QUANTITY END) <> 0;
+"@
+
+$DailyVengart = @"
+SET NOCOUNT ON;
+DECLARE @today date = CAST(GETDATE() AS DATE);
+SELECT cod__articolo AS cod, variante_articolo AS var,
+       DATEDIFF(day, CONVERT(date, data_vendita, 112), @today) AS idx,
+       SUM(qt__venduta_pezzi) AS pz
+FROM VENGART
+WHERE punto_vendita = 1
+  AND CONVERT(date, data_vendita, 112) BETWEEN DATEADD(day,-59,@today) AND @today
+GROUP BY cod__articolo, variante_articolo,
+         DATEDIFF(day, CONVERT(date, data_vendita, 112), @today)
+HAVING SUM(qt__venduta_pezzi) <> 0;
+"@
+
+Write-Host "Estrazione mensile in corso..."
+$mrows = Invoke-Sqlcmd -ServerInstance $Server -Database "Essepiu" -Query $MonthlyQuery -QueryTimeout 600
+Write-Host "  $($mrows.Count) righe mensili"
+
+Write-Host "Estrazione giornaliera in corso..."
+if ($hasEverest) {
+    $drows = Invoke-Sqlcmd -ServerInstance $Server -Database "Essepiu" -Query $DailyEverest -QueryTimeout 600
+    $dailySource = "everest"
+} else {
+    $drows = Invoke-Sqlcmd -ServerInstance $Server -Database "Essepiu" -Query $DailyVengart -QueryTimeout 600
+    $dailySource = "vengart"
+}
+Write-Host "  $($drows.Count) righe giornaliere (fonte: $dailySource)"
+
+$acc = @{}
+foreach ($r in $mrows) {
+    $k = "$($r.cod).$($r.var)"
+    if (-not $acc.ContainsKey($k)) { $acc[$k] = @{ cod=[int]$r.cod; var=[int]$r.var; m=@(0)*24; d=@(0)*60 } }
+    $acc[$k].m[[int]$r.idx] = [double]$r.pz
+}
+foreach ($r in $drows) {
+    $k = "$($r.cod).$($r.var)"
+    if (-not $acc.ContainsKey($k)) { $acc[$k] = @{ cod=[int]$r.cod; var=[int]$r.var; m=@(0)*24; d=@(0)*60 } }
+    $acc[$k].d[[int]$r.idx] = [double]$r.pz
+}
+
+# Built by hand: ConvertTo-Json is very slow at this size and renders typed arrays
+# as {value,Count} objects rather than plain JSON arrays.
+$sb = New-Object System.Text.StringBuilder
+[void]$sb.Append('{"generated_at":"' + (Get-Date -Format 'yyyy-MM-dd') + '"')
+[void]$sb.Append(',"daily_source":"' + $dailySource + '","products":[')
+$first = $true
+foreach ($p in $acc.Values) {
+    if (-not $first) { [void]$sb.Append(',') }
+    $first = $false
+    [void]$sb.Append('{"cod":' + $p.cod + ',"var":' + $p.var)
+    [void]$sb.Append(',"m":[' + ($p.m -join ',') + ']')
+    [void]$sb.Append(',"d":[' + ($p.d -join ',') + ']}')
+}
+[void]$sb.Append(']}')
+[IO.File]::WriteAllText($OutFile, $sb.ToString(), [Text.Encoding]::UTF8)
+
+Write-Host ""
+Write-Host "Fatto: $OutFile ($([math]::Round((Get-Item $OutFile).Length/1MB,1)) MB, $($acc.Count) prodotti)"
+Write-Host "Caricare il file sul sito, nella pagina Importa storico."
+"""
+
 # ---------------------------------------------------------------------------
 # Sync log — detail view + actions
 # ---------------------------------------------------------------------------
