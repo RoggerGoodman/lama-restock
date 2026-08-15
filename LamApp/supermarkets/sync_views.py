@@ -240,25 +240,56 @@ def history_import_view(request, pk):
     """
     supermarket = get_object_or_404(Supermarket, pk=pk, owner=request.user)
 
-    db = DatabaseManager(supermarket_name=supermarket.name)
+    # A supermarket whose schema was never created has no product_stats to count, and a
+    # malformed sales_sets would make jsonb_array_length raise. Neither should turn an
+    # onboarding page into a 500.
+    state = {'products': 0, 'with_history': 0, 'by_settore': [], 'schema_ready': False}
     try:
-        cur = db.cursor()
-        cur.execute("""
-            SELECT COUNT(*) AS products,
-                   COUNT(*) FILTER (
-                       WHERE sales_sets IS NOT NULL
-                         AND jsonb_array_length(sales_sets) > 1
-                   ) AS with_history
-            FROM product_stats
-        """)
-        state = dict(cur.fetchone())
-    finally:
-        db.close()
+        db = DatabaseManager(supermarket_name=supermarket.name)
+        try:
+            cur = db.cursor()
+            cur.execute("""
+                SELECT COUNT(*) AS products,
+                       COUNT(*) FILTER (
+                           WHERE jsonb_typeof(sales_sets) = 'array'
+                             AND jsonb_array_length(sales_sets) > 1
+                       ) AS with_history
+                FROM product_stats
+            """)
+            state.update(dict(cur.fetchone()))
+            cur.execute("SELECT settore, COUNT(*) AS n FROM products GROUP BY settore ORDER BY settore")
+            state['by_settore'] = [dict(r) for r in cur.fetchall()]
+            state['schema_ready'] = True
+        finally:
+            db.close()
+    except Exception:
+        logger.warning(f"[HISTORY] catalogue not ready for '{supermarket.name}'", exc_info=True)
+
+    storages = list(supermarket.storages.all().order_by('settore', 'name'))
+    counts = {r['settore']: r['n'] for r in state['by_settore']}
+    for s in storages:
+        s.product_count = counts.get(s.settore, 0)
 
     result = None
     error = None
+    queued_lists = None
 
-    if request.method == 'POST':
+    if request.method == 'POST' and request.POST.get('action') == 'download_lists':
+        from .tasks import manual_list_update_task
+        chosen = request.POST.getlist('storages')
+        wanted = [s for s in storages if str(s.id) in chosen]
+        for s in wanted:
+            manual_list_update_task.apply_async(args=[s.id])
+        queued_lists = [s.name for s in wanted]
+        if not queued_lists:
+            error = "Nessun settore selezionato."
+        else:
+            logger.info(
+                f"[HISTORY] queued list update for {queued_lists} "
+                f"({supermarket.name}) by user={request.user}"
+            )
+
+    elif request.method == 'POST':
         upload = request.FILES.get('history_file')
         if not upload:
             error = "Nessun file selezionato."
@@ -327,6 +358,8 @@ def history_import_view(request, pk):
         'supermarket': supermarket,
         'oneliner': oneliner,
         'state': state,
+        'storages': storages,
+        'queued_lists': queued_lists,
         'result': result,
         'error': error,
     })

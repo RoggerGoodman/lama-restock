@@ -39,18 +39,85 @@
     </div>
     {% endif %}
 
+    {% if queued_lists %}
+    <div class="alert alert-info">
+        <i class="bi bi-hourglass-split"></i>
+        Scaricamento listini avviato per: <strong>{{ queued_lists|join:", " }}</strong>.
+        Puo' richiedere qualche minuto. Ricarica la pagina per vedere i prodotti importati.
+    </div>
+    {% endif %}
+
+    {% if not state.schema_ready %}
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle"></i>
+        Il catalogo di questo supermercato non e' ancora stato inizializzato.
+        Scarica prima almeno un listino (passo 1).
+    </div>
+    {% endif %}
+
     <div class="stat-card mb-4">
-        <h5><i class="bi bi-info-circle text-primary"></i> Come funziona</h5>
-        <ol class="mb-0">
-            <li>Copia il comando qui sotto ed eseguilo nel PowerShell del PC del punto vendita.</li>
-            <li>Il comando crea il file <code>C:\LamApp\history_export.json</code> con gli ultimi
-                24 mesi e 60 giorni di vendite.</li>
-            <li>Carica quel file nel modulo in fondo alla pagina.</li>
-        </ol>
+        <h5 class="mb-3"><i class="bi bi-1-circle text-primary"></i> Scarica i listini prodotti</h5>
+        <p class="text-muted small">
+            Seleziona solo i settori che vuoi gestire con LamApp: il punto vendita ne ha
+            anche altri (carne, ortofrutta, pescheria...) che di norma restano fuori.
+            Lo storico si applica solo ai prodotti gia' in catalogo, quindi i listini
+            vanno scaricati prima.
+        </p>
+
+        {% if storages %}
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="download_lists">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:40px"></th>
+                            <th>Settore</th>
+                            <th>Magazzino</th>
+                            <th class="text-end">Prodotti in catalogo</th>
+                            <th>Ultimo aggiornamento</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in storages %}
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input" name="storages"
+                                       value="{{ s.id }}" id="st{{ s.id }}">
+                            </td>
+                            <td><label for="st{{ s.id }}" class="mb-0">{{ s.settore }}</label></td>
+                            <td class="text-muted small">{{ s.name }}</td>
+                            <td class="text-end">
+                                {% if s.product_count %}
+                                <span class="badge bg-success">{{ s.product_count }}</span>
+                                {% else %}
+                                <span class="badge bg-secondary">vuoto</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-muted small">{{ s.last_list_update|default:"mai" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-outline-primary btn-sm"
+                    onclick="return confirm('Avviare lo scaricamento dei listini selezionati? Puo richiedere alcuni minuti.');">
+                <i class="bi bi-download"></i> Scarica i listini selezionati
+            </button>
+            <span class="text-muted small ms-2">
+                L'operazione gira in background e puo' richiedere alcuni minuti per settore.
+            </span>
+        </form>
+        {% else %}
+        <div class="alert alert-warning mb-0">
+            Nessun magazzino configurato per questo supermercato.
+        </div>
+        {% endif %}
     </div>
 
     <div class="stat-card mb-4">
-        <h5><i class="bi bi-terminal"></i> Comando da eseguire sul PC del punto vendita</h5>
+        <h5><i class="bi bi-2-circle text-primary"></i> Genera il file sul PC del punto vendita</h5>
         {% if oneliner %}
         <div class="input-group">
             <input type="text" class="form-control font-monospace small" id="oneliner"
@@ -72,7 +139,7 @@
     </div>
 
     <div class="stat-card">
-        <h5><i class="bi bi-upload"></i> Carica il file</h5>
+        <h5><i class="bi bi-3-circle text-primary"></i> Carica il file</h5>
 
         <div class="alert alert-warning">
             <i class="bi bi-exclamation-triangle"></i>
@@ -90,6 +157,7 @@
 
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
+            <input type="hidden" name="action" value="upload_history">
             <div class="mb-3">
                 <input type="file" name="history_file" accept=".json,application/json"
                        class="form-control" required>
