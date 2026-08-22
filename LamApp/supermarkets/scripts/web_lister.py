@@ -313,7 +313,7 @@ class WebLister:
 
         # RepartoIn still hardcoded per settore (to be made dynamic later)
         if "GENERI VARI" in self.settore:
-            self.reparto_groups = [[28], [44], [76], [50], [52]]
+            self.reparto_groups = [[28], [70], [44], [50], [52], [76]]
         elif "DEPERIBILI" in self.settore:
             self.reparto_groups = [[30], [34], [44]]
         elif "SURGELATI" in self.settore:
