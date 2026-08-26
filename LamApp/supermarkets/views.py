@@ -333,10 +333,39 @@ def dashboard_view(request):
     ).count()
 
     # Get unread product link notifications for this user's supermarkets
-    product_link_notifications = ProductLinkNotification.objects.filter(
+    product_link_notifications = list(ProductLinkNotification.objects.filter(
         supermarket__owner=request.user,
         is_read=False,
-    ).select_related('supermarket', 'created_by').order_by('-created_at')[:20]
+    ).select_related('supermarket', 'created_by').order_by('-created_at')[:20])
+
+    # Resolve cod.v to product descriptions, one DB connection per supermarket.
+    from .scripts.DatabaseManager import DatabaseManager
+    notifs_by_sm = {}
+    for notif in product_link_notifications:
+        notifs_by_sm.setdefault(notif.supermarket, []).append(notif)
+    for supermarket, notifs in notifs_by_sm.items():
+        keys = set()
+        for n in notifs:
+            keys.add((n.primary_cod, n.primary_v))
+            keys.add((n.secondary_cod, n.secondary_v))
+        name_map = {}
+        try:
+            db = DatabaseManager(supermarket_name=supermarket.name)
+            try:
+                cur = db.cursor()
+                cur.execute(
+                    "SELECT cod, v, descrizione FROM products WHERE (cod, v) IN %s",
+                    (tuple(keys),)
+                )
+                for r in cur.fetchall():
+                    name_map[(r['cod'], r['v'])] = r['descrizione']
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Could not load product names for {supermarket.name}: {e}")
+        for n in notifs:
+            n.primary_name = name_map.get((n.primary_cod, n.primary_v))
+            n.secondary_name = name_map.get((n.secondary_cod, n.secondary_v))
 
     context = {
         'supermarkets': supermarkets,

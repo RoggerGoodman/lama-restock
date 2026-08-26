@@ -230,9 +230,15 @@
                             {% for notif in product_link_notifications %}
                             <tr>
                                 <td><strong>{{ notif.supermarket.name }}</strong></td>
-                                <td><code class="text-primary">{{ notif.primary_cod }}.{{ notif.primary_v }}</code></td>
+                                <td>
+                                    <div class="fw-semibold">{{ notif.primary_name|default:"—" }}</div>
+                                    <small class="text-muted"><code>{{ notif.primary_cod }}.{{ notif.primary_v }}</code></small>
+                                </td>
                                 <td class="text-muted"><i class="bi bi-arrow-right"></i></td>
-                                <td><code class="text-secondary">{{ notif.secondary_cod }}.{{ notif.secondary_v }}</code></td>
+                                <td>
+                                    <div class="fw-semibold">{{ notif.secondary_name|default:"—" }}</div>
+                                    <small class="text-muted"><code>{{ notif.secondary_cod }}.{{ notif.secondary_v }}</code></small>
+                                </td>
                                 <td><small class="text-muted">{% if notif.created_by %}{{ notif.created_by.username }}{% else %}—{% endif %}</small></td>
                                 <td><small class="text-muted">{{ notif.created_at|date:"d/m/Y" }}</small></td>
                                 <td>
