@@ -2672,10 +2672,11 @@ def losses_analytics_unified_view(request):
                     settore_filter = ""
                 
                 query = f"""
-                    SELECT 
+                    SELECT
                         el.cod, el.v,
                         el.broken, el.expired, el.internal, el.stolen, el.shrinkage,
                         p.descrizione,
+                        p.rapp,
                         e.cost_std,
                         e.category
                     FROM extra_losses el
@@ -2693,7 +2694,9 @@ def losses_analytics_unified_view(request):
                     cod = row['cod']
                     v = row['v']
                     description = row['descrizione'] or f"Product {cod}.{v}"
-                    fallback_cost = row['cost_std'] or 0.0
+                    # cost_std is per collo; losses count pieces, so divide by rapp.
+                    rapp = int(row['rapp'] or 1) or 1
+                    fallback_cost = (row['cost_std'] or 0.0) / rapp
                     category = row['category'] or 'Unknown'
 
                     # Collect categories
@@ -2749,7 +2752,7 @@ def losses_analytics_unified_view(request):
                                     if isinstance(item, list) and len(item) == 2:
                                         qty, cost = item
                                         period_losses += qty
-                                        period_value += qty * cost
+                                        period_value += qty * (cost / rapp)
                                     else:
                                         qty = item
                                         period_losses += qty
@@ -2765,7 +2768,7 @@ def losses_analytics_unified_view(request):
                                         if isinstance(item, list) and len(item) == 2:
                                             qty, cost = item
                                             stats[loss_type]['monthly_units'][idx] += qty
-                                            stats[loss_type]['monthly_value'][idx] += qty * cost
+                                            stats[loss_type]['monthly_value'][idx] += qty * (cost / rapp)
                                         else:
                                             qty = item
                                             stats[loss_type]['monthly_units'][idx] += qty
@@ -2868,6 +2871,15 @@ def stock_profit_view(request):
 
     NO_CLUSTER = 'Senza cluster'
 
+    LOSS_TYPES = ['broken', 'expired', 'internal', 'stolen', 'shrinkage']
+    LOSS_TYPE_LABELS = {
+        'broken': 'Rotto',
+        'expired': 'Scaduto',
+        'internal': 'Autoconsumo',
+        'stolen': 'Rubato',
+        'shrinkage': 'Differenza inv.',
+    }
+
     supermarkets = Supermarket.objects.filter(owner=request.user)
 
     # Auto-select the only supermarket when the user has just one
@@ -2878,6 +2890,13 @@ def stock_profit_view(request):
     storage_id = request.GET.get('storage_id')
     selected_clusters = [c for c in request.GET.getlist('clusters') if c]
     product_code_filter = request.GET.get('product_code', '').strip()
+
+    # lt_submitted marks a real submission, so "no boxes" means cleared, not first load.
+    if request.GET.get('lt_submitted'):
+        selected_loss_types = [t for t in request.GET.getlist('loss_types') if t in LOSS_TYPES]
+    else:
+        selected_loss_types = ['expired']
+    losses_active = bool(selected_loss_types)
 
     # Parse product code filter (format: cod.v)
     filter_cod = None
@@ -2977,10 +2996,32 @@ def stock_profit_view(request):
     monthly_lordo = [0.0] * 24
     monthly_netto = [0.0] * 24
     monthly_units = [0] * 24
+    monthly_loss = [0.0] * 24
+
+    def loss_value_in_window(arr, cost_per_piece, w_start, w_end):
+        """Sum loss units and per-piece cost over [w_start, w_end]."""
+        units = 0.0
+        value = 0.0
+        if not isinstance(arr, list):
+            return units, value
+        rapp = cost_per_piece['rapp']
+        for idx in range(w_start, min(w_end + 1, len(arr))):
+            item = arr[idx]
+            if isinstance(item, list) and len(item) == 2:
+                qty, c = item
+                if not isinstance(qty, (int, float)):
+                    continue
+                units += qty
+                value += qty * (float(c or 0.0) / rapp)
+            elif isinstance(item, (int, float)):
+                units += item
+                value += item * cost_per_piece['fallback']
+        return units, value
 
     for sm_id, sm_data in supermarkets_to_process.items():
         try:
             first_storage = sm_data['storages'][0]
+            sm_index = {}
             with RestockService(first_storage) as service:
                 cursor = service.db.cursor()
 
@@ -2989,7 +3030,7 @@ def stock_profit_view(request):
                     SELECT
                         p.cod, p.v, p.descrizione, p.settore, p.cluster, p.rapp,
                         e.price_std, e.cost_std, e.category, e.iva,
-                        ps.sold_last_24
+                        ps.sold_last_24, ps.price_last_24, ps.cost_last_24
                     FROM products p
                     JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                     LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
@@ -3014,47 +3055,60 @@ def stock_profit_view(request):
                     if not isinstance(sold_array, list):
                         continue
 
-                    # price_std is per selling piece, but cost_std is stored per
-                    # collo (pack). sold_last_24 counts pieces, so bring the cost
-                    # down to per-piece with rapp — same convention as the stock
-                    # valuation view (SUM(cost_std / rapp * stock)).
+                    # cost_std is per collo; sold counts pieces, so divide by rapp.
                     rapp = int(row['rapp'] or 1) or 1
-                    # price_std is IVA-included; strip it so lordo is true
-                    # fatturato (net of IVA) and margin matches the supplier's.
-                    price = net_price_of(row['price_std'], row['iva'])
-                    cost = float(row['cost_std'] or 0.0) / rapp
-                    unit_netto = price - cost
+                    iva = row['iva']
+                    cur_price = net_price_of(row['price_std'], iva)
+                    cur_cost = float(row['cost_std'] or 0.0) / rapp
 
-                    # Period totals
+                    # Value each month at its snapshot; missing slot falls back to current.
+                    price_hist = row['price_last_24'] if isinstance(row['price_last_24'], list) else []
+                    cost_hist = row['cost_last_24'] if isinstance(row['cost_last_24'], list) else []
+
+                    def m_price(idx):
+                        if idx < len(price_hist) and price_hist[idx] is not None:
+                            return net_price_of(price_hist[idx], iva)
+                        return cur_price
+
+                    def m_cost(idx):
+                        if idx < len(cost_hist) and cost_hist[idx] is not None:
+                            return float(cost_hist[idx]) / rapp
+                        return cur_cost
+
                     period_units = 0
+                    period_lordo = 0.0
+                    period_netto = 0.0
                     for idx in range(start_idx, min(end_idx + 1, len(sold_array))):
                         qty = sold_array[idx]
                         if not isinstance(qty, (int, float)):
                             continue
-                        period_units += int(qty)
+                        qty = int(qty)
+                        pi = m_price(idx)
+                        period_units += qty
+                        period_lordo += qty * pi
+                        period_netto += qty * (pi - m_cost(idx))
 
                     if period_units <= 0:
                         continue
 
-                    # A missing price/cost would fake a 0 € or 100 % margin and
-                    # skew every total above it — count it, don't average it in.
-                    if price <= 0 or cost <= 0:
+                    # Missing economics would fake a 0/100% margin; exclude, don't average in.
+                    if cur_price <= 0 or cur_cost <= 0:
                         missing_economics += 1
                         continue
 
-                    # 24-month aggregate for the charts (whole history, sliced later)
                     for idx, qty in enumerate(sold_array[:24]):
                         if not isinstance(qty, (int, float)):
                             continue
                         qty = int(qty)
+                        pi = m_price(idx)
                         monthly_units[idx] += qty
-                        monthly_lordo[idx] += qty * price
-                        monthly_netto[idx] += qty * unit_netto
+                        monthly_lordo[idx] += qty * pi
+                        monthly_netto[idx] += qty * (pi - m_cost(idx))
 
-                    lordo = period_units * price
-                    netto = period_units * unit_netto
+                    lordo = period_lordo
+                    netto = period_netto
 
-                    products_rows.append({
+                    sm_index[(cod, v)] = {
                         'cod': cod,
                         'var': v,
                         'description': row['descrizione'] or f"Articolo {cod}.{v}",
@@ -3062,18 +3116,101 @@ def stock_profit_view(request):
                         'settore_label': settore_labels.get(row['settore'], row['settore']),
                         'cluster': cluster,
                         'category': row['category'] or '',
-                        'price': price,
-                        'cost': cost,
+                        'price': cur_price,
+                        'cost': cur_cost,
+                        'rapp': rapp,
                         'units': period_units,
                         'lordo': lordo,
                         'netto': netto,
                         'margin_pct': (netto / lordo * 100) if lordo > 0 else 0.0,
-                    })
+                        'loss_units': 0.0,
+                        'loss_value': 0.0,
+                        'netto_reale': netto,
+                    }
+
+                if selected_loss_types:
+                    loss_cols = ', '.join(f'el.{t}' for t in selected_loss_types)
+                    cursor.execute(f"""
+                        SELECT
+                            el.cod, el.v, {loss_cols},
+                            p.descrizione, p.settore, p.cluster, p.rapp,
+                            e.price_std, e.cost_std, e.category, e.iva
+                        FROM extra_losses el
+                        JOIN products p ON el.cod = p.cod AND el.v = p.v
+                        LEFT JOIN economics e ON el.cod = e.cod AND e.v = el.v
+                        WHERE p.settore = ANY(%s)
+                    """, (settores,))
+
+                    for row in cursor.fetchall():
+                        cluster = (row['cluster'] or '').strip() or NO_CLUSTER
+                        all_clusters.add(cluster)
+
+                        if selected_clusters and cluster not in selected_clusters:
+                            continue
+
+                        cod, v = row['cod'], row['v']
+                        if filter_cod is not None and filter_v is not None:
+                            if cod != filter_cod or v != filter_v:
+                                continue
+
+                        rapp = int(row['rapp'] or 1) or 1
+                        cost_ctx = {'rapp': rapp,
+                                    'fallback': float(row['cost_std'] or 0.0) / rapp}
+
+                        loss_units = 0.0
+                        loss_value = 0.0
+                        for lt in selected_loss_types:
+                            u, val = loss_value_in_window(row[lt], cost_ctx, start_idx, end_idx)
+                            loss_units += u
+                            loss_value += val
+                            arr = row[lt]
+                            if isinstance(arr, list):
+                                for idx in range(min(24, len(arr))):
+                                    item = arr[idx]
+                                    if isinstance(item, list) and len(item) == 2:
+                                        q, c = item
+                                        if isinstance(q, (int, float)):
+                                            monthly_loss[idx] += q * (float(c or 0.0) / rapp)
+                                    elif isinstance(item, (int, float)):
+                                        monthly_loss[idx] += item * cost_ctx['fallback']
+
+                        existing = sm_index.get((cod, v))
+                        if existing is not None:
+                            existing['loss_units'] = loss_units
+                            existing['loss_value'] = loss_value
+                            existing['netto_reale'] = existing['netto'] - loss_value
+                        elif loss_units or loss_value:
+                            # Loss-only: no sales in the period, pure drag on the cluster.
+                            price = net_price_of(row['price_std'], row['iva'])
+                            cost = float(row['cost_std'] or 0.0) / rapp
+                            sm_index[(cod, v)] = {
+                                'cod': cod,
+                                'var': v,
+                                'description': row['descrizione'] or f"Articolo {cod}.{v}",
+                                'settore': row['settore'],
+                                'settore_label': settore_labels.get(row['settore'], row['settore']),
+                                'cluster': cluster,
+                                'category': row['category'] or '',
+                                'price': price,
+                                'cost': cost,
+                                'rapp': rapp,
+                                'units': 0,
+                                'lordo': 0.0,
+                                'netto': 0.0,
+                                'margin_pct': 0.0,
+                                'loss_units': loss_units,
+                                'loss_value': loss_value,
+                                'netto_reale': -loss_value,
+                            }
+
+            products_rows.extend(sm_index.values())
         except Exception:
             logger.exception(f"Error computing stock profit for supermarket {sm_id}")
             continue
 
-    # --- Build the settore -> cluster -> product hierarchy ---
+    # Rank and share by net-of-loss profit when losses are active, else gross margin.
+    metric = 'netto_reale' if losses_active else 'netto'
+
     settore_map = {}
     for p in products_rows:
         s = settore_map.setdefault(p['settore'], {
@@ -3083,10 +3220,14 @@ def stock_profit_view(request):
             'units': 0,
             'lordo': 0.0,
             'netto': 0.0,
+            'loss_value': 0.0,
+            'netto_reale': 0.0,
         })
         s['units'] += p['units']
         s['lordo'] += p['lordo']
         s['netto'] += p['netto']
+        s['loss_value'] += p['loss_value']
+        s['netto_reale'] += p['netto_reale']
 
         c = s['clusters'].setdefault(p['cluster'], {
             'cluster': p['cluster'],
@@ -3094,27 +3235,35 @@ def stock_profit_view(request):
             'units': 0,
             'lordo': 0.0,
             'netto': 0.0,
+            'loss_value': 0.0,
+            'netto_reale': 0.0,
         })
         c['products'].append(p)
         c['units'] += p['units']
         c['lordo'] += p['lordo']
         c['netto'] += p['netto']
+        c['loss_value'] += p['loss_value']
+        c['netto_reale'] += p['netto_reale']
 
     total_units = sum(s['units'] for s in settore_map.values())
     total_lordo = sum(s['lordo'] for s in settore_map.values())
     total_netto = sum(s['netto'] for s in settore_map.values())
+    total_loss_value = sum(s['loss_value'] for s in settore_map.values())
+    total_netto_reale = sum(s['netto_reale'] for s in settore_map.values())
+    total_metric = total_netto_reale if losses_active else total_netto
 
     tree = []
-    for s_idx, s in enumerate(sorted(settore_map.values(), key=lambda x: x['netto'], reverse=True)):
+    for s_idx, s in enumerate(sorted(settore_map.values(), key=lambda x: x[metric], reverse=True)):
         clusters = []
-        for c_idx, c in enumerate(sorted(s['clusters'].values(), key=lambda x: x['netto'], reverse=True)):
-            # Incidenza: share of the product's own cluster
+        for c_idx, c in enumerate(sorted(s['clusters'].values(), key=lambda x: x[metric], reverse=True)):
+            # Incidenza: share of the product's own cluster, on the active metric
             for p in c['products']:
-                p['incidenza_netto'] = (p['netto'] / c['netto'] * 100) if c['netto'] else 0.0
+                p['incidenza_netto'] = (p[metric] / c[metric] * 100) if c[metric] else 0.0
                 p['incidenza_lordo'] = (p['lordo'] / c['lordo'] * 100) if c['lordo'] else 0.0
-            c['products'].sort(key=lambda x: x['netto'], reverse=True)
+            c['products'].sort(key=lambda x: x[metric], reverse=True)
             c['margin_pct'] = (c['netto'] / c['lordo'] * 100) if c['lordo'] > 0 else 0.0
-            c['share_of_settore'] = (c['netto'] / s['netto'] * 100) if s['netto'] else 0.0
+            c['real_margin_pct'] = (c['netto_reale'] / c['lordo'] * 100) if c['lordo'] > 0 else 0.0
+            c['share_of_settore'] = (c[metric] / s[metric] * 100) if s[metric] else 0.0
             # Positional slugs: cluster/settore names are free text and would
             # break the JS attribute selectors used for expand/collapse.
             c['slug'] = f's{s_idx}c{c_idx}'
@@ -3123,7 +3272,8 @@ def stock_profit_view(request):
 
         s['clusters'] = clusters
         s['margin_pct'] = (s['netto'] / s['lordo'] * 100) if s['lordo'] > 0 else 0.0
-        s['share_of_total'] = (s['netto'] / total_netto * 100) if total_netto else 0.0
+        s['real_margin_pct'] = (s['netto_reale'] / s['lordo'] * 100) if s['lordo'] > 0 else 0.0
+        s['share_of_total'] = (s[metric] / total_metric * 100) if total_metric else 0.0
         s['slug'] = f's{s_idx}'
         s['product_count'] = sum(c['product_count'] for c in clusters)
         tree.append(s)
@@ -3131,13 +3281,17 @@ def stock_profit_view(request):
     # Cluster ranking cards (across the whole filtered scope)
     cluster_totals = {}
     for p in products_rows:
-        ct = cluster_totals.setdefault(p['cluster'], {'cluster': p['cluster'], 'lordo': 0.0, 'netto': 0.0, 'units': 0})
+        ct = cluster_totals.setdefault(p['cluster'], {'cluster': p['cluster'], 'lordo': 0.0,
+                                                      'netto': 0.0, 'netto_reale': 0.0,
+                                                      'loss_value': 0.0, 'units': 0})
         ct['lordo'] += p['lordo']
         ct['netto'] += p['netto']
+        ct['netto_reale'] += p['netto_reale']
+        ct['loss_value'] += p['loss_value']
         ct['units'] += p['units']
-    top_clusters = sorted(cluster_totals.values(), key=lambda x: x['netto'], reverse=True)[:6]
+    top_clusters = sorted(cluster_totals.values(), key=lambda x: x[metric], reverse=True)[:6]
     for ct in top_clusters:
-        ct['share'] = (ct['netto'] / total_netto * 100) if total_netto else 0.0
+        ct['share'] = (ct[metric] / total_metric * 100) if total_metric else 0.0
 
     # Chart data: chronological slice of the selected range (oldest -> newest)
     chart_month_labels = []
@@ -3148,6 +3302,8 @@ def stock_profit_view(request):
     chart_lordo = [round(monthly_lordo[i], 2) for i in range(end_idx, start_idx - 1, -1)]
     chart_netto = [round(monthly_netto[i], 2) for i in range(end_idx, start_idx - 1, -1)]
     chart_units = [monthly_units[i] for i in range(end_idx, start_idx - 1, -1)]
+    chart_netto_reale = [round(monthly_netto[i] - monthly_loss[i], 2)
+                         for i in range(end_idx, start_idx - 1, -1)]
 
     if period_mode == 'current':
         selected_period_label = f'Mese corrente ({month_abbr[current_month]} {current_year})'
@@ -3168,6 +3324,15 @@ def stock_profit_view(request):
         'total_lordo': total_lordo,
         'total_netto': total_netto,
         'total_margin_pct': (total_netto / total_lordo * 100) if total_lordo > 0 else 0.0,
+        'total_loss_value': total_loss_value,
+        'total_netto_reale': total_netto_reale,
+        'total_real_margin_pct': (total_netto_reale / total_lordo * 100) if total_lordo > 0 else 0.0,
+        'losses_active': losses_active,
+        'loss_type_options': [
+            {'key': t, 'label': LOSS_TYPE_LABELS[t], 'checked': t in selected_loss_types}
+            for t in LOSS_TYPES
+        ],
+        'selected_loss_types': selected_loss_types,
         'total_products': len(products_rows),
         'missing_economics': missing_economics,
         'all_clusters': sorted(all_clusters),
@@ -3181,9 +3346,10 @@ def stock_profit_view(request):
         'chart_labels': json.dumps(chart_month_labels),
         'chart_lordo': json.dumps(chart_lordo),
         'chart_netto': json.dumps(chart_netto),
+        'chart_netto_reale': json.dumps(chart_netto_reale),
         'chart_units': json.dumps(chart_units),
         'chart_cluster_labels': json.dumps([c['cluster'] for c in top_clusters]),
-        'chart_cluster_values': json.dumps([round(c['netto'], 2) for c in top_clusters]),
+        'chart_cluster_values': json.dumps([round(c[metric], 2) for c in top_clusters]),
     }
 
     return render(request, 'stock_profit.html', context)
@@ -5066,6 +5232,7 @@ def edit_losses_view(request):
                         el.shrinkage, el.shrinkage_updated,
                         p.descrizione,
                         p.settore,
+                        p.rapp,
                         e.cost_std as current_cost
                     FROM extra_losses el
                     LEFT JOIN products p ON el.cod = p.cod AND el.v = p.v
@@ -5080,19 +5247,22 @@ def edit_losses_view(request):
                     cod = row['cod']
                     v = row['v']
                     description = row['descrizione'] or f"Product {cod}.{v}"
-                    current_cost = row['current_cost'] or 0.0
-                    
+                    # cost_std is per collo; losses count pieces, so divide by rapp.
+                    rapp = int(row['rapp'] or 1) or 1
+                    current_cost = (row['current_cost'] or 0.0) / rapp
+
                     # Process arrays - convert to format with cost info
                     def process_loss_array(loss_json, fallback_cost):
                         """Convert array to list of {qty, cost, value} dicts"""
                         if not loss_json:
                             return []
-                        
+
                         result = []
                         for item in loss_json:
                             if isinstance(item, list) and len(item) == 2:
                                 # New format: [qty, cost]
                                 qty, cost = item
+                                cost = (cost or 0.0) / rapp
                                 result.append({
                                     'qty': qty,
                                     'cost': cost,
@@ -5107,7 +5277,7 @@ def edit_losses_view(request):
                                     'value': qty * fallback_cost
                                 })
                         return result
-                    
+
                     broken_data = process_loss_array(row['broken'], current_cost)
                     expired_data = process_loss_array(row['expired'], current_cost)
                     internal_data = process_loss_array(row['internal'], current_cost)

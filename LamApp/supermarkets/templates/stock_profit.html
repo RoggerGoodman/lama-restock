@@ -53,6 +53,44 @@
         font-size: 0.875rem;
         cursor: pointer;
     }
+    .cluster-checklist .form-check.d-none { display: none !important; }
+    .cluster-search {
+        font-size: 0.8rem;
+        padding: 2px 8px;
+        margin-bottom: 6px;
+    }
+    .cluster-selected-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-bottom: 6px;
+    }
+    .cluster-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.75rem;
+        line-height: 1;
+        padding: 3px 6px 3px 8px;
+        border-radius: 12px;
+        background: #e7f1ff;
+        color: #0d6efd;
+        border: 1px solid #b6d4fe;
+    }
+    .cluster-chip button {
+        border: 0;
+        background: transparent;
+        color: inherit;
+        padding: 0;
+        line-height: 1;
+        cursor: pointer;
+        font-size: 0.9rem;
+    }
+    .cluster-count-badge {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: #0d6efd;
+    }
 
     /* Hierarchy rows */
     #profitTable .row-settore > td {
@@ -189,7 +227,7 @@
                     <!-- Cluster Filter (multi-select) -->
                     <div class="col-md-4">
                         <label class="form-label d-flex justify-content-between align-items-center">
-                            <span>Filtro Cluster</span>
+                            <span>Filtro Cluster <span class="cluster-count-badge" id="clusterCount"></span></span>
                             <span>
                                 <a href="#" class="small text-decoration-none" onclick="setAllClusters(true); return false;">Tutti</a>
                                 <span class="text-muted small">|</span>
@@ -197,6 +235,9 @@
                             </span>
                         </label>
                         {% if all_clusters %}
+                        <div class="cluster-selected-chips" id="clusterSelectedChips"></div>
+                        <input type="text" class="form-control cluster-search" id="clusterSearch"
+                               placeholder="Cerca cluster..." autocomplete="off">
                         <div class="cluster-checklist" id="clusterChecklist">
                             {% for c in all_clusters %}
                             <div class="form-check">
@@ -241,6 +282,26 @@
                     </div>
 
                     <div class="col-12">
+                        <label class="form-label mb-1">
+                            <i class="bi bi-dash-circle text-danger"></i>
+                            Perdite considerate nel <strong>Netto reale</strong>
+                            <span class="text-muted small">(valorizzate a costo, per pezzo)</span>
+                        </label>
+                        <input type="hidden" name="lt_submitted" value="1">
+                        <div class="d-flex flex-wrap gap-3">
+                            {% for lt in loss_type_options %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="loss_types"
+                                       value="{{ lt.key }}" id="lt_{{ lt.key }}"
+                                       {% if lt.checked %}checked{% endif %}>
+                                <label class="form-check-label" for="lt_{{ lt.key }}">{{ lt.label }}</label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <small class="text-muted">Nessuna selezione = solo margine lordo, perdite ignorate.</small>
+                    </div>
+
+                    <div class="col-12">
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-check2"></i> Applica filtri
                         </button>
@@ -275,11 +336,17 @@
             <div class="alert alert-warning py-2 mb-0">
                 <i class="bi bi-info-circle"></i>
                 <small>
-                    I prezzi e i costi storici non sono archiviati: i mesi passati sono
-                    rivalutati ai prezzi di listino attuali. Le promozioni non sono
+                    Ogni mese è valorizzato al prezzo/costo di listino registrato in
+                    quel mese; i mesi antecedenti all'introduzione dello storico
+                    (o senza dato) usano il listino attuale. Le promozioni non sono
                     scorporate. I prezzi sono al netto dell'IVA.
                     <strong>Lordo</strong> = fatturato (venduto × prezzo netto IVA),
                     <strong>Netto</strong> = margine (venduto × (prezzo netto IVA − costo)).
+                    {% if losses_active %}
+                    <strong>Perdite</strong> = costo delle perdite selezionate,
+                    <strong>Netto reale</strong> = Netto − Perdite. Le classifiche
+                    e l'ordinamento usano il Netto reale.
+                    {% endif %}
                 </small>
             </div>
         </div>
@@ -287,7 +354,7 @@
 
     <!-- Summary Cards -->
     <div class="row mb-4">
-        <div class="col-md-3">
+        <div class="{% if losses_active %}col-md-2{% else %}col-md-3{% endif %} mb-3">
             <div class="stat-card">
                 <div class="icon icon-blue">
                     <i class="bi bi-cash-coin"></i>
@@ -298,7 +365,7 @@
             </div>
         </div>
 
-        <div class="col-md-3">
+        <div class="{% if losses_active %}col-md-2{% else %}col-md-3{% endif %} mb-3">
             <div class="stat-card">
                 <div class="icon icon-green">
                     <i class="bi bi-graph-up-arrow"></i>
@@ -309,7 +376,30 @@
             </div>
         </div>
 
-        <div class="col-md-3">
+        {% if losses_active %}
+        <div class="col-md-2 mb-3">
+            <div class="stat-card">
+                <div class="icon icon-red">
+                    <i class="bi bi-dash-circle"></i>
+                </div>
+                <h3 class="mb-1 text-danger">−€{{ total_loss_value|floatformat:2 }}</h3>
+                <p class="text-muted mb-1">Perdite (costo)</p>
+                <small class="text-muted">{{ selected_loss_types|length }} tip{{ selected_loss_types|length|pluralize:"o,i" }} selezionat{{ selected_loss_types|length|pluralize:"o,i" }}</small>
+            </div>
+        </div>
+
+        <div class="col-md-2 mb-3">
+            <div class="stat-card">
+                <div class="icon {% if total_netto_reale >= 0 %}icon-green{% else %}icon-red{% endif %}">
+                    <i class="bi bi-wallet2"></i>
+                </div>
+                <h3 class="mb-1 {% if total_netto_reale < 0 %}text-danger{% endif %}">€{{ total_netto_reale|floatformat:2 }}</h3>
+                <p class="text-muted mb-1">Netto reale</p>
+                <small class="text-muted">margine {{ total_real_margin_pct|floatformat:1 }}%</small>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-md-3 mb-3">
             <div class="stat-card">
                 <div class="icon icon-orange">
                     <i class="bi bi-percent"></i>
@@ -319,8 +409,9 @@
                 <small class="text-muted">Netto / Lordo</small>
             </div>
         </div>
+        {% endif %}
 
-        <div class="col-md-3">
+        <div class="{% if losses_active %}col-md-2{% else %}col-md-3{% endif %} mb-3">
             <div class="stat-card">
                 <div class="icon icon-blue">
                     <i class="bi bi-box-seam"></i>
@@ -342,7 +433,7 @@
         </div>
         <div class="col-lg-4">
             <div class="stat-card">
-                <h5 class="mb-4"><i class="bi bi-pie-chart"></i> Top cluster per margine netto</h5>
+                <h5 class="mb-4"><i class="bi bi-pie-chart"></i> Top cluster per {% if losses_active %}netto reale{% else %}margine netto{% endif %}</h5>
                 {% if top_clusters %}
                 <canvas id="clusterChart" height="220"></canvas>
                 {% else %}
@@ -382,15 +473,20 @@
                                 <th class="text-end sortable" data-key="units">Venduto</th>
                                 <th class="text-end sortable" data-key="lordo">Lordo</th>
                                 <th class="text-end sortable" data-key="netto">Netto</th>
+                                {% if losses_active %}
+                                <th class="text-end sortable" data-key="loss">Perdite</th>
+                                <th class="text-end sortable" data-key="nettoreale">Netto reale</th>
+                                {% endif %}
                                 <th class="text-end sortable" data-key="margin">Margine %</th>
-                                <th class="text-end sortable" data-key="netto">Incidenza prodotto</th>
+                                <th class="text-end sortable" data-key="{% if losses_active %}nettoreale{% else %}netto{% endif %}">Incidenza prodotto</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for s in tree %}
                             <tr class="row-settore" data-level="settore" data-node="{{ s.slug }}"
                                 data-units="{{ s.units }}" data-lordo="{{ s.lordo|floatformat:4 }}"
-                                data-netto="{{ s.netto|floatformat:4 }}" data-margin="{{ s.margin_pct|floatformat:4 }}">
+                                data-netto="{{ s.netto|floatformat:4 }}" data-margin="{{ s.margin_pct|floatformat:4 }}"
+                                data-loss="{{ s.loss_value|floatformat:4 }}" data-nettoreale="{{ s.netto_reale|floatformat:4 }}">
                                 <td>
                                     <span class="toggle-caret"><i class="bi bi-caret-down-fill"></i></span>
                                     <i class="bi bi-building"></i> {{ s.label }}
@@ -399,6 +495,10 @@
                                 <td class="text-end">{{ s.units }}</td>
                                 <td class="text-end">€{{ s.lordo|floatformat:2 }}</td>
                                 <td class="text-end text-success"><strong>€{{ s.netto|floatformat:2 }}</strong></td>
+                                {% if losses_active %}
+                                <td class="text-end {% if s.loss_value %}text-danger{% else %}text-muted{% endif %}">−€{{ s.loss_value|floatformat:2 }}</td>
+                                <td class="text-end"><strong class="{% if s.netto_reale < 0 %}text-danger{% else %}text-success{% endif %}">€{{ s.netto_reale|floatformat:2 }}</strong></td>
+                                {% endif %}
                                 <td class="text-end">{{ s.margin_pct|floatformat:1 }}%</td>
                                 <td class="text-end">
                                     <span class="text-muted">{{ s.share_of_total|floatformat:1 }}% del totale</span>
@@ -409,7 +509,8 @@
                             <tr class="row-cluster" data-level="cluster"
                                 data-node="{{ c.slug }}" data-parent="{{ s.slug }}"
                                 data-units="{{ c.units }}" data-lordo="{{ c.lordo|floatformat:4 }}"
-                                data-netto="{{ c.netto|floatformat:4 }}" data-margin="{{ c.margin_pct|floatformat:4 }}">
+                                data-netto="{{ c.netto|floatformat:4 }}" data-margin="{{ c.margin_pct|floatformat:4 }}"
+                                data-loss="{{ c.loss_value|floatformat:4 }}" data-nettoreale="{{ c.netto_reale|floatformat:4 }}">
                                 <td>
                                     <span class="toggle-caret"><i class="bi bi-caret-down-fill"></i></span>
                                     <i class="bi bi-folder"></i> {{ c.cluster }}
@@ -418,6 +519,10 @@
                                 <td class="text-end">{{ c.units }}</td>
                                 <td class="text-end">€{{ c.lordo|floatformat:2 }}</td>
                                 <td class="text-end text-success">€{{ c.netto|floatformat:2 }}</td>
+                                {% if losses_active %}
+                                <td class="text-end {% if c.loss_value %}text-danger{% else %}text-muted{% endif %}">−€{{ c.loss_value|floatformat:2 }}</td>
+                                <td class="text-end {% if c.netto_reale < 0 %}text-danger{% else %}text-success{% endif %}">€{{ c.netto_reale|floatformat:2 }}</td>
+                                {% endif %}
                                 <td class="text-end">{{ c.margin_pct|floatformat:1 }}%</td>
                                 <td class="text-end">
                                     <span class="text-muted">{{ c.share_of_settore|floatformat:1 }}% del settore</span>
@@ -427,17 +532,25 @@
                             {% for p in c.products %}
                             <tr class="row-product" data-level="product" data-parent="{{ c.slug }}"
                                 data-units="{{ p.units }}" data-lordo="{{ p.lordo|floatformat:4 }}"
-                                data-netto="{{ p.netto|floatformat:4 }}" data-margin="{{ p.margin_pct|floatformat:4 }}">
+                                data-netto="{{ p.netto|floatformat:4 }}" data-margin="{{ p.margin_pct|floatformat:4 }}"
+                                data-loss="{{ p.loss_value|floatformat:4 }}" data-nettoreale="{{ p.netto_reale|floatformat:4 }}">
                                 <td>
                                     <code>{{ p.cod }}.{{ p.var }}</code>
                                     {{ p.description|truncatewords:8 }}
                                     {% if p.category %}
                                     <small class="text-muted">({{ p.category }})</small>
                                     {% endif %}
+                                    {% if p.units == 0 and p.loss_value %}
+                                    <span class="badge bg-danger-subtle text-danger ms-1">solo perdite</span>
+                                    {% endif %}
                                 </td>
                                 <td class="text-end">{{ p.units }}</td>
                                 <td class="text-end">€{{ p.lordo|floatformat:2 }}</td>
                                 <td class="text-end text-success">€{{ p.netto|floatformat:2 }}</td>
+                                {% if losses_active %}
+                                <td class="text-end {% if p.loss_value %}text-danger{% else %}text-muted{% endif %}">−€{{ p.loss_value|floatformat:2 }}</td>
+                                <td class="text-end {% if p.netto_reale < 0 %}text-danger{% else %}text-success{% endif %}">€{{ p.netto_reale|floatformat:2 }}</td>
+                                {% endif %}
                                 <td class="text-end">{{ p.margin_pct|floatformat:1 }}%</td>
                                 <td class="text-end">
                                     <strong>{{ p.incidenza_netto|floatformat:1 }}%</strong>
@@ -455,6 +568,10 @@
                                 <td class="text-end"><strong>{{ total_units }}</strong></td>
                                 <td class="text-end"><strong>€{{ total_lordo|floatformat:2 }}</strong></td>
                                 <td class="text-end"><strong class="text-success">€{{ total_netto|floatformat:2 }}</strong></td>
+                                {% if losses_active %}
+                                <td class="text-end"><strong class="text-danger">−€{{ total_loss_value|floatformat:2 }}</strong></td>
+                                <td class="text-end"><strong class="{% if total_netto_reale < 0 %}text-danger{% else %}text-success{% endif %}">€{{ total_netto_reale|floatformat:2 }}</strong></td>
+                                {% endif %}
                                 <td class="text-end"><strong>{{ total_margin_pct|floatformat:1 }}%</strong></td>
                                 <td></td>
                             </tr>
@@ -495,7 +612,52 @@ function setAllClusters(checked) {
     document.querySelectorAll('#clusterChecklist input[name="clusters"]').forEach(cb => {
         cb.checked = checked;
     });
+    renderSelectedClusters();
 }
+
+function renderSelectedClusters() {
+    const boxes = Array.from(document.querySelectorAll('#clusterChecklist input[name="clusters"]'));
+    const checked = boxes.filter(cb => cb.checked);
+    const chips = document.getElementById('clusterSelectedChips');
+    const count = document.getElementById('clusterCount');
+    if (!chips) return;
+
+    count.textContent = checked.length ? `(${checked.length})` : '';
+    chips.innerHTML = '';
+    checked.forEach(cb => {
+        const chip = document.createElement('span');
+        chip.className = 'cluster-chip';
+        const label = document.createElement('span');
+        label.textContent = cb.value;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('aria-label', 'Rimuovi ' + cb.value);
+        btn.textContent = '×';
+        btn.onclick = () => { cb.checked = false; renderSelectedClusters(); };
+        chip.appendChild(label);
+        chip.appendChild(btn);
+        chips.appendChild(chip);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const checklist = document.getElementById('clusterChecklist');
+    if (checklist) {
+        checklist.addEventListener('change', renderSelectedClusters);
+        renderSelectedClusters();
+    }
+    const search = document.getElementById('clusterSearch');
+    if (search) {
+        search.addEventListener('input', function() {
+            const q = this.value.trim().toLowerCase();
+            document.querySelectorAll('#clusterChecklist .form-check').forEach(row => {
+                const label = row.querySelector('label');
+                const match = !q || (label && label.textContent.toLowerCase().includes(q));
+                row.classList.toggle('d-none', !match);
+            });
+        });
+    }
+});
 
 // Cluster names are scope-dependent: dropping the selection avoids carrying
 // over clusters that do not exist in the newly selected scope.
@@ -624,7 +786,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // ---- Sorting (keeps the Settore -> Cluster -> Articolo grouping) ----
     const tbody = table.querySelector('tbody');
     const headers = table.querySelectorAll('thead th.sortable');
-    let sortState = { key: 'netto', dir: 'desc' };  // matches server default
+    const defaultSortKey = '{% if losses_active %}nettoreale{% else %}netto{% endif %}';
+    let sortState = { key: defaultSortKey, dir: 'desc' };  // matches server default
 
     function sortBy(key, dir) {
         const mult = dir === 'asc' ? 1 : -1;
@@ -677,8 +840,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Reflect the server's default sort (Netto desc) on the header indicator
-    table.querySelector('thead th.sortable[data-key="netto"]')
+    // Reflect the server's default sort on the header indicator
+    table.querySelector(`thead th.sortable[data-key="${defaultSortKey}"]`)
         ?.classList.add('sort-desc');
 })();
 
@@ -686,23 +849,40 @@ document.addEventListener('DOMContentLoaded', function() {
 const monthLabels = {{ chart_labels|safe }};
 const lordoData = {{ chart_lordo|safe }};
 const nettoData = {{ chart_netto|safe }};
+const nettoRealeData = {{ chart_netto_reale|safe }};
+const lossesActive = {% if losses_active %}true{% else %}false{% endif %};
+
+const profitDatasets = [
+    {
+        label: 'Lordo (fatturato)',
+        data: lordoData,
+        backgroundColor: 'rgba(25, 118, 210, 0.6)'
+    },
+    {
+        label: 'Netto (margine)',
+        data: nettoData,
+        backgroundColor: 'rgba(56, 142, 60, 0.7)'
+    }
+];
+if (lossesActive) {
+    profitDatasets.push({
+        type: 'line',
+        label: 'Netto reale',
+        data: nettoRealeData,
+        borderColor: 'rgba(211, 47, 47, 0.9)',
+        backgroundColor: 'rgba(211, 47, 47, 0.9)',
+        borderWidth: 2,
+        pointRadius: 3,
+        fill: false,
+        tension: 0.2
+    });
+}
 
 new Chart(document.getElementById('profitChart').getContext('2d'), {
     type: 'bar',
     data: {
         labels: monthLabels,
-        datasets: [
-            {
-                label: 'Lordo (fatturato)',
-                data: lordoData,
-                backgroundColor: 'rgba(25, 118, 210, 0.6)'
-            },
-            {
-                label: 'Netto (margine)',
-                data: nettoData,
-                backgroundColor: 'rgba(56, 142, 60, 0.7)'
-            }
-        ]
+        datasets: profitDatasets
     },
     options: {
         responsive: true,
@@ -761,7 +941,10 @@ function exportToCSV() {
     const table = document.getElementById('profitTable');
     if (!table) return;
 
-    const csv = ['Livello,Settore/Cluster/Articolo,Venduto,Lordo,Netto,Margine %,Incidenza %'];
+    const header = lossesActive
+        ? 'Livello,Settore/Cluster/Articolo,Venduto,Lordo,Netto,Perdite,Netto reale,Margine %,Incidenza %'
+        : 'Livello,Settore/Cluster/Articolo,Venduto,Lordo,Netto,Margine %,Incidenza %';
+    const csv = [header];
 
     let currentSettore = '';
     let currentCluster = '';
@@ -778,7 +961,7 @@ function exportToCSV() {
             ? `${currentSettore} > ${currentCluster} > ${cells[0]}`
             : cells[0];
 
-        const row = [level, label, cells[1], cells[2], cells[3], cells[4], cells[5]]
+        const row = [level, label, ...cells.slice(1)]
             .map(v => (v || '').includes(',') ? `"${v}"` : v);
         csv.push(row.join(','));
     });

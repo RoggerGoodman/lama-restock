@@ -10,6 +10,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _stamp_snapshot(existing, current_value):
+    """Set slot [0] of a real[] snapshot array to current_value, keeping older slots."""
+    arr = list(existing) if existing else []
+    if not arr:
+        arr = [None]
+    arr[0] = float(current_value) if current_value is not None else None
+    return arr
+
+
 class DatabaseManager:
 
     # Ceiling on how far back a single losses batch is spread. A client who stops
@@ -83,6 +92,8 @@ class DatabaseManager:
                 last_update_sold DATE,
                 last_update_bought DATE,
                 promo_lifts JSONB,
+                price_last_24 real[],
+                cost_last_24 real[],
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
                 PRIMARY KEY (cod, v)
             )
@@ -466,10 +477,13 @@ class DatabaseManager:
         rows = []
         if wanted:
             cur.execute("""
-                SELECT ps.cod, ps.v, ps.sold_last_24, ps.sales_sets, ps.stock, ps.verified
+                SELECT ps.cod, ps.v, ps.sold_last_24, ps.sales_sets, ps.stock, ps.verified,
+                       ps.price_last_24, ps.cost_last_24,
+                       e.price_std, e.cost_std
                 FROM product_stats ps
                 JOIN unnest(%s::int[], %s::int[]) AS t(cod, v)
                   ON ps.cod = t.cod AND ps.v = t.v
+                LEFT JOIN economics e ON e.cod = ps.cod AND e.v = ps.v
             """, ([k[0] for k in wanted], [k[1] for k in wanted]))
             rows = cur.fetchall()
 
@@ -505,19 +519,27 @@ class DatabaseManager:
             ss[0] = sold_today
             stock = (row["stock"] or 0) - delta
 
-            stat_updates.append((cod, var, Json(sold_array), Json(ss), stock))
+            price_arr = _stamp_snapshot(row["price_last_24"], row["price_std"])
+            cost_arr = _stamp_snapshot(row["cost_last_24"], row["cost_std"])
+
+            stat_updates.append((cod, var, Json(sold_array), Json(ss), stock,
+                                 price_arr, cost_arr))
             applied += 1
             total_delta += delta
 
         if stat_updates:
             execute_values(cur, """
                 UPDATE product_stats AS ps
-                SET sold_last_24 = d.sold::jsonb,
-                    sales_sets   = d.sets::jsonb,
-                    stock        = d.stock::int
-                FROM (VALUES %s) AS d(cod, var, sold, sets, stock)
-                WHERE ps.cod = d.cod::int AND ps.v = d.var::int
-            """, stat_updates, page_size=1000)
+                SET sold_last_24  = d.sold,
+                    sales_sets    = d.sets,
+                    stock         = d.stock,
+                    price_last_24 = d.price,
+                    cost_last_24  = d.cost
+                FROM (VALUES %s) AS d(cod, var, sold, sets, stock, price, cost)
+                WHERE ps.cod = d.cod AND ps.v = d.var
+            """, stat_updates,
+                template="(%s::int, %s::int, %s::jsonb, %s::jsonb, %s::int, %s::real[], %s::real[])",
+                page_size=1000)
 
         if shelf_updates:
             execute_values(cur, """
@@ -771,9 +793,19 @@ class DatabaseManager:
         cur.execute("""
             UPDATE product_stats
             SET sold_last_24 = jsonb_build_array(0) || COALESCE(
-                jsonb_path_query_array(sold_last_24, '$[0 to 22]'),
-                '[]'::jsonb
-            )
+                    jsonb_path_query_array(sold_last_24, '$[0 to 22]'),
+                    '[]'::jsonb
+                ),
+                price_last_24 = (
+                    ARRAY[(SELECT e.price_std FROM economics e
+                           WHERE e.cod = product_stats.cod AND e.v = product_stats.v)::real]
+                    || COALESCE(price_last_24, ARRAY[]::real[])
+                )[1:24],
+                cost_last_24 = (
+                    ARRAY[(SELECT e.cost_std FROM economics e
+                           WHERE e.cod = product_stats.cod AND e.v = product_stats.v)::real]
+                    || COALESCE(cost_last_24, ARRAY[]::real[])
+                )[1:24]
             WHERE sold_last_24 IS NOT NULL
               AND jsonb_typeof(sold_last_24) = 'array'
         """)
