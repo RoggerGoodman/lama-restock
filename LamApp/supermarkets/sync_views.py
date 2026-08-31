@@ -295,7 +295,8 @@ def history_import_view(request, pk):
             error = "Nessun file selezionato."
         else:
             try:
-                payload = json.loads(upload.read().decode('utf-8'))
+                # utf-8-sig tolerates the BOM that .NET's UTF8 encoding writes.
+                payload = json.loads(upload.read().decode('utf-8-sig'))
             except (json.JSONDecodeError, UnicodeDecodeError):
                 payload = None
                 error = "Il file non e' un JSON valido."
@@ -494,7 +495,7 @@ foreach ($p in $acc.Values) {
     [void]$sb.Append(',"d":[' + ($p.d -join ',') + ']}')
 }
 [void]$sb.Append(']}')
-[IO.File]::WriteAllText($OutFile, $sb.ToString(), [Text.Encoding]::UTF8)
+[IO.File]::WriteAllText($OutFile, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host ""
 Write-Host "Fatto: $OutFile ($([math]::Round((Get-Item $OutFile).Length/1MB,1)) MB, $($acc.Count) prodotti)"
