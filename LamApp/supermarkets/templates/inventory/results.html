@@ -156,6 +156,72 @@
             display: none;
         }
     }
+
+    /* Phone layout: collapse the results table into stacked cards.
+       Reflows by viewport width, not device sniffing, so tablets and
+       resized windows behave sensibly too. */
+    @media screen and (max-width: 768px) {
+        #inventoryTable thead {
+            display: none;
+        }
+        #inventoryTable,
+        #inventoryTable tbody,
+        #inventoryTable tr,
+        #inventoryTable td {
+            display: block;
+            width: 100%;
+        }
+        #inventoryTable tr {
+            border: 1px solid #dee2e6;
+            border-left-width: 4px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        /* At-a-glance availability without a dedicated row */
+        #inventoryTable tr[data-status="Si"] { border-left-color: #198754; }
+        #inventoryTable tr[data-status="No"] { border-left-color: #dc3545; }
+
+        #inventoryTable td {
+            border: none;
+            padding: 4px 0;
+        }
+        /* Non-essential columns are hidden on phones */
+        #inventoryTable td.mobile-hide {
+            display: none;
+        }
+        /* Labelled key/value rows (Codice, Giacenza) */
+        #inventoryTable td[data-label]::before {
+            content: attr(data-label);
+            display: inline-block;
+            min-width: 90px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #6c757d;
+        }
+        /* Description leads the card */
+        #inventoryTable td.cell-desc {
+            font-size: 1.05rem;
+            font-weight: 600;
+            padding-bottom: 6px;
+            margin-bottom: 6px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        /* Actions span the card, comfortable tap targets */
+        #inventoryTable td.cell-actions {
+            padding-top: 8px;
+        }
+        #inventoryTable td.cell-actions .btn-group {
+            display: flex;
+            width: 100%;
+        }
+        #inventoryTable td.cell-actions .btn {
+            flex: 1;
+            padding: 8px;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -256,12 +322,12 @@
                                 <td class="print-only">
                                     <div class="print-checkbox"></div>
                                 </td>
-                                <td><code>{{ product.cod }}.{{ product.v }}</code></td>
-                                <td>
+                                <td data-label="Codice"><code>{{ product.cod }}.{{ product.v }}</code></td>
+                                <td class="cell-desc">
                                     {{ product.descrizione|truncatewords:8 }}
                                     <br><small class="text-muted">{{ product.supermarket_name }}</small>
                                 </td>
-                                <td class="no-print">
+                                <td class="no-print" data-label="Giacenza">
                                     <strong>{{ product.stock }}</strong>
                                 </td>
                                 <!-- ✅ PRINT: Stock with space for notes -->
@@ -269,22 +335,22 @@
                                     <strong>{{ product.stock }}</strong>
                                     <span style="margin-left: 20px; border-bottom: 1px solid #000; display: inline-block; width: 60px;"></span>
                                 </td>
-                                <td>{{ product.pz_x_collo }}</td>
-                                <td>
+                                <td class="mobile-hide">{{ product.pz_x_collo }}</td>
+                                <td class="mobile-hide">
                                     {% if product.cluster %}
                                         <span class="badge bg-secondary">{{ product.cluster }}</span>
                                     {% else %}
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                <td class="no-print">
+                                <td class="no-print mobile-hide">
                                     {% if product.last_update_sold %}
                                         {{ product.last_update_sold|date:"M d, Y" }}
                                     {% else %}
                                         <span class="text-muted">Mai</span>
                                     {% endif %}
                                 </td>
-                                <td class="no-print">
+                                <td class="no-print mobile-hide">
                                     {% if product.disponibilita == 'Si' %}
                                         <span class="badge bg-success">
                                             <i class="bi bi-circle-fill"></i> Disponibile
@@ -295,7 +361,7 @@
                                         </span>
                                     {% endif %}
                                 </td>
-                                <td class="no-print">
+                                <td class="no-print cell-actions">
                                     <div class="btn-group btn-group-sm">
                                         <button class="btn btn-outline-primary"
                                             onclick="adjustStock(
