@@ -126,8 +126,8 @@ def ensure_demo_account(password=None, per_cluster=10, log=None):
 
     n, normals, sub_pair = _seed_products(supermarket, rng, today, per_cluster)
     settore_pools = {}
-    for cod, settore, cluster in normals:
-        settore_pools.setdefault(settore, []).append(cod)
+    for cod, var, settore, cluster in normals:
+        settore_pools.setdefault(settore, []).append((cod, var))
     _seed_operation_logs(supermarket, rng, settore_pools)
     _seed_substitutions(supermarket, user, sub_pair)
     log(f"Seeded {n} products into schema for '{supermarket.name}'.")
@@ -157,8 +157,9 @@ def _ensure_schedule(storage):
 
 def _seed_products(supermarket, rng, today, per_cluster):
     """Seed the schema and return (count, normals, sub_pair). normals is a list of
-    (cod, settore, cluster) for the normal products (used to build plausible
-    orders); sub_pair is (old_cod, new_cod) for the one fixed substitution example."""
+    (cod, var, settore, cluster) for the normal products (used to build plausible
+    orders); sub_pair is ((old_cod, old_var), (new_cod, new_var)) for the one fixed
+    substitution example."""
     db = DatabaseManager(supermarket_name=supermarket.name)
     try:
         cur = db.cursor()
@@ -175,10 +176,10 @@ def _seed_products(supermarket, rng, today, per_cluster):
             clusters = list(spec["clusters"].items())
             for cluster, names in clusters:
                 for i in range(per_cluster):
-                    cod = _emit_product(cur, state, settore, cluster,
-                                        f"{names[i % len(names)]} {cluster[:3]}{i:02d}",
-                                        rng, today, months, "normal")
-                    normals.append((cod, settore, cluster))
+                    cod, var = _emit_product(cur, state, settore, cluster,
+                                             f"{names[i % len(names)]} {cluster[:3]}{i:02d}",
+                                             rng, today, months, "normal")
+                    normals.append((cod, var, settore, cluster))
 
             # Special products that drive the dashboard badges / verification card.
             for kind, (lo, hi) in SPECIAL_MIX.items():
@@ -190,26 +191,29 @@ def _seed_products(supermarket, rng, today, per_cluster):
                                   rng, today, months, kind)
 
         # One fixed, clearly-named substitution example (old -> new).
-        old_cod = _emit_product(cur, state, "GENERI VARI", "CONSERVE",
-                                "Sugo al Basilico 190g (vecchia referenza)",
-                                rng, today, months, "normal")
-        new_cod = _emit_product(cur, state, "GENERI VARI", "CONSERVE",
-                                "Sugo al Basilico 190g (nuova referenza)",
-                                rng, today, months, "normal")
-        normals.append((old_cod, "GENERI VARI", "CONSERVE"))
-        normals.append((new_cod, "GENERI VARI", "CONSERVE"))
+        old_cod, old_var = _emit_product(cur, state, "GENERI VARI", "CONSERVE",
+                                         "Sugo al Basilico 190g (vecchia referenza)",
+                                         rng, today, months, "normal")
+        new_cod, new_var = _emit_product(cur, state, "GENERI VARI", "CONSERVE",
+                                         "Sugo al Basilico 190g (nuova referenza)",
+                                         rng, today, months, "normal")
+        normals.append((old_cod, old_var, "GENERI VARI", "CONSERVE"))
+        normals.append((new_cod, new_var, "GENERI VARI", "CONSERVE"))
 
         db.conn.commit()
-        return state["cod"] - 100000, normals, (old_cod, new_cod)
+        return state["cod"] - 100000, normals, ((old_cod, old_var), (new_cod, new_var))
     finally:
         db.close()
 
 
 def _emit_product(cur, state, settore, cluster, name, rng, today, months, kind):
     """Insert one product + economics + product_stats (+ losses) shaped for `kind`.
-    Returns its cod. See SPECIAL_MIX / dashboard queries for what each kind lights up."""
+    Returns (cod, var). See SPECIAL_MIX / dashboard queries for what each kind lights up."""
     state["cod"] += 1
     cod = state["cod"]
+    # Real catalogue variants are 1-based (never 0); the inventory search form treats
+    # variant 0 as "missing" and rejects the search, so keep the demo 1-based too.
+    var = rng.choice([1, 1, 1, 2, 3])
     rapp = rng.choice([6, 8, 12])
     shelf_life = rng.randint(*_shelf_range(settore))
     ean = 8000000000000 + cod
@@ -221,7 +225,7 @@ def _emit_product(cur, state, settore, cluster, name, rng, today, months, kind):
            (cod, v, descrizione, rapp, pz_x_collo, settore,
             disponibilita, cluster, ean, shelf_life_days, first_added_at)
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (cod, 0, name, rapp, rapp, settore, dispo, cluster, ean, shelf_life, added),
+        (cod, var, name, rapp, rapp, settore, dispo, cluster, ean, shelf_life, added),
     )
 
     iva = 22 if settore == "GENERI VARI" else 10
@@ -231,7 +235,7 @@ def _emit_product(cur, state, settore, cluster, name, rng, today, months, kind):
     cur.execute(
         """INSERT INTO economics (cod, v, price_std, cost_std, category, iva)
            VALUES (%s,%s,%s,%s,%s,%s)""",
-        (cod, 0, price_std, cost_std, settore, iva),
+        (cod, var, price_std, cost_std, settore, iva),
     )
 
     rate = round(rng.uniform(0.3, 14.0), 2)
@@ -269,12 +273,12 @@ def _emit_product(cur, state, settore, cluster, name, rng, today, months, kind):
             stock, verified, minimum_stock, last_update_sold, last_update_bought,
             price_last_24, cost_last_24)
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s)""",
-        (cod, 0, Json(sold_last_24), Json(bought_last_24), Json(sales_sets),
+        (cod, var, Json(sold_last_24), Json(bought_last_24), Json(sales_sets),
          Json(bought_sets), stock, verified, today, upd_bought, price_hist, cost_hist),
     )
     if kind in ("normal", "exhausted"):
-        _insert_losses(cur, cod, rng, cost_std, today)
-    return cod
+        _insert_losses(cur, cod, var, rng, cost_std, today)
+    return cod, var
 
 
 def _shelf_range(settore):
@@ -332,7 +336,7 @@ _LOSS_KINDS = [
 ]
 
 
-def _insert_losses(cur, cod, rng, cost_std, today):
+def _insert_losses(cur, cod, var, rng, cost_std, today):
     """~60% of products carry some loss history, so the losses analytics has
     plausible content. Stored as [[qty, cost], ...] monthly, index 0 = this month."""
     if rng.random() > 0.6:
@@ -347,7 +351,7 @@ def _insert_losses(cur, cod, rng, cost_std, today):
     placeholders = ",".join(["%s"] * (2 + len(vals)))
     cur.execute(
         f"INSERT INTO extra_losses (cod, v, {', '.join(cols)}) VALUES ({placeholders})",
-        [cod, 0, *vals],
+        [cod, var, *vals],
     )
 
 
@@ -371,9 +375,9 @@ def _build_orders(pool, rng):
         return []
     k = min(len(pool), rng.randint(14, 30))
     orders = []
-    for cod in rng.sample(pool, k):
+    for cod, var in rng.sample(pool, k):
         orders.append({
-            "cod": cod, "var": 0,
+            "cod": cod, "var": var,
             "qty": rng.randint(1, 6),  # colli
             "discount": rng.choice([None, None, None, None, 10, 20, 30]),
         })
@@ -385,10 +389,10 @@ def _seed_substitutions(supermarket, user, sub_pair):
     so old_cod goes in primary and new_cod in secondary to read 'vecchia -> nuova'."""
     ProductLink.objects.filter(supermarket=supermarket).delete()
     ProductLinkNotification.objects.filter(supermarket=supermarket).delete()
-    old_cod, new_cod = sub_pair
+    (old_cod, old_var), (new_cod, new_var) = sub_pair
     fields = dict(
-        supermarket=supermarket, primary_cod=old_cod, primary_v=0,
-        secondary_cod=new_cod, secondary_v=0, created_by=user,
+        supermarket=supermarket, primary_cod=old_cod, primary_v=old_var,
+        secondary_cod=new_cod, secondary_v=new_var, created_by=user,
     )
     ProductLink.objects.create(notes="Referenza sostituita (demo).", **fields)
     ProductLinkNotification.objects.create(is_read=False, **fields)
