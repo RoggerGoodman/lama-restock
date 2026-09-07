@@ -124,9 +124,12 @@ def ensure_demo_account(password=None, per_cluster=10, log=None):
         storage.save()  # post_save signal creates the schema/tables on first save
         _ensure_schedule(storage)
 
-    n, candidates = _seed_products(supermarket, rng, today, per_cluster)
-    _seed_operation_logs(supermarket, rng)
-    _seed_substitutions(supermarket, user, candidates, rng)
+    n, normals, sub_pair = _seed_products(supermarket, rng, today, per_cluster)
+    settore_pools = {}
+    for cod, settore, cluster in normals:
+        settore_pools.setdefault(settore, []).append(cod)
+    _seed_operation_logs(supermarket, rng, settore_pools)
+    _seed_substitutions(supermarket, user, sub_pair)
     log(f"Seeded {n} products into schema for '{supermarket.name}'.")
     return supermarket
 
@@ -153,8 +156,9 @@ def _ensure_schedule(storage):
 
 
 def _seed_products(supermarket, rng, today, per_cluster):
-    """Seed the schema and return (count, candidates) where candidates maps
-    cluster -> [cods] of normal products, used to build plausible substitutions."""
+    """Seed the schema and return (count, normals, sub_pair). normals is a list of
+    (cod, settore, cluster) for the normal products (used to build plausible
+    orders); sub_pair is (old_cod, new_cod) for the one fixed substitution example."""
     db = DatabaseManager(supermarket_name=supermarket.name)
     try:
         cur = db.cursor()
@@ -164,7 +168,7 @@ def _seed_products(supermarket, rng, today, per_cluster):
 
         state = {"cod": 100000}
         months = _month_lengths(today, 24)
-        candidates = {}
+        normals = []
 
         for spec in CATALOG.values():
             settore = spec["settore"]
@@ -174,7 +178,7 @@ def _seed_products(supermarket, rng, today, per_cluster):
                     cod = _emit_product(cur, state, settore, cluster,
                                         f"{names[i % len(names)]} {cluster[:3]}{i:02d}",
                                         rng, today, months, "normal")
-                    candidates.setdefault(cluster, []).append(cod)
+                    normals.append((cod, settore, cluster))
 
             # Special products that drive the dashboard badges / verification card.
             for kind, (lo, hi) in SPECIAL_MIX.items():
@@ -185,8 +189,18 @@ def _seed_products(supermarket, rng, today, per_cluster):
                                   f"{label} {kind[:3].upper()}{state['cod'] % 100:02d}",
                                   rng, today, months, kind)
 
+        # One fixed, clearly-named substitution example (old -> new).
+        old_cod = _emit_product(cur, state, "GENERI VARI", "CONSERVE",
+                                "Sugo al Basilico 190g (vecchia referenza)",
+                                rng, today, months, "normal")
+        new_cod = _emit_product(cur, state, "GENERI VARI", "CONSERVE",
+                                "Sugo al Basilico 190g (nuova referenza)",
+                                rng, today, months, "normal")
+        normals.append((old_cod, "GENERI VARI", "CONSERVE"))
+        normals.append((new_cod, "GENERI VARI", "CONSERVE"))
+
         db.conn.commit()
-        return state["cod"] - 100000, candidates
+        return state["cod"] - 100000, normals, (old_cod, new_cod)
     finally:
         db.close()
 
@@ -339,47 +353,58 @@ def _insert_losses(cur, cod, rng, cost_std, today):
 
 # A believable operations history per storage. (operation_type, detail dict).
 _OP_TEMPLATES = [
-    ("full_restock", {"coverage": True, "ordered": (30, 90), "packages": (40, 130)}),
+    ("full_restock", {"orders": True, "coverage": True}),
     ("ddt_import", {"ddt": True}),
     ("list_update", {}),
-    ("verification", {"ordered": (20, 120)}),
-    ("order_execution", {"ordered": (25, 70), "packages": (35, 100)}),
-    ("loss_recording", {"ordered": (1, 12)}),
-    ("full_restock", {"coverage": True, "ordered": (30, 90), "packages": (40, 130)}),
+    ("verification", {"verify": (20, 120)}),
+    ("order_execution", {"orders": True}),
+    ("loss_recording", {"loss": True}),
+    ("full_restock", {"orders": True, "coverage": True}),
     ("ddt_import", {"ddt": True}),
 ]
 
 
-def _seed_substitutions(supermarket, user, candidates, rng, count=2):
-    """Configure a couple of product substitutions (one item replacing another,
-    same cluster) so the dashboard's 'Sostituzioni prodotto configurate' card and
-    the product-links feature have real content."""
+def _build_orders(pool, rng):
+    """A real order list ({cod, var, qty, discount}) the detail view enriches from
+    the schema, so 'Riepilogo ordine' shows lines, clusters and costs — not zeros."""
+    if not pool:
+        return []
+    k = min(len(pool), rng.randint(14, 30))
+    orders = []
+    for cod in rng.sample(pool, k):
+        orders.append({
+            "cod": cod, "var": 0,
+            "qty": rng.randint(1, 6),  # colli
+            "discount": rng.choice([None, None, None, None, 10, 20, 30]),
+        })
+    return orders
+
+
+def _seed_substitutions(supermarket, user, sub_pair):
+    """One fixed substitution example. The dashboard renders Primario -> Secondario,
+    so old_cod goes in primary and new_cod in secondary to read 'vecchia -> nuova'."""
     ProductLink.objects.filter(supermarket=supermarket).delete()
     ProductLinkNotification.objects.filter(supermarket=supermarket).delete()
-    pools = [cods for cods in candidates.values() if len(cods) >= 2]
-    rng.shuffle(pools)
-    for cods in pools[:count]:
-        primary, secondary = rng.sample(cods, 2)
-        ProductLink.objects.create(
-            supermarket=supermarket, primary_cod=primary, primary_v=0,
-            secondary_cod=secondary, secondary_v=0, created_by=user,
-            notes="Prodotto sostitutivo (demo).",
-        )
-        ProductLinkNotification.objects.create(
-            supermarket=supermarket, primary_cod=primary, primary_v=0,
-            secondary_cod=secondary, secondary_v=0, created_by=user, is_read=False,
-        )
+    old_cod, new_cod = sub_pair
+    fields = dict(
+        supermarket=supermarket, primary_cod=old_cod, primary_v=0,
+        secondary_cod=new_cod, secondary_v=0, created_by=user,
+    )
+    ProductLink.objects.create(notes="Referenza sostituita (demo).", **fields)
+    ProductLinkNotification.objects.create(is_read=False, **fields)
 
 
-def _seed_operation_logs(supermarket, rng):
+def _seed_operation_logs(supermarket, rng, settore_pools):
     """Fabricate a completed operations history so 'Operazioni recenti' looks
-    lived-in. Plain RestockLog rows in the default DB — no task ever runs."""
+    lived-in and each order's 'Riepilogo ordine' has real lines. Plain RestockLog
+    rows in the default DB — no task ever runs."""
     RestockLog.objects.filter(storage__supermarket=supermarket).delete()
     now = timezone.now()
     logs = []
     for storage in supermarket.storages.all():
+        pool = settore_pools.get(storage.settore, [])
         offset = 1
-        for i, (op, spec) in enumerate(_OP_TEMPLATES):
+        for op, spec in _OP_TEMPLATES:
             offset += rng.randint(2, 5)
             started = now - timedelta(days=offset, hours=rng.randint(0, 8),
                                       minutes=rng.randint(0, 59))
@@ -389,13 +414,20 @@ def _seed_operation_logs(supermarket, rng):
                 storage=storage, operation_type=op, status="completed",
                 current_stage="completed", started_at=started, completed_at=completed,
             )
-            if "ordered" in spec:
-                log.products_ordered = rng.randint(*spec["ordered"])
-                log.total_products = log.products_ordered + rng.randint(0, 40)
-            if "packages" in spec:
-                log.total_packages = rng.randint(*spec["packages"])
+            if spec.get("orders"):
+                orders = _build_orders(pool, rng)
+                log.set_results({"orders": orders})
+                log.products_ordered = len(orders)
+                log.total_products = len(pool)
+                log.total_packages = sum(o["qty"] for o in orders)
             if spec.get("coverage"):
                 log.coverage_used = rng.choice([3, 4, 4, 5, 6])
+            if "verify" in spec:
+                log.products_ordered = rng.randint(*spec["verify"])
+                log.total_products = log.products_ordered + rng.randint(0, 40)
+            if spec.get("loss"):
+                log.total_products = rng.randint(2, 12)
+                log.total_packages = log.total_products
             if spec.get("ddt"):
                 updated = rng.randint(15, 60)
                 log.set_results({
