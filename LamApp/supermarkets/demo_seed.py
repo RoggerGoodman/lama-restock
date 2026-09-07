@@ -72,8 +72,9 @@ CATALOG = {
 # "Necessita di verifica" card. Counts are ranges (randomised per storage).
 SPECIAL_MIX = {
     "pending": (8, 12),     # verified=FALSE, has recent purchase → "articoli in attesa"
-    "negative": (2, 5),     # verified, stock<0 → red "Giacenza anomala"
-    "exhausted": (4, 9),    # verified, stock=0, disponibile → yellow "Esauriti"
+    "negative": (0, 2),     # verified, stock<0 → red "Giacenza anomala" — kept rare: a
+                            # well-run store shows few/none, which is the whole selling point
+    "exhausted": (1, 3),    # verified, stock=0, disponibile → yellow "Esauriti" — kept low
     "new": (6, 14),         # verified=FALSE, added <7d, no movement → cyan star "nuovi"
 }
 
