@@ -161,6 +161,17 @@
        Reflows by viewport width, not device sniffing, so tablets and
        resized windows behave sensibly too. */
     @media screen and (max-width: 768px) {
+        /* Header action buttons: smaller and allowed to wrap */
+        .results-actions {
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .results-actions .btn {
+            font-size: 0.8rem;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+
         #inventoryTable thead {
             display: none;
         }
@@ -187,7 +198,10 @@
             border: none;
             padding: 4px 0;
         }
-        /* Non-essential columns are hidden on phones */
+        /* Keep print-only cells hidden: the id-scoped rule above would
+           otherwise out-specify the plain .print-only hide and leak the
+           print blanks (e.g. a second Giacenza) into the card. */
+        #inventoryTable td.print-only,
         #inventoryTable td.mobile-hide {
             display: none;
         }
@@ -258,7 +272,7 @@
                         <i class="bi bi-box-seam text-primary"></i>
                         {{ search_description }}
                     </h4>
-                    <div class="btn-group">
+                    <div class="btn-group results-actions">
                         <a href="{% url 'inventory-search' %}" class="btn btn-outline-secondary">
                             <i class="bi bi-arrow-left"></i> Nuova ricerca
                         </a>
@@ -267,10 +281,12 @@
                             <i class="bi bi-cart-plus"></i> Ordine per Cluster
                         </button>
                         {% endif %}
-                        <!-- ✅ PRINT BUTTON -->
+                        <!-- ✅ PRINT BUTTON: only useful for a list of more than one article -->
+                        {% if results|length > 1 %}
                         <button onclick="window.print()" class="btn btn-success">
                             <i class="bi bi-printer"></i> Stampa per la verifica
                         </button>
+                        {% endif %}
                     </div>
                 </div>
 
@@ -472,43 +488,53 @@
                         <div class="form-text">Utilizzare il negativo per rimuovere dalla giacenza, il positivo per aggiungere</div>
                     </div>
                     
-                    <!-- Minimum Stock Field -->
-                    <div class="mb-3">
-                        <label for="minimum_stock" class="form-label">
-                            <i class="bi bi-shield-check"></i> Override giacenza minima
-                        </label>
-                        <input type="number" class="form-control" id="minimum_stock" name="minimum_stock"
-                               min="1" max="100">
-                        <div class="form-text" id="minimum_stock_help">
-                            Lascia vuoto per usare il default del magazzino. Inserisci un valore per sovrascriverlo solo per questo prodotto.
-                        </div>
-                    </div>
-                    
-                    <!-- ✅ NEW: Cluster Field -->
-                    <div class="mb-3">
-                        <label for="cluster" class="form-label">
-                            <i class="bi bi-folder"></i> Cluster
-                        </label>
-                        <input type="text" class="form-control" id="cluster" name="cluster"
-                               placeholder="es. SURGELATI, LATTICINI" style="text-transform: uppercase;">
-                        <div class="form-text">
-                            Assegna o modifica il cluster (lascia vuoto per mantenerlo invariato, digita 'NONE' per rimuoverlo)
-                        </div>
-                    </div>
-                    
                     <div class="mb-3">
                         <label for="reason" class="form-label">Motivazione per Rettifica</label>
                         <select class="form-select" id="reason" name="reason" required>
                             <option value="" selected disabled>-- Seleziona motivazione --</option>
-                            <optgroup label="Categorie di perdita (registrate nelle analisi)">
-                                <option value="broken">Rotto/Danneggiato (registrato come perdita)</option>
-                                <option value="expired">Scaduto (registrato come perdita)</option>
-                                <option value="internal_use">Uso interno (registrato come perdita)</option>
-                                <option value="stolen">Furti (registrato come perdita)</option>
-                                <option value="shrinkage">Differenze inventariali (registrato come perdita)</option>
+                            <optgroup label="Categorie di perdita">
+                                <option value="broken">Rotto/Danneggiato</option>
+                                <option value="expired">Scaduto</option>
+                                <option value="internal_use">Uso interno</option>
+                                <option value="stolen">Furti</option>
+                                <option value="shrinkage">Differenze inventariali</option>
                             </optgroup>
-                            <option value="other">Altro (NON registrato come perdita)</option>
+                            <option value="other">Altro</option>
                         </select>
+                    </div>
+
+                    <!-- Rare operations: kept out of the daily flow, revealed on demand -->
+                    <div class="mb-2">
+                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
+                                data-bs-toggle="collapse" data-bs-target="#advancedSettings"
+                                aria-expanded="false" aria-controls="advancedSettings">
+                            <i class="bi bi-sliders"></i> Impostazioni avanzate
+                        </button>
+                    </div>
+                    <div class="collapse" id="advancedSettings">
+                        <!-- Minimum Stock Field -->
+                        <div class="mb-3">
+                            <label for="minimum_stock" class="form-label">
+                                <i class="bi bi-shield-check"></i> Override giacenza minima
+                            </label>
+                            <input type="number" class="form-control" id="minimum_stock" name="minimum_stock"
+                                   min="1" max="100">
+                            <div class="form-text" id="minimum_stock_help">
+                                Lascia vuoto per usare il default del magazzino. Inserisci un valore per sovrascriverlo solo per questo prodotto.
+                            </div>
+                        </div>
+
+                        <!-- Cluster Field -->
+                        <div class="mb-3">
+                            <label for="cluster" class="form-label">
+                                <i class="bi bi-folder"></i> Cluster
+                            </label>
+                            <input type="text" class="form-control" id="cluster" name="cluster"
+                                   placeholder="es. SURGELATI, LATTICINI" style="text-transform: uppercase;">
+                            <div class="form-text">
+                                Assegna o modifica il cluster (lascia vuoto per mantenerlo invariato, digita 'NONE' per rimuoverlo)
+                            </div>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -608,6 +634,11 @@ function adjustStock(cod, var_, supermarket, currentStock, minimumStock, current
     document.getElementById('minimum_stock_help').textContent =
         `Default magazzino: ${storageDefault}. Lascia vuoto per usarlo, oppure inserisci un valore per sovrascriverlo solo per questo prodotto.`;
     document.getElementById('cluster').value = currentCluster || '';
+
+    // Advanced settings always start hidden; user opens them only if needed
+    bootstrap.Collapse.getOrCreateInstance(
+        document.getElementById('advancedSettings'), { toggle: false }
+    ).hide();
 
     adjustModal.show();
 }
