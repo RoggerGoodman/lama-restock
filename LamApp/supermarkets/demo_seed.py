@@ -14,7 +14,14 @@ from django.utils import timezone
 from psycopg2.extras import Json
 
 from .demo import DEMO_GROUP
-from .models import RestockLog, RestockSchedule, Storage, Supermarket
+from .models import (
+    ProductLink,
+    ProductLinkNotification,
+    RestockLog,
+    RestockSchedule,
+    Storage,
+    Supermarket,
+)
 from .scripts.DatabaseManager import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -47,6 +54,27 @@ CATALOG = {
                        "Bresaola", "Pancetta", "Wurstel", "Speck"],
         },
     },
+    "Demo - Surgelati": {
+        "settore": "SURGELATI",
+        "shelf_life": (180, 400),
+        "clusters": {
+            "GELATI": ["Cono Vaniglia", "Cono Cioccolato", "Vaschetta Fiordilatte",
+                       "Ghiacciolo Limone", "Biscotto Gelato", "Tartufo", "Cornetto", "Sorbetto"],
+            "PIZZE": ["Pizza Margherita", "Pizza Wurstel", "Pizza 4 Formaggi", "Pizza Prosciutto",
+                      "Focaccia", "Calzone", "Baguette Farcita", "Pizza Verdure"],
+            "VERDURE SURG": ["Piselli Surg", "Spinaci Surg", "Minestrone", "Bastoncini Pesce",
+                             "Patatine Fritte", "Verdure Grigliate", "Fagiolini", "Misto Funghi"],
+        },
+    },
+}
+
+# Special product mixes per storage that light up the dashboard badges and the
+# "Necessita di verifica" card. Counts are ranges (randomised per storage).
+SPECIAL_MIX = {
+    "pending": (8, 12),     # verified=FALSE, has recent purchase → "articoli in attesa"
+    "negative": (2, 5),     # verified, stock<0 → red "Giacenza anomala"
+    "exhausted": (4, 9),    # verified, stock=0, disponibile → yellow "Esauriti"
+    "new": (6, 14),         # verified=FALSE, added <7d, no movement → cyan star "nuovi"
 }
 
 WEEKDAY_MULT = [0.9, 0.85, 0.9, 1.0, 1.25, 1.4, 0.7]  # Mon..Sun
@@ -96,8 +124,9 @@ def ensure_demo_account(password=None, per_cluster=10, log=None):
         storage.save()  # post_save signal creates the schema/tables on first save
         _ensure_schedule(storage)
 
-    n = _seed_products(supermarket, rng, today, per_cluster)
+    n, candidates = _seed_products(supermarket, rng, today, per_cluster)
     _seed_operation_logs(supermarket, rng)
+    _seed_substitutions(supermarket, user, candidates, rng)
     log(f"Seeded {n} products into schema for '{supermarket.name}'.")
     return supermarket
 
@@ -124,6 +153,8 @@ def _ensure_schedule(storage):
 
 
 def _seed_products(supermarket, rng, today, per_cluster):
+    """Seed the schema and return (count, candidates) where candidates maps
+    cluster -> [cods] of normal products, used to build plausible substitutions."""
     db = DatabaseManager(supermarket_name=supermarket.name)
     try:
         cur = db.cursor()
@@ -131,61 +162,112 @@ def _seed_products(supermarket, rng, today, per_cluster):
             cur.execute(f"DELETE FROM {tbl}")
         db.conn.commit()
 
-        cod = 100000
+        state = {"cod": 100000}
         months = _month_lengths(today, 24)
+        candidates = {}
+
         for spec in CATALOG.values():
             settore = spec["settore"]
-            shelf_lo, shelf_hi = spec["shelf_life"]
-            for cluster, names in spec["clusters"].items():
+            clusters = list(spec["clusters"].items())
+            for cluster, names in clusters:
                 for i in range(per_cluster):
-                    cod += 1
-                    name = f"{names[i % len(names)]} {cluster[:3]}{i:02d}"
-                    rapp = rng.choice([6, 8, 12])
-                    shelf_life = rng.randint(shelf_lo, shelf_hi)
-                    ean = 8000000000000 + cod
-                    cur.execute(
-                        """INSERT INTO products
-                           (cod, v, descrizione, rapp, pz_x_collo, settore,
-                            disponibilita, cluster, ean, shelf_life_days)
-                           VALUES (%s,%s,%s,%s,%s,%s,'Si',%s,%s,%s)""",
-                        (cod, 0, name, rapp, rapp, settore, cluster, ean, shelf_life),
-                    )
+                    cod = _emit_product(cur, state, settore, cluster,
+                                        f"{names[i % len(names)]} {cluster[:3]}{i:02d}",
+                                        rng, today, months, "normal")
+                    candidates.setdefault(cluster, []).append(cod)
 
-                    iva = 22 if settore == "GENERI VARI" else 10
-                    price_std = round(rng.uniform(0.8, 4.5), 2)
-                    net = price_std / (1 + iva / 100.0)
-                    cost_std = round(net * rapp * rng.uniform(0.62, 0.78), 2)
-                    cur.execute(
-                        """INSERT INTO economics
-                           (cod, v, price_std, cost_std, category, iva)
-                           VALUES (%s,%s,%s,%s,%s,%s)""",
-                        (cod, 0, price_std, cost_std, settore, iva),
-                    )
+            # Special products that drive the dashboard badges / verification card.
+            for kind, (lo, hi) in SPECIAL_MIX.items():
+                for _ in range(rng.randint(lo, hi)):
+                    cluster, names = rng.choice(clusters)
+                    label = rng.choice(names)
+                    _emit_product(cur, state, settore, cluster,
+                                  f"{label} {kind[:3].upper()}{state['cod'] % 100:02d}",
+                                  rng, today, months, kind)
 
-                    rate = round(rng.uniform(0.3, 14.0), 2)
-                    sales_sets = _daily_series(rng, rate, today, DAILY_HISTORY)
-                    bought_sets = _bought_series(rng, rate, rapp, DAILY_HISTORY)
-                    sold_last_24 = _monthly(rate, months, today)
-                    bought_last_24 = [round(v) for v in sold_last_24]
-                    price_hist = [price_std] * 24
-                    cost_hist = [cost_std] * 24
-                    stock = max(0, round(rate * rng.uniform(2.5, 6.0)))
-                    cur.execute(
-                        """INSERT INTO product_stats
-                           (cod, v, sold_last_24, bought_last_24, sales_sets,
-                            bought_sets, stock, verified, minimum_stock,
-                            last_update_sold, last_update_bought,
-                            price_last_24, cost_last_24)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE,NULL,%s,%s,%s,%s)""",
-                        (cod, 0, Json(sold_last_24), Json(bought_last_24),
-                         Json(sales_sets), Json(bought_sets), stock,
-                         today, today, price_hist, cost_hist),
-                    )
-                    _insert_losses(cur, cod, rng, cost_std, today)
         db.conn.commit()
-        return cod - 100000
+        return state["cod"] - 100000, candidates
     finally:
         db.close()
+
+
+def _emit_product(cur, state, settore, cluster, name, rng, today, months, kind):
+    """Insert one product + economics + product_stats (+ losses) shaped for `kind`.
+    Returns its cod. See SPECIAL_MIX / dashboard queries for what each kind lights up."""
+    state["cod"] += 1
+    cod = state["cod"]
+    rapp = rng.choice([6, 8, 12])
+    shelf_life = rng.randint(*_shelf_range(settore))
+    ean = 8000000000000 + cod
+    dispo = "Si"
+    added = today - timedelta(days=rng.randint(0, 6)) if kind == "new" \
+        else today - timedelta(days=rng.randint(30, 400))
+    cur.execute(
+        """INSERT INTO products
+           (cod, v, descrizione, rapp, pz_x_collo, settore,
+            disponibilita, cluster, ean, shelf_life_days, first_added_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (cod, 0, name, rapp, rapp, settore, dispo, cluster, ean, shelf_life, added),
+    )
+
+    iva = 22 if settore == "GENERI VARI" else 10
+    price_std = round(rng.uniform(0.8, 4.5), 2)
+    net = price_std / (1 + iva / 100.0)
+    cost_std = round(net * rapp * rng.uniform(0.62, 0.78), 2)
+    cur.execute(
+        """INSERT INTO economics (cod, v, price_std, cost_std, category, iva)
+           VALUES (%s,%s,%s,%s,%s,%s)""",
+        (cod, 0, price_std, cost_std, settore, iva),
+    )
+
+    rate = round(rng.uniform(0.3, 14.0), 2)
+    price_hist = [price_std] * 24
+    cost_hist = [cost_std] * 24
+
+    if kind == "new":
+        # Brand-new, no movement yet: verified=FALSE, empty history, recently added.
+        sales_sets, bought_sets = [0] * 30, [0] * 30
+        sold_last_24, bought_last_24 = [0] * 24, [0] * 24
+        stock, verified = 0, False
+        upd_bought = added
+    else:
+        sales_sets = _daily_series(rng, rate, today, DAILY_HISTORY)
+        bought_sets = _bought_series(rng, rate, rapp, DAILY_HISTORY)
+        sold_last_24 = _monthly(rate, months, today)
+        bought_last_24 = [round(v) for v in sold_last_24]
+        upd_bought = today
+        if kind == "pending":
+            verified = False
+            stock = max(1, round(rate * rng.uniform(2, 5)))
+            bought_last_24[0] = max(rapp, round(rate * 3))  # recent unverified delivery
+            upd_bought = today - timedelta(days=rng.randint(0, 3))
+        elif kind == "negative":
+            verified, stock = True, -rng.randint(1, 8)
+        elif kind == "exhausted":
+            verified, stock = True, 0
+        else:  # normal
+            verified = True
+            stock = max(0, round(rate * rng.uniform(2.5, 6.0)))
+
+    cur.execute(
+        """INSERT INTO product_stats
+           (cod, v, sold_last_24, bought_last_24, sales_sets, bought_sets,
+            stock, verified, minimum_stock, last_update_sold, last_update_bought,
+            price_last_24, cost_last_24)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s)""",
+        (cod, 0, Json(sold_last_24), Json(bought_last_24), Json(sales_sets),
+         Json(bought_sets), stock, verified, today, upd_bought, price_hist, cost_hist),
+    )
+    if kind in ("normal", "exhausted"):
+        _insert_losses(cur, cod, rng, cost_std, today)
+    return cod
+
+
+def _shelf_range(settore):
+    for spec in CATALOG.values():
+        if spec["settore"] == settore:
+            return spec["shelf_life"]
+    return (60, 300)
 
 
 def _month_lengths(today, n):
@@ -266,6 +348,27 @@ _OP_TEMPLATES = [
     ("full_restock", {"coverage": True, "ordered": (30, 90), "packages": (40, 130)}),
     ("ddt_import", {"ddt": True}),
 ]
+
+
+def _seed_substitutions(supermarket, user, candidates, rng, count=2):
+    """Configure a couple of product substitutions (one item replacing another,
+    same cluster) so the dashboard's 'Sostituzioni prodotto configurate' card and
+    the product-links feature have real content."""
+    ProductLink.objects.filter(supermarket=supermarket).delete()
+    ProductLinkNotification.objects.filter(supermarket=supermarket).delete()
+    pools = [cods for cods in candidates.values() if len(cods) >= 2]
+    rng.shuffle(pools)
+    for cods in pools[:count]:
+        primary, secondary = rng.sample(cods, 2)
+        ProductLink.objects.create(
+            supermarket=supermarket, primary_cod=primary, primary_v=0,
+            secondary_cod=secondary, secondary_v=0, created_by=user,
+            notes="Prodotto sostitutivo (demo).",
+        )
+        ProductLinkNotification.objects.create(
+            supermarket=supermarket, primary_cod=primary, primary_v=0,
+            secondary_cod=secondary, secondary_v=0, created_by=user, is_read=False,
+        )
 
 
 def _seed_operation_logs(supermarket, rng):
