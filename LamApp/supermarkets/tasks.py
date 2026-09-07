@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.conf import settings
 import logging
 from .automation_services import AutomatedRestockService
+from .demo import real_storages, real_supermarkets
 from .logging_context import (
     SupermarketLogContext,
     enter_supermarket_log,
@@ -85,7 +86,7 @@ def record_losses_all_supermarkets(self):
         logger.info("[CELERY] Starting nightly loss recording for all supermarkets")
         
         # Get ALL supermarkets (not just those with orders tomorrow)
-        supermarkets = Supermarket.objects.all()
+        supermarkets = real_supermarkets()
         
         if not supermarkets.exists():
             logger.info("[CELERY] No supermarkets found")
@@ -172,7 +173,7 @@ def update_stats_all_scheduled_storages(self):
     try:
         logger.info("[CELERY] Starting nightly DDT import for all supermarkets")
 
-        supermarkets = Supermarket.objects.prefetch_related('storages').all()
+        supermarkets = real_supermarkets().prefetch_related('storages')
         queued_count = 0
 
         for supermarket in supermarkets:
@@ -594,7 +595,7 @@ def run_scheduled_list_updates(self):
         logger.info("[CELERY] Starting automatic list updates for scheduled storages")
 
         # Get all storages that have active order schedules
-        storages = Storage.objects.filter(
+        storages = real_storages().filter(
             schedule__isnull=False
         ).select_related('supermarket', 'schedule')
 
@@ -1499,7 +1500,7 @@ def prepend_monthly_loss_zeros(self):
     try:
         logger.info("[CELERY] Starting monthly loss zero-prepend for all supermarkets")
 
-        supermarkets = Supermarket.objects.all()
+        supermarkets = real_supermarkets()
 
         if not supermarkets.exists():
             logger.info("[CELERY] No supermarkets found")
@@ -1555,7 +1556,7 @@ def create_monthly_stock_snapshots(self):
     try:
         logger.info("[CELERY] Starting monthly stock value snapshot creation")
 
-        supermarkets = Supermarket.objects.all()
+        supermarkets = real_supermarkets()
 
         if not supermarkets.exists():
             logger.info("[CELERY] No supermarkets found")
@@ -1738,7 +1739,7 @@ def backfill_ean_and_id_for_verified_products(self):
     import time
 
     try:
-        storages = Storage.objects.filter(
+        storages = real_storages().filter(
             schedule__isnull=False
         ).select_related('supermarket', 'schedule')
 
@@ -2000,7 +2001,7 @@ def roll_sales_day_all_supermarkets(self):
     from .models import Supermarket
 
     today = timezone.localtime().date().isoformat()
-    ids = list(Supermarket.objects.values_list('id', flat=True))
+    ids = list(real_supermarkets().values_list('id', flat=True))
     for sm_id in ids:
         roll_sales_day_for_supermarket.apply_async(args=[sm_id, today])
 
@@ -2092,7 +2093,7 @@ def run_scheduled_orders(self):
         today = now_local.date()
         today_index = today.weekday()  # 0=Monday … 6=Sunday
 
-        storages = Storage.objects.filter(
+        storages = real_storages().filter(
             schedule__isnull=False
         ).select_related('supermarket', 'schedule')
 
@@ -2346,7 +2347,7 @@ def prepend_monthly_bought_zeros(self):
     from .scripts.DatabaseManager import DatabaseManager
 
     try:
-        supermarkets = Supermarket.objects.all()
+        supermarkets = real_supermarkets()
         total_updated = 0
 
         for supermarket in supermarkets:
@@ -2394,7 +2395,7 @@ def prepend_monthly_sold_zeros(self):
     from .scripts.DatabaseManager import DatabaseManager
 
     try:
-        supermarkets = Supermarket.objects.all()
+        supermarkets = real_supermarkets()
         total_updated = 0
 
         for supermarket in supermarkets:

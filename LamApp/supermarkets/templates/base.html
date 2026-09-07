@@ -277,6 +277,13 @@
             </div>
         </div>
         
+        {% if is_demo %}
+            <div class="alert alert-info d-flex align-items-center" role="alert">
+                <i class="bi bi-eye"></i>&nbsp;
+                <span><strong>Modalità demo.</strong> Puoi esplorare liberamente: ordini, sincronizzazioni e ogni modifica sono disabilitati.</span>
+            </div>
+        {% endif %}
+
         <!-- Messages -->
         {% if messages %}
             {% for message in messages %}
@@ -376,6 +383,25 @@
         reset();
     })();
     </script>
+
+    {% if is_demo %}
+    <script>
+    // UX layer only — the real guard is DemoReadOnlyMiddleware server-side.
+    // Neutralise every mutating control so the demo never hits a 403 mid-click.
+    (function () {
+        const logoutForm = document.querySelector('form[action$="/logout/"]');
+        document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function (form) {
+            if (form === logoutForm) return;
+            form.querySelectorAll('button, input[type="submit"]').forEach(function (btn) {
+                if (btn.type === 'button') return;
+                btn.disabled = true;
+                btn.title = 'Disabilitato nella demo';
+            });
+            form.addEventListener('submit', function (e) { e.preventDefault(); });
+        });
+    })();
+    </script>
+    {% endif %}
 
     {% block scripts %}{% endblock %}
     {% block extra_js %}{% endblock %}

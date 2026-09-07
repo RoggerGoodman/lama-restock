@@ -3735,8 +3735,11 @@ def inventory_search_view(request):
     # Get user's supermarkets for ILIKE search dropdown
     user_supermarkets = Supermarket.objects.filter(owner=request.user)
 
-    if request.method == 'POST':
-        form = InventorySearchForm(request.user, request.POST)
+    # GET-driven: the search only navigates to a results page (no mutation), so it
+    # stays reachable for the read-only demo account. `search_type` is present
+    # whenever the form was actually submitted.
+    if 'search_type' in request.GET:
+        form = InventorySearchForm(request.user, request.GET)
 
         if form.is_valid():
             search_type = form.cleaned_data['search_type']
