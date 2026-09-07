@@ -14,7 +14,7 @@ from django.utils import timezone
 from psycopg2.extras import Json
 
 from .demo import DEMO_GROUP
-from .models import RestockSchedule, Storage, Supermarket
+from .models import RestockLog, RestockSchedule, Storage, Supermarket
 from .scripts.DatabaseManager import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -97,6 +97,7 @@ def ensure_demo_account(password=None, per_cluster=10, log=None):
         _ensure_schedule(storage)
 
     n = _seed_products(supermarket, rng, today, per_cluster)
+    _seed_operation_logs(supermarket, rng)
     log(f"Seeded {n} products into schema for '{supermarket.name}'.")
     return supermarket
 
@@ -180,6 +181,7 @@ def _seed_products(supermarket, rng, today, per_cluster):
                          Json(sales_sets), Json(bought_sets), stock,
                          today, today, price_hist, cost_hist),
                     )
+                    _insert_losses(cur, cod, rng, cost_std, today)
         db.conn.commit()
         return cod - 100000
     finally:
@@ -222,3 +224,82 @@ def _monthly(rate, months, today):
     out = [round(rate * today.day)]
     out += [round(rate * length) for length in months[1:]]
     return out
+
+
+# Which loss types a product might carry, and how heavy/frequent they are.
+# (type, max monthly qty, sparsity = share of months with zero).
+_LOSS_KINDS = [
+    ("expired", 4, 0.55),
+    ("broken", 3, 0.70),
+    ("internal", 3, 0.75),
+    ("shrinkage", 2, 0.80),
+]
+
+
+def _insert_losses(cur, cod, rng, cost_std, today):
+    """~60% of products carry some loss history, so the losses analytics has
+    plausible content. Stored as [[qty, cost], ...] monthly, index 0 = this month."""
+    if rng.random() > 0.6:
+        return
+    kinds = [k for k in _LOSS_KINDS if rng.random() < 0.6] or [_LOSS_KINDS[0]]
+    cols, vals = [], []
+    for name, max_q, sparsity in kinds:
+        series = [[0 if rng.random() < sparsity else rng.randint(1, max_q), cost_std]
+                  for _ in range(24)]
+        cols += [name, f"{name}_updated"]
+        vals += [Json(series), today]
+    placeholders = ",".join(["%s"] * (2 + len(vals)))
+    cur.execute(
+        f"INSERT INTO extra_losses (cod, v, {', '.join(cols)}) VALUES ({placeholders})",
+        [cod, 0, *vals],
+    )
+
+
+# A believable operations history per storage. (operation_type, detail dict).
+_OP_TEMPLATES = [
+    ("full_restock", {"coverage": True, "ordered": (30, 90), "packages": (40, 130)}),
+    ("ddt_import", {"ddt": True}),
+    ("list_update", {}),
+    ("verification", {"ordered": (20, 120)}),
+    ("order_execution", {"ordered": (25, 70), "packages": (35, 100)}),
+    ("loss_recording", {"ordered": (1, 12)}),
+    ("full_restock", {"coverage": True, "ordered": (30, 90), "packages": (40, 130)}),
+    ("ddt_import", {"ddt": True}),
+]
+
+
+def _seed_operation_logs(supermarket, rng):
+    """Fabricate a completed operations history so 'Operazioni recenti' looks
+    lived-in. Plain RestockLog rows in the default DB — no task ever runs."""
+    RestockLog.objects.filter(storage__supermarket=supermarket).delete()
+    now = timezone.now()
+    logs = []
+    for storage in supermarket.storages.all():
+        offset = 1
+        for i, (op, spec) in enumerate(_OP_TEMPLATES):
+            offset += rng.randint(2, 5)
+            started = now - timedelta(days=offset, hours=rng.randint(0, 8),
+                                      minutes=rng.randint(0, 59))
+            completed = started + timedelta(minutes=rng.randint(3, 14),
+                                            seconds=rng.randint(0, 59))
+            log = RestockLog(
+                storage=storage, operation_type=op, status="completed",
+                current_stage="completed", started_at=started, completed_at=completed,
+            )
+            if "ordered" in spec:
+                log.products_ordered = rng.randint(*spec["ordered"])
+                log.total_products = log.products_ordered + rng.randint(0, 40)
+            if "packages" in spec:
+                log.total_packages = rng.randint(*spec["packages"])
+            if spec.get("coverage"):
+                log.coverage_used = rng.choice([3, 4, 4, 5, 6])
+            if spec.get("ddt"):
+                updated = rng.randint(15, 60)
+                log.set_results({
+                    "invoices": [f"{rng.randint(1000, 9999)}/D"],
+                    "updated": updated,
+                    "not_found": [],
+                })
+                log.products_ordered = updated
+            logs.append(log)
+    RestockLog.objects.bulk_create(logs)
