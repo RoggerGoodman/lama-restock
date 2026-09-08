@@ -42,9 +42,10 @@
                     <ol class="mb-0">
                         <li>Aggiorna dati degli articoli da Dropzone (5-10 minuti)</li>
                         <li>Calcola quali articoli devono essere ordinati</li>
-                        <li><strong>Carica l'ordine effettivo su Dropzone</strong></li>
+                        <li><strong>Prepara l'ordine e lo mette in attesa di revisione ("Da inviare")</strong></li>
                     </ol>
-                    <p class="mt-2 mb-0"><strong>Tempo totale stimato: 15-25 minuti</strong></p>
+                    <p class="mt-2 mb-1"><strong>Tempo totale stimato: 15-25 minuti</strong></p>
+                    <p class="mb-0 small">L'ordine non viene inviato automaticamente: dovrai rivederlo e premere "Invia".</p>
                 </div>
 
                 <!-- Form (hidden after submission) -->
@@ -142,9 +143,9 @@
                         <div class="col-md-4">
                             <div class="card border-0 bg-light" id="stage3Card">
                                 <div class="card-body text-center">
-                                    <i class="bi bi-send" style="font-size: 2rem;" id="stage3Icon"></i>
-                                    <h6 class="mt-2 mb-1">Caricamento ordine</h6>
-                                    <small class="text-muted" id="stage3Status">Caricamento in corso...</small>
+                                    <i class="bi bi-pencil-square" style="font-size: 2rem;" id="stage3Icon"></i>
+                                    <h6 class="mt-2 mb-1">Pronto per la revisione</h6>
+                                    <small class="text-muted" id="stage3Status">In attesa di revisione...</small>
                                     <div id="stage3Time" class="text-muted small mt-1" style="display:none;"></div>
                                 </div>
                             </div>

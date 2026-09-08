@@ -574,6 +574,67 @@ def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=T
 
 @shared_task(
     bind=True,
+    max_retries=0,
+    queue='selenium',
+    acks_late=True,
+    reject_on_worker_lost=True
+)
+def submit_pending_order(self, log_id):
+    """
+    Submit a reviewed ('Da inviare') order to Dropzone via Selenium (the "Invia"
+    action). Runs the same proven execution path the automated flow used before
+    the review step existed. No auto-retry: a human is watching this one.
+    """
+    from .models import Storage, RestockLog
+
+    _log_ctx = None
+    try:
+        log = RestockLog.objects.select_related('storage__supermarket', 'storage__schedule').get(id=log_id)
+        storage = log.storage
+        _log_ctx = enter_supermarket_log(storage.supermarket.name)
+
+        if log.status != 'awaiting_review':
+            logger.warning(
+                f"[CELERY-INVIA] Log #{log_id} is '{log.status}', not 'awaiting_review'; skipping submit"
+            )
+            return {'success': False, 'log_id': log_id, 'error': 'not_awaiting_review'}
+
+        def report_progress(progress, message):
+            self.update_state(state='PROGRESS', meta={'progress': progress, 'status': message})
+            logger.info(f"[INVIA] {progress}% - {message}")
+
+        self.update_state(state='PROGRESS', meta={'progress': 5, 'status': 'Invio ordine...'})
+
+        with AutomatedRestockService(storage) as service:
+            service.execute_pending_order(log, progress_callback=report_progress)
+
+        logger.info(
+            f"✓ [CELERY-INVIA] Order submitted for {storage.name} "
+            f"(Log #{log.id}: {log.products_ordered} products, {log.total_packages} packages)"
+        )
+
+        result = {
+            'success': True,
+            'log_id': log.id,
+            'storage_name': storage.name,
+            'products_ordered': log.products_ordered,
+            'total_packages': log.total_packages,
+            'redirect_url': f'/logs/{log.id}/',
+        }
+        self.update_state(state='SUCCESS', meta=result)
+        return result
+
+    except Exception as exc:
+        logger.exception(f"[CELERY-INVIA] Error submitting order for log {log_id}")
+        self.update_state(state='FAILURE', meta={'error': str(exc)})
+        raise
+    finally:
+        if _log_ctx is not None:
+            exit_supermarket_log(_log_ctx)
+
+
+@shared_task(
+    bind=True,
     max_retries=3,
     default_retry_delay=900,
     queue='selenium',

@@ -467,16 +467,21 @@ class AutomatedRestockService(RestockService):
                 log.total_products = len(self.db.get_all_stats_by_settore(self.settore))
                 log.products_ordered = len(orders_list)
                 log.total_packages = sum(order[2] for order in orders_list if len(order) >= 3)
+                order_dicts = [
+                    {
+                        'cod': order[0],
+                        'var': order[1],
+                        'qty': order[2],
+                        'discount': order[3] if len(order) > 3 else None
+                    }
+                    for order in orders_list
+                ]
                 log.set_results({
-                    'orders': [
-                        {
-                            'cod': order[0],
-                            'var': order[1],
-                            'qty': order[2],
-                            'discount': order[3] if len(order) > 3 else None
-                        }
-                        for order in orders_list
-                    ],
+                    # 'orders' is the working copy the operator edits during review.
+                    # 'machine_orders' is the immutable snapshot the decision maker
+                    # produced, kept for the machine-vs-operator comparison.
+                    'orders': order_dicts,
+                    'machine_orders': [dict(o) for o in order_dicts],
                     'zombie_products': zombie_products,
                     'settore': self.settore,
                     'coverage': float(coverage)
@@ -490,7 +495,65 @@ class AutomatedRestockService(RestockService):
                 progress_callback(50, f'Order calculated: {len(orders_list)} products')
             logger.info(f"Order calculated: {len(orders_list)} products, {len(zombie_products)} zombie")
 
-            # Step 2: Execute order
+            # The order is no longer sent here. It parks as 'awaiting_review' so the
+            # operator can review/edit it and press "Invia" (execute_pending_order),
+            # which runs the proven Selenium execution block below.
+            if not orders_list:
+                logger.info(f"No items to order for {self.storage.name}")
+                log.status = 'completed'
+                log.current_stage = 'completed'
+                log.completed_at = timezone.now()
+                log.save()
+                return log
+
+            log.status = 'awaiting_review'
+            log.current_stage = 'awaiting_review'
+            log.order_calculated_at = timezone.now()
+            log.save()
+
+            if progress_callback:
+                progress_callback(100, f'Ordine pronto per la revisione: {len(orders_list)} articoli')
+            logger.info(f"Order ready for review for {self.storage.name} (log #{log.id})")
+            return log
+
+        except Exception as e:
+            logger.exception(f"Restock workflow failed for {self.storage.name}")
+            log.status = 'failed'
+            log.current_stage = 'failed'
+            log.error_message = str(e)
+            log.save()
+            raise
+        finally:
+            exit_order_log(_order_log_ctx)
+            exit_supermarket_log(_sm_log_ctx)
+
+    def execute_pending_order(self, log: RestockLog, progress_callback=None):
+        """
+        Submit a reviewed order to Dropzone (the "Invia" action).
+
+        Rebuilds the order list from the (possibly operator-edited) orders stored
+        in log.results and runs the exact same Selenium execution that the fully
+        automated flow used before the review step was introduced.
+        """
+        logger.info(f"Submitting reviewed order for {self.storage.name} (log #{log.id})")
+
+        _sm_log_ctx = enter_supermarket_log(self.supermarket.name)
+        _order_log_ctx = enter_order_log(self.supermarket.name, self.storage.name)
+        try:
+            results = log.get_results()
+            # Same 4-tuple shape the decision maker produced and make_orders unpacks:
+            # (cod, var, qty, discount).
+            orders_list = [
+                (o['cod'], o['var'], o['qty'], o.get('discount'))
+                for o in results.get('orders', [])
+                if o.get('qty')
+            ]
+
+            log.status = 'processing'
+            log.current_stage = 'processing'
+            log.error_message = ''
+            log.save()
+
             if not orders_list:
                 logger.info(f"No items to order for {self.storage.name}")
                 log.status = 'completed'
@@ -518,6 +581,7 @@ class AutomatedRestockService(RestockService):
                 log.total_packages = sum(order[2] for order in successful_orders)
                 log.status = 'completed'
                 log.current_stage = 'completed'
+                log.order_executed_at = timezone.now()
                 log.completed_at = timezone.now()
                 log.save()
             finally:
@@ -525,11 +589,11 @@ class AutomatedRestockService(RestockService):
 
             if progress_callback:
                 progress_callback(100, 'Order placed successfully!')
-            logger.info(f"Restock workflow completed successfully for {self.storage.name}")
+            logger.info(f"Reviewed order submitted successfully for {self.storage.name}")
             return log
 
         except Exception as e:
-            logger.exception(f"Restock workflow failed for {self.storage.name}")
+            logger.exception(f"Order submission failed for {self.storage.name}")
             log.status = 'failed'
             log.current_stage = 'failed'
             log.error_message = str(e)

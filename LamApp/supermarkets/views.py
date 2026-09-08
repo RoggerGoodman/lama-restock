@@ -901,109 +901,79 @@ def calibration_report_view(request, pk):
 
 @login_required
 def order_comparison_view(request, storage_id):
-    """Compare machine-generated order vs human-edited order from OrdiniRighe.csv."""
-    import csv
-    import io
+    """
+    Compare the machine-computed order against the operator-edited order.
+
+    Both now live on the same RestockLog: results['machine_orders'] is the
+    immutable snapshot the decision maker produced, results['orders'] is what the
+    operator sent after reviewing. Products PAC2000A refused during "Invia" are in
+    results['order_skipped_products']. No CSV export from PAC2000A is needed.
+    """
     from .models import OrderCalibrationReport
 
     storage = get_object_or_404(Storage, pk=storage_id, supermarket__owner=request.user)
 
     available_logs = (
         RestockLog.objects
-        .filter(storage=storage, operation_type='full_restock', status='completed')
+        .filter(storage=storage, operation_type='full_restock',
+                status__in=['completed', 'awaiting_review', 'discarded'])
         .order_by('-started_at')[:30]
     )
     available_calibrations = storage.calibration_reports.all()[:10]
 
-    form = OrderComparisonForm(request.POST or None, request.FILES or None)
+    # GET-driven read (no mutation, no upload): stays reachable for the read-only
+    # demo account. Accept POST too for backward-compatible links.
+    params = request.GET if request.GET.get('log_id') else request.POST
+    log_id_str = (params.get('log_id') or '').strip()
 
-    if request.method == 'GET' or not form.is_valid():
+    if not log_id_str:
         return render(request, 'storages/valutazione_ordine.html', {
             'storage': storage,
-            'upload_form': form,
             'available_logs': available_logs,
             'available_calibrations': available_calibrations,
         })
 
-    # --- Parse CSV ---
-    raw = request.FILES['csv_file'].read()
-    try:
-        # utf-8-sig strips the UTF-8 BOM that Windows software (PAC2000A) adds
-        text = raw.decode('utf-8-sig')
-    except UnicodeDecodeError:
-        text = raw.decode('latin-1')
-
-    reader = csv.reader(io.StringIO(text), delimiter=',')
-
-    def _parse_it_int(val):
-        """Parse Italian-formatted numbers like '8.378,00' -> 8378."""
-        v = val.strip().replace('.', '').split(',')[0]
-        return int(v)
-
-    human_orders = {}  # (cod, var) -> human_qty
-    error_keys   = set()   # keys with Errore='Si' — excluded from comparison entirely
-    error_orders = {}  # (cod, var) -> qty the human attempted for errored rows
-
-    try:
-        next(reader)  # skip header row
-    except StopIteration:
-        return render(request, 'storages/valutazione_ordine.html', {
-            'storage': storage,
-            'upload_form': form,
-            'available_logs': available_logs,
-            'csv_error': "Il file CSV è vuoto.",
-        })
-
-    for row in reader:
-        # OrdiniRighe.csv columns (0-indexed):
-        #   0=#  1=Errore  4=Cod.(first)  5=Diff.(first)  14=N.imb.
-        if len(row) < 15:
-            continue
-        if row[1].strip() == 'Si':
-            try:
-                ec = (_parse_it_int(row[4]), _parse_it_int(row[5]))
-                error_keys.add(ec)
-                try:
-                    error_orders[ec] = _parse_it_int(row[14])
-                except ValueError:
-                    pass
-            except ValueError:
-                pass
-            continue
-        try:
-            cod = _parse_it_int(row[4])
-            var = _parse_it_int(row[5])
-            human_qty = _parse_it_int(row[14])
-        except ValueError:
-            continue
-        human_orders[(cod, var)] = human_qty
-
-    if not human_orders:
-        return render(request, 'storages/valutazione_ordine.html', {
-            'storage': storage,
-            'upload_form': form,
-            'available_logs': available_logs,
-            'csv_error': "Nessuna riga valida trovata nel file CSV.",
-        })
-
-    # --- Load the user-selected machine log ---
+    # --- Load the selected order log (holds both machine + operator orders) ---
     machine_log = None
-    machine_orders = {}  # (cod, var) -> qty
     try:
-        log_id = int(request.POST.get('log_id', ''))
         machine_log = RestockLog.objects.filter(
-            id=log_id,
+            id=int(log_id_str),
             storage=storage,
             operation_type='full_restock',
-            status='completed',
         ).first()
     except (ValueError, TypeError):
         pass
-    if machine_log:
-        for o in machine_log.get_results().get('orders', []):
-            machine_orders[(o['cod'], o['var'])] = o['qty']
 
-    # --- Merge all product keys (exclude error rows from the CSV) ---
+    if machine_log is None:
+        return render(request, 'storages/valutazione_ordine.html', {
+            'storage': storage,
+            'available_logs': available_logs,
+            'available_calibrations': available_calibrations,
+            'comparison_error': "Ordine non trovato.",
+        })
+
+    results = machine_log.get_results()
+
+    # machine_orders = original computed snapshot. Logs created before the review
+    # feature have no snapshot, so fall back to the final order (no diff to show).
+    machine_src = results.get('machine_orders')
+    if machine_src is None:
+        machine_src = results.get('orders', [])
+    machine_orders = {(o['cod'], o['var']): o['qty'] for o in machine_src}
+
+    # human_orders = the order as the operator edited/sent it.
+    human_orders = {(o['cod'], o['var']): o['qty'] for o in results.get('orders', [])}
+
+    # Products PAC2000A rejected during submission — the website equivalent of the
+    # old CSV 'Errore=Si' rows. Shown separately, excluded from the main diff.
+    skipped = results.get('order_skipped_products', [])
+    error_keys = {(s['cod'], s['var']) for s in skipped if 'cod' in s and 'var' in s}
+    error_orders = {
+        (s['cod'], s['var']): (human_orders.get((s['cod'], s['var'])) or s.get('qty', 0))
+        for s in skipped if 'cod' in s and 'var' in s
+    }
+
+    # --- Merge all product keys (exclude PAC-rejected rows) ---
     all_keys = (set(human_orders.keys()) | set(machine_orders.keys())) - error_keys
 
     # --- Load product descriptions from DB ---
@@ -1045,7 +1015,7 @@ def order_comparison_view(request, storage_id):
             db.conn.close()
 
     # --- Calibration report: user-selected or most recent ---
-    calib_report_id_str = request.POST.get('calib_report_id', '').strip()
+    calib_report_id_str = (params.get('calib_report_id') or '').strip()
     calibration = None
     if calib_report_id_str:
         try:
@@ -1187,7 +1157,7 @@ def order_comparison_view(request, storage_id):
             'human_added': human_added,
             'both_missed': both_missed,
             'pac_rejected': pac_rejected,
-            'total_csv': len(human_orders),
+            'total_human': len(human_orders),
             'total_machine': len(machine_orders),
         },
     }
@@ -1677,6 +1647,8 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         context['results'] = results
         context['enriched_orders'] = []
         context['clusters'] = {}
+        context['last_sales_sync_at'] = self.object.storage.supermarket.last_sales_sync_at
+        context['is_awaiting_review'] = (self.object.status == 'awaiting_review')
         context['summary'] = {
             'total_items': 0,
             'total_packages': self.object.total_packages or 0,
@@ -1726,8 +1698,9 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     flat_keys = [item for pair in product_keys for item in pair]
                     cur = service.db.cursor()
                     cur.execute(f"""
-                        SELECT 
+                        SELECT
                             p.cod, p.v, p.descrizione, p.cluster, p.pz_x_collo, p.rapp,
+                            ps.stock, ps.sales_sets, ps.sold_last_24,
                             CASE
                                 WHEN e.sale_start IS NOT NULL
                                 AND e.sale_end IS NOT NULL
@@ -1737,6 +1710,7 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                             END AS cost
                         FROM products p
                         LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
+                        LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                         WHERE (p.cod, p.v) IN ({placeholders})
                     """, flat_keys)
 
@@ -1760,13 +1734,19 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                                 rapp = product['rapp'] or 1
                                 cost = product['cost'] or 0
                                 cost = cost/rapp
+                                stock = product['stock'] if product['stock'] is not None else 0
+                                avg_daily_sales = self._avg_daily_sales(
+                                    service, product['sales_sets'], product['sold_last_24']
+                                )
                             else:
                                 descrizione = f"Product {cod}.{var}"
                                 cluster = 'Uncategorized'
                                 package_size = 0
                                 rapp = 1
                                 cost = 0
-                            
+                                stock = 0
+                                avg_daily_sales = 0
+
                             order_item = {
                                 'cod': cod,
                                 'var': var,
@@ -1776,7 +1756,9 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                                 'cost': cost,
                                 'total_cost': cost * qty * package_size * rapp,
                                 'discount': discount,
-                                'on_sale': discount is not None
+                                'on_sale': discount is not None,
+                                'stock': stock,
+                                'avg_daily_sales': avg_daily_sales,
                             }
                             
                             enriched_orders.append(order_item)
@@ -1833,6 +1815,16 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     
         return context
     
+    @staticmethod
+    def _avg_daily_sales(service, sales_sets, sold_last_24):
+        """Same fallback chain the decision maker / calibration use."""
+        from .scripts.helpers import Helper
+        history = Helper.sales_history(sales_sets)
+        avg = service.helper.avg_daily_sales_from_sales_sets(history, silent=True)
+        if avg is None:
+            avg, _ = service.helper.calculate_weighted_avg_sales_new(sold_last_24 or [], silent=True)
+        return round(avg or 0, 2)
+
     def _enrich_product_list(self, service, product_list, include_pricing=False):
         """
         Helper to enrich a list of products with database details.
@@ -1976,6 +1968,202 @@ def dismiss_failed_log(request, pk):
 
     messages.success(request, "Avviso archiviato")
     return redirect('dashboard')
+
+
+# ============ Order Review ("Da inviare") Views ============
+
+def _avg_daily_sales_for(service, sales_sets, sold_last_24):
+    """Same fallback chain the decision maker / calibration use."""
+    from .scripts.helpers import Helper
+    history = Helper.sales_history(sales_sets)
+    avg = service.helper.avg_daily_sales_from_sales_sets(history, silent=True)
+    if avg is None:
+        avg, _ = service.helper.calculate_weighted_avg_sales_new(sold_last_24 or [], silent=True)
+    return round(avg or 0, 2)
+
+
+@login_required
+def order_review_search(request, pk):
+    """
+    AJAX search used while reviewing a 'Da inviare' order.
+
+    Accepts one of: cod+var, ean, or q (description ILIKE). Returns each match
+    with whether it is already in this order, its ordered qty, live stock,
+    avg daily sales, and sale badge. Scoped to the storage's settore so only
+    products valid for this order can be added.
+    """
+    log = get_object_or_404(
+        RestockLog, pk=pk, storage__supermarket__owner=request.user
+    )
+    storage = log.storage
+
+    q = request.GET.get('q', '').strip()
+    ean_raw = request.GET.get('ean', '').strip()
+    cod_raw = request.GET.get('cod', '').strip()
+    var_raw = request.GET.get('var', '').strip()
+
+    # Map order membership from the (possibly edited) stored order.
+    orders = log.get_results().get('orders', [])
+    in_order = {(o['cod'], o['var']): o for o in orders}
+
+    try:
+        with RestockService(storage) as service:
+            cur = service.db.cursor()
+            base_select = """
+                SELECT p.cod, p.v, p.descrizione, p.pz_x_collo,
+                       ps.stock, ps.sales_sets, ps.sold_last_24,
+                       e.price_std, e.price_s, e.sale_start, e.sale_end,
+                       (e.sale_start IS NOT NULL AND e.sale_end IS NOT NULL
+                        AND CURRENT_DATE BETWEEN e.sale_start AND e.sale_end) AS on_sale
+                FROM products p
+                LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
+                WHERE p.settore = %s AND p.disponibilita != 'No'
+            """
+            if cod_raw and var_raw:
+                cur.execute(base_select + " AND p.cod = %s AND p.v = %s",
+                            (storage.settore, int(cod_raw), int(var_raw)))
+            elif ean_raw:
+                cur.execute(base_select + " AND p.ean = %s", (storage.settore, int(ean_raw)))
+            elif len(q) >= 3:
+                cur.execute(base_select + " AND p.descrizione ILIKE %s ORDER BY p.descrizione LIMIT 20",
+                            (storage.settore, f'%{q}%'))
+            else:
+                return JsonResponse({'results': [], 'error': 'Inserisci almeno 3 caratteri, un EAN o cod.var'})
+
+            results = []
+            for row in cur.fetchall():
+                key = (row['cod'], row['v'])
+                ordered = in_order.get(key)
+                on_sale = bool(row['on_sale'])
+                discount = None
+                if on_sale and row['price_std'] and row['price_s']:
+                    try:
+                        discount = round((1 - float(row['price_s']) / float(row['price_std'])) * 100)
+                    except (ZeroDivisionError, TypeError):
+                        discount = None
+                results.append({
+                    'cod': row['cod'],
+                    'var': row['v'],
+                    'description': row['descrizione'] or f"{row['cod']}.{row['v']}",
+                    'in_order': ordered is not None,
+                    'order_qty': ordered['qty'] if ordered else None,
+                    'stock': row['stock'] if row['stock'] is not None else 0,
+                    'avg_daily_sales': _avg_daily_sales_for(service, row['sales_sets'], row['sold_last_24']),
+                    'package_size': row['pz_x_collo'] or 0,
+                    'on_sale': on_sale,
+                    'discount': discount,
+                })
+        return JsonResponse({'results': results})
+    except Exception as e:
+        logger.exception(f"Order review search failed for log #{pk}")
+        return JsonResponse({'results': [], 'error': str(e)}, status=500)
+
+
+@login_required
+@require_POST
+def order_review_edit(request, pk):
+    """
+    Mutate a 'Da inviare' order during review.
+
+    actions:
+      - set_qty  {cod, var, qty}  add/update an order line (qty>0)
+      - remove   {cod, var}       drop an order line
+      - set_stock{cod, var, stock} correct the live giacenza (product_stats.stock)
+    """
+    log = get_object_or_404(
+        RestockLog, pk=pk, storage__supermarket__owner=request.user
+    )
+    if log.status != 'awaiting_review':
+        return JsonResponse({'success': False, 'message': "L'ordine non è più in revisione"}, status=409)
+
+    try:
+        data = json.loads(request.body)
+        action = data['action']
+        cod = int(data['cod'])
+        var = int(data['var'])
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+        return JsonResponse({'success': False, 'message': 'Richiesta non valida'}, status=400)
+
+    results = log.get_results()
+    orders = results.get('orders', [])
+
+    if action == 'set_stock':
+        try:
+            stock = int(data['stock'])
+        except (KeyError, ValueError, TypeError):
+            return JsonResponse({'success': False, 'message': 'Giacenza non valida'}, status=400)
+        with RestockService(log.storage) as service:
+            service.db.verify_stock(cod, var, stock)
+        return JsonResponse({'success': True, 'stock': stock})
+
+    if action == 'remove':
+        orders = [o for o in orders if not (o['cod'] == cod and o['var'] == var)]
+
+    elif action == 'set_qty':
+        try:
+            qty = int(data['qty'])
+        except (KeyError, ValueError, TypeError):
+            return JsonResponse({'success': False, 'message': 'Quantità non valida'}, status=400)
+        if qty <= 0:
+            orders = [o for o in orders if not (o['cod'] == cod and o['var'] == var)]
+        else:
+            existing = next((o for o in orders if o['cod'] == cod and o['var'] == var), None)
+            if existing:
+                existing['qty'] = qty
+            else:
+                orders.append({'cod': cod, 'var': var, 'qty': qty, 'discount': data.get('discount')})
+    else:
+        return JsonResponse({'success': False, 'message': 'Azione sconosciuta'}, status=400)
+
+    results['orders'] = orders
+    log.set_results(results)
+    log.products_ordered = len(orders)
+    log.total_packages = sum(int(o.get('qty', 0) or 0) for o in orders)
+    log.save(update_fields=['results', 'products_ordered', 'total_packages'])
+
+    return JsonResponse({
+        'success': True,
+        'products_ordered': log.products_ordered,
+        'total_packages': log.total_packages,
+    })
+
+
+@login_required
+@require_POST
+def order_submit(request, pk):
+    """Send a reviewed order to Dropzone (the 'Invia' action)."""
+    log = get_object_or_404(
+        RestockLog, pk=pk, storage__supermarket__owner=request.user
+    )
+    if log.status != 'awaiting_review':
+        return JsonResponse({'success': False, 'message': "L'ordine non è più in revisione"}, status=409)
+
+    from .tasks import submit_pending_order
+    result = submit_pending_order.apply_async(args=[log.id])
+    logger.info(f"[INVIA] Queued submit for log #{log.id} (task {result.id})")
+    return JsonResponse({'success': True, 'task_id': result.id})
+
+
+@login_required
+@require_POST
+def order_discard(request, pk):
+    """Discard a reviewed order without sending it (the 'Scarta' action)."""
+    log = get_object_or_404(
+        RestockLog, pk=pk, storage__supermarket__owner=request.user
+    )
+    if log.status != 'awaiting_review':
+        return JsonResponse({'success': False, 'message': "L'ordine non è più in revisione"}, status=409)
+
+    log.status = 'discarded'
+    log.current_stage = 'discarded'
+    log.completed_at = timezone.now()
+    log.save(update_fields=['status', 'current_stage', 'completed_at'])
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True, 'redirect_url': f'/storages/{log.storage_id}/'})
+    messages.success(request, "Ordine scartato")
+    return redirect('storage-detail', pk=log.storage_id)
 
 
 # ============ Blacklist Views ============
@@ -2336,7 +2524,7 @@ def stock_value_unified_view(request):
                         ON e.cod = ps.cod AND e.v = ps.v
                     JOIN products p
                         ON e.cod = p.cod AND e.v = p.v
-                    WHERE e.category != '' AND ps.stock > 0
+                    WHERE e.category != '' AND ps.stock > 0 AND ps.verified
                 """
                 params = []
                 
@@ -2433,7 +2621,7 @@ def create_stock_snapshot_view(request):
                         ON e.cod = ps.cod AND e.v = ps.v
                     JOIN products p
                         ON e.cod = p.cod AND e.v = p.v
-                    WHERE e.category != '' AND ps.stock > 0
+                    WHERE e.category != '' AND ps.stock > 0 AND ps.verified
                         AND p.settore = %s
                     GROUP BY e.category
                 """, (settore,))

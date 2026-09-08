@@ -63,6 +63,10 @@ urlpatterns = [
     path('logs/<int:log_id>/retry/', views.retry_restock_view, name='retry-restock'),
     path('logs/<int:log_id>/flag-products/', views.flag_products_for_purge_view, name='flag-products-for-purge'),
     path('logs/<int:pk>/dismiss/', views.dismiss_failed_log, name='dismiss-failed-log'),
+    path('logs/<int:pk>/review/search/', views.order_review_search, name='order-review-search'),
+    path('logs/<int:pk>/review/edit/', views.order_review_edit, name='order-review-edit'),
+    path('logs/<int:pk>/submit/', views.order_submit, name='order-submit'),
+    path('logs/<int:pk>/discard/', views.order_discard, name='order-discard'),
 
     # ============ Blacklists (accessed from dashboard/storage) ============
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),

@@ -545,13 +545,17 @@ class RestockLog(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('processing', 'Processing'),
+        ('awaiting_review', 'Da inviare'),
+        ('discarded', 'Scartato'),
         ('completed', 'Completed'),
         ('failed', 'Failed'),
     ]
-    
+
     STAGE_CHOICES = [
         ('pending', 'Pending Start'),
         ('processing', 'Processing'),
+        ('awaiting_review', 'Da inviare'),
+        ('discarded', 'Scartato'),
         ('completed', 'Completed'),
         ('failed', 'Failed'),
     ]
@@ -691,6 +695,10 @@ class RestockLog(models.Model):
             return {'label': 'Completato', 'progress': 100, 'icon': 'check-circle-fill'}
         if self.status == 'failed':
             return {'label': 'Fallito', 'progress': 0, 'icon': 'x-circle'}
+        if self.status == 'awaiting_review':
+            return {'label': 'Da inviare', 'progress': 60, 'icon': 'pencil-square'}
+        if self.status == 'discarded':
+            return {'label': 'Scartato', 'progress': 0, 'icon': 'slash-circle'}
         stage_info = {
             'pending':    {'label': 'In coda',      'progress': 0,   'icon': 'clock'},
             'processing': {'label': 'In corso...',  'progress': 50,  'icon': 'arrow-repeat'},

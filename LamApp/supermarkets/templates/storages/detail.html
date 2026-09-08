@@ -481,6 +481,14 @@
                                             <span class="badge bg-danger">
                                                 <i class="bi bi-x-circle"></i> Fallito
                                             </span>
+                                        {% elif log.status == 'awaiting_review' %}
+                                            <span class="badge bg-info text-dark">
+                                                <i class="bi bi-pencil-square"></i> Da inviare
+                                            </span>
+                                        {% elif log.status == 'discarded' %}
+                                            <span class="badge bg-secondary">
+                                                <i class="bi bi-slash-circle"></i> Scartato
+                                            </span>
                                         {% elif log.status == 'processing' %}
                                             <span class="badge bg-warning">
                                                 <i class="bi bi-hourglass-split"></i> Elaborazione
@@ -528,6 +536,12 @@
                                                 class="btn btn-sm btn-outline-danger"
                                                 title="Dettagli errore">
                                                     <i class="bi bi-exclamation-triangle"></i> Errore
+                                                </a>
+                                            {% elif log.status == 'awaiting_review' %}
+                                                <a href="{% url 'restock-log-detail' pk=log.id %}"
+                                                class="btn btn-sm btn-info text-dark"
+                                                title="Rivedi e invia l'ordine">
+                                                    <i class="bi bi-pencil-square"></i> Rivedi e invia
                                                 </a>
                                             {% elif log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
                                                 <a href="{% url 'restock-log-detail' pk=log.id %}"

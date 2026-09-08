@@ -853,6 +853,127 @@
 
     {% else %}
     <!-- Order Details -->
+        {% if is_awaiting_review %}
+        <!-- ============ ORDER REVIEW ("Da inviare") ============ -->
+        <div class="row" id="reviewRoot" data-log="{{ log.id }}">
+            <div class="col-12">
+                <div class="stat-card">
+                    <div class="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                        <div>
+                            <i class="bi bi-pencil-square"></i>
+                            <strong>Ordine da inviare</strong> — rivedi e modifica prima di inviarlo a Dropzone.
+                        </div>
+                        <div class="small" id="syncInfo"
+                             data-sync="{% if last_sales_sync_at %}{{ last_sales_sync_at|date:'c' }}{% endif %}">
+                            {% if last_sales_sync_at %}
+                                Ultima sincronizzazione giacenze:
+                                <strong>{{ last_sales_sync_at|date:'H:i' }}</strong>
+                                <span id="syncAge" class="ms-1"></span>
+                            {% else %}
+                                <span class="text-muted">Nessuna sincronizzazione giacenze registrata</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <button class="btn btn-success" id="btnInvia">
+                            <i class="bi bi-send"></i> Invia ordine
+                        </button>
+                        <button class="btn btn-outline-danger" id="btnScarta">
+                            <i class="bi bi-slash-circle"></i> Scarta
+                        </button>
+                        <span class="ms-auto align-self-center text-muted">
+                            <strong id="revTotalItems">{{ enriched_orders|length }}</strong> articoli /
+                            <strong id="revTotalPackages">{{ log.total_packages }}</strong> colli
+                        </span>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table align-middle" id="reviewTable">
+                            <thead>
+                                <tr>
+                                    <th>Articolo</th>
+                                    <th class="text-end">Giacenza</th>
+                                    <th class="text-end d-none d-sm-table-cell">Media/gg</th>
+                                    <th class="text-center">Colli</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="reviewTableBody">
+                                {% for order in enriched_orders %}
+                                <tr class="review-row {% if order.on_sale %}on-sale{% endif %}"
+                                    data-cod="{{ order.cod }}" data-var="{{ order.var }}">
+                                    <td>
+                                        <small class="text-muted font-monospace">{{ order.cod }}.{{ order.var }}</small><br>
+                                        {{ order.name|truncatewords:6 }}
+                                        {% if order.on_sale %}
+                                        <span class="discount-badge ms-1">
+                                            <i class="bi bi-star-fill discount-icon"></i> -{{ order.discount|floatformat:0 }}%
+                                        </span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end text-nowrap">
+                                        <span class="rev-stock">{{ order.stock }}</span>
+                                        <button class="btn btn-link btn-sm p-0 ms-1 edit-stock-btn" title="Correggi giacenza">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                    </td>
+                                    <td class="text-end d-none d-sm-table-cell">{{ order.avg_daily_sales }}</td>
+                                    <td class="text-center">
+                                        <div class="input-group input-group-sm mx-auto" style="max-width:130px;">
+                                            <button class="btn btn-outline-secondary qty-dec" type="button">−</button>
+                                            <input type="number" class="form-control text-center rev-qty"
+                                                   value="{{ order.qty }}" min="0" inputmode="numeric">
+                                            <button class="btn btn-outline-secondary qty-inc" type="button">+</button>
+                                        </div>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-danger rev-remove" title="Rimuovi">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        <p id="reviewEmpty" class="text-muted text-center my-3" {% if enriched_orders %}hidden{% endif %}>
+                            Nessun articolo nell'ordine. Usa la ricerca qui sotto per aggiungerne.
+                        </p>
+                    </div>
+
+                    <!-- Search / add panel -->
+                    <div class="card mt-3">
+                        <div class="card-header bg-light">
+                            <i class="bi bi-search"></i> Ricerca prodotto
+                        </div>
+                        <div class="card-body">
+                            <div class="input-group mb-2">
+                                <input type="text" class="form-control" id="reviewSearchInput"
+                                       placeholder="Descrizione, EAN o cod.var…" inputmode="search" autocomplete="off">
+                                <button class="btn btn-outline-primary" id="reviewScanBtn" type="button"
+                                        style="display:none;" title="Scansiona EAN con la fotocamera">
+                                    <i class="bi bi-camera"></i>
+                                </button>
+                            </div>
+                            <div id="reviewSearchResults"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Camera scan overlay (EAN via phone camera) -->
+        <div id="scanOverlay" style="display:none; position:fixed; inset:0; z-index:2000; background:#000; flex-direction:column;">
+            <video id="scanVideo" playsinline muted style="flex:1; width:100%; object-fit:cover;"></video>
+            <div style="position:absolute; top:0; left:0; right:0; padding:12px; display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4);">
+                <span class="text-white small" id="scanStatus">Inquadra il codice a barre…</span>
+                <button type="button" id="scanCloseBtn" class="btn btn-sm btn-light">
+                    <i class="bi bi-x-lg"></i> Chiudi
+                </button>
+            </div>
+        </div>
+        {% endif %}
+
         {% if enriched_orders %}
         <div class="row">
             <div class="col-12">
@@ -861,6 +982,7 @@
                         <h5 class="mb-0">
                             <i class="bi bi-list-check"></i> Dettagli dell'ordine
                         </h5>
+                        {% if not is_awaiting_review %}
                         <div class="btn-group" role="group">
                             <button type="button" class="btn btn-sm btn-outline-primary" onclick="showView('table')">
                                 <i class="bi bi-table"></i> Vista tabella
@@ -869,9 +991,11 @@
                                 <i class="bi bi-grid-3x3"></i> Per Cluster
                             </button>
                         </div>
+                        {% endif %}
                     </div>
 
                      <!-- Table View with discount sorting -->
+                    {% if not is_awaiting_review %}
                     <div id="tableView" style="display: none;">
                         <div class="table-responsive">
                             <table class="table table-hover" id="ordersTable">
@@ -937,6 +1061,7 @@
                             </table>
                         </div>
                     </div>
+                    {% endif %}
 
                     <!-- Skipped Products Section -->
                     {% if enriched_skipped %}
@@ -1092,6 +1217,7 @@
                     {% endif %}
 
                     <!-- Collapsible Cluster View with sorted clusters -->
+                    {% if not is_awaiting_review %}
                     <div id="clusterView">
                         {% for cluster_name, cluster_data in clusters.items %}
                         <div class="cluster-section mb-3">
@@ -1150,6 +1276,7 @@
                         </div>
                         {% endfor %}
                     </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -1492,5 +1619,308 @@ function pollFetchTask(taskId, cod, v, btn) {
 }
 
 </script>
+
+{% if is_awaiting_review %}
+<script>
+// ============ ORDER REVIEW ("Da inviare") ============
+(function () {
+    const LOG_ID = {{ log.id }};
+    const CSRF = '{{ csrf_token }}';
+    const editUrl = `/logs/${LOG_ID}/review/edit/`;
+
+    const tbody = document.getElementById('reviewTableBody');
+    const emptyMsg = document.getElementById('reviewEmpty');
+    const totalItemsEl = document.getElementById('revTotalItems');
+    const totalPackagesEl = document.getElementById('revTotalPackages');
+
+    function post(payload) {
+        return fetch(editUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+            body: JSON.stringify(payload),
+        }).then(async r => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.success) throw new Error(data.message || 'Errore');
+            return data;
+        });
+    }
+
+    function updateTotals(data) {
+        if (data.products_ordered !== undefined) totalItemsEl.textContent = data.products_ordered;
+        if (data.total_packages !== undefined) totalPackagesEl.textContent = data.total_packages;
+        if (emptyMsg) emptyMsg.hidden = tbody.querySelectorAll('tr.review-row').length > 0;
+    }
+
+    // ---- Sync age indicator ----
+    const syncInfo = document.getElementById('syncInfo');
+    if (syncInfo && syncInfo.dataset.sync) {
+        const ageEl = document.getElementById('syncAge');
+        const ts = new Date(syncInfo.dataset.sync);
+        const mins = Math.floor((Date.now() - ts.getTime()) / 60000);
+        if (ageEl && !isNaN(mins)) {
+            ageEl.textContent = `(${mins} min fa)`;
+            if (mins > 25) {
+                ageEl.classList.add('badge', 'bg-warning', 'text-dark');
+                ageEl.textContent = `${mins} min fa — verifica la giacenza`;
+            } else {
+                ageEl.classList.add('text-muted');
+            }
+        }
+    }
+
+    // ---- Row-level editing (delegated) ----
+    tbody.addEventListener('click', function (e) {
+        const row = e.target.closest('tr.review-row');
+        if (!row) return;
+        const cod = parseInt(row.dataset.cod);
+        const v = parseInt(row.dataset.var);
+        const qtyInput = row.querySelector('.rev-qty');
+
+        if (e.target.closest('.qty-inc') || e.target.closest('.qty-dec')) {
+            const delta = e.target.closest('.qty-inc') ? 1 : -1;
+            const next = Math.max(0, (parseInt(qtyInput.value) || 0) + delta);
+            qtyInput.value = next;
+            commitQty(row, cod, v, next);
+        } else if (e.target.closest('.rev-remove')) {
+            post({ action: 'remove', cod: cod, var: v })
+                .then(data => { row.remove(); updateTotals(data); })
+                .catch(err => alert(err.message));
+        } else if (e.target.closest('.edit-stock-btn')) {
+            const stockEl = row.querySelector('.rev-stock');
+            const cur = parseInt(stockEl.textContent) || 0;
+            const val = prompt('Correggi la giacenza reale:', cur);
+            if (val === null) return;
+            const n = parseInt(val);
+            if (isNaN(n) || n < 0) { alert('Valore non valido'); return; }
+            post({ action: 'set_stock', cod: cod, var: v, stock: n })
+                .then(() => { stockEl.textContent = n; })
+                .catch(err => alert(err.message));
+        }
+    });
+
+    tbody.addEventListener('change', function (e) {
+        if (!e.target.classList.contains('rev-qty')) return;
+        const row = e.target.closest('tr.review-row');
+        const cod = parseInt(row.dataset.cod);
+        const v = parseInt(row.dataset.var);
+        let n = parseInt(e.target.value);
+        if (isNaN(n) || n < 0) n = 0;
+        e.target.value = n;
+        commitQty(row, cod, v, n);
+    });
+
+    function commitQty(row, cod, v, qty) {
+        post({ action: 'set_qty', cod: cod, var: v, qty: qty })
+            .then(data => { if (qty === 0) row.remove(); updateTotals(data); })
+            .catch(err => alert(err.message));
+    }
+
+    // ---- Search / add panel ----
+    const searchInput = document.getElementById('reviewSearchInput');
+    const resultsBox = document.getElementById('reviewSearchResults');
+    let searchTimer = null;
+
+    function renderResults(list) {
+        if (!list.length) {
+            resultsBox.innerHTML = '<div class="text-muted small">Nessun prodotto trovato in questo reparto.</div>';
+            return;
+        }
+        resultsBox.innerHTML = list.map(p => {
+            const badge = p.on_sale
+                ? `<span class="discount-badge ms-1"><i class="bi bi-star-fill"></i> -${p.discount != null ? p.discount : ''}%</span>`
+                : '';
+            const inOrder = p.in_order
+                ? `<span class="badge bg-success ms-1">Nell'ordine: ${p.order_qty} colli</span>`
+                : `<span class="badge bg-secondary ms-1">Non nell'ordine</span>`;
+            const defQty = p.in_order ? p.order_qty : 1;
+            return `
+            <div class="border rounded p-2 mb-2 sr-item" data-cod="${p.cod}" data-var="${p.var}">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
+                    <div>
+                        <small class="text-muted font-monospace">${p.cod}.${p.var}</small>
+                        <div>${p.description} ${badge}</div>
+                        <div class="small text-muted">Giacenza: <strong class="sr-stock">${p.stock}</strong>
+                            · Media/gg: ${p.avg_daily_sales} ${inOrder}</div>
+                    </div>
+                    <div class="input-group input-group-sm" style="max-width:170px;">
+                        <input type="number" class="form-control text-center sr-qty" value="${defQty}" min="0" inputmode="numeric">
+                        <button class="btn btn-primary sr-set" type="button">${p.in_order ? 'Aggiorna' : 'Aggiungi'}</button>
+                    </div>
+                </div>
+                <div class="mt-1">
+                    <button class="btn btn-link btn-sm p-0 sr-stock-edit"><i class="bi bi-pencil"></i> Correggi giacenza</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function runSearch(term) {
+        term = term.trim();
+        const params = new URLSearchParams();
+        // cod.var (e.g. "12345.1"), pure number treated as EAN if long, else description
+        const cv = term.match(/^(\d+)[.\s](\d+)$/);
+        if (cv) { params.set('cod', cv[1]); params.set('var', cv[2]); }
+        else if (/^\d{6,}$/.test(term)) { params.set('ean', term); }
+        else if (term.length >= 3) { params.set('q', term); }
+        else { resultsBox.innerHTML = ''; return; }
+
+        resultsBox.innerHTML = '<div class="text-muted small"><i class="bi bi-hourglass-split"></i> Ricerca...</div>';
+        fetch(`/logs/${LOG_ID}/review/search/?${params.toString()}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { resultsBox.innerHTML = `<div class="text-danger small">${data.error}</div>`; return; }
+                renderResults(data.results || []);
+            })
+            .catch(() => { resultsBox.innerHTML = '<div class="text-danger small">Errore di rete</div>'; });
+    }
+
+    searchInput.addEventListener('input', function () {
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => runSearch(this.value), 400);
+    });
+    searchInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); if (searchTimer) clearTimeout(searchTimer); runSearch(this.value); }
+    });
+
+    resultsBox.addEventListener('click', function (e) {
+        const item = e.target.closest('.sr-item');
+        if (!item) return;
+        const cod = parseInt(item.dataset.cod);
+        const v = parseInt(item.dataset.var);
+
+        if (e.target.closest('.sr-set')) {
+            let n = parseInt(item.querySelector('.sr-qty').value);
+            if (isNaN(n) || n < 0) n = 0;
+            post({ action: 'set_qty', cod: cod, var: v, qty: n })
+                .then(() => location.reload())
+                .catch(err => alert(err.message));
+        } else if (e.target.closest('.sr-stock-edit')) {
+            const stockEl = item.querySelector('.sr-stock');
+            const cur = parseInt(stockEl.textContent) || 0;
+            const val = prompt('Correggi la giacenza reale:', cur);
+            if (val === null) return;
+            const nn = parseInt(val);
+            if (isNaN(nn) || nn < 0) { alert('Valore non valido'); return; }
+            post({ action: 'set_stock', cod: cod, var: v, stock: nn })
+                .then(() => {
+                    stockEl.textContent = nn;
+                    const row = tbody.querySelector(`tr.review-row[data-cod="${cod}"][data-var="${v}"] .rev-stock`);
+                    if (row) row.textContent = nn;
+                })
+                .catch(err => alert(err.message));
+        }
+    });
+
+    // ---- Camera EAN scan (native BarcodeDetector) ----
+    const scanBtn = document.getElementById('reviewScanBtn');
+    const overlay = document.getElementById('scanOverlay');
+    const video = document.getElementById('scanVideo');
+    const scanStatus = document.getElementById('scanStatus');
+    const scanCloseBtn = document.getElementById('scanCloseBtn');
+    const barcodeSupported = ('BarcodeDetector' in window)
+        && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+
+    if (barcodeSupported) {
+        const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+        let stream = null, scanning = false;
+
+        function stopScan() {
+            scanning = false;
+            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+            overlay.style.display = 'none';
+        }
+        async function scanLoop() {
+            if (!scanning) return;
+            try {
+                const codes = await detector.detect(video);
+                if (codes.length > 0 && codes[0].rawValue) {
+                    const code = codes[0].rawValue.trim();
+                    stopScan();
+                    searchInput.value = code;
+                    runSearch(code);
+                    return;
+                }
+            } catch (err) { /* transient */ }
+            requestAnimationFrame(scanLoop);
+        }
+        async function startScan() {
+            try {
+                scanStatus.textContent = 'Inquadra il codice a barre…';
+                overlay.style.display = 'flex';
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video.srcObject = stream;
+                await video.play();
+                scanning = true;
+                requestAnimationFrame(scanLoop);
+            } catch (err) { stopScan(); alert('Impossibile accedere alla fotocamera: ' + err.message); }
+        }
+        scanBtn.style.display = '';
+        scanBtn.addEventListener('click', startScan);
+        scanCloseBtn.addEventListener('click', stopScan);
+    }
+
+    // ---- Invia / Scarta ----
+    const btnInvia = document.getElementById('btnInvia');
+    const btnScarta = document.getElementById('btnScarta');
+
+    btnInvia.addEventListener('click', function () {
+        const count = tbody.querySelectorAll('tr.review-row').length;
+        if (count === 0) { alert('L\'ordine è vuoto.'); return; }
+        if (!confirm(`Inviare l'ordine (${count} articoli) a Dropzone?`)) return;
+        btnInvia.disabled = true;
+        btnScarta.disabled = true;
+        btnInvia.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Invio in corso...';
+        fetch(`/logs/${LOG_ID}/submit/`, {
+            method: 'POST', headers: { 'X-CSRFToken': CSRF }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.task_id) { pollSubmit(data.task_id); }
+            else { throw new Error(data.message || 'Errore'); }
+        })
+        .catch(err => {
+            alert(err.message);
+            btnInvia.disabled = false; btnScarta.disabled = false;
+            btnInvia.innerHTML = '<i class="bi bi-send"></i> Invia ordine';
+        });
+    });
+
+    function pollSubmit(taskId) {
+        const interval = setInterval(() => {
+            fetch(`/tasks/${taskId}/status/`)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.ready) {
+                        if (data.status) btnInvia.innerHTML =
+                            `<span class="spinner-border spinner-border-sm"></span> ${data.status}`;
+                        return;
+                    }
+                    clearInterval(interval);
+                    if (data.success) {
+                        window.location.href = data.redirect_url || `/logs/${LOG_ID}/`;
+                    } else {
+                        alert('Invio fallito: ' + (data.error || 'errore sconosciuto'));
+                        window.location.reload();
+                    }
+                })
+                .catch(() => { /* keep polling */ });
+        }, 3000);
+    }
+
+    btnScarta.addEventListener('click', function () {
+        if (!confirm('Scartare questo ordine senza inviarlo?')) return;
+        fetch(`/logs/${LOG_ID}/discard/`, {
+            method: 'POST', headers: { 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) { window.location.href = data.redirect_url; }
+            else { alert(data.message || 'Errore'); }
+        })
+        .catch(() => alert('Errore di rete'));
+    });
+})();
+</script>
+{% endif %}
 
 {% endblock %}
