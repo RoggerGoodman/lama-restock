@@ -143,6 +143,50 @@
         </div>
     </div>
 
+    {% if log.operation_type == 'full_restock' or log.operation_type == 'order_execution' %}
+    <!-- Compact order header -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="stat-card py-2 px-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <h5 class="mb-0"><i class="bi bi-file-text text-primary"></i> Ordine #{{ log.id }}</h5>
+                        <span class="text-muted small">{{ log.storage.supermarket.name }} · {{ log.storage.name }}</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        {% if log.status == 'completed' %}
+                            <span class="badge bg-success"><i class="bi bi-check-circle"></i> Completato</span>
+                        {% elif log.status == 'failed' %}
+                            <span class="badge bg-danger"><i class="bi bi-x-circle"></i> Fallito</span>
+                        {% elif log.status == 'awaiting_review' %}
+                            <span class="badge bg-info text-dark"><i class="bi bi-pencil-square"></i> Da inviare</span>
+                        {% elif log.status == 'discarded' %}
+                            <span class="badge bg-secondary"><i class="bi bi-slash-circle"></i> Scartato</span>
+                        {% elif log.status == 'processing' %}
+                            <span class="badge bg-warning"><i class="bi bi-hourglass-split"></i> In corso</span>
+                        {% else %}
+                            <span class="badge bg-secondary"><i class="bi bi-clock"></i> In coda</span>
+                        {% endif %}
+                        <span class="text-muted small text-nowrap">
+                            {% if log.coverage_used %}{{ log.coverage_used }} gg · {% endif %}{{ log.products_ordered }} art. / {{ log.total_packages }} colli
+                        </span>
+                    </div>
+                </div>
+                {% if log.status == 'failed' and log.error_message %}
+                <div class="alert alert-danger mt-2 mb-0 py-2">
+                    <div class="small mb-0"><i class="bi bi-exclamation-triangle"></i> {{ log.error_message }}</div>
+                    {% if log.can_retry %}
+                    <form method="post" action="{% url 'retry-restock' log_id=log.id %}" class="mt-2">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-warning btn-sm"><i class="bi bi-arrow-repeat"></i> Riprova</button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% else %}
     <!-- Status Card -->
     <div class="row mb-4">
         <div class="col-lg-8">
@@ -379,6 +423,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
     <!-- ✅ CHECK OPERATION TYPE - Show different content based on type -->
     {% if log.operation_type == 'ddt_import' %}
@@ -890,18 +935,9 @@
                         </div>
                     </div>
 
-                    <!-- Actions + totals -->
-                    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
-                        <button class="btn btn-success" id="btnInvia">
-                            <i class="bi bi-send"></i> Invia ordine
-                        </button>
-                        <button class="btn btn-outline-danger" id="btnScarta">
-                            <i class="bi bi-slash-circle"></i> Scarta
-                        </button>
-                        <button class="btn btn-outline-secondary btn-sm" id="btnToggleAll" type="button">
-                            <i class="bi bi-arrows-expand"></i> Espandi tutto
-                        </button>
-                        <span class="ms-auto text-muted">
+                    <!-- Totals -->
+                    <div class="d-flex justify-content-end mb-2 text-muted">
+                        <span>
                             <strong id="revTotalItems">{{ enriched_orders|length }}</strong> art. /
                             <strong id="revTotalPackages">{{ log.total_packages }}</strong> colli
                         </span>
@@ -973,6 +1009,16 @@
                     <p id="reviewEmpty" class="text-muted text-center my-3" {% if enriched_orders %}hidden{% endif %}>
                         Nessun articolo nell'ordine. Usa la ricerca qui sopra per aggiungerne.
                     </p>
+
+                    <!-- Actions (bottom) -->
+                    <div class="d-flex flex-wrap gap-2 mt-3 pt-3 border-top">
+                        <button class="btn btn-success" id="btnInvia">
+                            <i class="bi bi-send"></i> Invia ordine
+                        </button>
+                        <button class="btn btn-outline-danger" id="btnScarta">
+                            <i class="bi bi-slash-circle"></i> Scarta
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1701,22 +1747,6 @@ function pollFetchTask(taskId, cod, v, btn) {
                 ageEl.classList.add('text-muted');
             }
         }
-    }
-
-    // ---- Expand / collapse all clusters ----
-    const btnToggleAll = document.getElementById('btnToggleAll');
-    let allExpanded = false;
-    if (btnToggleAll) {
-        btnToggleAll.addEventListener('click', function () {
-            allExpanded = !allExpanded;
-            list.querySelectorAll('.review-cluster .collapse').forEach(function (el) {
-                const c = bootstrap.Collapse.getOrCreateInstance(el, { toggle: false });
-                allExpanded ? c.show() : c.hide();
-            });
-            btnToggleAll.innerHTML = allExpanded
-                ? '<i class="bi bi-arrows-collapse"></i> Comprimi tutto'
-                : '<i class="bi bi-arrows-expand"></i> Espandi tutto';
-        });
     }
 
     // ---- Item-level editing (delegated) ----
