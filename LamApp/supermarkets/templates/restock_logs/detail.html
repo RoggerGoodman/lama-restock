@@ -875,89 +875,86 @@
                         </div>
                     </div>
 
-                    <div class="d-flex flex-wrap gap-2 mb-3">
+                    <!-- Search / add panel (top — handy for the mobile EAN scan) -->
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <div class="input-group input-group-lg mb-2">
+                                <input type="text" class="form-control" id="reviewSearchInput"
+                                       placeholder="Cerca: descrizione, EAN o cod.var…" inputmode="search" autocomplete="off">
+                                <button class="btn btn-primary" id="reviewScanBtn" type="button"
+                                        style="display:none;" title="Scansiona EAN con la fotocamera">
+                                    <i class="bi bi-camera"></i> <span class="d-none d-sm-inline">Scansiona</span>
+                                </button>
+                            </div>
+                            <div id="reviewSearchResults"></div>
+                        </div>
+                    </div>
+
+                    <!-- Actions + totals -->
+                    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
                         <button class="btn btn-success" id="btnInvia">
                             <i class="bi bi-send"></i> Invia ordine
                         </button>
                         <button class="btn btn-outline-danger" id="btnScarta">
                             <i class="bi bi-slash-circle"></i> Scarta
                         </button>
-                        <span class="ms-auto align-self-center text-muted">
+                        <span class="ms-auto text-muted">
                             <strong id="revTotalItems">{{ enriched_orders|length }}</strong> articoli /
                             <strong id="revTotalPackages">{{ log.total_packages }}</strong> colli
                         </span>
                     </div>
 
-                    <div class="table-responsive">
-                        <table class="table align-middle" id="reviewTable">
-                            <thead>
-                                <tr>
-                                    <th>Articolo</th>
-                                    <th class="text-end">Giacenza</th>
-                                    <th class="text-end d-none d-sm-table-cell">Media/gg</th>
-                                    <th class="text-center">Colli</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody id="reviewTableBody">
-                                {% for order in enriched_orders %}
-                                <tr class="review-row {% if order.on_sale %}on-sale{% endif %}"
-                                    data-cod="{{ order.cod }}" data-var="{{ order.var }}">
-                                    <td>
-                                        <small class="text-muted font-monospace">{{ order.cod }}.{{ order.var }}</small><br>
-                                        {{ order.name|truncatewords:6 }}
-                                        {% if order.on_sale %}
-                                        <span class="discount-badge ms-1">
-                                            <i class="bi bi-star-fill discount-icon"></i> -{{ order.discount|floatformat:0 }}%
-                                        </span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="text-end text-nowrap">
-                                        <span class="rev-stock">{{ order.stock }}</span>
-                                        <button class="btn btn-link btn-sm p-0 ms-1 edit-stock-btn" title="Correggi giacenza">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                    </td>
-                                    <td class="text-end d-none d-sm-table-cell">{{ order.avg_daily_sales }}</td>
-                                    <td class="text-center">
-                                        <div class="input-group input-group-sm mx-auto" style="max-width:130px;">
-                                            <button class="btn btn-outline-secondary qty-dec" type="button">−</button>
-                                            <input type="number" class="form-control text-center rev-qty"
-                                                   value="{{ order.qty }}" min="0" inputmode="numeric">
-                                            <button class="btn btn-outline-secondary qty-inc" type="button">+</button>
-                                        </div>
-                                    </td>
-                                    <td class="text-end">
-                                        <button class="btn btn-sm btn-outline-danger rev-remove" title="Rimuovi">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                        <p id="reviewEmpty" class="text-muted text-center my-3" {% if enriched_orders %}hidden{% endif %}>
-                            Nessun articolo nell'ordine. Usa la ricerca qui sotto per aggiungerne.
-                        </p>
-                    </div>
-
-                    <!-- Search / add panel -->
-                    <div class="card mt-3">
-                        <div class="card-header bg-light">
-                            <i class="bi bi-search"></i> Ricerca prodotto
-                        </div>
-                        <div class="card-body">
-                            <div class="input-group mb-2">
-                                <input type="text" class="form-control" id="reviewSearchInput"
-                                       placeholder="Descrizione, EAN o cod.var…" inputmode="search" autocomplete="off">
-                                <button class="btn btn-outline-primary" id="reviewScanBtn" type="button"
-                                        style="display:none;" title="Scansiona EAN con la fotocamera">
-                                    <i class="bi bi-camera"></i>
-                                </button>
+                    <!-- Cluster-grouped, mobile-first order list -->
+                    <div id="reviewList">
+                        {% for cluster_name, cluster_data in clusters.items %}
+                        <div class="review-cluster mb-3" data-cluster="{{ cluster_name }}">
+                            <div class="d-flex justify-content-between align-items-center px-2 py-2 bg-light rounded-top border">
+                                <h6 class="mb-0"><i class="bi bi-folder"></i> {{ cluster_name }}</h6>
+                                <span class="text-muted small text-nowrap">
+                                    <span class="cluster-count">{{ cluster_data.count }}</span> art. /
+                                    <span class="cluster-packages">{{ cluster_data.total_packages }}</span> colli
+                                </span>
                             </div>
-                            <div id="reviewSearchResults"></div>
+                            <div class="border border-top-0 rounded-bottom">
+                                {% for order in cluster_data.items %}
+                                <div class="review-item d-flex align-items-center gap-2 p-2 border-bottom {% if order.on_sale %}on-sale{% endif %}"
+                                     data-cod="{{ order.cod }}" data-var="{{ order.var }}">
+                                    <div class="flex-grow-1" style="min-width:0;">
+                                        <div class="text-truncate">
+                                            {{ order.name }}
+                                            {% if order.on_sale %}
+                                            <span class="discount-badge ms-1">
+                                                <i class="bi bi-star-fill discount-icon"></i> -{{ order.discount|floatformat:0 }}%
+                                            </span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="small text-muted">
+                                            <span class="font-monospace">{{ order.cod }}.{{ order.var }}</span>
+                                            · Giac: <span class="rev-stock">{{ order.stock }}</span>
+                                            <button class="btn btn-link btn-sm p-0 align-baseline edit-stock-btn" title="Correggi giacenza">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            · {{ order.avg_daily_sales }}/gg
+                                        </div>
+                                    </div>
+                                    <div class="input-group input-group-sm flex-nowrap" style="width:auto;">
+                                        <button class="btn btn-outline-secondary qty-dec" type="button">−</button>
+                                        <input type="number" class="form-control text-center rev-qty"
+                                               value="{{ order.qty }}" min="0" inputmode="numeric" style="width:52px;">
+                                        <button class="btn btn-outline-secondary qty-inc" type="button">+</button>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-danger rev-remove" title="Rimuovi">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                                {% endfor %}
+                            </div>
                         </div>
+                        {% endfor %}
                     </div>
+                    <p id="reviewEmpty" class="text-muted text-center my-3" {% if enriched_orders %}hidden{% endif %}>
+                        Nessun articolo nell'ordine. Usa la ricerca qui sopra per aggiungerne.
+                    </p>
                 </div>
             </div>
         </div>
@@ -1628,7 +1625,7 @@ function pollFetchTask(taskId, cod, v, btn) {
     const CSRF = '{{ csrf_token }}';
     const editUrl = `/logs/${LOG_ID}/review/edit/`;
 
-    const tbody = document.getElementById('reviewTableBody');
+    const list = document.getElementById('reviewList');
     const emptyMsg = document.getElementById('reviewEmpty');
     const totalItemsEl = document.getElementById('revTotalItems');
     const totalPackagesEl = document.getElementById('revTotalPackages');
@@ -1648,7 +1645,27 @@ function pollFetchTask(taskId, cod, v, btn) {
     function updateTotals(data) {
         if (data.products_ordered !== undefined) totalItemsEl.textContent = data.products_ordered;
         if (data.total_packages !== undefined) totalPackagesEl.textContent = data.total_packages;
-        if (emptyMsg) emptyMsg.hidden = tbody.querySelectorAll('tr.review-row').length > 0;
+        if (emptyMsg) emptyMsg.hidden = list.querySelectorAll('.review-item').length > 0;
+    }
+
+    // Recompute a cluster header's counts from its remaining rows; drop the
+    // cluster block entirely when it has no items left.
+    function refreshCluster(clusterEl) {
+        if (!clusterEl) return;
+        const items = clusterEl.querySelectorAll('.review-item');
+        if (items.length === 0) { clusterEl.remove(); return; }
+        let packages = 0;
+        items.forEach(it => { packages += parseInt(it.querySelector('.rev-qty').value) || 0; });
+        const c = clusterEl.querySelector('.cluster-count');
+        const p = clusterEl.querySelector('.cluster-packages');
+        if (c) c.textContent = items.length;
+        if (p) p.textContent = packages;
+    }
+
+    function removeItem(item) {
+        const cluster = item.closest('.review-cluster');
+        item.remove();
+        refreshCluster(cluster);
     }
 
     // ---- Sync age indicator ----
@@ -1668,9 +1685,9 @@ function pollFetchTask(taskId, cod, v, btn) {
         }
     }
 
-    // ---- Row-level editing (delegated) ----
-    tbody.addEventListener('click', function (e) {
-        const row = e.target.closest('tr.review-row');
+    // ---- Item-level editing (delegated) ----
+    list.addEventListener('click', function (e) {
+        const row = e.target.closest('.review-item');
         if (!row) return;
         const cod = parseInt(row.dataset.cod);
         const v = parseInt(row.dataset.var);
@@ -1683,7 +1700,7 @@ function pollFetchTask(taskId, cod, v, btn) {
             commitQty(row, cod, v, next);
         } else if (e.target.closest('.rev-remove')) {
             post({ action: 'remove', cod: cod, var: v })
-                .then(data => { row.remove(); updateTotals(data); })
+                .then(data => { removeItem(row); updateTotals(data); })
                 .catch(err => alert(err.message));
         } else if (e.target.closest('.edit-stock-btn')) {
             const stockEl = row.querySelector('.rev-stock');
@@ -1698,9 +1715,9 @@ function pollFetchTask(taskId, cod, v, btn) {
         }
     });
 
-    tbody.addEventListener('change', function (e) {
+    list.addEventListener('change', function (e) {
         if (!e.target.classList.contains('rev-qty')) return;
-        const row = e.target.closest('tr.review-row');
+        const row = e.target.closest('.review-item');
         const cod = parseInt(row.dataset.cod);
         const v = parseInt(row.dataset.var);
         let n = parseInt(e.target.value);
@@ -1710,8 +1727,13 @@ function pollFetchTask(taskId, cod, v, btn) {
     });
 
     function commitQty(row, cod, v, qty) {
+        const cluster = row.closest('.review-cluster');
         post({ action: 'set_qty', cod: cod, var: v, qty: qty })
-            .then(data => { if (qty === 0) row.remove(); updateTotals(data); })
+            .then(data => {
+                if (qty === 0) { removeItem(row); }
+                else { refreshCluster(cluster); }
+                updateTotals(data);
+            })
             .catch(err => alert(err.message));
     }
 
@@ -1804,7 +1826,7 @@ function pollFetchTask(taskId, cod, v, btn) {
             post({ action: 'set_stock', cod: cod, var: v, stock: nn })
                 .then(() => {
                     stockEl.textContent = nn;
-                    const row = tbody.querySelector(`tr.review-row[data-cod="${cod}"][data-var="${v}"] .rev-stock`);
+                    const row = list.querySelector(`.review-item[data-cod="${cod}"][data-var="${v}"] .rev-stock`);
                     if (row) row.textContent = nn;
                 })
                 .catch(err => alert(err.message));
@@ -1864,7 +1886,7 @@ function pollFetchTask(taskId, cod, v, btn) {
     const btnScarta = document.getElementById('btnScarta');
 
     btnInvia.addEventListener('click', function () {
-        const count = tbody.querySelectorAll('tr.review-row').length;
+        const count = list.querySelectorAll('.review-item').length;
         if (count === 0) { alert('L\'ordine è vuoto.'); return; }
         if (!confirm(`Inviare l'ordine (${count} articoli) a Dropzone?`)) return;
         btnInvia.disabled = true;
