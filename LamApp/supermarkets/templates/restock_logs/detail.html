@@ -898,54 +898,72 @@
                         <button class="btn btn-outline-danger" id="btnScarta">
                             <i class="bi bi-slash-circle"></i> Scarta
                         </button>
+                        <button class="btn btn-outline-secondary btn-sm" id="btnToggleAll" type="button">
+                            <i class="bi bi-arrows-expand"></i> Espandi tutto
+                        </button>
                         <span class="ms-auto text-muted">
-                            <strong id="revTotalItems">{{ enriched_orders|length }}</strong> articoli /
+                            <strong id="revTotalItems">{{ enriched_orders|length }}</strong> art. /
                             <strong id="revTotalPackages">{{ log.total_packages }}</strong> colli
                         </span>
                     </div>
 
-                    <!-- Cluster-grouped, mobile-first order list -->
+                    <style>
+                        .review-name { font-weight: 500; line-height: 1.2; overflow-wrap: anywhere; }
+                        .review-cluster .cl-head .bi-chevron-right { transition: transform .15s; }
+                        .review-cluster .cl-head[aria-expanded="true"] .bi-chevron-right { transform: rotate(90deg); }
+                        .review-item .rev-remove { font-size: 1rem; line-height: 1; }
+                        .review-item .rev-qty { width: 44px; }
+                    </style>
+
+                    <!-- Cluster-grouped, mobile-first order list (collapsed by default) -->
                     <div id="reviewList">
                         {% for cluster_name, cluster_data in clusters.items %}
-                        <div class="review-cluster mb-3" data-cluster="{{ cluster_name }}">
-                            <div class="d-flex justify-content-between align-items-center px-2 py-2 bg-light rounded-top border">
-                                <h6 class="mb-0"><i class="bi bi-folder"></i> {{ cluster_name }}</h6>
-                                <span class="text-muted small text-nowrap">
+                        <div class="review-cluster mb-2" data-cluster="{{ cluster_name }}">
+                            <div class="cl-head d-flex justify-content-between align-items-center px-2 py-2 bg-light border rounded"
+                                 role="button" data-bs-toggle="collapse" data-bs-target="#rc-{{ forloop.counter }}"
+                                 aria-expanded="false">
+                                <h6 class="mb-0 text-truncate">
+                                    <i class="bi bi-chevron-right"></i> {{ cluster_name }}
+                                </h6>
+                                <span class="text-muted small text-nowrap ms-2">
                                     <span class="cluster-count">{{ cluster_data.count }}</span> art. /
                                     <span class="cluster-packages">{{ cluster_data.total_packages }}</span> colli
                                 </span>
                             </div>
-                            <div class="border border-top-0 rounded-bottom">
+                            <div class="collapse border border-top-0 rounded-bottom" id="rc-{{ forloop.counter }}">
                                 {% for order in cluster_data.items %}
-                                <div class="review-item d-flex align-items-center gap-2 p-2 border-bottom {% if order.on_sale %}on-sale{% endif %}"
+                                <div class="review-item p-2 border-bottom {% if order.on_sale %}on-sale{% endif %}"
                                      data-cod="{{ order.cod }}" data-var="{{ order.var }}">
-                                    <div class="flex-grow-1" style="min-width:0;">
-                                        <div class="text-truncate">
-                                            {{ order.name }}
-                                            {% if order.on_sale %}
-                                            <span class="discount-badge ms-1">
-                                                <i class="bi bi-star-fill discount-icon"></i> -{{ order.discount|floatformat:0 }}%
-                                            </span>
-                                            {% endif %}
+                                    <div class="d-flex align-items-start gap-2">
+                                        <div class="flex-grow-1" style="min-width:0;">
+                                            <div class="review-name">
+                                                {{ order.name }}
+                                                {% if order.on_sale %}
+                                                <span class="discount-badge">
+                                                    <i class="bi bi-star-fill discount-icon"></i> -{{ order.discount|floatformat:0 }}%
+                                                </span>
+                                                {% endif %}
+                                            </div>
+                                            <div class="small text-muted mt-1">
+                                                Giac <span class="rev-stock">{{ order.stock }}</span>
+                                                <button class="btn btn-link btn-sm p-0 align-baseline edit-stock-btn" title="Correggi giacenza">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                · {{ order.avg_daily_sales }}/gg
+                                            </div>
                                         </div>
-                                        <div class="small text-muted">
-                                            <span class="font-monospace">{{ order.cod }}.{{ order.var }}</span>
-                                            · Giac: <span class="rev-stock">{{ order.stock }}</span>
-                                            <button class="btn btn-link btn-sm p-0 align-baseline edit-stock-btn" title="Correggi giacenza">
-                                                <i class="bi bi-pencil"></i>
+                                        <div class="d-flex flex-column align-items-end gap-1">
+                                            <button class="btn btn-sm text-danger p-0 rev-remove" title="Rimuovi">
+                                                <i class="bi bi-x-lg"></i>
                                             </button>
-                                            · {{ order.avg_daily_sales }}/gg
+                                            <div class="input-group input-group-sm flex-nowrap" style="width:auto;">
+                                                <button class="btn btn-outline-secondary qty-dec" type="button">−</button>
+                                                <input type="number" class="form-control text-center rev-qty"
+                                                       value="{{ order.qty }}" min="0" inputmode="numeric">
+                                                <button class="btn btn-outline-secondary qty-inc" type="button">+</button>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div class="input-group input-group-sm flex-nowrap" style="width:auto;">
-                                        <button class="btn btn-outline-secondary qty-dec" type="button">−</button>
-                                        <input type="number" class="form-control text-center rev-qty"
-                                               value="{{ order.qty }}" min="0" inputmode="numeric" style="width:52px;">
-                                        <button class="btn btn-outline-secondary qty-inc" type="button">+</button>
-                                    </div>
-                                    <button class="btn btn-sm btn-outline-danger rev-remove" title="Rimuovi">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
                                 </div>
                                 {% endfor %}
                             </div>
@@ -1683,6 +1701,22 @@ function pollFetchTask(taskId, cod, v, btn) {
                 ageEl.classList.add('text-muted');
             }
         }
+    }
+
+    // ---- Expand / collapse all clusters ----
+    const btnToggleAll = document.getElementById('btnToggleAll');
+    let allExpanded = false;
+    if (btnToggleAll) {
+        btnToggleAll.addEventListener('click', function () {
+            allExpanded = !allExpanded;
+            list.querySelectorAll('.review-cluster .collapse').forEach(function (el) {
+                const c = bootstrap.Collapse.getOrCreateInstance(el, { toggle: false });
+                allExpanded ? c.show() : c.hide();
+            });
+            btnToggleAll.innerHTML = allExpanded
+                ? '<i class="bi bi-arrows-collapse"></i> Comprimi tutto'
+                : '<i class="bi bi-arrows-expand"></i> Espandi tutto';
+        });
     }
 
     // ---- Item-level editing (delegated) ----
