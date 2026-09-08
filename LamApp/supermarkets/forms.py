@@ -73,9 +73,11 @@ class RestockScheduleForm(forms.ModelForm):
             'friday', 'friday_delivery_offset', 'friday_order_time',
             'saturday', 'saturday_delivery_offset', 'saturday_order_time',
             'sunday', 'sunday_delivery_offset', 'sunday_order_time',
+            'require_order_review',
         ]
-        
+
         widgets = {
+            'require_order_review': forms.CheckboxInput(attrs={'class': 'form-check-input', 'role': 'switch'}),
             # Day checkboxes
             'monday': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'updateCoveragePreview()'}),
             'tuesday': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'updateCoveragePreview()'}),
@@ -500,18 +502,5 @@ class DDTUploadForm(forms.Form):
         widget=forms.FileInput(attrs={
             'class': 'form-control',
             'accept': '.pdf'
-        })
-    )
-
-
-class OrderComparisonForm(forms.Form):
-    """Upload OrdiniRighe.csv from PAC2000A to compare machine vs human orders."""
-
-    csv_file = forms.FileField(
-        label="OrdiniRighe.csv",
-        help_text="Esporta il file dal PAC2000A e caricalo qui.",
-        widget=forms.FileInput(attrs={
-            'class': 'form-control',
-            'accept': '.csv,.txt',
         })
     )

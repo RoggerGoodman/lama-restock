@@ -526,6 +526,22 @@
                         <div id="coverageDisplay"></div>
                     </div>
 
+                    <!-- Invio ordine -->
+                    <div class="card mb-4 border-0 bg-light">
+                        <div class="card-body">
+                            <div class="form-check form-switch">
+                                {{ form.require_order_review }}
+                                <label class="form-check-label fw-semibold" for="{{ form.require_order_review.id_for_label }}">
+                                    Rivedi l'ordine prima di inviarlo
+                                </label>
+                            </div>
+                            <div class="text-muted small mt-1">
+                                Attivo: dopo il calcolo l'ordine resta in attesa ("Da inviare") e va inviato manualmente dopo la revisione.
+                                Disattivo: l'ordine viene inviato automaticamente a Dropzone appena calcolato.
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
                             <i class="bi bi-x-circle"></i> Annulla

@@ -250,6 +250,14 @@ class RestockSchedule(models.Model):
     saturday_order_time = models.TimeField(default=time(6, 0), help_text="When the Saturday order fires")
     sunday_order_time = models.TimeField(default=time(6, 0), help_text="When the Sunday order fires")
 
+    # When True the computed order parks as 'awaiting_review' for a human to check
+    # and send ("Invia"). When False it is sent to Dropzone automatically as soon
+    # as the decision maker finishes.
+    require_order_review = models.BooleanField(
+        default=True,
+        help_text="Attendi la revisione umana prima di inviare l'ordine"
+    )
+
     def get_order_days(self):
         """Returns list of day indices where orders happen (0=Monday, 6=Sunday)"""
         weekday_fields = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']

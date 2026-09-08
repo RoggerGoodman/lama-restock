@@ -35,7 +35,7 @@ from .models import (
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
     BlacklistEntryForm, AddProductsForm, PromoUploadForm,
-    RecordLossesForm, DDTUploadForm, DayWeightsForm, OrderComparisonForm,
+    RecordLossesForm, DDTUploadForm, DayWeightsForm,
 )
 
 from .services import RestockService, delete_blacklist_entries_for_purged
@@ -1976,6 +1976,24 @@ def dismiss_failed_log(request, pk):
 
 # ============ Order Review ("Da inviare") Views ============
 
+def parse_shelf_barcode(code):
+    """
+    Decode an internal shelf-label barcode (a "crypted" cod.v) into (cod, v).
+
+    Shelf codes are 13 digits: discard the first 5 and the last 1; the two
+    remaining last digits are the variante, and what is left in the middle is the
+    cod (both stripped of leading zeros). E.g.
+    7982024129017 -> (24129, 1), 7982008181109 -> (8181, 10).
+
+    Product EANs printed on the item use other prefixes and return None, so the
+    caller falls back to a normal EAN lookup.
+    """
+    code = (code or '').strip()
+    if len(code) == 13 and code.isdigit() and code.startswith('7982'):
+        return int(code[5:10]), int(code[10:12])
+    return None
+
+
 def _avg_daily_sales_for(service, sales_sets, sold_last_24):
     """Same fallback chain the decision maker / calibration use."""
     from .scripts.helpers import Helper
@@ -2028,7 +2046,13 @@ def order_review_search(request, pk):
                 cur.execute(base_select + " AND p.cod = %s AND p.v = %s",
                             (storage.settore, int(cod_raw), int(var_raw)))
             elif ean_raw:
-                cur.execute(base_select + " AND p.ean = %s", (storage.settore, int(ean_raw)))
+                # A scanned shelf label is a crypted cod.v; a product EAN is a real EAN.
+                shelf = parse_shelf_barcode(ean_raw)
+                if shelf:
+                    cur.execute(base_select + " AND p.cod = %s AND p.v = %s",
+                                (storage.settore, shelf[0], shelf[1]))
+                else:
+                    cur.execute(base_select + " AND p.ean = %s", (storage.settore, int(ean_raw)))
             elif len(q) >= 3:
                 cur.execute(base_select + " AND p.descrizione ILIKE %s ORDER BY p.descrizione LIMIT 20",
                             (storage.settore, f'%{q}%'))
@@ -4116,13 +4140,23 @@ def inventory_results_view(request, search_type):
             if not ean_raw:
                 messages.error(request, "EAN mancante")
                 return redirect('inventory-search')
-            try:
-                ean = int(ean_raw)
-            except ValueError:
-                messages.error(request, "EAN non valido")
-                return redirect('inventory-search')
 
-            search_description = f"EAN: {ean_raw}"
+            # A scanned shelf label is a crypted cod.v; a product EAN is a real EAN.
+            shelf = parse_shelf_barcode(ean_raw)
+            if shelf:
+                where_sql = "WHERE p.cod = %s AND p.v = %s AND ps.verified = TRUE"
+                where_params = (shelf[0], shelf[1])
+                search_description = f"Prodotto {shelf[0]}.{shelf[1]}"
+            else:
+                try:
+                    ean = int(ean_raw)
+                except ValueError:
+                    messages.error(request, "EAN non valido")
+                    return redirect('inventory-search')
+                where_sql = "WHERE p.ean = %s AND ps.verified = TRUE"
+                where_params = (ean,)
+                search_description = f"EAN: {ean_raw}"
+
             found = False
             for sm in Supermarket.objects.filter(owner=request.user):
                 storage = sm.storages.first()
@@ -4131,15 +4165,15 @@ def inventory_results_view(request, search_type):
                 with RestockService(storage) as service:
                     try:
                         cur = service.db.cursor()
-                        cur.execute("""
+                        cur.execute(f"""
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
                                 ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
-                            WHERE p.ean = %s AND ps.verified = TRUE
-                        """, (ean,))
+                            {where_sql}
+                        """, where_params)
                         row = cur.fetchone()
                         if row:
                             found = True

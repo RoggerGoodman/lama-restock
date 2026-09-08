@@ -495,9 +495,6 @@ class AutomatedRestockService(RestockService):
                 progress_callback(50, f'Order calculated: {len(orders_list)} products')
             logger.info(f"Order calculated: {len(orders_list)} products, {len(zombie_products)} zombie")
 
-            # The order is no longer sent here. It parks as 'awaiting_review' so the
-            # operator can review/edit it and press "Invia" (execute_pending_order),
-            # which runs the proven Selenium execution block below.
             if not orders_list:
                 logger.info(f"No items to order for {self.storage.name}")
                 log.status = 'completed'
@@ -506,14 +503,31 @@ class AutomatedRestockService(RestockService):
                 log.save()
                 return log
 
-            log.status = 'awaiting_review'
-            log.current_stage = 'awaiting_review'
             log.order_calculated_at = timezone.now()
-            log.save()
 
-            if progress_callback:
-                progress_callback(100, f'Ordine pronto per la revisione: {len(orders_list)} articoli')
-            logger.info(f"Order ready for review for {self.storage.name} (log #{log.id})")
+            # Per-schedule choice: park for human review, or send straight away.
+            # Missing schedule defaults to review (the safer behaviour).
+            try:
+                schedule = self.storage.schedule
+            except Exception:
+                schedule = None
+            require_review = getattr(schedule, 'require_order_review', True)
+
+            if require_review:
+                log.status = 'awaiting_review'
+                log.current_stage = 'awaiting_review'
+                log.save()
+                if progress_callback:
+                    progress_callback(100, f'Ordine pronto per la revisione: {len(orders_list)} articoli')
+                logger.info(f"Order ready for review for {self.storage.name} (log #{log.id})")
+                return log
+
+            # Direct send: run the proven Selenium execution inline.
+            log.status = 'processing'
+            log.current_stage = 'processing'
+            log.save()
+            self._execute_order_selenium(log, orders_list, progress_callback)
+            logger.info(f"Order sent directly for {self.storage.name} (log #{log.id})")
             return log
 
         except Exception as e:
@@ -554,41 +568,7 @@ class AutomatedRestockService(RestockService):
             log.error_message = ''
             log.save()
 
-            if not orders_list:
-                logger.info(f"No items to order for {self.storage.name}")
-                log.status = 'completed'
-                log.current_stage = 'completed'
-                log.completed_at = timezone.now()
-                log.save()
-                return log
-
-            if progress_callback:
-                progress_callback(70, f'Placing order for {len(orders_list)} products...')
-
-            orderer = Orderer(
-                username=self.supermarket.username,
-                password=self.supermarket.password
-            )
-            try:
-                orderer.login()
-                successful_orders, order_skipped = orderer.make_orders(self.storage.name, orders_list)
-
-                results = log.get_results()
-                results.setdefault('order_skipped_products', []).extend(order_skipped)
-                log.set_results(results)
-
-                log.products_ordered = len(successful_orders)
-                log.total_packages = sum(order[2] for order in successful_orders)
-                log.status = 'completed'
-                log.current_stage = 'completed'
-                log.order_executed_at = timezone.now()
-                log.completed_at = timezone.now()
-                log.save()
-            finally:
-                orderer.driver.quit()
-
-            if progress_callback:
-                progress_callback(100, 'Order placed successfully!')
+            self._execute_order_selenium(log, orders_list, progress_callback)
             logger.info(f"Reviewed order submitted successfully for {self.storage.name}")
             return log
 
@@ -602,3 +582,46 @@ class AutomatedRestockService(RestockService):
         finally:
             exit_order_log(_order_log_ctx)
             exit_supermarket_log(_sm_log_ctx)
+
+    def _execute_order_selenium(self, log: RestockLog, orders_list, progress_callback=None):
+        """
+        The proven Selenium send: log in, place the order, mark the log completed.
+        Caller owns the logging context and sets status='processing' beforehand.
+        orders_list is a list of (cod, var, qty, discount) tuples.
+        """
+        if not orders_list:
+            logger.info(f"No items to order for {self.storage.name}")
+            log.status = 'completed'
+            log.current_stage = 'completed'
+            log.completed_at = timezone.now()
+            log.save()
+            return log
+
+        if progress_callback:
+            progress_callback(70, f'Placing order for {len(orders_list)} products...')
+
+        orderer = Orderer(
+            username=self.supermarket.username,
+            password=self.supermarket.password
+        )
+        try:
+            orderer.login()
+            successful_orders, order_skipped = orderer.make_orders(self.storage.name, orders_list)
+
+            results = log.get_results()
+            results.setdefault('order_skipped_products', []).extend(order_skipped)
+            log.set_results(results)
+
+            log.products_ordered = len(successful_orders)
+            log.total_packages = sum(order[2] for order in successful_orders)
+            log.status = 'completed'
+            log.current_stage = 'completed'
+            log.order_executed_at = timezone.now()
+            log.completed_at = timezone.now()
+            log.save()
+        finally:
+            orderer.driver.quit()
+
+        if progress_callback:
+            progress_callback(100, 'Order placed successfully!')
+        return log
