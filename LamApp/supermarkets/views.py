@@ -1784,6 +1784,10 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     enriched_zombie = self._enrich_product_list(service, zombie_products)
                     enriched_order_skipped = self._enrich_product_list(service, order_skipped_products)
 
+                    # Alphabetical by cluster, and by product name within each cluster,
+                    # so the operator can scan for an item quickly.
+                    for _cluster in clusters.values():
+                        _cluster['items'].sort(key=lambda it: (it.get('name') or '').lower())
                     sorted_clusters = dict(sorted(clusters.items(), key=lambda x: x[0]))
 
                     # Calculate summary
