@@ -1795,16 +1795,53 @@ function pollFetchTask(taskId, cod, v, btn) {
                 .catch(err => alert(err.message));
         } else if (e.target.closest('.edit-stock-btn')) {
             const stockEl = row.querySelector('.rev-stock');
-            const cur = parseInt(stockEl.textContent) || 0;
-            const val = prompt('Correggi la giacenza reale:', cur);
-            if (val === null) return;
-            const n = parseInt(val);
-            if (isNaN(n) || n < 0) { alert('Valore non valido'); return; }
-            post({ action: 'set_stock', cod: cod, var: v, stock: n })
-                .then(() => { stockEl.textContent = n; })
-                .catch(err => alert(err.message));
+            openStockEditor(row.querySelector('.small'), cod, v, parseInt(stockEl.textContent) || 0, stockEl);
         }
     });
+
+    // ---- Inline stock corrector: real shelf count + mandatory reason ----
+    const STOCK_REASONS = [
+        ['expired', 'Scaduto'],
+        ['broken', 'Rotto/Danneggiato'],
+        ['internal_use', 'Uso interno'],
+        ['stolen', 'Furti'],
+        ['shrinkage', 'Differenze inventariali'],
+        ['other', 'Altro'],
+    ];
+
+    function openStockEditor(container, cod, v, currentStock, stockSpan, onSaved) {
+        if (!container || container.querySelector('.stock-editor')) return;
+        const ed = document.createElement('div');
+        ed.className = 'stock-editor d-flex flex-wrap gap-1 align-items-center mt-1';
+        ed.innerHTML =
+            '<input type="number" class="form-control form-control-sm se-stock" min="0" style="width:60px;">' +
+            '<select class="form-select form-select-sm se-reason" style="width:auto;">' +
+            '<option value="" selected disabled>Motivo…</option>' +
+            STOCK_REASONS.map(function (r) { return '<option value="' + r[0] + '">' + r[1] + '</option>'; }).join('') +
+            '</select>' +
+            '<button type="button" class="btn btn-sm btn-success se-save"><i class="bi bi-check-lg"></i></button>' +
+            '<button type="button" class="btn btn-sm btn-outline-secondary se-cancel"><i class="bi bi-x-lg"></i></button>';
+        container.appendChild(ed);
+        const stockInput = ed.querySelector('.se-stock');
+        stockInput.value = currentStock;
+        stockInput.focus();
+        stockInput.select();
+        ed.querySelector('.se-cancel').addEventListener('click', function () { ed.remove(); });
+        ed.querySelector('.se-save').addEventListener('click', function () {
+            const n = parseInt(stockInput.value);
+            const reason = ed.querySelector('.se-reason').value;
+            if (isNaN(n) || n < 0) { alert('Valore non valido'); return; }
+            if (!reason) { alert('Seleziona un motivo'); return; }
+            post({ action: 'set_stock', cod: cod, var: v, stock: n, reason: reason })
+                .then(function (data) {
+                    const applied = (data.stock !== undefined) ? data.stock : n;
+                    if (stockSpan) stockSpan.textContent = applied;
+                    if (onSaved) onSaved(applied);
+                    ed.remove();
+                })
+                .catch(function (err) { alert(err.message); });
+        });
+    }
 
     list.addEventListener('change', function (e) {
         if (!e.target.classList.contains('rev-qty')) return;
@@ -1909,18 +1946,10 @@ function pollFetchTask(taskId, cod, v, btn) {
                 .catch(err => alert(err.message));
         } else if (e.target.closest('.sr-stock-edit')) {
             const stockEl = item.querySelector('.sr-stock');
-            const cur = parseInt(stockEl.textContent) || 0;
-            const val = prompt('Correggi la giacenza reale:', cur);
-            if (val === null) return;
-            const nn = parseInt(val);
-            if (isNaN(nn) || nn < 0) { alert('Valore non valido'); return; }
-            post({ action: 'set_stock', cod: cod, var: v, stock: nn })
-                .then(() => {
-                    stockEl.textContent = nn;
-                    const row = list.querySelector(`.review-item[data-cod="${cod}"][data-var="${v}"] .rev-stock`);
-                    if (row) row.textContent = nn;
-                })
-                .catch(err => alert(err.message));
+            openStockEditor(item, cod, v, parseInt(stockEl.textContent) || 0, stockEl, function (applied) {
+                const row = list.querySelector(`.review-item[data-cod="${cod}"][data-var="${v}"] .rev-stock`);
+                if (row) row.textContent = applied;
+            });
         }
     });
 
