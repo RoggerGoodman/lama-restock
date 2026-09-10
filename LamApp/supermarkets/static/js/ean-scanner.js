@@ -49,7 +49,7 @@
         const scanStatus = overlay.querySelector('.ean-scan-status');
         const scanHint = overlay.querySelector('.ean-scan-hint');
         const scanCloseBtn = overlay.querySelector('.ean-scan-close');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
 
         let stream = null;
@@ -81,44 +81,60 @@
             onConfirm(code);
         }
 
-        // Canvas bitmap matches the camera frame and shares object-fit:cover with
-        // the video, so boxes draw in native coordinates with no scaling/offset.
-        function drawBox(box, ready) {
-            ctx.strokeStyle = ready ? '#22c55e' : 'rgba(255,255,255,0.7)';
+        // We detect on the same canvas we drew the frame into, so the box lands in
+        // the exact pixel space shown, no scaling/offset. Prefer cornerPoints
+        // (follows a tilted code), fall back to boundingBox if a detector omits them.
+        function drawBox(det, ready) {
+            ctx.strokeStyle = ready ? '#22c55e' : 'rgba(255,255,255,0.85)';
             ctx.lineWidth = Math.max(canvas.width, canvas.height) * 0.008;
-            ctx.strokeRect(box.x, box.y, box.width, box.height);
+            const cp = det.cornerPoints;
+            if (cp && cp.length === 4) {
+                ctx.beginPath();
+                ctx.moveTo(cp[0].x, cp[0].y);
+                for (let i = 1; i < cp.length; i++) ctx.lineTo(cp[i].x, cp[i].y);
+                ctx.closePath();
+                ctx.stroke();
+            } else if (det.boundingBox) {
+                const b = det.boundingBox;
+                ctx.strokeRect(b.x, b.y, b.width, b.height);
+            }
         }
 
         async function scanLoop() {
             if (!scanning) return;
-            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-            }
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            try {
-                const codes = await detector.detect(video);
-                if (codes.length > 0 && codes[0].rawValue) {
-                    const code = codes[0].rawValue.trim();
-                    if (code === lastCode) {
-                        stableCount++;
-                    } else {
-                        lastCode = code;
-                        stableCount = 1;
-                    }
-                    const ready = stableCount >= STABLE_FRAMES;
-                    if (ready) {
-                        pendingCode = code;
-                        scanHint.textContent = 'Tocca lo schermo per confermare: ' + code;
-                    }
-                    drawBox(codes[0].boundingBox, ready);
-                } else {
-                    // Lost the code: require it to re-stabilise before confirming
-                    resetState();
-                    scanHint.textContent = 'Inquadra il codice a barre';
+            const vw = video.videoWidth, vh = video.videoHeight;
+            if (vw && vh) {
+                if (canvas.width !== vw || canvas.height !== vh) {
+                    canvas.width = vw;
+                    canvas.height = vh;
                 }
-            } catch (err) {
-                // Transient decode errors are normal between good frames
+                // Draw the current frame, then detect on the canvas itself so the
+                // box coordinates match exactly what is on screen.
+                ctx.drawImage(video, 0, 0, vw, vh);
+                try {
+                    const codes = await detector.detect(canvas);
+                    if (codes.length > 0 && codes[0].rawValue) {
+                        const code = codes[0].rawValue.trim();
+                        if (code === lastCode) {
+                            stableCount++;
+                        } else {
+                            lastCode = code;
+                            stableCount = 1;
+                        }
+                        const ready = stableCount >= STABLE_FRAMES;
+                        if (ready) {
+                            pendingCode = code;
+                            scanHint.textContent = 'Tocca lo schermo per confermare: ' + code;
+                        }
+                        drawBox(codes[0], ready);
+                    } else {
+                        // Lost the code: require it to re-stabilise before confirming
+                        resetState();
+                        scanHint.textContent = 'Inquadra il codice a barre';
+                    }
+                } catch (err) {
+                    // Transient decode errors are normal between good frames
+                }
             }
             requestAnimationFrame(scanLoop);
         }
