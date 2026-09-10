@@ -1,5 +1,6 @@
 <!-- LamApp/supermarkets/templates/restock_logs/detail.html - Enhanced version -->
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}{% if log.operation_type == 'ddt_import' %}DDT Import{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% else %}Riepilogo ordine{% endif %} - {% if log.operation_type == 'loss_recording' %}{{ log.storage.supermarket.name }}{% else %}{{ log.storage.name }}{% endif %}{% endblock %}
 {% block page_title %}{% if log.operation_type == 'ddt_import' %}Dettagli Importazione DDT{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% elif log.operation_type == 'verification' %}Dettagli verifica giacenza{% elif log.operation_type == 'cluster_assignment' %}Dettagli assegnazione cluster{% elif log.operation_type == 'product_addition' %}Dettagli aggiunta articoli{% else %}Dettagli riepilogo ordine{% endif %}{% endblock %}
@@ -1027,16 +1028,6 @@
             </div>
         </div>
 
-        <!-- Camera scan overlay (EAN via phone camera) -->
-        <div id="scanOverlay" style="display:none; position:fixed; inset:0; z-index:2000; background:#000; flex-direction:column;">
-            <video id="scanVideo" playsinline muted style="flex:1; width:100%; object-fit:cover;"></video>
-            <div style="position:absolute; top:0; left:0; right:0; padding:12px; display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4);">
-                <span class="text-white small" id="scanStatus">Inquadra il codice a barre…</span>
-                <button type="button" id="scanCloseBtn" class="btn btn-sm btn-light">
-                    <i class="bi bi-x-lg"></i> Chiudi
-                </button>
-            </div>
-        </div>
         {% endif %}
 
         {% if enriched_orders %}
@@ -1366,6 +1357,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="{% static 'js/ean-scanner.js' %}"></script>
 <script>
 let currentSortColumn = -1;
 let currentSortDirection = 'asc';
@@ -1953,53 +1945,14 @@ function pollFetchTask(taskId, cod, v, btn) {
         }
     });
 
-    // ---- Camera EAN scan (native BarcodeDetector) ----
-    const scanBtn = document.getElementById('reviewScanBtn');
-    const overlay = document.getElementById('scanOverlay');
-    const video = document.getElementById('scanVideo');
-    const scanStatus = document.getElementById('scanStatus');
-    const scanCloseBtn = document.getElementById('scanCloseBtn');
-    const barcodeSupported = ('BarcodeDetector' in window)
-        && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-
-    if (barcodeSupported) {
-        const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
-        let stream = null, scanning = false;
-
-        function stopScan() {
-            scanning = false;
-            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-            overlay.style.display = 'none';
+    // Camera EAN scan (shared module). Confirm locates the item in the order.
+    initEanScanner({
+        buttonId: 'reviewScanBtn',
+        onConfirm: function(code) {
+            searchInput.value = code;
+            runSearch(code);
         }
-        async function scanLoop() {
-            if (!scanning) return;
-            try {
-                const codes = await detector.detect(video);
-                if (codes.length > 0 && codes[0].rawValue) {
-                    const code = codes[0].rawValue.trim();
-                    stopScan();
-                    searchInput.value = code;
-                    runSearch(code);
-                    return;
-                }
-            } catch (err) { /* transient */ }
-            requestAnimationFrame(scanLoop);
-        }
-        async function startScan() {
-            try {
-                scanStatus.textContent = 'Inquadra il codice a barre…';
-                overlay.style.display = 'flex';
-                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                video.srcObject = stream;
-                await video.play();
-                scanning = true;
-                requestAnimationFrame(scanLoop);
-            } catch (err) { stopScan(); alert('Impossibile accedere alla fotocamera: ' + err.message); }
-        }
-        scanBtn.style.display = '';
-        scanBtn.addEventListener('click', startScan);
-        scanCloseBtn.addEventListener('click', stopScan);
-    }
+    });
 
     // ---- Invia / Scarta ----
     const btnInvia = document.getElementById('btnInvia');

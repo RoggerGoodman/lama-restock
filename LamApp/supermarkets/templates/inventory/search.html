@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}Ricerca Inventario{% endblock %}
 {% block page_title %}Ricerca Inventario{% endblock %}
 
@@ -296,19 +297,9 @@
 
 </div>
 
-<!-- Camera scan overlay (EAN via phone camera) -->
-<div id="scanOverlay" style="display:none; position:fixed; inset:0; z-index:2000; background:#000; flex-direction:column;">
-    <video id="scanVideo" playsinline muted style="flex:1; width:100%; object-fit:cover;"></video>
-    <div style="position:absolute; top:0; left:0; right:0; padding:12px; display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4);">
-        <span class="text-white small" id="scanStatus">Inquadra il codice a barre…</span>
-        <button type="button" id="scanCloseBtn" class="btn btn-sm btn-light">
-            <i class="bi bi-x-lg"></i> Chiudi
-        </button>
-    </div>
-</div>
-
 {% endblock %}
 {% block scripts %}
+<script src="{% static 'js/ean-scanner.js' %}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const searchTypeRadios = document.querySelectorAll('input[name="search_type"]');
@@ -405,72 +396,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // --- Camera EAN scanning (native BarcodeDetector) ---
-    // Fills the same EAN input and submits, so the backend flow is identical
-    // to the laser gun. Button only appears where the API + camera exist.
-    const scanBtn = document.getElementById('scanCameraBtn');
-    const overlay = document.getElementById('scanOverlay');
-    const video = document.getElementById('scanVideo');
-    const scanStatus = document.getElementById('scanStatus');
-    const scanCloseBtn = document.getElementById('scanCloseBtn');
-
-    const barcodeSupported = ('BarcodeDetector' in window)
-        && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-
-    if (barcodeSupported) {
-        const detector = new BarcodeDetector({
-            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e']
-        });
-        let stream = null;
-        let scanning = false;
-
-        function stopScan() {
-            scanning = false;
-            if (stream) {
-                stream.getTracks().forEach(t => t.stop());
-                stream = null;
-            }
-            overlay.style.display = 'none';
+    // Camera EAN scanning (shared module). Confirm fills the EAN input and
+    // submits, so the backend flow is identical to the laser gun.
+    initEanScanner({
+        buttonId: 'scanCameraBtn',
+        onConfirm: function(code) {
+            eanInput.value = code;
+            document.getElementById('searchForm').submit();
         }
-
-        async function scanLoop() {
-            if (!scanning) return;
-            try {
-                const codes = await detector.detect(video);
-                if (codes.length > 0 && codes[0].rawValue) {
-                    const code = codes[0].rawValue.trim();
-                    stopScan();
-                    eanInput.value = code;
-                    document.getElementById('searchForm').submit();
-                    return;
-                }
-            } catch (err) {
-                // Transient decode errors are normal between good frames
-            }
-            requestAnimationFrame(scanLoop);
-        }
-
-        async function startScan() {
-            try {
-                scanStatus.textContent = 'Inquadra il codice a barre…';
-                overlay.style.display = 'flex';
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment' }
-                });
-                video.srcObject = stream;
-                await video.play();
-                scanning = true;
-                requestAnimationFrame(scanLoop);
-            } catch (err) {
-                stopScan();
-                alert('Impossibile accedere alla fotocamera: ' + err.message);
-            }
-        }
-
-        scanBtn.style.display = '';
-        scanBtn.addEventListener('click', startScan);
-        scanCloseBtn.addEventListener('click', stopScan);
-    }
+    });
 
     searchTypeRadios.forEach(radio => {
         radio.addEventListener('change', updateFieldsVisibility);

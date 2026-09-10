@@ -665,9 +665,6 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # loss_recording logs are supermarket-wide but the RestockLog FK forces a
-        # storage, so they carry an arbitrary one (see record_losses_all_supermarkets).
-        # They belong on the supermarket page, not in a single storage's history.
         context['recent_logs'] = self.object.restock_logs.exclude(
             operation_type='loss_recording'
         ).select_related(
@@ -732,6 +729,8 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 out_of_stock_products = []
                 for row in cursor.fetchall():
                     sales_sets = Helper.sales_history(row['sales_sets'])
+                    if not any(v for v in sales_sets):
+                        continue
                     raw = Helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True) if sales_sets else None
                     avg_daily = round(raw, 1) if raw is not None else 0.0
                     out_of_stock_products.append({
@@ -772,8 +771,6 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     pz_x_collo = row['pz_x_collo'] or 12
                     rapp = row['rapp'] or 1
                     package_size = pz_x_collo * rapp
-                    # cost_std is per collo di cessione (rapp selling pieces);
-                    # bring it down to per-piece to match price_std and stock.
                     unit_cost = (row['cost_std'] or 0) / rapp
                     price_std = row['price_std'] or 0
                     net_price = net_price_of(price_std, row['iva'])
