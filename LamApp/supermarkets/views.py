@@ -290,6 +290,11 @@ def dashboard_view(request):
                             AND ps.verified = TRUE
                             AND ps.stock = 0
                             AND p.disponibilita = 'Si'
+                            AND EXISTS (
+                                SELECT 1
+                                FROM jsonb_array_elements(ps.sales_sets) WITH ORDINALITY AS s(val, ord)
+                                WHERE ord > 1 AND (s.val)::numeric <> 0
+                            )
                     """, (storage.settore,))
                     out_of_stock_count = cursor.fetchone()['cnt']
 
