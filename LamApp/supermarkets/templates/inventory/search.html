@@ -220,24 +220,42 @@
                 <!-- Operazioni Inventario -->
                 <h6 class="mb-2"><i class="bi bi-tools text-primary"></i> Operazioni Inventario</h6>
                 <div class="d-flex flex-wrap gap-2 mb-3">
-                    <a href="{% url 'verify-stock-unified-enhanced' %}" class="btn btn-sm btn-primary">
-                        <i class="bi bi-clipboard-check"></i> Carica inventario
-                    </a>
-                    <a href="{% url 'assign-clusters' %}" class="btn btn-sm btn-primary">
-                        <i class="bi bi-folder"></i> Gestione Cluster
-                    </a>
-                    <a href="{% url 'record-losses-unified' %}" class="btn btn-sm btn-primary">
-                        <i class="bi bi-clipboard-data"></i> Registra Perdite
-                    </a>
-                    <a href="{% url 'edit-losses' %}" class="btn btn-sm btn-primary">
-                        <i class="bi bi-pencil-square"></i> Modifica Perdite
-                    </a>
                     <a href="{% url 'promo-products' %}" class="btn btn-sm btn-success">
                         <i class="bi bi-tag"></i> Articoli in promozione
                     </a>
-                    <a href="{% url 'product-links' %}" class="btn btn-sm btn-outline-secondary">
+                    <a href="{% url 'product-links' %}" class="btn btn-sm btn-primary">
                         <i class="bi bi-arrow-left-right"></i> Gestione sostituzioni
                     </a>
+                </div>
+
+                <a class="collapse-toggle small d-block mb-1" data-bs-toggle="collapse" href="#setupOps"
+                   role="button" aria-expanded="false" aria-controls="setupOps">
+                    <i class="bi bi-chevron-down"></i> Set-up iniziale
+                </a>
+                <div class="collapse mb-2" id="setupOps">
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="{% url 'verify-stock-unified-enhanced' %}" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-clipboard-check"></i> Carica inventario
+                        </a>
+                        <a href="{% url 'assign-clusters' %}" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-folder"></i> Gestione Cluster
+                        </a>
+                    </div>
+                </div>
+
+                <a class="collapse-toggle small d-block mb-1" data-bs-toggle="collapse" href="#altroOps"
+                   role="button" aria-expanded="false" aria-controls="altroOps">
+                    <i class="bi bi-chevron-down"></i> Altro
+                </a>
+                <div class="collapse mb-3" id="altroOps">
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="{% url 'record-losses-unified' %}" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-clipboard-data"></i> Registra Perdite
+                        </a>
+                        <a href="{% url 'edit-losses' %}" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-pencil-square"></i> Modifica Perdite
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Monitoraggio -->

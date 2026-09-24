@@ -137,6 +137,16 @@
             font-weight: 500;
             transition: all 0.3s;
         }
+
+        /* Collapsible action groups */
+        .collapse-toggle {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .collapse-toggle:hover { text-decoration: underline; }
+        .collapse-toggle .bi-chevron-down { transition: transform .2s; }
+        .collapse-toggle[aria-expanded="true"] .bi-chevron-down { transform: rotate(180deg); }
         
         .btn-primary {
             background-color: var(--secondary-color);

@@ -1,6 +1,6 @@
 <!-- Replace LamApp/supermarkets/templates/inventory/verify_stock_unified.html -->
 {% extends 'base.html' %}
-{% block title %}Carica invariato{% endblock %}
+{% block title %}Carica inventario{% endblock %}
 {% block page_title %}Verifica giacenza{% endblock %}
 
 {% block content %}
@@ -22,7 +22,7 @@
             <div class="stat-card">
                 <h4 class="mb-4">
                     <i class="bi bi-clipboard-check text-success"></i>
-                    Carica invariato - Formato PDF
+                    Carica inventario - Formato PDF
                 </h4>
 
                 <div class="alert alert-info">
@@ -30,15 +30,15 @@
                     <ol class="mb-0">
                         <li><strong>Registra perdite</strong> - Scarica e registra Rotture/Scaduto/Utilizzo Interno</li>
                         <li><strong>Verifica l'inventario</strong> - Confronta il tuo PDF con i livelli di Giacenza calcolati</li>
-                        <li><strong>Aggiunge i articoli mancanti</strong> - Recupera i dati da Dropzone per i articoli non presenti nel DB</li>
-                        <li><strong>Assegna i cluster</strong> - Facoltativamente, assegna i articoli ad il cluster selezionato</li>
+                        <li><strong>Aggiunge gli articoli mancanti</strong> - Recupera i dati dal listino PAC2000A per gli articoli non presenti nel DB</li>
+                        <li><strong>Assegna i cluster</strong> - Facoltativamente, assegna gli articoli al cluster selezionato</li>
                     </ol>
                 </div>
 
                 <div class="alert alert-warning">
                     <h6><i class="bi bi-exclamation-triangle"></i> Formato PDF</h6>
                     <ul class="mb-0">
-                        <li>Carica il <strong>file PDF</strong> esportato da Dropzone</li>
+                        <li>Carica il <strong>file PDF</strong> esportato da Essepiù</li>
                         <li>Questo processo potrebbe richiedere alcuni minuti</li>
                     </ul>
                 </div>
@@ -105,7 +105,7 @@
                                accept=".pdf"
                                required>
                         <div class="form-text">
-                            Carica il PDF esportato da Dropzone
+                            Carica il PDF esportato da Essepiù
                         </div>
                     </div>
 
