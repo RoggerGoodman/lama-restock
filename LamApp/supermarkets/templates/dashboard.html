@@ -123,8 +123,8 @@
                                 <th>Ricetta</th>
                                 <th>Ingrediente</th>
                                 <th class="text-end">Costo Ingrediente</th>
-                                <th class="text-end">Margine</th>
-                                <th>Data</th>
+                                <th class="text-end d-none d-sm-table-cell">Margine</th>
+                                <th class="d-none d-md-table-cell">Data</th>
                                 <th>Azione</th>
                             </tr>
                         </thead>
@@ -153,14 +153,14 @@
                                         {% endif %}
                                     </span>
                                 </td>
-                                <td class="text-end">
+                                <td class="text-end d-none d-sm-table-cell">
                                     <span class="text-muted">{{ alert.old_margin_pct|floatformat:1 }}%</span>
                                     <i class="bi bi-arrow-right text-muted mx-1"></i>
                                     <span class="badge {% if alert.new_margin_pct >= 30 %}bg-success{% elif alert.new_margin_pct >= 15 %}bg-warning{% else %}bg-danger{% endif %}">
                                         {{ alert.new_margin_pct|floatformat:1 }}%
                                     </span>
                                 </td>
-                                <td><small>{{ alert.created_at|date:"d/m H:i" }}</small></td>
+                                <td class="d-none d-md-table-cell"><small>{{ alert.created_at|date:"d/m H:i" }}</small></td>
                                 <td>
                                     <div class="btn-group btn-group-sm">
                                         <a href="{% url 'recipe-detail' pk=alert.recipe.pk %}" class="btn btn-outline-primary" title="Vedi Ricetta">
@@ -219,10 +219,10 @@
                             <tr>
                                 <th>Punto vendita</th>
                                 <th>Primario</th>
-                                <th></th>
+                                <th class="d-none d-sm-table-cell"></th>
                                 <th>Secondario</th>
-                                <th>Creato da</th>
-                                <th>Data</th>
+                                <th class="d-none d-md-table-cell">Creato da</th>
+                                <th class="d-none d-md-table-cell">Data</th>
                                 <th></th>
                             </tr>
                         </thead>
@@ -234,13 +234,13 @@
                                     <div class="fw-semibold">{{ notif.primary_name|default:"—" }}</div>
                                     <small class="text-muted"><code>{{ notif.primary_cod }}.{{ notif.primary_v }}</code></small>
                                 </td>
-                                <td class="text-muted"><i class="bi bi-arrow-right"></i></td>
+                                <td class="text-muted d-none d-sm-table-cell"><i class="bi bi-arrow-right"></i></td>
                                 <td>
                                     <div class="fw-semibold">{{ notif.secondary_name|default:"—" }}</div>
                                     <small class="text-muted"><code>{{ notif.secondary_cod }}.{{ notif.secondary_v }}</code></small>
                                 </td>
-                                <td><small class="text-muted">{% if notif.created_by %}{{ notif.created_by.username }}{% else %}—{% endif %}</small></td>
-                                <td><small class="text-muted">{{ notif.created_at|date:"d/m/Y" }}</small></td>
+                                <td class="d-none d-md-table-cell"><small class="text-muted">{% if notif.created_by %}{{ notif.created_by.username }}{% else %}—{% endif %}</small></td>
+                                <td class="d-none d-md-table-cell"><small class="text-muted">{{ notif.created_at|date:"d/m/Y" }}</small></td>
                                 <td>
                                     <div class="btn-group btn-group-sm">
                                         <a href="{% url 'product-links' %}?supermarket_id={{ notif.supermarket.id }}"
@@ -284,10 +284,10 @@
                         <thead>
                             <tr>
                                 <th>Magazzino</th>
-                                <th>Punto vendita</th>
+                                <th class="d-none d-lg-table-cell">Punto vendita</th>
                                 <th>Agenda Ordini</th>
-                                <th>Ultima operazione</th>
-                                <th>Azioni</th>
+                                <th class="d-none d-md-table-cell">Ultima operazione</th>
+                                <th class="d-none d-sm-table-cell">Azioni</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -325,7 +325,7 @@
                                         {% endif %}
                                         {% endwith %}
                                     </td>
-                                    <td>{{ sm.name }}</td>
+                                    <td class="d-none d-lg-table-cell">{{ sm.name }}</td>
                                     <td>
                                         {% if storage.schedule %}
                                             <span class="badge bg-success">
@@ -335,7 +335,7 @@
                                             <span class="badge bg-secondary">Nessuno</span>
                                         {% endif %}
                                     </td>
-                                    <td>
+                                    <td class="d-none d-md-table-cell">
                                         {% with last_log=storage.restock_logs.first %}
                                             {% if last_log %}
                                                 <small>{{ last_log.started_at|timesince }} fa</small>
@@ -344,7 +344,7 @@
                                             {% endif %}
                                         {% endwith %}
                                     </td>
-                                    <td>
+                                    <td class="d-none d-sm-table-cell">
                                         <div class="btn-group btn-group-sm">
                                             <a href="{% url 'storage-detail' pk=storage.id %}"
                                                class="btn btn-outline-secondary"
@@ -402,7 +402,7 @@
                                                     <th>Data</th>
                                                     <th>Operazione</th>
                                                     <th>Stato</th>
-                                                    <th>Dettagli</th>
+                                                    <th class="d-none d-md-table-cell">Dettagli</th>
                                                     <th>Azione</th>
                                                 </tr>
                                             </thead>
@@ -439,7 +439,7 @@
                                                             </span>
                                                         {% endif %}
                                                     </td>
-                                                    <td>
+                                                    <td class="d-none d-md-table-cell">
                                                         <small>
                                                             {% if log.operation_type == 'full_restock' %}
                                                                 {{ log.products_ordered }} Articoli / {{ log.total_packages }} colli

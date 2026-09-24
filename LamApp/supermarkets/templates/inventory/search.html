@@ -217,10 +217,24 @@
         <!-- Operations Section - Compact -->
         <div class="col-lg-6">
             <div class="stat-card h-100">
+                <!-- Monitoraggio -->
+                <h6 class="mb-2"><i class="bi bi-bar-chart text-success"></i> Monitoraggio</h6>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <a href="{% url 'stock-value-unified' %}" class="btn btn-sm btn-info">
+                        <i class="bi bi-cash-stack"></i> Valorizzazione inventario
+                    </a>
+                    <a href="{% url 'losses-analytics-unified' %}" class="btn btn-sm btn-danger">
+                        <i class="bi bi-graph-up"></i> Analisi delle perdite
+                    </a>
+                    <a href="{% url 'stock-profit' %}" class="btn btn-sm btn-success">
+                        <i class="bi bi-cash-coin"></i> Analisi della redditività
+                    </a>
+                </div>
+
                 <!-- Operazioni Inventario -->
                 <h6 class="mb-2"><i class="bi bi-tools text-primary"></i> Operazioni Inventario</h6>
                 <div class="d-flex flex-wrap gap-2 mb-3">
-                    <a href="{% url 'promo-products' %}" class="btn btn-sm btn-success">
+                    <a href="{% url 'promo-products' %}" class="btn btn-sm btn-warning">
                         <i class="bi bi-tag"></i> Articoli in promozione
                     </a>
                     <a href="{% url 'product-links' %}" class="btn btn-sm btn-primary">
@@ -247,7 +261,7 @@
                    role="button" aria-expanded="false" aria-controls="altroOps">
                     <i class="bi bi-chevron-down"></i> Altro
                 </a>
-                <div class="collapse mb-3" id="altroOps">
+                <div class="collapse" id="altroOps">
                     <div class="d-flex flex-wrap gap-2">
                         <a href="{% url 'record-losses-unified' %}" class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-clipboard-data"></i> Registra Perdite
@@ -256,20 +270,6 @@
                             <i class="bi bi-pencil-square"></i> Modifica Perdite
                         </a>
                     </div>
-                </div>
-
-                <!-- Monitoraggio -->
-                <h6 class="mb-2"><i class="bi bi-bar-chart text-success"></i> Monitoraggio</h6>
-                <div class="d-flex flex-wrap gap-2">
-                    <a href="{% url 'stock-value-unified' %}" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-cash-stack"></i> Valorizzazione inventario
-                    </a>
-                    <a href="{% url 'losses-analytics-unified' %}" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-graph-up"></i> Analisi delle perdite
-                    </a>
-                    <a href="{% url 'stock-profit' %}" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-cash-coin"></i> Analisi della redditività
-                    </a>
                 </div>
             </div>
         </div>
