@@ -2,7 +2,7 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}{% if log.operation_type == 'ddt_import' %}DDT Import{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% else %}Riepilogo ordine{% endif %} - {% if log.operation_type == 'loss_recording' %}{{ log.storage.supermarket.name }}{% else %}{{ log.storage.name }}{% endif %}{% endblock %}
+{% block title %}{% if log.operation_type == 'ddt_import' %}Importazione DDT{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% else %}Riepilogo ordine{% endif %} - {% if log.operation_type == 'loss_recording' %}{{ log.storage.supermarket.name }}{% else %}{{ log.storage.name }}{% endif %}{% endblock %}
 {% block page_title %}{% if log.operation_type == 'ddt_import' %}Dettagli Importazione DDT{% elif log.operation_type == 'loss_recording' %}Registrazione perdite{% elif log.operation_type == 'verification' %}Dettagli verifica giacenza{% elif log.operation_type == 'cluster_assignment' %}Dettagli assegnazione cluster{% elif log.operation_type == 'product_addition' %}Dettagli aggiunta articoli{% else %}Dettagli riepilogo ordine{% endif %}{% endblock %}
 
 {% block extra_css %}

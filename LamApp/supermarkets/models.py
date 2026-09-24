@@ -434,7 +434,7 @@ class RestockSchedule(models.Model):
         """Returns human-readable schedule summary"""
         order_days = self.get_order_days()
         if not order_days:
-            return "No orders scheduled"
+            return "Nessun ordine pianificato"
 
         day_names = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 
@@ -445,9 +445,7 @@ class RestockSchedule(models.Model):
             delivery_day_idx = (day_idx + offset) % 7
 
             if offset == 0:
-                delivery_text = "same day"
-            elif offset == 1:
-                delivery_text = f"→{day_names[delivery_day_idx]}"
+                delivery_text = " (stesso giorno)"
             else:
                 delivery_text = f"→{day_names[delivery_day_idx]}"
 
@@ -455,8 +453,9 @@ class RestockSchedule(models.Model):
 
         # Calculate coverages
         coverages = [self.calculate_coverage_for_day(day) for day in order_days]
+        coverage_text = ', '.join(f"{c:.1f}" for c in coverages)
 
-        return f"Orders: {', '.join(schedule_parts)} | Coverage: {coverages} days"
+        return f"Ordini: {', '.join(schedule_parts)} | Copertura: {coverage_text} giorni"
 
     def __str__(self):
         return f"Schedule for {self.storage.name}"
@@ -570,14 +569,14 @@ class RestockLog(models.Model):
     
     # NEW: Operation type tracking
     OPERATION_TYPE_CHOICES = [
-        ('full_restock', 'Full Restock Order'),
-        ('ddt_import', 'DDT Import'),
-        ('list_update', 'Product List Update'),
-        ('order_execution', 'Order Execution Only'),
-        ('verification', 'Stock Verification'),
-        ('cluster_assignment', 'Cluster Assignment'),
-        ('product_addition', 'Product Addition'),
-        ('loss_recording', 'Loss Recording'),
+        ('full_restock', 'Riordino completo'),
+        ('ddt_import', 'Importazione DDT'),
+        ('list_update', 'Aggiornamento listino'),
+        ('order_execution', 'Invio ordine'),
+        ('verification', 'Verifica giacenza'),
+        ('cluster_assignment', 'Assegnazione cluster'),
+        ('product_addition', 'Aggiunta articoli'),
+        ('loss_recording', 'Registrazione perdite'),
     ]
     
     storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='restock_logs')
