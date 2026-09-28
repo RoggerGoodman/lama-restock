@@ -292,8 +292,8 @@ def dashboard_view(request):
                             AND p.disponibilita = 'Si'
                             AND EXISTS (
                                 SELECT 1
-                                FROM jsonb_array_elements(ps.sales_sets) WITH ORDINALITY AS s(val, ord)
-                                WHERE ord > 1 AND (s.val)::numeric <> 0
+                                FROM jsonb_array_elements(ps.sales_sets) AS s(val)
+                                WHERE (s.val)::numeric <> 0
                             )
                     """, (storage.settore,))
                     out_of_stock_count = cursor.fetchone()['cnt']
@@ -733,9 +733,9 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
                 out_of_stock_products = []
                 for row in cursor.fetchall():
-                    sales_sets = Helper.sales_history(row['sales_sets'])
-                    if not any(v for v in sales_sets):
+                    if not any(v for v in (row['sales_sets'] or [])):
                         continue
+                    sales_sets = Helper.sales_history(row['sales_sets'])
                     raw = Helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True) if sales_sets else None
                     avg_daily = round(raw, 1) if raw is not None else 0.0
                     out_of_stock_products.append({
@@ -4021,6 +4021,7 @@ def inventory_search_view(request):
                         JOIN products p ON p.cod = ps.cod AND p.v = ps.v
                         WHERE ps.verified = TRUE
                           AND p.disponibilita != 'No'
+                          AND ps.stock <> 0
                           AND p.settore = %s
                           AND (
                               SELECT bool_and(elem::numeric = 0)
@@ -4066,18 +4067,20 @@ def fermi_products_api_view(request, storage_id):
                 SELECT p.settore, ps.cod, ps.v, p.descrizione, ps.stock, p.cluster,
                     (
                         SELECT COALESCE(
-                            -- ord 1 is today, still in progress. Counting it would report
-                            -- a day without sales before the day is over.
-                            (SELECT (MIN(t.ord) - 2)::int
+                            -- ord 1 is today; counted, so a sale today reads as 0 days.
+                            (SELECT (MIN(t.ord) - 1)::int
                              FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY AS t(elem, ord)
-                             WHERE t.ord > 1 AND t.elem::numeric != 0),
-                            GREATEST(jsonb_array_length(ps.sales_sets) - 1, 0)
+                             WHERE t.elem::numeric != 0),
+                            -- all stored days zero: report the full stored span, which
+                            -- caps at 60 and surfaces as "60+" in the UI.
+                            jsonb_array_length(ps.sales_sets)
                         )
                     ) AS days_without_sales
                 FROM product_stats ps
                 JOIN products p ON p.cod = ps.cod AND p.v = ps.v
                 WHERE ps.verified = TRUE
                   AND p.disponibilita != 'No'
+                  AND ps.stock <> 0
                   AND p.settore = %s
                   AND (
                       SELECT bool_and(elem::numeric = 0)
