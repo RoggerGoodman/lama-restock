@@ -184,3 +184,6 @@ docs/screenshots/articoli-esauriti.png
 docs/screenshots/magazzino-blacklist.png
 .gitignore
 docs/screenshots/blacklist-dettaglio.png
+
+# Collectstatic output (regenerated on deploy)
+LamApp/staticfiles/

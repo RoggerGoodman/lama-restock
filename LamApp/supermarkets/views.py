@@ -4028,8 +4028,8 @@ def inventory_search_view(request):
                               FROM (
                                   SELECT value AS elem
                                   FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY
-                                  -- from 2: ordinality 1 is today and not yet finished
-                                  WHERE ordinality BETWEEN 2 AND 15
+                                  -- include today (ordinality 1): a sale today means not fermo
+                                  WHERE ordinality BETWEEN 1 AND 14
                               ) recent
                               HAVING count(*) = 14
                           ) = TRUE
@@ -4087,8 +4087,8 @@ def fermi_products_api_view(request, storage_id):
                       FROM (
                           SELECT value AS elem
                           FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY
-                          -- from 2: ordinality 1 is today and not yet finished
-                          WHERE ordinality BETWEEN 2 AND 15
+                          -- include today (ordinality 1): a sale today means not fermo
+                          WHERE ordinality BETWEEN 1 AND 14
                       ) recent
                       HAVING count(*) = 14
                   ) = TRUE
