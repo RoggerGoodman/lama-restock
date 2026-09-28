@@ -31,7 +31,8 @@ jobs:
             cd ${{ secrets.SERVER_PATH }}
 
             echo "Pulling latest code..."
-            git pull origin main
+            git fetch origin
+            git reset --hard origin/main
 
             echo "Activating virtualenv..."
             source /var/www/lamarestock/venv/bin/activate
