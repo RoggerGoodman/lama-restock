@@ -292,8 +292,8 @@ def dashboard_view(request):
                             AND p.disponibilita = 'Si'
                             AND EXISTS (
                                 SELECT 1
-                                FROM jsonb_array_elements(ps.sales_sets) AS s(val)
-                                WHERE (s.val)::numeric <> 0
+                                FROM jsonb_array_elements_text(ps.sales_sets) AS s(val)
+                                WHERE s.val::numeric <> 0
                             )
                     """, (storage.settore,))
                     out_of_stock_count = cursor.fetchone()['cnt']
@@ -479,7 +479,7 @@ class SupermarketDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
 
 class SupermarketCreateView(LoginRequiredMixin, CreateView):
     model = Supermarket
-    fields = ['name', 'username', 'password']
+    fields = ['name', 'username', 'password', 'store_type']
     template_name = 'supermarkets/form.html'
 
     def get_form(self, form_class=None):
@@ -487,6 +487,8 @@ class SupermarketCreateView(LoginRequiredMixin, CreateView):
         form.fields['name'].label = 'Nome del punto vendita'
         form.fields['username'].label = 'Username Dropzone'
         form.fields['password'].label = 'Password Dropzone'
+        form.fields['store_type'].label = 'Tipo di punto vendita'
+        form.fields['store_type'].help_text = 'I punti vendita Rione ricevono solo le promo contrassegnate RIONE.'
         return form
 
     def form_valid(self, form):
@@ -499,7 +501,7 @@ class SupermarketCreateView(LoginRequiredMixin, CreateView):
 
 class SupermarketUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Supermarket
-    fields = ['name', 'username', 'password']
+    fields = ['name', 'username', 'password', 'store_type']
     template_name = 'supermarkets/form.html'
 
     def get_form(self, form_class=None):
@@ -507,6 +509,8 @@ class SupermarketUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView)
         form.fields['name'].label = 'Nome del punto vendita'
         form.fields['username'].label = 'Username Dropzone'
         form.fields['password'].label = 'Password Dropzone'
+        form.fields['store_type'].label = 'Tipo di punto vendita'
+        form.fields['store_type'].help_text = 'I punti vendita Rione ricevono solo le promo contrassegnate RIONE.'
         return form
 
     def test_func(self):
@@ -6816,12 +6820,38 @@ def product_links_view(request):
 
         return redirect(f"{request.path}?supermarket_id={selected_id}")
 
-    links = (
+    links = list(
         ProductLink.objects
         .filter(supermarket=selected_sm)
         .select_related('created_by')
         .order_by('-created_at')
     )
+
+    # Resolve cod.v to product descriptions
+    name_map = {}
+    if links:
+        keys = set()
+        for link in links:
+            keys.add((link.primary_cod, link.primary_v))
+            keys.add((link.secondary_cod, link.secondary_v))
+        from .scripts.DatabaseManager import DatabaseManager
+        try:
+            db = DatabaseManager(supermarket_name=selected_sm.name)
+            try:
+                cur = db.cursor()
+                cur.execute(
+                    "SELECT cod, v, descrizione FROM products WHERE (cod, v) IN %s",
+                    (tuple(keys),)
+                )
+                for r in cur.fetchall():
+                    name_map[(r['cod'], r['v'])] = r['descrizione']
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Could not load product names for {selected_sm.name}: {e}")
+    for link in links:
+        link.primary_name = name_map.get((link.primary_cod, link.primary_v))
+        link.secondary_name = name_map.get((link.secondary_cod, link.secondary_v))
 
     return render(request, 'inventory/product_links.html', {
         'links': links,

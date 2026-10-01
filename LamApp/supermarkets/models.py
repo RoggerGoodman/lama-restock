@@ -8,10 +8,21 @@ import json
 
 class Supermarket(models.Model):
     """Main supermarket entity - each user can manage multiple supermarkets"""
+    STORE_TYPE_STANDARD = 'standard'
+    STORE_TYPE_RIONE = 'rione'
+    STORE_TYPE_CHOICES = [
+        (STORE_TYPE_STANDARD, 'Standard'),
+        (STORE_TYPE_RIONE, 'Rione'),
+    ]
+
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='supermarkets')
     name = models.CharField(max_length=255, unique=True)
     username = models.CharField(max_length=255)
     password = models.CharField(max_length=255)
+    # Rione stores get only the promo rows tagged RIONE in the promo PDF.
+    store_type = models.CharField(
+        max_length=20, choices=STORE_TYPE_CHOICES, default=STORE_TYPE_STANDARD
+    )
     # Dropzone client parameters (discovered via gather_client_data)
     id_cliente = models.IntegerField(null=True, blank=True, help_text="IDCliente from Dropzone")
     id_azienda = models.IntegerField(null=True, blank=True, help_text="IDAzienda from Dropzone")
@@ -59,6 +70,10 @@ class Supermarket(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.owner.username})"
+
+    @property
+    def is_rione(self):
+        return self.store_type == self.STORE_TYPE_RIONE
 
     def get_day_weight(self, day_index):
         """Get traffic weight for a specific day (0=Monday, 6=Sunday)"""

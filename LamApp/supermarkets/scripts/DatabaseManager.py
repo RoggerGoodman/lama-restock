@@ -1089,11 +1089,12 @@ class DatabaseManager:
 
     def update_promos(self, promo_list):
         """
-        promo_list: list of tuples (cod, v, price_s, cost_s, sale_start, sale_end)
+        promo_list: list of tuples (cod, v, cost_s, price_s, sale_start, sale_end)
+        Returns how many items matched a product of this supermarket.
         """
         if not promo_list:
             logger.warning("[PROMOS] Empty promo_list received")
-            return
+            return 0
 
         logger.info(f"[PROMOS] Received {len(promo_list)} items. First 3: {promo_list[:3]}")
 
@@ -1109,7 +1110,7 @@ class DatabaseManager:
             sample_parsed = [(r[0], r[1]) for r in promo_list[:5]]
             sample_existing = list(existing)[:5] if existing else []
             logger.warning(f"[PROMOS] No matches! Parsed sample: {sample_parsed}, DB sample: {sample_existing}")
-            return
+            return 0
 
         cur.executemany("""
             INSERT INTO economics (cod, v, cost_s, price_s, sale_start, sale_end, price_std, cost_std, category)
@@ -1130,6 +1131,7 @@ class DatabaseManager:
         """, filtered_list)
 
         self.conn.commit()
+        return len(filtered_list)
 
     # --- Purge / Cleanup ---
 

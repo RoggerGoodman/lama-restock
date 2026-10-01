@@ -1026,8 +1026,10 @@ def process_promos_task(self, supermarket_id, pdf_file_path):
 
         with RestockService(storage) as service:
             # Parse PDF
-            promo_list = Helper.parse_promo_pdf(pdf_file_path)
-            
+            promo_list = Helper.promos_for_store(
+                Helper.parse_promo_pdf(pdf_file_path), supermarket.is_rione
+            )
+
             # Update database
             service.db.update_promos(promo_list)
             

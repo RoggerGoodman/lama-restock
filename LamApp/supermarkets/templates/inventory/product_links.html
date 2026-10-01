@@ -198,10 +198,12 @@
                             {% for link in links %}
                             <tr>
                                 <td class="primary-col">
+                                    <div>{{ link.primary_name|default:"—" }}</div>
                                     <span class="cod-badge">{{ link.primary_cod }}.{{ link.primary_v }}</span>
                                 </td>
                                 <td class="arrow-cell"><i class="bi bi-arrow-right"></i></td>
                                 <td class="secondary-col">
+                                    <div>{{ link.secondary_name|default:"—" }}</div>
                                     <span class="cod-badge">{{ link.secondary_cod }}.{{ link.secondary_v }}</span>
                                 </td>
                                 <td>
@@ -228,7 +230,8 @@
                                             </button>
                                         </form>
                                         <form method="post"
-                                            onsubmit="return confirm('Eliminare il collegamento {{ link.primary_cod }}.{{ link.primary_v }} → {{ link.secondary_cod }}.{{ link.secondary_v }} per {{ selected_sm.name }}?');">
+                                            data-confirm="Eliminare il collegamento {{ link.primary_name|default:'' }} ({{ link.primary_cod }}.{{ link.primary_v }}) → {{ link.secondary_name|default:'' }} ({{ link.secondary_cod }}.{{ link.secondary_v }}) per {{ selected_sm.name }}?"
+                                            onsubmit="return confirm(this.dataset.confirm);">
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="delete">
                                             <input type="hidden" name="link_id" value="{{ link.id }}">

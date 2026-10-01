@@ -697,6 +697,12 @@ class Helper:
               
     @staticmethod
     def parse_promo_pdf(file_path):
+        """
+        Returns tuples (cod, v, cost, price, sale_start, sale_end, rione).
+
+        rione is True when the "Listino T" cell (last column) holds the RIONE
+        badge, which is an image, not text.
+        """
         data = []
         sale_start = None
         sale_end = None
@@ -714,7 +720,7 @@ class Helper:
                     sale_start = datetime.strptime(m.group(1), "%d/%m/%Y").date().isoformat()
                     sale_end = datetime.strptime(m.group(2), "%d/%m/%Y").date().isoformat()
 
-                table = page.extract_table({
+                table = page.find_table({
                     "vertical_strategy": "lines",
                     "horizontal_strategy": "lines",
                     "intersection_tolerance": 5,
@@ -723,10 +729,21 @@ class Helper:
                 if not table:
                     continue
 
-                for row in table:
+                image_centers = [
+                    ((im["x0"] + im["x1"]) / 2, (im["top"] + im["bottom"]) / 2)
+                    for im in page.images
+                ]
+
+                for row_obj, row in zip(table.rows, table.extract()):
                     try:
                         if not row or len(row) < 7:
                             continue
+
+                        last_cell = row_obj.cells[-1]
+                        rione = last_cell is not None and any(
+                            last_cell[0] <= x <= last_cell[2] and last_cell[1] <= y <= last_cell[3]
+                            for x, y in image_centers
+                        )
 
                         codice = str(row[1]) if row[1] else None
                         cost = row[5]
@@ -744,8 +761,18 @@ class Helper:
                             float(price.replace(",", ".")) if price else None,
                             sale_start,
                             sale_end,
+                            rione,
                         ))
                     except Exception:
                         continue
 
         return data
+
+    @staticmethod
+    def promos_for_store(promo_list, rione_only):
+        """
+        Filter parse_promo_pdf output for one store and drop the rione flag,
+        giving the tuples update_promos expects. Rione stores keep only the
+        RIONE-tagged rows; standard stores keep everything.
+        """
+        return [row[:6] for row in promo_list if row[6] or not rione_only]
