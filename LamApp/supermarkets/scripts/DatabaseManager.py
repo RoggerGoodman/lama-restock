@@ -89,6 +89,9 @@ class DatabaseManager:
                 verified BOOLEAN DEFAULT FALSE,
                 -- No default: NULL means "no per-product override"
                 minimum_stock INTEGER,
+                -- NULL = no ceiling; see processor_N.apply_max_stock
+                max_stock SMALLINT,
+                bulk_order BOOLEAN NOT NULL DEFAULT FALSE,
                 last_update_sold DATE,
                 last_update_bought DATE,
                 promo_lifts JSONB,

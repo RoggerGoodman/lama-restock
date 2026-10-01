@@ -4145,7 +4145,8 @@ def inventory_results_view(request, search_type):
                             SELECT 
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita, 
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock,
+                                ps.max_stock, ps.bulk_order
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.cod = %s AND p.v = %s AND ps.verified = TRUE
@@ -4203,7 +4204,8 @@ def inventory_results_view(request, search_type):
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock,
+                                ps.max_stock, ps.bulk_order
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             {where_sql}
@@ -4266,7 +4268,8 @@ def inventory_results_view(request, search_type):
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock,
+                                ps.max_stock, ps.bulk_order
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.settore = %s AND p.cluster IN ({placeholders}) AND ps.verified = TRUE
@@ -4277,7 +4280,8 @@ def inventory_results_view(request, search_type):
                             SELECT
                                 p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                                 p.settore, p.cluster,
-                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock
+                                ps.stock, ps.last_update_sold, ps.verified, ps.minimum_stock,
+                                ps.max_stock, ps.bulk_order
                             FROM products p
                             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                             WHERE p.settore = %s AND ps.verified = TRUE
@@ -4351,7 +4355,11 @@ def cluster_order_preview_view(request):
                 blacklist_set=blacklist,
                 product_links=ProductLink.build_pairs(supermarket),
             )
-            dm.decide_orders_for_settore(settore, coverage, storage.minimum_stock)
+            today_date = timezone.now().date()
+            lead_days = storage.schedule.calculate_lead_days(
+                today_date.weekday(), reference_date=today_date
+            ) if hasattr(storage, 'schedule') else 0.0
+            dm.decide_orders_for_settore(settore, coverage, storage.minimum_stock, lead_days=lead_days)
 
             if dm.orders_list:
                 cur = service.db.cursor()
@@ -5753,6 +5761,28 @@ def inventory_adjust_stock_ajax_view(request):
                     # Invalid integer - skip update but don't fail entire request
                     logger.warning(f"Invalid minimum_stock value: {minimum_stock}")
             
+            # Present only when the modal sends it; empty max_stock clears the ceiling
+            if 'max_stock' in request.POST:
+                max_stock_raw = request.POST.get('max_stock', '').strip()
+                try:
+                    max_stock_val = int(max_stock_raw) if max_stock_raw else None
+                except ValueError:
+                    return JsonResponse({'success': False, 'message': 'Max stock must be a number'}, status=400)
+                if max_stock_val is not None and not 1 <= max_stock_val <= 32767:
+                    return JsonResponse({'success': False, 'message': 'Max stock must be between 1 and 32767'}, status=400)
+                bulk_order = request.POST.get('bulk_order') == '1'
+                if bulk_order and max_stock_val is None:
+                    return JsonResponse({'success': False, 'message': 'Ordine in blocco richiede una giacenza massima'}, status=400)
+
+                cursor = service.db.cursor()
+                cursor.execute("""
+                    UPDATE product_stats
+                    SET max_stock = %s, bulk_order = %s
+                    WHERE cod = %s AND v = %s
+                """, (max_stock_val, bulk_order, cod, var))
+                service.db.conn.commit()
+                logger.info(f"Updated max_stock={max_stock_val} bulk_order={bulk_order} for {cod}.{var}")
+
             # Update cluster if provided
             cluster_updated = False
             new_cluster_value = None

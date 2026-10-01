@@ -430,14 +430,19 @@ class AutomatedRestockService(RestockService):
                 progress_callback(20, 'Analyzing product needs...')
 
             today_date = timezone.now().date()
+            schedule = self.storage.schedule
+            first_day_fraction = self._remaining_order_day_fraction(today_date)
             if coverage is None:
-                schedule = self.storage.schedule
-                first_day_fraction = self._remaining_order_day_fraction(today_date)
                 coverage = schedule.calculate_coverage_for_day(
                     today_date.weekday(),
                     reference_date=today_date,
                     first_day_fraction=first_day_fraction,
                 )
+            lead_days = schedule.calculate_lead_days(
+                today_date.weekday(),
+                reference_date=today_date,
+                first_day_fraction=first_day_fraction,
+            )
 
             skip_sale = ScheduleException.objects.filter(
                 schedule=self.storage.schedule,
@@ -460,7 +465,9 @@ class AutomatedRestockService(RestockService):
                     skip_sale=skip_sale,
                     product_links=ProductLink.build_pairs(self.supermarket),
                 )
-                decision_maker.decide_orders_for_settore(self.settore, coverage, self.storage.minimum_stock)
+                decision_maker.decide_orders_for_settore(
+                    self.settore, coverage, self.storage.minimum_stock, lead_days=lead_days
+                )
                 orders_list = decision_maker.orders_list
                 zombie_products = decision_maker.zombie_products
 

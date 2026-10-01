@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
                    req_stock, stock, discount=None, minimum_stock_base=None, minimum_stock_override=None,
                    expiry_factor=None, shelf_life_days=None, batch_expiry_factor=None,
-                   sigma_L=None, safety_z=1.0):
+                   sigma_L=None, safety_z=1.0,
+                   max_stock=None, bulk_order=False, lead_demand=0.0):
     """
     Process N category sales and calculate order quantity.
 
@@ -27,6 +28,8 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
             sqrt(req_stock) buff above SLOW_MOVER_THRESHOLD (that buff assumes Poisson;
             real dispersion is far higher). None or a slow mover keeps the legacy rule.
         safety_z: standard deviations of cushion, per settore — Helper.safety_z_for.
+        max_stock, bulk_order: product-level shelf ceiling — see apply_max_stock.
+        lead_demand: units expected to sell before this order is delivered.
     """
     order = 1
     req_stock = round(req_stock)
@@ -129,6 +132,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
 
     raw_order = (req_stock + minimum_stock - stock) / package_size
     order = raw_order
+    decision = None
     if order >= 0:
         tollerance_threshold = min(0.5, minimum_stock/package_size)
         decimal_part = order % 1
@@ -144,19 +148,61 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
                 f"Order decision: {order} package(s) (raw={raw_order:.2f}) — formula "
                 f"(req_stock={req_stock} + minimum_stock={minimum_stock} - stock={stock}) / package_size={package_size}"
             )
-            return order, 1, True, discount
+            decision = (order, 1)
 
-    if leftover_stock < minimum_stock:
-        order = 1
+    if decision is None and leftover_stock < minimum_stock:
         logger.info(f"Order decision: forced 1 package — leftover_stock={leftover_stock} < minimum_stock={minimum_stock}")
-        return order, 2, True, discount
+        decision = (1, 2)
 
-    if leftover_stock <= min(presence_target, minimum_stock):
-        order = 1
+    if decision is None and leftover_stock <= min(presence_target, minimum_stock):
         logger.info(f"forced 1 package — leftover_stock={leftover_stock} at presence floor")
-        return order, 3, True, discount
+        decision = (1, 3)
 
-    logger.info(
-        f"No order: leftover_stock={leftover_stock} >= minimum_stock={minimum_stock} and stock={stock} not critically low"
-    )
-    return None, 0, False, discount
+    if decision is None:
+        logger.info(
+            f"No order: leftover_stock={leftover_stock} >= minimum_stock={minimum_stock} and stock={stock} not critically low"
+        )
+        return None, 0, False, discount
+
+    order, check = decision
+    if max_stock is not None:
+        order = apply_max_stock(order, package_size, stock, req_stock, lead_demand, max_stock, bulk_order)
+    return order, check, True, discount
+
+
+def apply_max_stock(order, package_size, stock, req_stock, lead_demand, max_stock, bulk_order):
+    """
+    Fit a triggered order to the product's max_stock.
+
+    The ceiling is on stock at delivery: what is left after lead_demand sells off,
+    plus the packages ordered. It can eat into the safety buffer but never into
+    demand — the order is never trimmed below what covers req_stock, nor below 1.
+    bulk_order raises the order to that ceiling, to restock in fewer, larger drops.
+    """
+    on_arrival = max(0.0, stock - lead_demand)
+    room = max_stock - on_arrival
+    ceiling = math.floor(room / package_size) if room > 0 else 0
+
+    # Stock below lead_demand runs out before delivery; those sales are gone either way
+    demand_gap = req_stock - max(stock, lead_demand)
+    demand_floor = max(1, math.ceil(round(demand_gap / package_size, 6)))
+    if demand_floor > ceiling:
+        logger.info(
+            f"max_stock={max_stock} leaves room for {ceiling} package(s), "
+            f"floor (demand, min 1) is {demand_floor} -> ceiling raised to {demand_floor}"
+        )
+        ceiling = demand_floor
+
+    if bulk_order and ceiling > order:
+        logger.info(
+            f"Bulk order: {order} -> {ceiling} package(s) "
+            f"(on arrival {on_arrival:.1f} + {ceiling}x{package_size}, max_stock={max_stock})"
+        )
+        return ceiling
+    if order > ceiling:
+        logger.info(
+            f"max_stock cap: {order} -> {ceiling} package(s) "
+            f"(stock={stock}, lead_demand={lead_demand:.1f}, on arrival {on_arrival:.1f}, max_stock={max_stock})"
+        )
+        return ceiling
+    return order

@@ -387,6 +387,31 @@ class RestockSchedule(models.Model):
 
         return self._calculate_weighted_days(order_day_index, num_days, first_day_fraction)
 
+    def calculate_lead_days(self, order_day_index, reference_date=None, first_day_fraction=1.0):
+        """
+        Weighted days of demand between this order and the goods reaching the shelf,
+        i.e. how much stock sells off before the delivery is available to customers.
+
+        The delivery day is included: goods arrive that day but are not shelved at once.
+        An 'add' or 'modify' exception on reference_date overrides today's delivery offset.
+
+        Returns:
+            float: Lead time in average-traffic days
+        """
+        offset = None
+        if reference_date is not None:
+            exc = ScheduleException.objects.filter(
+                schedule=self,
+                date=reference_date,
+                exception_type__in=('add', 'modify'),
+            ).first()
+            if exc and exc.delivery_offset is not None:
+                offset = exc.delivery_offset
+        if offset is None:
+            offset = self.get_delivery_offset(order_day_index)
+
+        return self._calculate_weighted_days(order_day_index, max(0, offset) + 1, first_day_fraction)
+
     def _calculate_weighted_days(self, start_day_index, num_days, first_day_fraction=1.0):
         """
         Sum the day weights for a period starting from start_day_index.

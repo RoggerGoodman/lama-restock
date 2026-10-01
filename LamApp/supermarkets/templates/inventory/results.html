@@ -387,7 +387,9 @@
                                                 {{ product.stock }},
                                                 {{ product.minimum_stock|default:'null' }},
                                                 '{{ product.cluster|default:''|escapejs }}',
-                                                {{ product.storage_minimum_stock }}
+                                                {{ product.storage_minimum_stock }},
+                                                {{ product.max_stock|default:'null' }},
+                                                {{ product.bulk_order|yesno:'true,false' }}
                                             )">
                                             <i class="bi bi-pencil"></i> Rettifica
                                         </button>
@@ -524,6 +526,29 @@
                             </div>
                         </div>
 
+                        <!-- Max Stock Field -->
+                        <div class="mb-3">
+                            <label for="max_stock" class="form-label">
+                                <i class="bi bi-box-seam"></i> Giacenza massima
+                            </label>
+                            <input type="number" class="form-control" id="max_stock" name="max_stock"
+                                   min="1" max="32767" placeholder="Nessun limite">
+                            <div class="form-text">
+                                Gli ordini da più colli non superano questo valore all'arrivo della merce. La domanda prevista viene sempre coperta. Lascia vuoto per nessun limite.
+                            </div>
+                        </div>
+
+                        <!-- Bulk Order Field -->
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="bulk_order" name="bulk_order">
+                            <label class="form-check-label" for="bulk_order">
+                                <i class="bi bi-stack"></i> Ordine in blocco
+                            </label>
+                            <div class="form-text">
+                                Quando scatta un ordine, porta la quantità fino alla giacenza massima invece della sola domanda prevista: ordini meno frequenti, meno riordino dello scaffale. Attivabile solo con una giacenza massima.
+                            </div>
+                        </div>
+
                         <!-- Cluster Field -->
                         <div class="mb-3">
                             <label for="cluster" class="form-label">
@@ -621,7 +646,7 @@ function sortTable(column) {
     activeIcon.className = `sort-icon ${currentSortDirection} active`;
 }
 
-function adjustStock(cod, var_, supermarket, currentStock, minimumStock, currentCluster, storageDefault) {
+function adjustStock(cod, var_, supermarket, currentStock, minimumStock, currentCluster, storageDefault, maxStock, bulkOrder) {
     document.getElementById('adjust_cod').value = cod;
     document.getElementById('adjust_var').value = var_;
     document.getElementById('adjust_supermarket').value = supermarket;
@@ -634,6 +659,9 @@ function adjustStock(cod, var_, supermarket, currentStock, minimumStock, current
     document.getElementById('minimum_stock_help').textContent =
         `Default magazzino: ${storageDefault}. Lascia vuoto per usarlo, oppure inserisci un valore per sovrascriverlo solo per questo prodotto.`;
     document.getElementById('cluster').value = currentCluster || '';
+    document.getElementById('max_stock').value = maxStock !== null ? maxStock : '';
+    document.getElementById('bulk_order').checked = !!bulkOrder;
+    syncBulkOrderState();
 
     // Advanced settings always start hidden; user opens them only if needed
     bootstrap.Collapse.getOrCreateInstance(
@@ -659,6 +687,13 @@ function submitAdjustment() {
         return;
     }
 
+    const maxStockRaw = formData.get('max_stock').trim();
+    if (maxStockRaw !== '' && parseInt(maxStockRaw) < 1) {
+        alert('La giacenza massima deve essere almeno 1');
+        return;
+    }
+    const bulkOrder = document.getElementById('bulk_order').checked;
+
     const cluster = formData.get('cluster').trim().toUpperCase();
 
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
@@ -671,6 +706,8 @@ function submitAdjustment() {
     data.append('supermarket', formData.get('supermarket'));
     data.append('minimum_stock', minimumStockRaw);  // empty string = keep existing / use storage default
     data.append('cluster', cluster);  // ✅ INCLUDE CLUSTER
+    data.append('max_stock', maxStockRaw);  // empty string = no ceiling
+    data.append('bulk_order', bulkOrder ? '1' : '0');
     data.append('csrfmiddlewaretoken', csrfToken);
     
     fetch('/inventory/adjust-stock/', {
@@ -705,6 +742,15 @@ function submitAdjustment() {
         alert('Error: ' + error);
     });
 }
+
+// Bulk order is meaningless without a ceiling: lock it while max_stock is empty
+function syncBulkOrderState() {
+    const hasMax = document.getElementById('max_stock').value.trim() !== '';
+    const bulk = document.getElementById('bulk_order');
+    bulk.disabled = !hasMax;
+    if (!hasMax) bulk.checked = false;
+}
+document.getElementById('max_stock').addEventListener('input', syncBulkOrderState);
 
 document.getElementById('cluster').addEventListener('input', function() {
     this.value = this.value.toUpperCase();

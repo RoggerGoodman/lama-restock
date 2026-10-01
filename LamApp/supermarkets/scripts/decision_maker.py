@@ -83,7 +83,7 @@ class DecisionMaker:
         query = """
             SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
                 ps.bought_sets, p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag,
-                ps.minimum_stock, p.shelf_life_days, ps.promo_lifts
+                ps.minimum_stock, p.shelf_life_days, ps.promo_lifts, ps.max_stock, ps.bulk_order
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
             WHERE p.settore = %s
@@ -205,12 +205,17 @@ class DecisionMaker:
         threshold_date = sale_start + timedelta(days=threshold_day - 1)
         return today <= threshold_date
 
-    def decide_orders_for_settore(self, settore, coverage, minimum_stock_base=None):
+    def decide_orders_for_settore(self, settore, coverage, minimum_stock_base=None, lead_days=0.0):
         """
         Main method — iterate over all products in a settore and decide what to order.
         Now tracks zombie_products.
+
+        lead_days: weighted days between the order and its delivery
+        (RestockSchedule.calculate_lead_days). Only read by the max_stock ceiling;
+        0 assumes nothing sells before delivery, the tightest ceiling.
         """
-        logger.info(f"Processing settore: {settore} with coverage: {coverage} days")
+        lead_days = min(max(0.0, lead_days or 0.0), coverage)
+        logger.info(f"Processing settore: {settore} with coverage: {coverage} days, lead time: {lead_days} days")
         logger.info(f"Active blacklist has {len(self.blacklist)} products")
         
         products = self.get_products_by_settore(settore)
@@ -438,6 +443,8 @@ class DecisionMaker:
 
             if verified:
                 category = "N"
+                # Same rate as req_stock, so promo lift and OOS correction carry over
+                lead_demand = req_stock * lead_days / coverage if coverage > 0 else 0.0
                 sigma_daily = Helper.demand_sigma_daily(sales_sets, closure_mask)
                 sigma_L = sigma_daily * (max(coverage, 1) ** 0.5) if sigma_daily is not None else None
 
@@ -445,7 +452,8 @@ class DecisionMaker:
                     package_size, deviation_corrected, avg_daily_sales,
                     req_stock, stock, discount, minimum_stock_base, minimum_stock_override,
                     expiry_factor, shelf_life_days, batch_expiry_factor,
-                    sigma_L, safety_z
+                    sigma_L, safety_z,
+                    row.get("max_stock"), bool(row.get("bulk_order")), lead_demand
                 )
             else:
                 reason = "Not verified in system"
