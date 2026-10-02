@@ -218,9 +218,9 @@
                         <thead>
                             <tr>
                                 <th>Punto vendita</th>
-                                <th>Primario</th>
+                                <th>Subentrante</th>
                                 <th class="d-none d-sm-table-cell"></th>
-                                <th>Secondario</th>
+                                <th>Sostituito</th>
                                 <th class="d-none d-md-table-cell">Creato da</th>
                                 <th class="d-none d-md-table-cell">Data</th>
                                 <th></th>
@@ -234,7 +234,7 @@
                                     <div class="fw-semibold">{{ notif.primary_name|default:"—" }}</div>
                                     <small class="text-muted"><code>{{ notif.primary_cod }}.{{ notif.primary_v }}</code></small>
                                 </td>
-                                <td class="text-muted d-none d-sm-table-cell"><i class="bi bi-arrow-right"></i></td>
+                                <td class="text-muted d-none d-sm-table-cell" title="sostituisce"><i class="bi bi-arrow-left"></i></td>
                                 <td>
                                     <div class="fw-semibold">{{ notif.secondary_name|default:"—" }}</div>
                                     <small class="text-muted"><code>{{ notif.secondary_cod }}.{{ notif.secondary_v }}</code></small>

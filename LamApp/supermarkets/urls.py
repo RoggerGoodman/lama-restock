@@ -66,6 +66,7 @@ urlpatterns = [
     path('logs/<int:pk>/review/search/', views.order_review_search, name='order-review-search'),
     path('logs/<int:pk>/review/edit/', views.order_review_edit, name='order-review-edit'),
     path('logs/<int:pk>/submit/', views.order_submit, name='order-submit'),
+    path('logs/<int:pk>/recalc/', views.order_recalc, name='order-recalc'),
     path('logs/<int:pk>/discard/', views.order_discard, name='order-discard'),
 
     # ============ Blacklists (accessed from dashboard/storage) ============

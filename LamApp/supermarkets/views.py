@@ -1655,6 +1655,12 @@ class RestockLogDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         context['clusters'] = {}
         context['last_sales_sync_at'] = self.object.storage.supermarket.last_sales_sync_at
         context['is_awaiting_review'] = (self.object.status == 'awaiting_review')
+        if context['is_awaiting_review']:
+            context['recalc_pending'] = results.get('recalc_pending', [])
+            context['last_recalc'] = results.get('last_recalc', [])
+        else:
+            context['recalc_pending'] = []
+            context['last_recalc'] = []
         context['summary'] = {
             'total_items': 0,
             'total_packages': self.object.total_packages or 0,
@@ -2034,6 +2040,14 @@ def order_review_search(request, pk):
     orders = log.get_results().get('orders', [])
     in_order = {(o['cod'], o['var']): o for o in orders}
 
+    # Product links: a searched product may be the phased-out side of a link whose
+    # partner carries the order. Map each side to its partner so we can warn.
+    from .models import ProductLink
+    partner_of = {}
+    for pri, sec in ProductLink.build_pairs(storage.supermarket):
+        partner_of[pri] = sec
+        partner_of[sec] = pri
+
     try:
         with RestockService(storage) as service:
             cur = service.db.cursor()
@@ -2076,6 +2090,13 @@ def order_review_search(request, pk):
                         discount = round((1 - float(row['price_s']) / float(row['price_std'])) * 100)
                     except (ZeroDivisionError, TypeError):
                         discount = None
+                partner = partner_of.get(key)
+                link_info = None
+                if partner:
+                    link_info = {
+                        'cod': partner[0], 'var': partner[1],
+                        'partner_in_order': partner in in_order,
+                    }
                 results.append({
                     'cod': row['cod'],
                     'var': row['v'],
@@ -2087,7 +2108,23 @@ def order_review_search(request, pk):
                     'package_size': row['pz_x_collo'] or 0,
                     'on_sale': on_sale,
                     'discount': discount,
+                    'link': link_info,
                 })
+
+            # Resolve partner names for any linked matches.
+            partner_keys = [(r['link']['cod'], r['link']['var']) for r in results if r['link']]
+            if partner_keys:
+                placeholders = ','.join(['(%s,%s)'] * len(partner_keys))
+                flat = [x for k in partner_keys for x in k]
+                cur.execute(
+                    f"SELECT cod, v, descrizione FROM products WHERE (cod, v) IN ({placeholders})",
+                    flat,
+                )
+                pnames = {(r['cod'], r['v']): r['descrizione'] for r in cur.fetchall()}
+                for r in results:
+                    if r['link']:
+                        lk = (r['link']['cod'], r['link']['var'])
+                        r['link']['name'] = pnames.get(lk) or f"{lk[0]}.{lk[1]}"
         return JsonResponse({'results': results})
     except Exception as e:
         logger.exception(f"Order review search failed for log #{pk}")
@@ -2154,16 +2191,44 @@ def order_review_edit(request, pk):
                 applied = service.db.get_stock(cod, var)
             except ValueError:
                 applied = new_stock
-        return JsonResponse({'success': True, 'stock': applied})
+            cur = service.db.cursor()
+            cur.execute("SELECT descrizione FROM products WHERE cod = %s AND v = %s", (cod, var))
+            row = cur.fetchone()
+            name = (row['descrizione'] if row else None) or f"{cod}.{var}"
+
+        # Queue the product for recalculation (dedup).
+        pending = results.get('recalc_pending', [])
+        if not any(p['cod'] == cod and p['var'] == var for p in pending):
+            pending.append({'cod': cod, 'var': var, 'name': name})
+        results['recalc_pending'] = pending
+        log.set_results(results)
+        log.save(update_fields=['results'])
+        return JsonResponse({
+            'success': True, 'stock': applied,
+            'pending': {'cod': cod, 'var': var, 'name': name},
+        })
 
     if action == 'remove':
         orders = [o for o in orders if not (o['cod'] == cod and o['var'] == var)]
+        results['recalc_pending'] = [
+            p for p in results.get('recalc_pending', [])
+            if not (p['cod'] == cod and p['var'] == var)
+        ]
+        results['manual_qty'] = [
+            m for m in results.get('manual_qty', [])
+            if not (m['cod'] == cod and m['var'] == var)
+        ]
 
     elif action == 'set_qty':
         try:
             qty = int(data['qty'])
         except (KeyError, ValueError, TypeError):
             return JsonResponse({'success': False, 'message': 'Quantità non valida'}, status=400)
+        # A manual qty change shields the product from being overwritten by recalc.
+        manual = results.get('manual_qty', [])
+        if not any(m['cod'] == cod and m['var'] == var for m in manual):
+            manual.append({'cod': cod, 'var': var})
+        results['manual_qty'] = manual
         if qty <= 0:
             orders = [o for o in orders if not (o['cod'] == cod and o['var'] == var)]
         else:
@@ -2201,6 +2266,25 @@ def order_submit(request, pk):
     from .tasks import submit_pending_order
     result = submit_pending_order.apply_async(args=[log.id])
     logger.info(f"[INVIA] Queued submit for log #{log.id} (task {result.id})")
+    return JsonResponse({'success': True, 'task_id': result.id})
+
+
+@login_required
+@require_POST
+def order_recalc(request, pk):
+    """Re-run the decision maker for products whose stock was corrected."""
+    log = get_object_or_404(
+        RestockLog, pk=pk, storage__supermarket__owner=request.user
+    )
+    if log.status != 'awaiting_review':
+        return JsonResponse({'success': False, 'message': "L'ordine non è più in revisione"}, status=409)
+
+    if not log.get_results().get('recalc_pending'):
+        return JsonResponse({'success': False, 'message': 'Nessuna giacenza da ricalcolare'}, status=400)
+
+    from .tasks import recalculate_review_order
+    result = recalculate_review_order.apply_async(args=[log.id])
+    logger.info(f"[RECALC] Queued recalc for log #{log.id} (task {result.id})")
     return JsonResponse({'success': True, 'task_id': result.id})
 
 
@@ -6784,7 +6868,7 @@ def product_links_view(request):
                 propagate = request.POST.get('propagate') == '1'
 
                 if primary_cod == secondary_cod and primary_v == secondary_v:
-                    error = "Il prodotto primario e il prodotto secondario non possono essere lo stesso articolo."
+                    error = "Il prodotto subentrante e il prodotto sostituito non possono essere lo stesso articolo."
                 else:
                     targets = user_supermarkets if propagate else [selected_sm]
                     created, skipped = 0, 0
@@ -6819,7 +6903,7 @@ def product_links_view(request):
                             success += f" {skipped} già esistente/i (saltati)."
                     else:
                         if created:
-                            success = f"Collegamento creato: {primary_cod}.{primary_v} → {secondary_cod}.{secondary_v}"
+                            success = f"Collegamento creato: {primary_cod}.{primary_v} ← {secondary_cod}.{secondary_v}"
                         else:
                             error = "Uno dei prodotti selezionati fa già parte di un collegamento per questo punto vendita."
             except ValueError:
@@ -6842,7 +6926,7 @@ def product_links_view(request):
                 link.primary_cod, link.secondary_cod = link.secondary_cod, link.primary_cod
                 link.primary_v, link.secondary_v = link.secondary_v, link.primary_v
                 link.save()
-                success = f"Ruoli invertiti: {link.primary_cod}.{link.primary_v} e' ora il primario."
+                success = f"Ruoli invertiti: {link.primary_cod}.{link.primary_v} e' ora il subentrante."
             except ProductLink.DoesNotExist:
                 error = "Collegamento non trovato."
             except Exception as e:

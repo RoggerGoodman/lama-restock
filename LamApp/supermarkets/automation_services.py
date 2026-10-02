@@ -632,3 +632,103 @@ class AutomatedRestockService(RestockService):
         if progress_callback:
             progress_callback(100, 'Order placed successfully!')
         return log
+
+    def recalculate_order_for_products(self, log: RestockLog):
+        """
+        Re-run the decision maker and update the order lines for the products the
+        operator corrected the stock of (results['recalc_pending']), skipping any
+        whose qty was manually overridden (results['manual_qty']). Records the
+        per-product outcomes in results['last_recalc'] and clears the pending list.
+
+        Runs the whole-settore decision maker fresh (same proven path as the
+        original order) and only touches the queued, non-manual products.
+        """
+        from .models import ProductLink
+
+        results = log.get_results()
+        pending = results.get('recalc_pending', [])
+        manual_set = {(m['cod'], m['var']) for m in results.get('manual_qty', [])}
+        orders = results.get('orders', [])
+        order_by_key = {(o['cod'], o['var']): o for o in orders}
+
+        if log.coverage_used is not None:
+            coverage = float(log.coverage_used)
+        else:
+            coverage = float(results.get('coverage') or 0)
+        settore = results.get('settore') or self.storage.settore
+
+        today = timezone.now().date()
+        try:
+            skip_sale = ScheduleException.objects.filter(
+                schedule=self.storage.schedule, date=today, skip_sale=True
+            ).exists()
+        except Exception:
+            skip_sale = False
+
+        decision_maker = DecisionMaker(
+            self.db, self.helper,
+            blacklist_set=self.get_blacklist_set(),
+            skip_sale=skip_sale,
+            product_links=ProductLink.build_pairs(self.supermarket),
+        )
+        decision_maker.decide_orders_for_settore(settore, coverage, self.storage.minimum_stock)
+        new_list = decision_maker.orders_list
+
+        new_qty = {
+            (o[0], o[1]): (o[2], o[3] if len(o) > 3 else None)
+            for o in new_list
+        }
+
+        # Descriptions for the result list.
+        names = {}
+        keys = [(p['cod'], p['var']) for p in pending]
+        if keys:
+            cur = self.db.cursor()
+            placeholders = ','.join(['(%s,%s)'] * len(keys))
+            flat = [x for k in keys for x in k]
+            cur.execute(
+                f"SELECT cod, v, descrizione FROM products WHERE (cod, v) IN ({placeholders})",
+                flat,
+            )
+            names = {(r['cod'], r['v']): r['descrizione'] for r in cur.fetchall()}
+
+        changes = []
+        for p in pending:
+            cod, v = p['cod'], p['var']
+            name = names.get((cod, v)) or f"{cod}.{v}"
+            old_entry = order_by_key.get((cod, v))
+            old = int(old_entry['qty']) if old_entry else 0
+
+            if (cod, v) in manual_set:
+                changes.append({'cod': cod, 'var': v, 'name': name,
+                                'old': old, 'new': old, 'status': 'manual'})
+                continue
+
+            nq, ndisc = new_qty.get((cod, v), (0, None))
+            nq = int(nq)
+            if nq <= 0:
+                if old_entry:
+                    orders = [o for o in orders if not (o['cod'] == cod and o['var'] == v)]
+                    status = 'removed'
+                else:
+                    status = 'none'
+            else:
+                if old_entry:
+                    old_entry['qty'] = nq
+                    old_entry['discount'] = ndisc
+                    status = 'changed' if nq != old else 'unchanged'
+                else:
+                    orders.append({'cod': cod, 'var': v, 'qty': nq, 'discount': ndisc})
+                    status = 'added'
+            changes.append({'cod': cod, 'var': v, 'name': name,
+                            'old': old, 'new': nq, 'status': status})
+
+        results['orders'] = orders
+        results['recalc_pending'] = []
+        results['last_recalc'] = changes
+        log.set_results(results)
+        log.products_ordered = len(orders)
+        log.total_packages = sum(int(o.get('qty', 0) or 0) for o in orders)
+        log.save(update_fields=['results', 'products_ordered', 'total_packages'])
+        logger.info(f"Recalculated {len(changes)} products for {self.storage.name} (log #{log.id})")
+        return changes

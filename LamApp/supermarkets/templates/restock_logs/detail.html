@@ -1015,6 +1015,46 @@
                         Nessun articolo nell'ordine. Usa la ricerca qui sopra per aggiungerne.
                     </p>
 
+                    <!-- Stock corrected → pending recalculation -->
+                    <div class="card mt-3 border-primary" id="recalcPanel" {% if not recalc_pending %}hidden{% endif %}>
+                        <div class="card-header bg-primary-subtle d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                            <span><i class="bi bi-arrow-repeat"></i> Giacenze corrette — da ricalcolare</span>
+                            <button class="btn btn-sm btn-primary" id="btnRecalc" type="button">
+                                <i class="bi bi-calculator"></i> Ricalcola ordine
+                            </button>
+                        </div>
+                        <ul class="list-group list-group-flush" id="recalcPendingList">
+                            {% for p in recalc_pending %}
+                            <li class="list-group-item py-1 small" data-cod="{{ p.cod }}" data-var="{{ p.var }}">
+                                {{ p.name|default:p.cod }}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+
+                    <!-- Result of the last recalculation -->
+                    {% if last_recalc %}
+                    <div class="card mt-3">
+                        <div class="card-header bg-light"><i class="bi bi-check2-circle"></i> Risultato ricalcolo</div>
+                        <ul class="list-group list-group-flush">
+                            {% for c in last_recalc %}
+                            <li class="list-group-item py-1 small d-flex justify-content-between align-items-center gap-2">
+                                <span class="text-truncate">{{ c.name }}</span>
+                                <span class="text-nowrap">
+                                    {% if c.status == 'added' %}<span class="badge bg-success">Aggiunto {{ c.new }} colli</span>
+                                    {% elif c.status == 'removed' %}<span class="badge bg-danger">Rimosso</span>
+                                    {% elif c.status == 'changed' %}<span class="badge bg-info text-dark">{{ c.old }} → {{ c.new }} colli</span>
+                                    {% elif c.status == 'manual' %}<span class="badge bg-secondary">Saltato (modificato a mano)</span>
+                                    {% elif c.status == 'none' %}<span class="badge bg-light text-dark">Non necessario</span>
+                                    {% else %}<span class="badge bg-light text-dark">Invariato ({{ c.new }} colli)</span>
+                                    {% endif %}
+                                </span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
                     <!-- Actions (bottom) -->
                     <div class="d-flex flex-wrap gap-2 mt-3 pt-3 border-top">
                         <button class="btn btn-success" id="btnInvia">
@@ -1829,6 +1869,7 @@ function pollFetchTask(taskId, cod, v, btn) {
                     const applied = (data.stock !== undefined) ? data.stock : n;
                     if (stockSpan) stockSpan.textContent = applied;
                     if (onSaved) onSaved(applied);
+                    if (data.pending) addPendingRow(data.pending);
                     ed.remove();
                 })
                 .catch(function (err) { alert(err.message); });
@@ -1875,6 +1916,14 @@ function pollFetchTask(taskId, cod, v, btn) {
                 ? `<span class="badge bg-success ms-1">Nell'ordine: ${p.order_qty} colli</span>`
                 : `<span class="badge bg-secondary ms-1">Non nell'ordine</span>`;
             const defQty = p.in_order ? p.order_qty : 1;
+            let linkWarn = '';
+            if (p.link) {
+                const partner = `${p.link.name || (p.link.cod + '.' + p.link.var)} (${p.link.cod}.${p.link.var})`;
+                const tail = p.link.partner_in_order
+                    ? ` — l'ordine è già gestito su quell'articolo`
+                    : '';
+                linkWarn = `<div class="small text-warning mt-1"><i class="bi bi-link-45deg"></i> Articolo collegato a ${partner}${tail}</div>`;
+            }
             return `
             <div class="border rounded p-2 mb-2 sr-item" data-cod="${p.cod}" data-var="${p.var}">
                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
@@ -1883,6 +1932,7 @@ function pollFetchTask(taskId, cod, v, btn) {
                         <div>${p.description} ${badge}</div>
                         <div class="small text-muted">Giacenza: <strong class="sr-stock">${p.stock}</strong>
                             · Media/gg: ${p.avg_daily_sales} ${inOrder}</div>
+                        ${linkWarn}
                     </div>
                     <div class="input-group input-group-sm" style="max-width:170px;">
                         <input type="number" class="form-control text-center sr-qty" value="${defQty}" min="0" inputmode="numeric">
@@ -2000,6 +2050,59 @@ function pollFetchTask(taskId, cod, v, btn) {
                 })
                 .catch(() => { /* keep polling */ });
         }, 3000);
+    }
+
+    // ---- Recalculation of corrected-stock products ----
+    const recalcPanel = document.getElementById('recalcPanel');
+    const recalcPendingList = document.getElementById('recalcPendingList');
+    const btnRecalc = document.getElementById('btnRecalc');
+
+    function addPendingRow(p) {
+        if (!recalcPendingList) return;
+        if (recalcPendingList.querySelector(`li[data-cod="${p.cod}"][data-var="${p.var}"]`)) return;
+        const li = document.createElement('li');
+        li.className = 'list-group-item py-1 small';
+        li.dataset.cod = p.cod;
+        li.dataset.var = p.var;
+        li.textContent = p.name || (p.cod + '.' + p.var);
+        recalcPendingList.appendChild(li);
+        if (recalcPanel) recalcPanel.hidden = false;
+    }
+
+    if (btnRecalc) {
+        btnRecalc.addEventListener('click', function () {
+            btnRecalc.disabled = true;
+            btnRecalc.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Ricalcolo...';
+            fetch(`/logs/${LOG_ID}/recalc/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.task_id) { pollRecalc(data.task_id); }
+                    else { throw new Error(data.message || 'Errore'); }
+                })
+                .catch(err => {
+                    alert(err.message);
+                    btnRecalc.disabled = false;
+                    btnRecalc.innerHTML = '<i class="bi bi-calculator"></i> Ricalcola ordine';
+                });
+        });
+    }
+
+    function pollRecalc(taskId) {
+        const interval = setInterval(() => {
+            fetch(`/tasks/${taskId}/status/`)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.ready) return;
+                    clearInterval(interval);
+                    if (data.success) {
+                        window.location.href = data.redirect_url || `/logs/${LOG_ID}/`;
+                    } else {
+                        alert('Ricalcolo fallito: ' + (data.error || 'errore sconosciuto'));
+                        window.location.reload();
+                    }
+                })
+                .catch(() => { /* keep polling */ });
+        }, 2000);
     }
 
     btnScarta.addEventListener('click', function () {

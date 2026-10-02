@@ -84,10 +84,10 @@
                 Collegare due articoli che rappresentano lo stesso prodotto (es. vecchio codice → nuovo codice).
                 Il sistema unisce automaticamente <code>giacenza</code> e storico vendite dei due articoli
                 prima del calcolo dell'ordine.
-                Viene ordinato solo il <strong>prodotto primario</strong>; il secondario viene ignorato
-                anche se ancora disponibile. Se pero' il primario non e' piu' disponibile
-                (<code>disponibilita = No</code>) mentre il secondario lo e', l'ordine passa
-                automaticamente al secondario.
+                Viene ordinato solo il <strong>prodotto subentrante</strong>; il sostituito viene ignorato
+                anche se ancora disponibile. Se pero' il subentrante non e' piu' disponibile
+                (<code>disponibilita = No</code>) mentre il sostituito lo e', l'ordine passa
+                automaticamente al sostituito.
                 I collegamenti sono <strong>indipendenti per punto vendita</strong> — scollegare qui non
                 influisce sugli altri punti vendita.
             </div>
@@ -107,7 +107,7 @@
 
                     <div class="mb-3">
                         <label class="form-label fw-semibold">
-                            Prodotto primario
+                            Prodotto subentrante
                             <span class="text-muted fw-normal">(quello che si ordina)</span>
                         </label>
                         <div class="d-flex gap-2">
@@ -124,7 +124,7 @@
 
                     <div class="mb-3">
                         <label class="form-label fw-semibold">
-                            Prodotto secondario
+                            Prodotto sostituito
                             <span class="text-muted fw-normal">(quello in uscita)</span>
                         </label>
                         <div class="d-flex gap-2">
@@ -186,9 +186,9 @@
                     <table class="table table-hover link-table mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th>Primario</th>
+                                <th>Subentrante</th>
                                 <th class="arrow-cell"></th>
-                                <th>Secondario</th>
+                                <th>Sostituito</th>
                                 <th>Note</th>
                                 <th>Creato</th>
                                 <th></th>
@@ -201,7 +201,7 @@
                                     <div>{{ link.primary_name|default:"—" }}</div>
                                     <span class="cod-badge">{{ link.primary_cod }}.{{ link.primary_v }}</span>
                                 </td>
-                                <td class="arrow-cell"><i class="bi bi-arrow-right"></i></td>
+                                <td class="arrow-cell" title="sostituisce"><i class="bi bi-arrow-left"></i></td>
                                 <td class="secondary-col">
                                     <div>{{ link.secondary_name|default:"—" }}</div>
                                     <span class="cod-badge">{{ link.secondary_cod }}.{{ link.secondary_v }}</span>
@@ -219,18 +219,18 @@
                                 </td>
                                 <td>
                                     <div class="d-flex gap-1">
-                                        <form method="post" title="Inverti primario/secondario">
+                                        <form method="post" title="Inverti subentrante/sostituito">
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="invert">
                                             <input type="hidden" name="link_id" value="{{ link.id }}">
                                             <input type="hidden" name="supermarket_id" value="{{ selected_sm.id }}">
                                             <button type="submit" class="btn btn-sm btn-outline-warning"
-                                                title="Inverti: rendi secondario il primario e viceversa">
+                                                title="Inverti: rendi sostituito il subentrante e viceversa">
                                                 <i class="bi bi-arrow-left-right"></i>
                                             </button>
                                         </form>
                                         <form method="post"
-                                            data-confirm="Eliminare il collegamento {{ link.primary_name|default:'' }} ({{ link.primary_cod }}.{{ link.primary_v }}) → {{ link.secondary_name|default:'' }} ({{ link.secondary_cod }}.{{ link.secondary_v }}) per {{ selected_sm.name }}?"
+                                            data-confirm="Eliminare il collegamento {{ link.primary_name|default:'' }} ({{ link.primary_cod }}.{{ link.primary_v }}) ← {{ link.secondary_name|default:'' }} ({{ link.secondary_cod }}.{{ link.secondary_v }}) per {{ selected_sm.name }}?"
                                             onsubmit="return confirm(this.dataset.confirm);">
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="delete">

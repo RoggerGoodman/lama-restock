@@ -386,14 +386,14 @@ def _build_orders(pool, rng):
 
 
 def _seed_substitutions(supermarket, user, sub_pair):
-    """One fixed substitution example. The dashboard renders Primario -> Secondario,
-    so old_cod goes in primary and new_cod in secondary to read 'vecchia -> nuova'."""
+    """One fixed substitution example: the new product is the primary (ordered),
+    the old one the secondary (phased out)."""
     ProductLink.objects.filter(supermarket=supermarket).delete()
     ProductLinkNotification.objects.filter(supermarket=supermarket).delete()
     (old_cod, old_var), (new_cod, new_var) = sub_pair
     fields = dict(
-        supermarket=supermarket, primary_cod=old_cod, primary_v=old_var,
-        secondary_cod=new_cod, secondary_v=new_var, created_by=user,
+        supermarket=supermarket, primary_cod=new_cod, primary_v=new_var,
+        secondary_cod=old_cod, secondary_v=old_var, created_by=user,
     )
     ProductLink.objects.create(notes="Referenza sostituita (demo).", **fields)
     ProductLinkNotification.objects.create(is_read=False, **fields)
