@@ -10,10 +10,6 @@
         font-size: 0.85rem;
         vertical-align: middle;
     }
-    .equip-table .code-col {
-        font-family: monospace;
-        white-space: nowrap;
-    }
     .equip-table .num-col {
         text-align: right;
         white-space: nowrap;
@@ -100,8 +96,6 @@
                     <thead class="table-light">
                         <tr>
                             <th style="width:30px"></th>
-                            <th class="code-col">Cod</th>
-                            <th>V</th>
                             <th>Descrizione</th>
                             <th class="num-col">Prezzo</th>
                             <th style="width:70px">Qty</th>
@@ -121,8 +115,6 @@
                             data-image="{% static img %}"
                             data-category="{{ forloop.parentloop.counter }}">
                             <td><input type="checkbox" class="equip-checkbox" onchange="toggleItem(this)"></td>
-                            <td class="code-col">{{ item.cod }}</td>
-                            <td>{{ item.v }}</td>
                             <td>
                                 {{ item.name }}
                                 {% if item.contents %}<span class="badge bg-info text-dark ms-1">Kit</span>{% endif %}
@@ -167,7 +159,6 @@
                 <table class="table table-bordered equip-table mb-2">
                     <thead class="table-light">
                         <tr>
-                            <th class="code-col">Cod.V</th>
                             <th>Descrizione</th>
                             <th style="width:70px">Qty</th>
                             <th class="num-col">Prezzo</th>
@@ -178,7 +169,7 @@
                     <tbody id="cartBody"></tbody>
                     <tfoot>
                         <tr>
-                            <th colspan="4" class="num-col">Totale</th>
+                            <th colspan="3" class="num-col">Totale</th>
                             <th class="num-col" id="cartTotal"></th>
                             <th></th>
                         </tr>
@@ -285,7 +276,6 @@ function renderCart() {
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td class="code-col">${row.dataset.cod}.${row.dataset.var}</td>
             <td>${escapeHtml(row.dataset.name)}</td>
             <td><input type="number" class="form-control qty-input" value="${qty}" min="1" max="999"
                        onchange="changeQty('${key}', this.value)"></td>
@@ -311,7 +301,7 @@ function renderCart() {
 }
 
 function showPreview(row) {
-    document.getElementById('previewTitle').textContent = `${row.dataset.cod}.${row.dataset.var} - ${row.dataset.name}`;
+    document.getElementById('previewTitle').textContent = row.dataset.name;
     document.getElementById('previewImage').src = row.dataset.image;
     document.getElementById('previewImage').alt = row.dataset.name;
     document.getElementById('previewPack').textContent = row.dataset.pack;

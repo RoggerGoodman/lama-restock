@@ -9,15 +9,8 @@
         font-size: 0.85rem;
         vertical-align: middle;
     }
-    .promo-table .code-col {
-        font-family: monospace;
-        white-space: nowrap;
-    }
     .promo-table .desc-col {
-        max-width: 180px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        min-width: 200px;
     }
     .promo-table .num-col {
         text-align: right;
@@ -184,8 +177,6 @@
                             <thead class="table-light">
                                 <tr>
                                     <th style="width:30px"><input type="checkbox" title="Seleziona tutti" onclick="toggleTable(this)"></th>
-                                    <th class="code-col">Cod</th>
-                                    <th>V</th>
                                     <th class="desc-col">Descrizione</th>
                                     <th class="num-col">C.Promo</th>
                                     <th class="num-col">C.Std</th>
@@ -218,9 +209,7 @@
                                     data-margin-promo="{{ p.margin_promo|stringformat:'s' }}"
                                     data-stock="{{ p.stock }}">
                                     <td><input type="checkbox" class="promo-checkbox" onchange="toggleItem(this)"></td>
-                                    <td class="code-col">{{ p.cod }}</td>
-                                    <td>{{ p.v }}</td>
-                                    <td class="desc-col" title="{{ p.descrizione }}">{{ p.descrizione|truncatechars:25 }}</td>
+                                    <td class="desc-col">{{ p.descrizione }}</td>
                                     <td class="num-col"><strong>{{ p.cost_s|floatformat:2 }}</strong></td>
                                     <td class="num-col text-muted">{{ p.cost_std|floatformat:2 }}</td>
                                     <td class="num-col">{{ p.price_std|floatformat:2 }}</td>
@@ -278,7 +267,6 @@
                     <thead class="table-light">
                         <tr>
                             <th>Magazzino</th>
-                            <th class="code-col">Cod.V</th>
                             <th>Descrizione</th>
                             <th style="width:70px">Colli</th>
                             <th class="num-col">C.Promo collo</th>
@@ -289,7 +277,7 @@
                     <tbody id="cartBody"></tbody>
                     <tfoot>
                         <tr>
-                            <th colspan="5" class="num-col">Totale</th>
+                            <th colspan="4" class="num-col">Totale</th>
                             <th class="num-col" id="cartTotal"></th>
                             <th></th>
                         </tr>
@@ -394,7 +382,6 @@ function renderCart() {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><small>${escapeHtml(row.dataset.storageLabel)}</small></td>
-            <td class="code-col">${row.dataset.cod}.${row.dataset.var}</td>
             <td>${escapeHtml(row.dataset.desc)}</td>
             <td><input type="number" class="form-control qty-input" value="${qty}" min="1" max="999"
                        onchange="changeQty('${key}', this.value)"></td>
@@ -492,7 +479,7 @@ function placeOrder() {
         } else {
             results.innerHTML = matches.map(row => `
                 <div class="dropdown-item" data-key="${row.dataset.key}">
-                    <strong>${row.dataset.cod}.${row.dataset.var}</strong> - ${escapeHtml(row.dataset.desc)}
+                    <strong>${escapeHtml(row.dataset.desc)}</strong>
                     <div class="small text-muted">${escapeHtml(row.dataset.storageLabel)}</div>
                 </div>
             `).join('');
