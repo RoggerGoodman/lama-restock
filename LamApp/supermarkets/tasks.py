@@ -474,7 +474,8 @@ def retry_restock_from_checkpoint(self, log_id):
         logger.info(f"[CELERY-RETRY] Retrying log #{log_id} for {storage.name} (fresh run)")
 
         with AutomatedRestockService(storage) as service:
-            service.run_full_restock_workflow(log=log)
+            # Operator-triggered retry → always park for review.
+            service.run_full_restock_workflow(log=log, force_review=True)
 
         logger.info(f"[CELERY-RETRY] Log #{log_id} completed successfully")
     finally:
@@ -489,7 +490,7 @@ def retry_restock_from_checkpoint(self, log_id):
     acks_late=True,
     reject_on_worker_lost=True
 )
-def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=True):
+def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=True, manual=False):
     """
     Run restock for a single storage. Used for both scheduled and manual restocks.
 
@@ -498,6 +499,8 @@ def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=T
         coverage: Optional coverage parameter for order calculation
         skip_stats_update: If True, skip stats update (default True since stats
                           are updated separately in the morning workflow)
+        manual: True for an operator-triggered run — always parks for review,
+                ignoring the schedule's require_order_review toggle.
     """
     from .models import Storage, RestockLog
 
@@ -537,7 +540,8 @@ def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=T
                 coverage=coverage,
                 log=log,
                 skip_stats_update=skip_stats_update,
-                progress_callback=report_progress
+                progress_callback=report_progress,
+                force_review=manual,
             )
 
             logger.info(
@@ -1396,9 +1400,9 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
     acks_late=True,
     reject_on_worker_lost=True
 )
-def order_promo_products_task(self, user_id, orders_list):
+def place_manual_order_task(self, user_id, orders_list):
     """
-    Place order for promo products from promo products page.
+    Place a user-built order (promo products page, equipment catalog).
 
     Args:
         user_id: User ID (for ownership validation)
@@ -1433,7 +1437,7 @@ def order_promo_products_task(self, user_id, orders_list):
             _sm_log_ctx = enter_supermarket_log(supermarket.name)
 
             try:
-                logger.info(f"[ORDER PROMO] Processing supermarket {supermarket.name}")
+                logger.info(f"[MANUAL ORDER] Processing supermarket {supermarket.name}")
 
                 orderer = Orderer(
                     username=supermarket.username,
@@ -1447,7 +1451,7 @@ def order_promo_products_task(self, user_id, orders_list):
                     for storage_name, products in sm_data['storages'].items():
                         _order_log_ctx = enter_order_log(supermarket.name, storage_name)
                         try:
-                            logger.info(f"[ORDER PROMO] Ordering {len(products)} products for {storage_name}")
+                            logger.info(f"[MANUAL ORDER] Ordering {len(products)} products for {storage_name}")
 
                             successful_orders, order_skipped = orderer.make_orders(
                                 storage_name,
@@ -1466,7 +1470,7 @@ def order_promo_products_task(self, user_id, orders_list):
                 exit_supermarket_log(_sm_log_ctx)
 
         logger.info(
-            f"✅ [ORDER PROMO] Complete: {total_ordered} ordered, "
+            f"✅ [MANUAL ORDER] Complete: {total_ordered} ordered, "
             f"{total_skipped} skipped"
         )
 
@@ -1478,7 +1482,7 @@ def order_promo_products_task(self, user_id, orders_list):
         }
 
     except Exception as exc:
-        logger.exception(f"[ORDER PROMO] Error for user #{user_id}")
+        logger.exception(f"[MANUAL ORDER] Error for user #{user_id}")
         raise self.retry(exc=exc)
 
 

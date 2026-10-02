@@ -114,6 +114,8 @@ urlpatterns = [
     path('inventory/stock-profit/', views.stock_profit_view, name='stock-profit'),
     path('inventory/promo-products/', views.promo_products_view, name='promo-products'),
     path('inventory/order-promo-products/', views.order_promo_products_view, name='order-promo-products'),
+    path('inventory/equipment/', views.equipment_order_view, name='equipment-order'),
+    path('inventory/order-equipment/', views.order_equipment_view, name='order-equipment'),
     path('inventory/product-links/', views.product_links_view, name='product-links'),
 
     # Inventory AJAX endpoints

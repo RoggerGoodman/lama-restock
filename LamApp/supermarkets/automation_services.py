@@ -402,10 +402,15 @@ class AutomatedRestockService(RestockService):
         )
         return fraction
 
-    def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None, skip_stats_update=False):
+    def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None,
+                                  skip_stats_update=False, force_review=False):
         """
         Run complete restock workflow: calculate order then execute it.
         Both steps always run fresh — no checkpoint skipping.
+
+        force_review=True always parks the order for human review, ignoring the
+        schedule's require_order_review toggle. Manual runs set this: the toggle
+        governs only the unattended scheduled runs.
         """
         logger.info(f"Starting restock workflow for {self.storage.name}")
 
@@ -512,13 +517,16 @@ class AutomatedRestockService(RestockService):
 
             log.order_calculated_at = timezone.now()
 
-            # Per-schedule choice: park for human review, or send straight away.
-            # Missing schedule defaults to review (the safer behaviour).
-            try:
-                schedule = self.storage.schedule
-            except Exception:
-                schedule = None
-            require_review = getattr(schedule, 'require_order_review', True)
+            # Manual runs always review. For scheduled runs it's the per-schedule
+            # toggle; a missing schedule defaults to review (the safer behaviour).
+            if force_review:
+                require_review = True
+            else:
+                try:
+                    schedule = self.storage.schedule
+                except Exception:
+                    schedule = None
+                require_review = getattr(schedule, 'require_order_review', True)
 
             if require_review:
                 log.status = 'awaiting_review'

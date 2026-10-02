@@ -1,0 +1,369 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Ordina attrezzatura{% endblock %}
+{% block page_title %}Ordina attrezzatura{% endblock %}
+
+{% block extra_css %}
+<style>
+    .equip-table th, .equip-table td {
+        padding: 0.4rem 0.5rem;
+        font-size: 0.85rem;
+        vertical-align: middle;
+    }
+    .equip-table .code-col {
+        font-family: monospace;
+        white-space: nowrap;
+    }
+    .equip-table .num-col {
+        text-align: right;
+        white-space: nowrap;
+    }
+    .equip-table input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+    }
+    .qty-input {
+        width: 60px !important;
+        padding: 0.2rem 0.4rem;
+        font-size: 0.85rem;
+        text-align: center;
+    }
+    .category-header {
+        cursor: pointer;
+        user-select: none;
+    }
+    .category-header .bi-chevron-right {
+        transition: transform .2s;
+    }
+    .category-header[aria-expanded="true"] .bi-chevron-right {
+        transform: rotate(90deg);
+    }
+    .cart-section {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 6px;
+        padding: 0.75rem;
+    }
+    #previewImage {
+        max-width: 100%;
+        max-height: 60vh;
+        object-fit: contain;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+            <li class="breadcrumb-item active">Ordina attrezzatura</li>
+        </ol>
+    </nav>
+
+    {% if not supermarkets %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> Nessun punto vendita configurato.
+    </div>
+    {% else %}
+    <div class="stat-card mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0"><i class="bi bi-box-seam text-secondary"></i> Listino attrezzatura PdV</h5>
+            <a href="{% url 'inventory-search' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Torna
+            </a>
+        </div>
+        <p class="text-muted small mb-0">
+            Seleziona gli articoli da ordinare: li ritrovi nel carrello in fondo alla pagina, dove puoi controllarli prima di inviare l'ordine.
+            Gli articoli vengono ordinati sul magazzino Generi Vari.
+        </p>
+    </div>
+
+    {% for category, items in categories %}
+    <div class="stat-card mb-2">
+        <div class="category-header d-flex justify-content-between align-items-center"
+             data-bs-toggle="collapse" data-bs-target="#cat-{{ forloop.counter }}"
+             aria-expanded="false" role="button">
+            <h6 class="mb-0">
+                <i class="bi bi-chevron-right me-1"></i> {{ category }}
+            </h6>
+            <span>
+                <span class="badge bg-warning text-dark d-none category-selected" data-category="{{ forloop.counter }}"></span>
+                <span class="badge bg-light text-dark border">{{ items|length }} articoli</span>
+            </span>
+        </div>
+        <div class="collapse" id="cat-{{ forloop.counter }}">
+            <div class="table-responsive mt-2">
+                <table class="table table-hover table-bordered equip-table mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:30px"></th>
+                            <th class="code-col">Cod</th>
+                            <th>V</th>
+                            <th>Descrizione</th>
+                            <th class="num-col">Prezzo</th>
+                            <th style="width:70px">Qty</th>
+                            <th style="width:40px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        {% with 'equipment/'|add:item.image as img %}
+                        <tr class="equip-row"
+                            data-key="{{ item.cod }}-{{ item.v }}"
+                            data-cod="{{ item.cod }}"
+                            data-var="{{ item.v }}"
+                            data-name="{{ item.name }}"
+                            data-pack="{{ item.pack }}"
+                            data-price="{% if item.price is not None %}{{ item.price|stringformat:'s' }}{% endif %}"
+                            data-image="{% static img %}"
+                            data-category="{{ forloop.parentloop.counter }}">
+                            <td><input type="checkbox" class="equip-checkbox" onchange="toggleItem(this)"></td>
+                            <td class="code-col">{{ item.cod }}</td>
+                            <td>{{ item.v }}</td>
+                            <td>
+                                {{ item.name }}
+                                {% if item.contents %}<span class="badge bg-info text-dark ms-1">Kit</span>{% endif %}
+                                <div class="text-muted small">{{ item.pack }}</div>
+                                {% if item.contents %}
+                                <template class="kit-contents">
+                                    {% for c in item.contents %}<li>{% if c.qty %}{{ c.qty }} x {% endif %}{{ c.name }}</li>{% endfor %}
+                                </template>
+                                {% endif %}
+                            </td>
+                            <td class="num-col">
+                                {% if item.price is not None %}&euro; {{ item.price|floatformat:2 }}{% else %}<span class="text-muted">&mdash;</span>{% endif %}
+                            </td>
+                            <td>
+                                <input type="number" class="form-control qty-input" value="1" min="1" max="999"
+                                       onchange="changeQty(this.closest('tr').dataset.key, this.value)">
+                            </td>
+                            <td class="text-center">
+                                <button type="button" class="btn btn-sm btn-link p-0" title="Vedi immagine"
+                                        onclick="showPreview(this.closest('tr'))">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endwith %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Cart -->
+    <div class="stat-card mt-3">
+        <h5 class="mb-2"><i class="bi bi-cart3 text-warning"></i> Carrello</h5>
+        <div id="cartEmpty" class="alert alert-light border mb-0">
+            <i class="bi bi-info-circle"></i> Nessun articolo selezionato.
+        </div>
+        <div id="cartFull" class="d-none">
+            <div class="table-responsive">
+                <table class="table table-bordered equip-table mb-2">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="code-col">Cod.V</th>
+                            <th>Descrizione</th>
+                            <th style="width:70px">Qty</th>
+                            <th class="num-col">Prezzo</th>
+                            <th class="num-col">Totale</th>
+                            <th style="width:40px"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="cartBody"></tbody>
+                    <tfoot>
+                        <tr>
+                            <th colspan="4" class="num-col">Totale</th>
+                            <th class="num-col" id="cartTotal"></th>
+                            <th></th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            <div class="cart-section d-flex flex-wrap align-items-end gap-3">
+                <div>
+                    <label class="form-label small mb-1">Punto Vendita</label>
+                    <select id="supermarketSelect" class="form-select form-select-sm">
+                        {% for sm in supermarkets %}
+                        <option value="{{ sm.id }}">{{ sm.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button class="btn btn-sm btn-primary" id="placeOrderBtn" onclick="placeOrder()">
+                    <i class="bi bi-cart-check"></i> Invia ordine
+                </button>
+                <span class="text-muted small" id="cartCount"></span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Image preview -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="previewTitle"></h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="previewImage" src="" alt="">
+                <div class="text-muted small mt-2" id="previewPack"></div>
+                <div id="previewContents" class="text-start mt-3 d-none">
+                    <strong class="small">Contenuto del kit</strong>
+                    <ul class="small mb-0" id="previewContentsList"></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// key "cod-var" -> qty
+const cart = new Map();
+
+function rowFor(key) {
+    return document.querySelector(`.equip-row[data-key="${key}"]`);
+}
+
+function toggleItem(checkbox) {
+    const row = checkbox.closest('tr');
+    if (checkbox.checked) {
+        cart.set(row.dataset.key, parseInt(row.querySelector('.qty-input').value) || 1);
+    } else {
+        cart.delete(row.dataset.key);
+    }
+    renderCart();
+}
+
+function changeQty(key, value) {
+    const qty = Math.min(Math.max(parseInt(value) || 1, 1), 999);
+    const row = rowFor(key);
+    row.querySelector('.qty-input').value = qty;
+    if (cart.has(key)) {
+        cart.set(key, qty);
+        renderCart();
+    }
+}
+
+function removeItem(key) {
+    cart.delete(key);
+    rowFor(key).querySelector('.equip-checkbox').checked = false;
+    renderCart();
+}
+
+function formatEuro(value) {
+    return '€ ' + value.toFixed(2).replace('.', ',');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function renderCart() {
+    const body = document.getElementById('cartBody');
+    body.innerHTML = '';
+    let total = 0;
+    const perCategory = {};
+
+    cart.forEach((qty, key) => {
+        const row = rowFor(key);
+        const price = row.dataset.price === '' ? null : parseFloat(row.dataset.price);
+        const lineTotal = price === null ? null : price * qty;
+        if (lineTotal !== null) total += lineTotal;
+        perCategory[row.dataset.category] = (perCategory[row.dataset.category] || 0) + 1;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="code-col">${row.dataset.cod}.${row.dataset.var}</td>
+            <td>${escapeHtml(row.dataset.name)}</td>
+            <td><input type="number" class="form-control qty-input" value="${qty}" min="1" max="999"
+                       onchange="changeQty('${key}', this.value)"></td>
+            <td class="num-col">${price === null ? '&mdash;' : formatEuro(price)}</td>
+            <td class="num-col">${lineTotal === null ? '&mdash;' : formatEuro(lineTotal)}</td>
+            <td class="text-center">
+                <button type="button" class="btn btn-sm btn-link text-danger p-0" title="Rimuovi"
+                        onclick="removeItem('${key}')"><i class="bi bi-x-lg"></i></button>
+            </td>`;
+        body.appendChild(tr);
+    });
+
+    document.getElementById('cartTotal').textContent = formatEuro(total);
+    document.getElementById('cartCount').textContent = `${cart.size} articoli`;
+    document.getElementById('cartEmpty').classList.toggle('d-none', cart.size > 0);
+    document.getElementById('cartFull').classList.toggle('d-none', cart.size === 0);
+
+    document.querySelectorAll('.category-selected').forEach(badge => {
+        const n = perCategory[badge.dataset.category] || 0;
+        badge.textContent = `${n} selezionati`;
+        badge.classList.toggle('d-none', n === 0);
+    });
+}
+
+function showPreview(row) {
+    document.getElementById('previewTitle').textContent = `${row.dataset.cod}.${row.dataset.var} - ${row.dataset.name}`;
+    document.getElementById('previewImage').src = row.dataset.image;
+    document.getElementById('previewImage').alt = row.dataset.name;
+    document.getElementById('previewPack').textContent = row.dataset.pack;
+
+    const contents = row.querySelector('template.kit-contents');
+    const list = document.getElementById('previewContentsList');
+    list.innerHTML = contents ? contents.innerHTML : '';
+    document.getElementById('previewContents').classList.toggle('d-none', !contents);
+
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('previewModal')).show();
+}
+
+function placeOrder() {
+    if (cart.size === 0) return;
+    const select = document.getElementById('supermarketSelect');
+    const storeName = select.options[select.selectedIndex].text.trim();
+    if (!confirm(`Inviare l'ordine di ${cart.size} articoli per ${storeName}?`)) return;
+
+    const items = Array.from(cart, ([key, qty]) => {
+        const row = rowFor(key);
+        return {cod: parseInt(row.dataset.cod), var: parseInt(row.dataset.var), qty};
+    });
+
+    const btn = document.getElementById('placeOrderBtn');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Avvio...';
+
+    fetch('{% url "order-equipment" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({supermarket_id: parseInt(select.value), items})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.task_id) {
+            window.location.href = `/tasks/${data.task_id}/progress/`;
+        } else {
+            alert('Errore: ' + (data.message || 'Impossibile avviare ordine'));
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Errore: ' + error);
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    });
+}
+</script>
+{% endblock %}

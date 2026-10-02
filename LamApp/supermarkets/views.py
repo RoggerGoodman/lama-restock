@@ -1565,6 +1565,7 @@ def run_restock_view(request, storage_id):
 
         result = run_restock_for_storage.apply_async(
             args=[storage_id, coverage],
+            kwargs={'manual': True},  # operator-triggered → always review
             retry=True,
             retry_policy={
                 'max_retries': 3,
@@ -3689,37 +3690,21 @@ def stock_profit_view(request):
 @login_required
 def promo_products_view(request):
     """
-    Display products currently on sale (today BETWEEN sale_start AND sale_end).
-    Filtered by storage, showing margins and stock for stocking decisions.
+    Display products currently on sale (today BETWEEN sale_start AND sale_end),
+    grouped by storage and cluster, showing margins and stock for stocking decisions.
     """
     from datetime import date
 
-    supermarkets = Supermarket.objects.filter(owner=request.user)
-    storages = Storage.objects.filter(supermarket__owner=request.user)
+    storages = (Storage.objects.filter(supermarket__owner=request.user)
+                .select_related('supermarket')
+                .order_by('supermarket__name', 'settore'))
 
-    # Get filter parameters
-    supermarket_id = request.GET.get('supermarket')
-    storage_id = request.GET.get('storage')
-
-    promo_products = []
-    scope_description = "Tutti i punti vendita"
+    groups = []
+    total_products = 0
     today = date.today()
 
-    # Build list of storages to query
-    storages_to_query = []
-
-    if storage_id:
-        storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
-        storages_to_query = [storage]
-        scope_description = f"{storage.supermarket.name} - {storage.settore}"
-    elif supermarket_id:
-        supermarket = get_object_or_404(Supermarket, id=supermarket_id, owner=request.user)
-        storages_to_query = list(supermarket.storages.all())
-        scope_description = supermarket.name
-    else:
-        storages_to_query = list(storages)
-
-    for storage in storages_to_query:
+    for storage in storages:
+        promo_products = []
         try:
             with RestockService(storage) as service:
                 cur = service.db.cursor()
@@ -3728,6 +3713,7 @@ def promo_products_view(request):
                         p.cod,
                         p.v,
                         p.descrizione,
+                        p.cluster,
                         p.rapp,
                         e.cost_s,
                         e.cost_std,
@@ -3766,7 +3752,9 @@ def promo_products_view(request):
                         'cod': row['cod'],
                         'v': row['v'],
                         'descrizione': row['descrizione'],
+                        'cluster': row['cluster'] or '',
                         'cost_s': cost_s,
+                        'cost_s_collo': float(row['cost_s'] or 0),
                         'cost_std': cost_std,
                         'price_std': price_std,
                         'margin_std': round(margin_std, 1),
@@ -3775,26 +3763,33 @@ def promo_products_view(request):
                         'stock': stock,
                         'sale_start': row['sale_start'],
                         'sale_end': row['sale_end'],
-                        'storage_id': storage.id,
-                        'storage_name': storage.settore,
-                        'supermarket_id': storage.supermarket.id,
-                        'supermarket_name': storage.supermarket.name,
                     })
         except Exception as e:
             logger.exception(f"Error fetching promo products for storage {storage.id}")
             continue
 
-    # Sort by margin gain (descending) by default
-    promo_products.sort(key=lambda x: x['margin_gain'], reverse=True)
+        if not promo_products:
+            continue
+
+        by_cluster = {}
+        for p in promo_products:
+            by_cluster.setdefault(p['cluster'], []).append(p)
+        clusters = []
+        # Unclustered products go last
+        for cluster in sorted(by_cluster, key=lambda c: (c == '', c)):
+            products = sorted(by_cluster[cluster], key=lambda x: x['margin_gain'], reverse=True)
+            clusters.append({'name': cluster or 'Senza cluster', 'products': products})
+
+        groups.append({
+            'storage': storage,
+            'clusters': clusters,
+            'count': len(promo_products),
+        })
+        total_products += len(promo_products)
 
     context = {
-        'supermarkets': supermarkets,
-        'storages': storages,
-        'selected_supermarket': supermarket_id or '',
-        'selected_storage': storage_id or '',
-        'scope_description': scope_description,
-        'promo_products': promo_products,
-        'total_products': len(promo_products),
+        'groups': groups,
+        'total_products': total_products,
         'today': today,
     }
 
@@ -3853,9 +3848,9 @@ def order_promo_products_view(request):
         logger.info(f"Dispatching promo order for {total_products} products across {len(storage_ids)} storages")
 
         # Dispatch to Celery task
-        from .tasks import order_promo_products_task
+        from .tasks import place_manual_order_task
 
-        result = order_promo_products_task.apply_async(
+        result = place_manual_order_task.apply_async(
             args=[request.user.id, all_orders],
             retry=True,
             retry_policy={
@@ -3876,6 +3871,74 @@ def order_promo_products_view(request):
             'success': False,
             'message': str(e)
         }, status=500)
+
+
+@login_required
+def equipment_order_view(request):
+    """Catalog of store equipment, grouped by category, with a cart to order from."""
+    from .equipment import catalog_by_category
+
+    supermarkets = Supermarket.objects.filter(owner=request.user).order_by('name')
+    return render(request, 'inventory/equipment_order.html', {
+        'supermarkets': supermarkets,
+        'categories': catalog_by_category(),
+    })
+
+
+@login_required
+@require_POST
+def order_equipment_view(request):
+    """Validate the cart and dispatch it on the supermarket's GENERI VARI storage."""
+    from .equipment import catalog_index, equipment_storage, EQUIPMENT_SETTORE
+    from .tasks import place_manual_order_task
+
+    try:
+        data = json.loads(request.body)
+        supermarket = get_object_or_404(Supermarket, id=data.get('supermarket_id'), owner=request.user)
+        storage = equipment_storage(supermarket)
+        if storage is None:
+            return JsonResponse({
+                'success': False,
+                'message': f'{supermarket.name} non ha un magazzino {EQUIPMENT_SETTORE}'
+            }, status=400)
+
+        index = catalog_index()
+        orders = []
+        for line in data.get('items', []):
+            cod, var, qty = int(line['cod']), int(line['var']), int(line['qty'])
+            if (cod, var) not in index or not 1 <= qty <= 999:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Articolo o quantità non valida: {cod}.{var} x{qty}'
+                }, status=400)
+            orders.append({
+                'storage_id': storage.id,
+                'storage_name': storage.name,
+                'supermarket_id': supermarket.id,
+                'cod': cod,
+                'var': var,
+                'qty': qty,
+            })
+
+        if not orders:
+            return JsonResponse({'success': False, 'message': 'Carrello vuoto'}, status=400)
+
+        logger.info(f"Dispatching equipment order for {supermarket.name}: {len(orders)} items")
+        result = place_manual_order_task.apply_async(
+            args=[request.user.id, orders],
+            retry=True,
+            retry_policy={
+                'max_retries': 3,
+                'interval_start': 600,
+            }
+        )
+        return JsonResponse({'success': True, 'task_id': result.id})
+
+    except (KeyError, TypeError, ValueError):
+        return JsonResponse({'success': False, 'message': 'Richiesta non valida'}, status=400)
+    except Exception as e:
+        logger.exception("Error dispatching equipment order")
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
 
 
 @login_required
