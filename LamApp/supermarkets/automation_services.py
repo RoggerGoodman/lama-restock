@@ -107,7 +107,7 @@ class AutomatedRestockService(RestockService):
     
     def snapshot_pre_delivery_stock(self) -> dict:
         """
-        Lightweight stock-only snapshot called right before apply_ddt_for_storage.
+        Lightweight stock-only snapshot taken right before a delivery is booked.
         Returns {'{cod}.{v}': stock} for all verified+available products in this storage.
         Sales data is intentionally excluded — it will be read fresh at report-creation time.
         """
@@ -296,80 +296,133 @@ class AutomatedRestockService(RestockService):
             'ok': ok,
         }
 
-    def apply_ddt_for_storage(self, log: RestockLog, cod_v_qty: dict, invoice_numbers: list):
+    def apply_due_deliveries(self, today):
         """
-        DB-only: apply already-fetched DDT data for this specific storage.
-        Called by import_ddt_for_supermarket after the API work is done once.
-        cod_v_qty: {(cod, v): qty}
+        Book every DDT of this storage whose delivery date has come, under one
+        ddt_import log. Returns the log, or None when nothing was due.
         """
-        logger.info(f"Applying DDT deliveries for {self.storage.name}")
+        due_dates = self.db.due_delivery_dates(self.storage.settore, today)
+        if not due_dates:
+            return None
 
-        report = {'updated': 0, 'not_found': [], 'errors': [], 'unverified_products': []}
+        # A storage nobody manages yet (e.g. goods sold by weight): crediting stock would
+        # only flood the pending-verification list with its whole assortment.
+        if not self.db.has_verified_products(self.storage.settore):
+            skipped = self.db.skip_due_deliveries(self.storage.settore, today)
+            logger.info(f"[DDT] {self.storage.name} has no verified products — {skipped} delivery(ies) skipped")
+            return None
 
-        # Guard: require at least 1 verified product among delivered (cod, v) in THIS settore
-        cur = self.db.cursor()
-        pairs = list(cod_v_qty.keys())
-        placeholders = ','.join(['(%s,%s)'] * len(pairs))
-        flat = [x for pair in pairs for x in pair]
-        cur.execute(f"""
-            SELECT 1 FROM product_stats ps
-            JOIN products p ON p.cod = ps.cod AND p.v = ps.v
-            WHERE (ps.cod, ps.v) IN ({placeholders})
-              AND p.settore = %s
-              AND ps.verified = TRUE
-            LIMIT 1
-        """, flat + [self.storage.settore])
-        has_verified = cur.fetchone() is not None
-
-        if not has_verified:
-            logger.warning(
-                f"No verified products in settore '{self.storage.settore}' "
-                f"among delivered cod.v for '{self.storage.name}'. Skipping."
-            )
-        else:
-            report = self.db.apply_invoice_deliveries(cod_v_qty)
-            logger.info(f"Deliveries applied for '{self.storage.name}': {report}")
-
-        purged_products = self.db.check_and_purge_flagged()
-        if purged_products:
-            logger.info(f"[AUTO-PURGE] Purged {len(purged_products)} products for {self.storage.name}")
-            from .services import delete_blacklist_entries_for_purged
-            delete_blacklist_entries_for_purged(purged_products, storage=self.storage)
-
-        # Filter not_found against the 'Non gestiti' blacklist for this storage
-        from .models import BlacklistEntry
-        blacklisted = set(
-            BlacklistEntry.objects.filter(
-                blacklist__storage=self.storage,
-                blacklist__name='Non gestiti',
-            ).values_list('product_code', 'product_var')
+        log = RestockLog.objects.create(
+            storage=self.storage,
+            status='processing',
+            current_stage='processing',
+            operation_type='ddt_import',
         )
-        not_found_filtered = [
-            p for p in report.get('not_found', [])
-            if (p['cod'], p['v']) not in blacklisted
-        ]
-        if len(not_found_filtered) < len(report.get('not_found', [])):
-            logger.info(
-                f"[DDT] Filtered {len(report.get('not_found', [])) - len(not_found_filtered)} "
-                f"blacklisted products from not_found for '{self.storage.name}'"
-            )
+        try:
+            # Only today's arrival makes a meaningful pre-delivery snapshot; a late-published
+            # DDT for an earlier day would grade stock that is missing a delivery.
+            if today in due_dates:
+                self._save_calibration_snapshot(log, today)
 
-        with transaction.atomic():
-            log = RestockLog.objects.select_for_update().get(id=log.id)
+            applied = self.db.apply_due_deliveries(self.storage.settore, today)
+
+            report = {'updated': 0, 'not_found': [], 'unverified_products': []}
+            seen_not_found = set()
+            for doc in applied:
+                r = doc['report']
+                report['updated'] += r['updated']
+                report['unverified_products'].extend(r['unverified_products'])
+                for p in r['not_found']:
+                    if (p['cod'], p['v']) not in seen_not_found:
+                        seen_not_found.add((p['cod'], p['v']))
+                        report['not_found'].append(p)
+
+            purged_products = self.db.check_and_purge_flagged()
+            if purged_products:
+                logger.info(f"[AUTO-PURGE] Purged {len(purged_products)} products for {self.storage.name}")
+                from .services import delete_blacklist_entries_for_purged
+                delete_blacklist_entries_for_purged(purged_products, storage=self.storage)
+
+            from .models import BlacklistEntry
+            blacklisted = set(
+                BlacklistEntry.objects.filter(
+                    blacklist__storage=self.storage,
+                    blacklist__name='Non gestiti',
+                ).values_list('product_code', 'product_var')
+            )
+            not_found_filtered = [p for p in report['not_found'] if (p['cod'], p['v']) not in blacklisted]
+
+            log.status = 'completed'
             log.current_stage = 'completed'
+            log.completed_at = timezone.now()
             log.stats_updated_at = timezone.now()
-            log.total_products = report.get('updated', 0)
+            log.total_products = report['updated']
             log.set_results({
-                'invoices': invoice_numbers,
-                'updated': report.get('updated', 0),
+                'invoices': [doc['doc_number'] for doc in applied],
+                'deliveries': [
+                    {'ddt': doc['doc_number'], 'delivery_date': doc['delivery_date'].isoformat()}
+                    for doc in applied
+                ],
+                'updated': report['updated'],
                 'not_found': not_found_filtered,
-                'errors': report.get('errors', []),
-                'unverified_products': report.get('unverified_products', []),
+                'errors': [],
+                'unverified_products': report['unverified_products'],
             })
             log.save()
+            logger.info(f"[DDT] {self.storage.name}: booked {[d['doc_key'] for d in applied]}")
+        except Exception as e:
+            RestockLog.objects.filter(id=log.id).update(
+                status='failed',
+                current_stage='failed',
+                error_message=str(e),
+            )
+            raise
+        return log
 
-        logger.info(f"DDT import complete for {self.storage.name}: invoices={invoice_numbers}")
-        return True
+    def _save_calibration_snapshot(self, log, today):
+        """
+        Pending OrderCalibrationReport holding stock as it was just before today's
+        delivery; run_daily_calibration grades it. One per storage per day.
+        """
+        from .models import OrderCalibrationReport
+
+        if OrderCalibrationReport.objects.filter(storage=self.storage, generated_at__date=today).exists():
+            return
+        try:
+            prev_ddt = (
+                RestockLog.objects
+                .filter(storage=self.storage, operation_type='ddt_import',
+                        status='completed', completed_at__isnull=False)
+                .order_by('-completed_at')
+                .first()
+            )
+            days_elapsed = (today - prev_ddt.completed_at.date()).days if prev_ddt else 0
+
+            last_restock = (
+                RestockLog.objects
+                .filter(storage=self.storage, operation_type='full_restock',
+                        status='completed', coverage_used__isnull=False)
+                .order_by('-started_at')
+                .first()
+            )
+            coverage_days = float(last_restock.coverage_used) if last_restock else 0.0
+
+            raw_stock = self.snapshot_pre_delivery_stock()
+            cal_report = OrderCalibrationReport(
+                storage=self.storage,
+                ddt_import_log=log,
+                days_elapsed=days_elapsed,
+                coverage_days=coverage_days,
+                products_evaluated=0,
+                products_ok=0,
+                products_overstocked=0,
+                products_understocked=0,
+            )
+            cal_report.set_results({'status': 'pending', 'raw_stock': raw_stock})
+            cal_report.save()
+            logger.info(f"[DDT] Stock snapshot saved for {self.storage.name} ({len(raw_stock)} products) — report pending calibration")
+        except Exception:
+            logger.exception(f"[DDT] Stock snapshot failed for {self.storage.name} — DDT import continues")
     
     # Warn only — the fraction is measured from the sync timestamp, so it stays correct
     # when stale; blocking here would risk a stockout over a reporting problem.
@@ -426,6 +479,14 @@ class AutomatedRestockService(RestockService):
         _sm_log_ctx = enter_supermarket_log(self.supermarket.name)
         _order_log_ctx = enter_order_log(self.supermarket.name, self.storage.name)
         try:
+            # Today's delivery may already be in the ledger without the hourly import
+            # having booked it yet; ordering against pre-delivery stock would over-order.
+            try:
+                from datetime import date
+                self.apply_due_deliveries(date.today())
+            except Exception:
+                logger.exception(f"[DDT] Booking due deliveries failed for {self.storage.name} — ordering on current stock")
+
             # Step 1: Calculate order
             if progress_callback:
                 progress_callback(20, 'Analyzing product needs...')

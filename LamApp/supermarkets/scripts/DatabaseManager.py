@@ -1,4 +1,5 @@
 import re
+from contextlib import contextmanager
 import pandas as pd
 import psycopg2
 import psycopg2.extras
@@ -678,88 +679,274 @@ class DatabaseManager:
         logger.info(f"[HISTORY] schema={self.schema} {result}")
         return result
 
-    def apply_invoice_deliveries(self, cod_v_dict: dict) -> dict:
-        """
-        For each (cod, v) in cod_v_dict, add the delivered quantity to:
-        - bought_last_24[0] (current month total)
-        - stock
+    # --- Dropzone document ledger ---
 
-        Does NOT touch sold_last_24 or sales_sets.
+    @contextmanager
+    def transaction(self):
+        """The connection autocommits; this groups statements into one commit."""
+        self.conn.autocommit = False
+        try:
+            yield self.cursor()
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        finally:
+            self.conn.autocommit = True
+
+    def ensure_document_ledger(self) -> bool:
         """
-        today = date.today()
-        current_month = today.month
+        Every Dropzone document (DDT or credit note) ever seen, keyed by
+        "type-year-series-number". Returns True when the table was just created,
+        so the caller can seed it at cutover.
+        """
+        if self.has_document_ledger():
+            return False
+        cur = self.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS dropzone_documents (
+                doc_key TEXT PRIMARY KEY,
+                doc_type TEXT NOT NULL,
+                doc_number TEXT NOT NULL,
+                doc_date DATE NOT NULL,
+                settore TEXT,
+                delivery_date DATE,
+                -- pending: delivery not due yet; applied; recorded: credit note handed to the UI;
+                -- skipped: no storage, or one with no verified products; legacy: imported
+                -- before the ledger existed; manual: loaded by hand from its PDF
+                status TEXT NOT NULL,
+                lines JSONB,
+                recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                applied_at TIMESTAMPTZ
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dropzone_documents_pending
+            ON dropzone_documents (settore, delivery_date) WHERE status = 'pending'
+        """)
+        return True
+
+    def known_document_keys(self, keys) -> set:
+        keys = list(keys)
+        if not keys:
+            return set()
+        cur = self.cursor()
+        cur.execute("SELECT doc_key FROM dropzone_documents WHERE doc_key = ANY(%s)", (keys,))
+        return {r["doc_key"] for r in cur.fetchall()}
+
+    def record_document(self, doc_key, doc_type, doc_number, doc_date, status,
+                        settore=None, delivery_date=None, lines=None) -> bool:
+        """Insert-once. Returns False when the document was already recorded."""
+        cur = self.cursor()
+        cur.execute("""
+            INSERT INTO dropzone_documents
+                (doc_key, doc_type, doc_number, doc_date, settore, delivery_date, status, lines)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (doc_key) DO NOTHING
+        """, (doc_key, doc_type, doc_number, doc_date, settore, delivery_date, status,
+              Json(lines) if lines is not None else None))
+        return cur.rowcount == 1
+
+    def due_delivery_dates(self, settore, today) -> set:
+        # Only the importer creates the ledger: it must seed it on creation
+        if not self.has_document_ledger():
+            return set()
+        cur = self.cursor()
+        cur.execute("""
+            SELECT DISTINCT delivery_date FROM dropzone_documents
+            WHERE status = 'pending' AND settore = %s AND delivery_date <= %s
+        """, (settore, today))
+        return {r["delivery_date"] for r in cur.fetchall()}
+
+    def has_document_ledger(self) -> bool:
+        cur = self.cursor()
+        cur.execute("SELECT to_regclass('dropzone_documents') AS t")
+        return cur.fetchone()["t"] is not None
+
+    def find_ddt(self, settore, number, since):
+        """This settore's latest ledger entry for DDT `number` dated on/after `since`, or None."""
+        if not self.has_document_ledger():
+            return None
+        cur = self.cursor()
+        cur.execute("""
+            SELECT doc_key, status, doc_date, delivery_date, recorded_at, applied_at
+            FROM dropzone_documents
+            WHERE doc_type = 'BOL' AND settore = %s AND doc_number = %s
+              AND doc_date >= %s AND status <> 'skipped'
+            ORDER BY doc_date DESC, recorded_at DESC
+            LIMIT 1
+        """, (settore, number, since))
+        return cur.fetchone()
+
+    def claim_manual_ddt(self, settore, number, today) -> int:
+        """
+        A DDT loaded by hand from its PDF: cancel its automatic booking if it is
+        waiting, and leave a marker so the importer never books it later.
+        Returns how many pending bookings were cancelled.
+        """
+        if not self.has_document_ledger():
+            return 0
+        with self.transaction() as cur:
+            cur.execute("""
+                UPDATE dropzone_documents SET status = 'manual'
+                WHERE doc_type = 'BOL' AND settore = %s AND doc_number = %s AND status = 'pending'
+            """, (settore, number))
+            cancelled = cur.rowcount
+            cur.execute("""
+                INSERT INTO dropzone_documents (doc_key, doc_type, doc_number, doc_date, settore, status)
+                VALUES (%s, 'BOL', %s, %s, %s, 'manual')
+                ON CONFLICT (doc_key) DO NOTHING
+            """, (f"MANUAL-{today.year}-{settore}-{number}", number, today, settore))
+        return cancelled
+
+    def manual_ddt_claimed(self, settore, number, since) -> bool:
+        cur = self.cursor()
+        cur.execute("""
+            SELECT 1 FROM dropzone_documents
+            WHERE doc_type = 'BOL' AND status = 'manual' AND settore = %s AND doc_number = %s
+              AND doc_date >= %s
+            LIMIT 1
+        """, (settore, number, since))
+        return cur.fetchone() is not None
+
+    def has_verified_products(self, settore) -> bool:
+        cur = self.cursor()
+        cur.execute("""
+            SELECT 1 FROM product_stats ps
+            JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+            WHERE p.settore = %s AND ps.verified = TRUE
+            LIMIT 1
+        """, (settore,))
+        return cur.fetchone() is not None
+
+    def skip_due_deliveries(self, settore, today) -> int:
+        cur = self.cursor()
+        cur.execute("""
+            UPDATE dropzone_documents SET status = 'skipped'
+            WHERE status = 'pending' AND settore = %s AND delivery_date <= %s
+        """, (settore, today))
+        return cur.rowcount
+
+    def apply_due_deliveries(self, settore, today) -> list:
+        """
+        Book every pending DDT of this settore whose delivery date has come.
+        Each document commits on its own, together with its ledger status, so a
+        crash can never leave a delivery half-applied or applied twice.
+        """
+        cur = self.cursor()
+        cur.execute("""
+            SELECT doc_key FROM dropzone_documents
+            WHERE status = 'pending' AND settore = %s AND delivery_date <= %s
+            ORDER BY delivery_date, doc_key
+        """, (settore, today))
+        keys = [r["doc_key"] for r in cur.fetchall()]
+
+        applied = []
+        for key in keys:
+            with self.transaction() as tcur:
+                # SKIP LOCKED: an overlapping run on the same supermarket moves on
+                tcur.execute("""
+                    SELECT doc_key, doc_number, delivery_date, lines FROM dropzone_documents
+                    WHERE doc_key = %s AND status = 'pending'
+                    FOR UPDATE SKIP LOCKED
+                """, (key,))
+                doc = tcur.fetchone()
+                if doc is None:
+                    continue
+                report = self._book_delivery(tcur, doc["lines"] or [], doc["delivery_date"], today)
+                tcur.execute("""
+                    UPDATE dropzone_documents SET status = 'applied', applied_at = now()
+                    WHERE doc_key = %s
+                """, (key,))
+            logger.info(f"[DDT] {key} booked for {doc['delivery_date']}: updated={report['updated']} "
+                        f"not_found={len(report['not_found'])} unverified={len(report['unverified_products'])}")
+            applied.append({"doc_key": key, "doc_number": doc["doc_number"],
+                            "delivery_date": doc["delivery_date"], "report": report})
+        return applied
+
+    def _book_delivery(self, cur, lines: list, delivery_date, today) -> dict:
+        """
+        Add each line's qty x rapp to stock, and to the bought_sets day and
+        bought_last_24 month the delivery belongs to — not always slot 0, since a
+        late-published DDT can describe goods that arrived days ago.
+        """
         updated = 0
         not_found = []
-        errors = []
         unverified_products = []
 
-        for (cod, v), item in cod_v_dict.items():
-            qty = item["qty"] if isinstance(item, dict) else item
-            descrizione_invoice = item.get("descrizione", "") if isinstance(item, dict) else ""
-            product_key = f"{cod}.{v}"
-            try:
-                cur = self.cursor()
+        for line in lines:
+            cod, v, qty = line["cod"], line["v"], line["qty"]
+            cur.execute("""
+                SELECT ps.bought_last_24, ps.bought_sets, ps.stock, ps.last_update_bought,
+                       ps.last_update_sold, ps.verified, p.descrizione, p.rapp
+                FROM product_stats ps
+                JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+                WHERE ps.cod = %s AND ps.v = %s
+                FOR UPDATE OF ps
+            """, (cod, v))
+            row = cur.fetchone()
+            if not row:
+                not_found.append({"cod": cod, "v": v, "descrizione": line.get("descrizione", "")})
+                continue
+
+            actual_qty = qty * int(row["rapp"] or 1)
+
+            bought_array = row["bought_last_24"] if isinstance(row["bought_last_24"], list) else []
+            last_bought = row["last_update_bought"]
+            if not last_bought or (last_bought.year, last_bought.month) != (today.year, today.month):
+                bought_array.insert(0, 0)
+            months_back = (today.year - delivery_date.year) * 12 + today.month - delivery_date.month
+            if months_back < 24:
+                bought_array.extend([0] * (months_back + 1 - len(bought_array)))
+                bought_array[months_back] = (bought_array[months_back] or 0) + actual_qty
+            bought_array = bought_array[:24]
+
+            # Slot 0 of bought_sets is the day of last_update_sold, same as sales_sets
+            day0 = row["last_update_sold"] or today
+            day_slot = max(0, (day0 - delivery_date).days)
+            bought_sets = row["bought_sets"] or []
+            if day_slot < 60:
+                bought_sets.extend([0] * (day_slot + 1 - len(bought_sets)))
+                bought_sets[day_slot] = (bought_sets[day_slot] or 0) + actual_qty
+
+            stock = int(row["stock"] or 0) + actual_qty
+            cur.execute("""
+                UPDATE product_stats
+                SET bought_last_24 = %s, bought_sets = %s, stock = %s, last_update_bought = %s
+                WHERE cod = %s AND v = %s
+            """, (Json(bought_array), Json(bought_sets), stock, today, cod, v))
+            updated += 1
+
+            if not row["verified"]:
+                unverified_products.append({"cod": cod, "v": v, "descrizione": row["descrizione"], "qty": actual_qty})
+
+        return {"updated": updated, "not_found": not_found, "errors": [],
+                "unverified_products": unverified_products}
+
+    def verified_pairs(self, settore, pairs) -> set:
+        """The (cod, v) pairs among `pairs` that are verified products of this settore."""
+        pairs = list(pairs)
+        if not pairs:
+            return set()
+        cur = self.cursor()
+        placeholders = ','.join(['(%s,%s)'] * len(pairs))
+        cur.execute(f"""
+            SELECT ps.cod, ps.v FROM product_stats ps
+            JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+            WHERE (ps.cod, ps.v) IN ({placeholders})
+              AND p.settore = %s AND ps.verified = TRUE
+        """, [x for pair in pairs for x in pair] + [settore])
+        return {(r["cod"], r["v"]) for r in cur.fetchall()}
+
+    def deduct_credit_note(self, lines) -> int:
+        """Take each approved credit-note qty off stock, all or nothing."""
+        with self.transaction() as cur:
+            for cod, v, qty in lines:
                 cur.execute(
-                    "SELECT ps.bought_last_24, ps.bought_sets, ps.stock, ps.last_update_bought, ps.verified, p.descrizione, p.rapp "
-                    "FROM product_stats ps "
-                    "JOIN products p ON p.cod = ps.cod AND p.v = ps.v "
-                    "WHERE ps.cod=%s AND ps.v=%s",
-                    (cod, v)
+                    "UPDATE product_stats SET stock = COALESCE(stock, 0) - %s WHERE cod = %s AND v = %s",
+                    (qty, cod, v),
                 )
-                row = cur.fetchone()
-                if not row:
-                    logger.debug(f"apply_invoice_deliveries: {product_key} not in DB")
-                    not_found.append({"cod": cod, "v": v, "descrizione": descrizione_invoice})
-                    continue
-
-                bought_array = row["bought_last_24"] or [0]
-                if not isinstance(bought_array, list):
-                    bought_array = [0]
-                stock = int(row["stock"] or 0)
-                last_update_bought = row["last_update_bought"]
-                last_month = last_update_bought.month if last_update_bought else None
-                verified = bool(row["verified"])
-                descrizione = row["descrizione"]
-                rapp = int(row["rapp"] or 1)
-                actual_qty = qty * rapp
-
-                if last_month == current_month:
-                    bought_array[0] = (bought_array[0] or 0) + actual_qty
-                else:
-                    bought_array.insert(0, actual_qty)
-                    bought_array = bought_array[:24]
-
-                bought_sets = row["bought_sets"] or []
-                if not bought_sets:
-                    bought_sets = [0]
-                bought_sets[0] = (bought_sets[0] or 0) + actual_qty
-
-                cur.execute(
-                    "UPDATE product_stats SET bought_last_24=%s, bought_sets=%s, stock=%s, last_update_bought=%s WHERE cod=%s AND v=%s",
-                    (Json(bought_array), Json(bought_sets), stock + actual_qty, today, cod, v)
-                )
-                self.conn.commit()
-                updated += 1
-                logger.info(f"apply_invoice_deliveries: {product_key} +{qty}×{rapp}={actual_qty} → stock={stock+actual_qty}")
-
-                if not verified:
-                    unverified_products.append({"cod": cod, "v": v, "descrizione": descrizione, "qty": actual_qty})
-
-            except Exception as e:
-                logger.error(f"apply_invoice_deliveries: failed for {product_key}: {e}")
-                errors.append({"cod": cod, "v": v, "error": str(e)})
-
-        logger.info(
-            f"apply_invoice_deliveries: updated={updated} "
-            f"not_found={len(not_found)} errors={len(errors)} "
-            f"unverified={len(unverified_products)}"
-        )
-        return {
-            "updated": updated,
-            "not_found": not_found,
-            "errors": errors,
-            "unverified_products": unverified_products,
-        }
+        return len(lines)
 
     def rollover_bought_last_24(self) -> int:
         """

@@ -25,7 +25,7 @@ class Supermarket(models.Model):
     store_type = models.CharField(
         max_length=20, choices=STORE_TYPE_CHOICES, default=STORE_TYPE_STANDARD
     )
-    # Dropzone client parameters (discovered via gather_client_data)
+    # Dropzone client parameters (discovered via DropzoneClient.gather_client_data)
     id_cliente = models.IntegerField(null=True, blank=True, help_text="IDCliente from Dropzone")
     id_azienda = models.IntegerField(null=True, blank=True, help_text="IDAzienda from Dropzone")
     id_marchio = models.IntegerField(null=True, blank=True, help_text="IDMarchio from Dropzone")
@@ -413,6 +413,19 @@ class RestockSchedule(models.Model):
             offset = self.get_delivery_offset(order_day_index)
 
         return self._calculate_weighted_days(order_day_index, max(0, offset) + 1, first_day_fraction)
+
+    def delivery_date_for_order(self, order_date):
+        """When goods ordered on `order_date` reach the store, per the agenda."""
+        from datetime import timedelta
+
+        exc = ScheduleException.objects.filter(
+            schedule=self,
+            date=order_date,
+            exception_type__in=('add', 'modify'),
+            delivery_offset__isnull=False,
+        ).first()
+        offset = exc.delivery_offset if exc else self.get_delivery_offset(order_date.weekday())
+        return order_date + timedelta(days=max(0, offset))
 
     def _calculate_weighted_days(self, start_day_index, num_days, first_day_fraction=1.0):
         """
@@ -1136,3 +1149,55 @@ class ProductLinkNotification(models.Model):
             f"{self.supermarket.name}: "
             f"{self.primary_cod}.{self.primary_v} → {self.secondary_cod}.{self.secondary_v}"
         )
+
+class CreditNote(models.Model):
+    """
+    A Dropzone credit note (NAC), one per storage it touches. Its quantities come
+    off stock only once a human approves them.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Da approvare'),
+        (STATUS_APPROVED, 'Applicata'),
+        (STATUS_REJECTED, 'Scartata'),
+    ]
+
+    storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='credit_notes')
+    doc_key = models.CharField(max_length=64, help_text="Ledger key: NAC-year-series-number")
+    number = models.CharField(max_length=20)
+    doc_date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decided_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='credit_notes_decided'
+    )
+
+    class Meta:
+        ordering = ['-doc_date', '-id']
+        constraints = [
+            models.UniqueConstraint(fields=['storage', 'doc_key'], name='uniq_credit_note_per_storage'),
+        ]
+
+    def __str__(self):
+        return f"NAC {self.number} del {self.doc_date:%d/%m/%Y} — {self.storage.name}"
+
+
+class CreditNoteLine(models.Model):
+    credit_note = models.ForeignKey(CreditNote, on_delete=models.CASCADE, related_name='lines')
+    cod = models.IntegerField()
+    v = models.IntegerField()
+    descrizione = models.CharField(max_length=255)
+    # UAQESP as printed on the note; qty is what the operator approves
+    original_qty = models.IntegerField()
+    qty = models.IntegerField()
+    reason = models.CharField(max_length=120, blank=True, help_text="Causale, e.g. 201 ACCREDITO PER RESO MERCE AVARIATA")
+    reference = models.CharField(max_length=60, blank=True, help_text="Document the credit refers to")
+
+    class Meta:
+        ordering = ['descrizione', 'id']
+
+    def __str__(self):
+        return f"{self.cod}.{self.v} x{self.qty}"

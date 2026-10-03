@@ -1,0 +1,130 @@
+<!-- LamApp/supermarkets/templates/credit_notes/detail.html -->
+{% extends 'base.html' %}
+{% block title %}Nota di accredito {{ note.number }}{% endblock %}
+{% block page_title %}Nota di accredito {{ note.number }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'credit-note-list' %}">Note di accredito</a></li>
+                    <li class="breadcrumb-item active">{{ note.number }}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                        <h4 class="mb-1"><i class="bi bi-receipt"></i> Nota {{ note.number }} del {{ note.doc_date|date:"d/m/Y" }}</h4>
+                        <p class="mb-0 text-muted">{{ note.storage.name }} · {{ note.storage.supermarket.name }}</p>
+                    </div>
+                    <div>
+                        {% if note.status == 'pending' %}
+                        <span class="badge bg-info text-dark"><i class="bi bi-hourglass-split"></i> Da approvare</span>
+                        {% elif note.status == 'approved' %}
+                        <span class="badge bg-success"><i class="bi bi-check-circle"></i> Applicata</span>
+                        {% else %}
+                        <span class="badge bg-secondary"><i class="bi bi-archive"></i> Scartata</span>
+                        {% endif %}
+                        {% if note.decided_at %}
+                        <div class="small text-muted mt-1">{{ note.decided_at|date:"d/m/Y H:i" }}{% if note.decided_by %} · {{ note.decided_by.username }}{% endif %}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <form method="post" id="credit-note-form">
+        {% csrf_token %}
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="stat-card">
+                    {% if is_pending %}
+                    <p class="text-muted small mb-3">
+                        Correggere la quantità o spuntare "Elimina" per le righe da non scalare.
+                        Le quantità sono quelle riportate sulla nota.
+                    </p>
+                    {% endif %}
+                    {% if lines %}
+                    <div class="table-responsive">
+                        <table class="table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Articolo</th>
+                                    <th class="d-none d-md-table-cell">Causale</th>
+                                    <th class="d-none d-lg-table-cell">Riferimento</th>
+                                    {% if is_pending %}<th class="text-end">Giacenza</th>{% endif %}
+                                    <th class="text-end" style="width: 110px;">Qta</th>
+                                    {% if is_pending %}<th class="text-center">Elimina</th>{% endif %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for line in lines %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ line.descrizione }}</strong>
+                                        <br><small class="text-muted">{{ line.cod }}.{{ line.v }}</small>
+                                        <div class="d-md-none small text-muted">{{ line.reason }}</div>
+                                    </td>
+                                    <td class="d-none d-md-table-cell"><small>{{ line.reason }}</small></td>
+                                    <td class="d-none d-lg-table-cell"><small>{{ line.reference }}</small></td>
+                                    {% if is_pending %}
+                                    <td class="text-end">{% if line.current_stock is not None %}{{ line.current_stock }}{% else %}—{% endif %}</td>
+                                    <td class="text-end">
+                                        <input type="number" name="qty_{{ line.id }}" value="{{ line.qty }}" min="0"
+                                               class="form-control form-control-sm text-end" inputmode="numeric">
+                                        {% if line.qty != line.original_qty %}
+                                        <small class="text-muted">nota: {{ line.original_qty }}</small>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center">
+                                        <input type="checkbox" name="remove_{{ line.id }}" value="1" class="form-check-input">
+                                    </td>
+                                    {% else %}
+                                    <td class="text-end">
+                                        {{ line.qty }}
+                                        {% if line.qty != line.original_qty %}<br><small class="text-muted">nota: {{ line.original_qty }}</small>{% endif %}
+                                    </td>
+                                    {% endif %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0">Nessuna riga rimasta: approvando non verrà scalato nulla.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if is_pending %}
+        <div class="row mb-4">
+            <div class="col-12 d-flex flex-wrap gap-2 justify-content-between">
+                <button type="submit" name="action" value="reject" class="btn btn-outline-secondary"
+                        onclick="return confirm('Scartare la nota? La giacenza non verrà modificata.');">
+                    <i class="bi bi-archive"></i> Scarta
+                </button>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="submit" name="action" value="save" class="btn btn-outline-primary">
+                        <i class="bi bi-save"></i> Salva modifiche
+                    </button>
+                    <button type="submit" name="action" value="approve" class="btn btn-success"
+                            onclick="return confirm('Approvare la nota e scalare le quantità dalla giacenza?');">
+                        <i class="bi bi-check-lg"></i> Approva e scala dalla giacenza
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </form>
+</div>
+{% endblock %}

@@ -30,7 +30,7 @@ from .models import (
     Recipe, RecipeProductItem, RecipeExternalItem, RecipeCostAlert,
     StockValueSnapshot,
     RecurringClosure, OneTimeClosure, RecurringClosureOverride,
-    ProductLinkNotification,
+    ProductLinkNotification, CreditNote,
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
@@ -372,6 +372,13 @@ def dashboard_view(request):
             n.primary_name = name_map.get((n.primary_cod, n.primary_v))
             n.secondary_name = name_map.get((n.secondary_cod, n.secondary_v))
 
+    pending_credit_notes = list(
+        CreditNote.objects.filter(
+            storage__supermarket__owner=request.user,
+            status=CreditNote.STATUS_PENDING,
+        ).select_related('storage').order_by('doc_date', 'id')
+    )
+
     context = {
         'supermarkets': supermarkets,
         'recent_logs': recent_logs,  # ← NOW ONLY ORDERS
@@ -388,6 +395,7 @@ def dashboard_view(request):
         'unread_alerts_count': unread_alerts_count,
         'storage_notifications': storage_notifications,
         'product_link_notifications': product_link_notifications,
+        'pending_credit_notes': pending_credit_notes,
     }
 
     return render(request, 'dashboard.html', context)
@@ -6056,6 +6064,41 @@ def inventory_adjust_stock_ajax_view(request):
         logger.exception("Error in inventory stock adjustment")
         return JsonResponse({'success': False, 'message': str(e)}, status=500)
     
+def _ddt_already_loaded(storage, number):
+    """
+    Where this storage's DDT `number` already went, or None.
+    {'kind': 'pending' | 'applied' | 'manual', 'when': date or datetime}
+    """
+    from .scripts.DatabaseManager import DatabaseManager
+
+    since = date.today() - timedelta(days=60)
+    try:
+        db = DatabaseManager(supermarket_name=storage.supermarket.name)
+        try:
+            row = db.find_ddt(storage.settore, number, since)
+        finally:
+            db.close()
+    except Exception:
+        logger.exception(f"DDT duplicate check: ledger unavailable for {storage.name}")
+        row = None
+
+    if row and row['status'] == 'pending':
+        return {'kind': 'pending', 'when': row['delivery_date']}
+    if row and row['status'] == 'manual':
+        return {'kind': 'manual', 'when': row['recorded_at']}
+    if row and row['status'] == 'applied':
+        return {'kind': 'applied', 'when': row['applied_at']}
+
+    # Before the ledger (and for 'legacy' rows) the logs are the record
+    for log in RestockLog.objects.filter(
+        storage=storage, operation_type='ddt_import', status='completed',
+    ).order_by('-started_at')[:50]:
+        stored = [str(inv).lstrip('0') or '0' for inv in log.get_results().get('invoices', [])]
+        if number in stored:
+            return {'kind': 'applied', 'when': log.started_at}
+    return None
+
+
 @login_required
 def upload_ddt_view(request, storage_id):
     """
@@ -6076,22 +6119,8 @@ def upload_ddt_view(request, storage_id):
             pdf_file = request.FILES['pdf_file']
             invoice_number = form.cleaned_data.get('invoice_number', '').strip()
 
-            # Check if this invoice was already automatically imported
             if invoice_number:
-                normalized_input = invoice_number.lstrip('0') or '0'
-                recent_ddt_logs = RestockLog.objects.filter(
-                    storage=storage,
-                    operation_type='ddt_import',
-                    status='completed'
-                ).order_by('-started_at')[:50]
-
-                for log in recent_ddt_logs:
-                    results = log.get_results()
-                    stored_invoices = results.get('invoices', [])
-                    normalized_stored = [str(inv).lstrip('0') or '0' for inv in stored_invoices]
-                    if normalized_input in normalized_stored:
-                        duplicate_warning = log
-                        break
+                duplicate_warning = _ddt_already_loaded(storage, invoice_number.lstrip('0') or '0')
 
             # If duplicate found and user hasn't confirmed, show warning
             if duplicate_warning and 'confirm_duplicate' not in request.POST:
@@ -6119,6 +6148,7 @@ def upload_ddt_view(request, storage_id):
 
                 result = process_ddt_task.apply_async(
                     args=[storage_id, str(file_path)],
+                    kwargs={'invoice_number': invoice_number},
                     retry=True
                 )
 

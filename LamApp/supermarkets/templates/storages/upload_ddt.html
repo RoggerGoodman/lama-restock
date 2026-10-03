@@ -45,18 +45,34 @@
                     </ul>
                 </div>
 
-                {% if duplicate_warning %}
+                {% if duplicate_warning.kind == 'pending' %}
+                <div class="alert alert-warning border border-warning border-3" role="alert">
+                    <h5 class="alert-heading">
+                        <i class="bi bi-hourglass-split"></i>
+                        DDT già ricevuto da Dropzone
+                    </h5>
+                    <p class="mb-2">
+                        Il DDT <strong>{{ duplicate_invoice }}</strong> è già stato letto automaticamente e verrà caricato
+                        in giacenza il <strong>{{ duplicate_warning.when|date:"d/m/Y" }}</strong>, giorno di consegna.
+                    </p>
+                    <p class="mb-0">
+                        Non serve caricarlo a mano. Se lo carichi comunque, il caricamento automatico verrà annullato
+                        e le quantità saranno quelle del PDF.
+                    </p>
+                </div>
+                {% elif duplicate_warning %}
                 <div class="alert alert-danger border border-danger border-3" role="alert">
                     <h5 class="alert-heading">
                         <i class="bi bi-exclamation-octagon-fill"></i>
-                        ATTENZIONE: Fattura già importata automaticamente!
+                        ATTENZIONE: DDT già caricato!
                     </h5>
                     <p class="mb-2">
-                        La fattura <strong>{{ duplicate_invoice }}</strong> è già stata elaborata automaticamente dal sistema
-                        il <strong>{{ duplicate_warning.started_at|date:"d/m/Y \a\l\l\e H:i" }}</strong>.
+                        Il DDT <strong>{{ duplicate_invoice }}</strong> è già stato caricato
+                        {% if duplicate_warning.kind == 'manual' %}a mano{% else %}automaticamente dal sistema{% endif %}
+                        {% if duplicate_warning.when %}il <strong>{{ duplicate_warning.when|date:"d/m/Y \a\l\l\e H:i" }}</strong>{% endif %}.
                     </p>
                     <p class="mb-3">
-                        Caricare di nuovo questa fattura aggiornerà lo stock <strong>una seconda volta</strong>,
+                        Caricarlo di nuovo aggiornerà lo stock <strong>una seconda volta</strong>,
                         risultando in un raddoppio delle quantità ricevute.
                     </p>
                     <hr>
@@ -98,9 +114,15 @@
                         <a href="{% url 'storage-detail' pk=storage.id %}" class="btn btn-secondary">
                             <i class="bi bi-x-circle"></i> Annulla
                         </a>
+                        {% if duplicate_warning.kind == 'pending' %}
+                        <button type="submit" class="btn btn-warning">
+                            <i class="bi bi-upload"></i> Carica a mano (annulla quello automatico)
+                        </button>
+                        {% else %}
                         <button type="submit" class="btn btn-danger">
                             <i class="bi bi-exclamation-triangle"></i> Carica comunque (doppio rischio!)
                         </button>
+                        {% endif %}
                     </div>
                     {% else %}
                     <div class="d-flex gap-2 justify-content-end">

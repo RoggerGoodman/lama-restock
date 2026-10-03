@@ -32,7 +32,7 @@ app.autodiscover_tasks()
 #   00:40  monthly-sold-zero-prepend  (1st of month only — see note below)
 #   03:00  check-list-updates
 #   03:30  backfill-ean
-#   05:00  update-stats-morning       (DDT import — also saves pending calibration snapshot)
+#   06:00-22:00 import-documents      (hourly: DDTs + credit notes; books due deliveries, snapshots calibration)
 #   08:00  daily-calibration          (grades yesterday, which closed at the 21:30 sync)
 #   08:30-21:30 real-time sales sync  (store PC pushes today's running totals, every 15 min)
 #   */15   run-scheduled-orders       (fires each storage at its own configured time)
@@ -77,10 +77,11 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=3, minute=30),
     },
 
-    # 05:00 — import DDT invoices and update product stats
-    'update-stats-morning': {
-        'task': 'supermarkets.tasks.update_stats_all_scheduled_storages',
-        'schedule': crontab(hour=5, minute=0),
+    # Hourly 06:00–22:00 — DDTs and credit notes from Dropzone. A DDT can appear a day
+    # after its order or on the delivery day itself, so one morning read misses some.
+    'import-documents': {
+        'task': 'supermarkets.tasks.import_documents_all_supermarkets',
+        'schedule': crontab(hour='6-22', minute=0),
     },
 
     # Every 15 min — order times are per storage and per weekday, so one daily trigger

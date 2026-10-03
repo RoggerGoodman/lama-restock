@@ -5,6 +5,7 @@ from django.contrib.auth.views import LogoutView
 from django.urls import path
 from . import views
 from . import sync_views
+from . import credit_note_views
 
 urlpatterns = [
     # ============ Home & Dashboard ============
@@ -68,6 +69,10 @@ urlpatterns = [
     path('logs/<int:pk>/submit/', views.order_submit, name='order-submit'),
     path('logs/<int:pk>/recalc/', views.order_recalc, name='order-recalc'),
     path('logs/<int:pk>/discard/', views.order_discard, name='order-discard'),
+
+    # ============ Credit notes ============
+    path('note-accredito/', credit_note_views.credit_note_list_view, name='credit-note-list'),
+    path('note-accredito/<int:pk>/', credit_note_views.credit_note_detail_view, name='credit-note-detail'),
 
     # ============ Blacklists (accessed from dashboard/storage) ============
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),

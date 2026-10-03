@@ -104,21 +104,15 @@ class StorageService:
     @staticmethod
     def discover_storages(supermarket):
         """
-        Use Finder to discover available storages for a supermarket.
+        The supermarket's Dropzone delivery warehouses.
         Returns: list of (name, id_cod_mag) tuples
         """
-        from .scripts.finder import Finder
+        from .scripts.dropzone_client import DropzoneClient
 
-        finder = Finder(
-            username=supermarket.username,
-            password=supermarket.password
-        )
-
-        try:
-            finder.login()
-            return finder.find_storages()
-        finally:
-            finder.driver.quit()
+        client = DropzoneClient(supermarket.username, supermarket.password)
+        client.login()
+        id_cliente = supermarket.id_cliente or int(client.fetch_client()["value"])
+        return [(w["name"], w["id_cod_mag"]) for w in client.fetch_warehouses(id_cliente)]
 
     @staticmethod
     def sync_storages(supermarket):
@@ -132,15 +126,17 @@ class StorageService:
         storage_tuples = StorageService.discover_storages(supermarket)
 
         for name, id_cod_mag in storage_tuples:
-            # Remove numeric prefix if present
-            settore = re.sub(r'^[^ ]+\s*-?\s*', '', name)
-
-            storage, created = Storage.objects.get_or_create(
-                supermarket=supermarket,
-                name=name,
-                defaults={'settore': settore, 'id_cod_mag': id_cod_mag}
+            # IDCodMag first: a name that differs only in spacing must not spawn a duplicate
+            storage = (
+                Storage.objects.filter(supermarket=supermarket, id_cod_mag=id_cod_mag).first()
+                or Storage.objects.filter(supermarket=supermarket, name=name).first()
             )
-            if not created:
-                # Update id_cod_mag on existing storages
+            if storage is None:
+                # Remove numeric prefix if present
+                settore = re.sub(r'^[^ ]+\s*-?\s*', '', name)
+                Storage.objects.create(
+                    supermarket=supermarket, name=name, settore=settore, id_cod_mag=id_cod_mag,
+                )
+            elif storage.id_cod_mag != id_cod_mag:
                 storage.id_cod_mag = id_cod_mag
                 storage.save(update_fields=['id_cod_mag'])

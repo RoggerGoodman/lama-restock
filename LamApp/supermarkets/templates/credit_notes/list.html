@@ -1,0 +1,129 @@
+<!-- LamApp/supermarkets/templates/credit_notes/list.html -->
+{% extends 'base.html' %}
+{% block title %}Note di accredito{% endblock %}
+{% block page_title %}Note di accredito{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Note di accredito</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00a2c7 100%); color: white;">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h3 class="mb-1"><i class="bi bi-receipt"></i> Note di accredito</h3>
+                        <p class="mb-0 opacity-75">Resi e rettifiche riconosciuti dal fornitore, da controllare prima di scalarli dalla giacenza</p>
+                    </div>
+                    <div>
+                        <h1 class="display-4 mb-0">{{ pending_notes|length }}</h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <h6><i class="bi bi-info-circle"></i> Come funziona</h6>
+                <p class="mb-2">Le note di accredito vengono lette ogni ora da Dropzone. Compaiono qui solo gli articoli verificati.</p>
+                <ul class="mb-0">
+                    <li>Aprire la nota e controllare le quantità: si possono correggere o eliminare righe</li>
+                    <li><strong>Approva</strong> scala le quantità dalla giacenza; <strong>Scarta</strong> la archivia senza toccare la giacenza</li>
+                    <li>Non c'è una scadenza, ma prima si approva, più precisa resta la giacenza</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3"><i class="bi bi-hourglass-split"></i> Da approvare</h5>
+                {% if pending_notes %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>Nota</th>
+                                <th>Data</th>
+                                <th>Magazzino</th>
+                                <th class="text-end">Righe</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for note in pending_notes %}
+                            <tr>
+                                <td><strong>{{ note.number }}</strong></td>
+                                <td>{{ note.doc_date|date:"d/m/Y" }}</td>
+                                <td>{{ note.storage.name }}<br><small class="text-muted">{{ note.storage.supermarket.name }}</small></td>
+                                <td class="text-end">{{ note.lines.all|length }}</td>
+                                <td class="text-end">
+                                    <a href="{% url 'credit-note-detail' pk=note.pk %}" class="btn btn-sm btn-primary">
+                                        <i class="bi bi-arrow-right"></i> Controlla
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0"><i class="bi bi-check-circle text-success"></i> Nessuna nota di accredito da approvare.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if recent_notes %}
+    <div class="row">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3"><i class="bi bi-clock-history"></i> Gestite negli ultimi {{ recent_days }} giorni</h5>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Nota</th>
+                                <th>Data</th>
+                                <th>Magazzino</th>
+                                <th>Esito</th>
+                                <th>Gestita il</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for note in recent_notes %}
+                            <tr>
+                                <td><a href="{% url 'credit-note-detail' pk=note.pk %}">{{ note.number }}</a></td>
+                                <td>{{ note.doc_date|date:"d/m/Y" }}</td>
+                                <td>{{ note.storage.name }}</td>
+                                <td>
+                                    {% if note.status == 'approved' %}
+                                    <span class="badge bg-success">Applicata</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Scartata</span>
+                                    {% endif %}
+                                </td>
+                                <td><small>{{ note.decided_at|date:"d/m H:i" }}{% if note.decided_by %} · {{ note.decided_by.username }}{% endif %}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

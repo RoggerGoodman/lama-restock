@@ -158,226 +158,52 @@ def record_losses_all_supermarkets(self):
         raise self.retry(exc=exc)
 
 
-@shared_task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=900,
-)
-def update_stats_all_scheduled_storages(self):
+# Each supermarket starts somewhere in this window, so the hourly run never
+# hits Dropzone with every store at once
+DOCUMENT_IMPORT_JITTER_SECONDS = 900
+
+
+@shared_task
+def import_documents_all_supermarkets():
+    """Hourly 06:00–22:00: queue one document import per supermarket."""
+    import random
+
+    queued = 0
+    for supermarket in real_supermarkets():
+        import_documents_for_supermarket.apply_async(
+            args=[supermarket.id],
+            countdown=random.randint(0, DOCUMENT_IMPORT_JITTER_SECONDS),
+        )
+        queued += 1
+    logger.info(f"[DOCS] Document import queued for {queued} supermarkets")
+    return f"Document import queued for {queued} supermarkets"
+
+
+@shared_task(bind=True, max_retries=0, acks_late=True)
+def import_documents_for_supermarket(self, supermarket_id):
     """
-    Nightly DDT import — one Celery task per supermarket.
-    Fetches invoices once per supermarket and fans out DB writes per storage.
+    Read the last week of Dropzone DDTs and credit notes, then book every
+    delivery whose day has come. No retries: the next hourly run is the retry.
     """
     from .models import Supermarket
+    from .document_import import DocumentImporter
 
+    supermarket = Supermarket.objects.get(id=supermarket_id)
+    _log_ctx = enter_supermarket_log(supermarket.name)
     try:
-        logger.info("[CELERY] Starting nightly DDT import for all supermarkets")
-
-        supermarkets = real_supermarkets().prefetch_related('storages')
-        queued_count = 0
-
-        for supermarket in supermarkets:
-            try:
-                import_ddt_for_supermarket.apply_async(
-                    args=[supermarket.id],
-                    retry=True,
-                    retry_policy={
-                        'max_retries': 3,
-                        'interval_start': 900,
-                        'interval_step': 0,
-                        'interval_max': 900,
-                    }
-                )
-                queued_count += 1
-
-            except Exception:
-                logger.exception(f"[CELERY] Error queuing DDT import for {supermarket.name}")
-                continue
-
-        logger.info(f"[CELERY] DDT import queued for {queued_count} supermarkets")
-        return f"DDT import queued for {queued_count} supermarkets"
-
-    except Exception as exc:
-        logger.exception("[CELERY] Fatal error in nightly DDT import")
-        raise self.retry(exc=exc)
-
-
-@shared_task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=900,
-    queue='selenium',
-    acks_late=True,
-    reject_on_worker_lost=True
-)
-def import_ddt_for_supermarket(self, supermarket_id):
-    """
-    Login once, fetch all invoices for the supermarket, then apply deliveries
-    per storage — one RestockLog per storage.
-    """
-    import shutil
-    from .models import Supermarket, RestockLog
-    from .scripts.web_lister import WebLister
-
-    _log_ctx = None
-    try:
-        supermarket = Supermarket.objects.prefetch_related('storages').get(id=supermarket_id)
-        _log_ctx = enter_supermarket_log(supermarket.name)
-        storages = list(supermarket.storages.all())
-
-        if not storages:
-            logger.info(f"[DDT] No storages for {supermarket.name}, skipping")
-            return
-
-        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y%m%d")
-
-        lister = WebLister(
-            username=supermarket.username,
-            password=supermarket.password,
-            storage_name='',
-            download_dir='/tmp',
-            id_user=supermarket.id_user,
-            x5cper=supermarket.x5cper,
-            headless=True,
-        )
-
         try:
-            lister.login()
+            DocumentImporter(supermarket).run()
+        except Exception:
+            # Still book deliveries already in the ledger that fall due today
+            logger.exception(f"[DOCS] Import failed for {supermarket.name}")
 
-            rows = lister.fetch_scorporo(date_from=yesterday, date_to=yesterday)
-
-            if not rows:
-                logger.info(f"[DDT] No DDT rows for {supermarket.name} on {yesterday}")
-                return
-
-            # Fetch righe once per distinct invoice number.
-            # Track desc_mag → [invoice_numbers] using the first DescMag seen per invoice.
-            seen = set()
-            all_righe = []
-            desc_mag_to_invoices = {}  # desc_mag → [nrcc_stripped, ...]
-            for row in rows:
-                nrcc = row["X5NRCC"]
-                if nrcc in seen:
-                    continue
-                seen.add(nrcc)
-                nrcc_stripped = str(int(nrcc))
-                righe = lister.fetch_righe(row)
-                # Derive desc_mag for this invoice from its first riga
-                if righe:
-                    dm = righe[1].get("DescMag", "").strip() if len(righe) > 1 else righe[0].get("DescMag", "").strip()
-                    desc_mag_to_invoices.setdefault(dm, []).append(nrcc_stripped)
-                all_righe.extend(righe)
-
-            # Group by DescMag — one group per storage
-            grouped = lister.process_righe(all_righe)
-
-        finally:
-            lister.driver.quit()
-            shutil.rmtree(lister.user_data_dir, ignore_errors=True)
-
-        # Fan out: one DB write + RestockLog per matched storage
-        for desc_mag, ean_qty in grouped.items():
-            matched_storage = None
-            for s in storages:
-                if desc_mag.upper() in s.name.upper():
-                    matched_storage = s
-                    break
-
-            if matched_storage is None:
-                logger.info(f"[DDT] DescMag '{desc_mag}' matched no storage in {supermarket.name}")
-                continue
-
-            if RestockLog.objects.filter(
-                storage=matched_storage,
-                operation_type='ddt_import',
-                status='completed',
-                completed_at__date=timezone.now().date(),
-            ).exists():
-                logger.warning(f"[DDT] {matched_storage.name} already has a completed ddt_import today — skipping (retry guard)")
-                continue
-
-            log = RestockLog.objects.create(
-                storage=matched_storage,
-                status='processing',
-                current_stage='processing',
-                operation_type='ddt_import',
-            )
-
+        today = datetime.date.today()
+        for storage in supermarket.storages.all():
             try:
-                storage_invoices = desc_mag_to_invoices.get(desc_mag, [])
-                with AutomatedRestockService(matched_storage) as service:
-                    # Stock snapshot BEFORE delivery stock is applied.
-                    # Saved as a pending OrderCalibrationReport; the full analysis
-                    # runs at 08:00, against yesterday's now-final sales data.
-                    try:
-                        from .models import OrderCalibrationReport
-
-                        prev_ddt = (
-                            RestockLog.objects
-                            .filter(
-                                storage=matched_storage,
-                                operation_type='ddt_import',
-                                status='completed',
-                                completed_at__isnull=False,
-                            )
-                            .order_by('-completed_at')
-                            .first()
-                        )
-                        days_elapsed = 0
-                        if prev_ddt and prev_ddt.completed_at:
-                            days_elapsed = (timezone.now().date() - prev_ddt.completed_at.date()).days
-
-                        last_restock = (
-                            RestockLog.objects
-                            .filter(
-                                storage=matched_storage,
-                                operation_type='full_restock',
-                                status='completed',
-                                coverage_used__isnull=False,
-                            )
-                            .order_by('-started_at')
-                            .first()
-                        )
-                        coverage_days = float(last_restock.coverage_used) if last_restock else 0.0
-
-                        raw_stock = service.snapshot_pre_delivery_stock()
-
-                        cal_report = OrderCalibrationReport(
-                            storage=matched_storage,
-                            ddt_import_log=log,
-                            days_elapsed=days_elapsed,
-                            coverage_days=coverage_days,
-                            products_evaluated=0,
-                            products_ok=0,
-                            products_overstocked=0,
-                            products_understocked=0,
-                        )
-                        cal_report.set_results({'status': 'pending', 'raw_stock': raw_stock})
-                        cal_report.save()
-                        logger.info(f"[DDT] Stock snapshot saved for {matched_storage.name} ({len(raw_stock)} products) — report pending calibration")
-                    except Exception:
-                        logger.exception(f"[DDT] Stock snapshot failed for {matched_storage.name} — DDT import continues")
-
-                    service.apply_ddt_for_storage(log, ean_qty, storage_invoices)
-
-                RestockLog.objects.filter(id=log.id).update(
-                    status='completed',
-                    current_stage='completed',
-                    completed_at=timezone.now(),
-                )
-                logger.info(f"[DDT] Completed for {matched_storage.name}")
-
-            except Exception as e:
-                RestockLog.objects.filter(id=log.id).update(
-                    status='failed',
-                    current_stage='failed',
-                    error_message=str(e),
-                )
-                logger.exception(f"[DDT] Failed for {matched_storage.name}")
-
-    except Exception as exc:
-        logger.exception(f"[DDT] Fatal error for supermarket {supermarket_id}")
-        raise self.retry(exc=exc)
+                with AutomatedRestockService(storage) as service:
+                    service.apply_due_deliveries(today)
+            except Exception:
+                logger.exception(f"[DDT] Booking deliveries failed for {storage.name}")
     finally:
         exit_supermarket_log(_log_ctx)
 
@@ -385,22 +211,20 @@ def import_ddt_for_supermarket(self, supermarket_id):
 @shared_task
 def run_daily_calibration():
     """
-    08:00 daily task — completes calibration reports seeded during the 05:00 DDT import.
+    08:00 daily task — completes calibration reports seeded when a delivery is booked.
 
-    The DDT import stores a pre-delivery stock snapshot as a pending
-    OrderCalibrationReport. Yesterday closed at its 21:30 sync, so by 08:00 its figures
-    are final and avg_daily_sales is current. This task finds all
-    pending reports from today, runs the full classification using the stored
-    pre-delivery stock + fresh sales data, and saves the completed report.
-    Storages with no DDT import today are skipped — nothing to evaluate.
+    Booking the day's first delivery stores a pre-delivery stock snapshot as a pending
+    OrderCalibrationReport. This task runs the full classification on every pending
+    report of the last week, using the stored pre-delivery stock + fresh sales data.
+    A delivery booked after 08:00 (a late order) is graded the next morning.
     """
     from .models import OrderCalibrationReport
 
-    today = timezone.now().date()
+    since = timezone.now() - datetime.timedelta(days=7)
     pending_reports = (
         OrderCalibrationReport.objects
         .select_related('storage', 'storage__supermarket')
-        .filter(generated_at__date=today)
+        .filter(generated_at__gte=since)
     )
 
     ok_count = 0
@@ -1483,13 +1307,15 @@ def place_manual_order_task(self, user_id, orders_list):
     max_retries=2,
     default_retry_delay=300
 )
-def process_ddt_task(self, storage_id, pdf_file_path):
+def process_ddt_task(self, storage_id, pdf_file_path, invoice_number=None):
     """
     Process DDT delivery document and add stock.
 
     Args:
         storage_id: Storage ID
         pdf_file_path: Full path to DDT PDF file
+        invoice_number: DDT number typed by the user; recorded so neither a later
+            manual upload nor the hourly import books the same DDT again
     """
     from .models import Storage, RestockLog
     from .services import RestockService
@@ -1529,6 +1355,12 @@ def process_ddt_task(self, storage_id, pdf_file_path):
             # Process deliveries
             logger.info(f"[PROCESS DDT] Processing {len(ddt_entries)} deliveries")
             result = process_ddt_deliveries(service.db, ddt_entries)
+
+            number = (invoice_number or '').strip().lstrip('0')
+            if number:
+                cancelled = service.db.claim_manual_ddt(storage.settore, number, datetime.date.today())
+                if cancelled:
+                    logger.info(f"[PROCESS DDT] DDT {number}: automatic booking cancelled, loaded by hand")
             
             # Update log
             log.status = 'completed'
@@ -1545,7 +1377,7 @@ def process_ddt_task(self, storage_id, pdf_file_path):
                     {'cod': p['cod'], 'v': p['var'], 'error': p['error']}
                     for p in result['error_products'][:20]
                 ],
-                'invoices': [],
+                'invoices': [number] if number else [],
                 'unverified_products': []
             })
             log.save()
@@ -1755,41 +1587,25 @@ def create_monthly_stock_snapshots(self):
     bind=True,
     max_retries=2,
     default_retry_delay=300,
-    queue='selenium',
     acks_late=True,
     reject_on_worker_lost=True
 )
 def sync_storages_task(self, supermarket_id):
     """Sync storages and client parameters from Dropzone for a supermarket."""
-    import tempfile
     from .models import Supermarket
     from .services import StorageService
-    from .scripts.web_lister import WebLister
+    from .scripts.dropzone_client import DropzoneClient
 
     _log_ctx = None
     try:
         supermarket = Supermarket.objects.get(id=supermarket_id)
         _log_ctx = enter_supermarket_log(supermarket.name)
         logger.info(f"[SYNC STORAGES] Starting for {supermarket.name}")
-        StorageService.sync_storages(supermarket)
-        logger.info(f"[SYNC STORAGES] Storages synced for {supermarket.name}")
 
-        # gather_client_data() reads client-level IDs off the Dropzone menus and never
-        # touches storage_name, so pass '' rather than an arbitrary storage — same as
-        # import_ddt_for_supermarket does.
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            lister = WebLister(
-                username=supermarket.username,
-                password=supermarket.password,
-                storage_name='',
-                download_dir=tmp_dir,
-                headless=True,
-            )
-            try:
-                lister.login()
-                client_data = lister.gather_client_data()
-            finally:
-                lister.driver.quit()
+        # Client data first: storage discovery needs id_cliente
+        client = DropzoneClient(supermarket.username, supermarket.password)
+        client.login()
+        client_data = client.gather_client_data()
 
         supermarket.id_cliente = client_data.get('id_cliente')
         supermarket.id_azienda = client_data.get('id_azienda')
@@ -1803,6 +1619,9 @@ def sync_storages_task(self, supermarket_id):
             'id_clienti_canale', 'id_clienti_area', 'id_user', 'x5cper',
         ])
         logger.info(f"[SYNC STORAGES] Client data saved for {supermarket.name}")
+
+        StorageService.sync_storages(supermarket)
+        logger.info(f"[SYNC STORAGES] Storages synced for {supermarket.name}")
 
         return {
             'success': True,

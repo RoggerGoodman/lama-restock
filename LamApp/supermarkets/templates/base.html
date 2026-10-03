@@ -1,5 +1,6 @@
 <!-- LamApp/LamApp/supermarkets/templates/base.html -->
 {% load static %}
+{% load dashboard_extras %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -244,6 +245,13 @@
             <li class="nav-item">
                 <a class="nav-link {% if 'inventory' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'inventory-search' %}">
                     <i class="bi bi-box-seam"></i> Inventario
+                </a>
+            </li>
+            <li class="nav-item">
+                {% pending_credit_notes_count request.user as credit_notes_pending %}
+                <a class="nav-link {% if 'credit-note' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'credit-note-list' %}">
+                    <i class="bi bi-receipt"></i> Note di accredito
+                    {% if credit_notes_pending %}<span class="badge bg-info text-dark ms-1">{{ credit_notes_pending }}</span>{% endif %}
                 </a>
             </li>
             <li class="nav-item">

@@ -33,7 +33,7 @@
     </div>
 
     <!-- Attention Needed Section -->
-    {% if failed_logs or pending_verifications %}
+    {% if failed_logs or pending_verifications or pending_credit_notes %}
     <div class="row mb-4">
         <div class="col-12">
             <div class="stat-card border-warning" style="border-left: 4px solid #ffc107;">
@@ -62,6 +62,27 @@
                                 </form>
                             </div>
                             {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if pending_credit_notes %}
+                    <div class="col-md-6 mb-3">
+                        <div class="alert alert-info mb-0">
+                            <h6><i class="bi bi-receipt"></i> Note di accredito da approvare</h6>
+                            <p class="mb-2">
+                                {{ pending_credit_notes|length }} nota/e in attesa: vanno controllate prima di scalare i resi dalla giacenza.
+                                Non è urgente, ma prima si approvano più precisa resta la giacenza.
+                            </p>
+                            {% for note in pending_credit_notes|slice:":5" %}
+                            <div class="small">
+                                <a href="{% url 'credit-note-detail' pk=note.pk %}" class="alert-link">Nota {{ note.number }}</a>
+                                del {{ note.doc_date|date:"d/m" }} — {{ note.storage.name }}
+                            </div>
+                            {% endfor %}
+                            <a href="{% url 'credit-note-list' %}" class="btn btn-sm btn-info mt-2">
+                                <i class="bi bi-arrow-right"></i> Da approvare
+                            </a>
                         </div>
                     </div>
                     {% endif %}
