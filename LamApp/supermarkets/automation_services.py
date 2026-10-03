@@ -592,11 +592,11 @@ class AutomatedRestockService(RestockService):
                 logger.info(f"Order ready for review for {self.storage.name} (log #{log.id})")
                 return log
 
-            # Direct send: run the proven Selenium execution inline.
+            # Direct send: place the order inline.
             log.status = 'processing'
             log.current_stage = 'processing'
             log.save()
-            self._execute_order_selenium(log, orders_list, progress_callback)
+            self._place_order(log, orders_list, progress_callback)
             logger.info(f"Order sent directly for {self.storage.name} (log #{log.id})")
             return log
 
@@ -616,8 +616,7 @@ class AutomatedRestockService(RestockService):
         Submit a reviewed order to Dropzone (the "Invia" action).
 
         Rebuilds the order list from the (possibly operator-edited) orders stored
-        in log.results and runs the exact same Selenium execution that the fully
-        automated flow used before the review step was introduced.
+        in log.results and places it exactly as the fully automated flow does.
         """
         logger.info(f"Submitting reviewed order for {self.storage.name} (log #{log.id})")
 
@@ -638,7 +637,7 @@ class AutomatedRestockService(RestockService):
             log.error_message = ''
             log.save()
 
-            self._execute_order_selenium(log, orders_list, progress_callback)
+            self._place_order(log, orders_list, progress_callback)
             logger.info(f"Reviewed order submitted successfully for {self.storage.name}")
             return log
 
@@ -653,9 +652,9 @@ class AutomatedRestockService(RestockService):
             exit_order_log(_order_log_ctx)
             exit_supermarket_log(_sm_log_ctx)
 
-    def _execute_order_selenium(self, log: RestockLog, orders_list, progress_callback=None):
+    def _place_order(self, log: RestockLog, orders_list, progress_callback=None):
         """
-        The proven Selenium send: log in, place the order, mark the log completed.
+        Log in, place the order on Dropzone as a draft, mark the log completed.
         Caller owns the logging context and sets status='processing' beforehand.
         orders_list is a list of (cod, var, qty, discount) tuples.
         """
@@ -676,7 +675,7 @@ class AutomatedRestockService(RestockService):
         )
         try:
             orderer.login()
-            successful_orders, order_skipped = orderer.make_orders(self.storage.name, orders_list)
+            successful_orders, order_skipped = orderer.make_orders(self.storage, orders_list)
 
             results = log.get_results()
             results.setdefault('order_skipped_products', []).extend(order_skipped)
@@ -690,7 +689,7 @@ class AutomatedRestockService(RestockService):
             log.completed_at = timezone.now()
             log.save()
         finally:
-            orderer.driver.quit()
+            orderer.close()
 
         if progress_callback:
             progress_callback(100, 'Order placed successfully!')

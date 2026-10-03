@@ -1,282 +1,139 @@
-# LamApp/supermarkets/scripts/orderer.py - WITH SKIP TRACKING
-from selenium.webdriver.chrome.options import Options
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
-import time
-import re
-import os, uuid, shutil
+# LamApp/supermarkets/scripts/orderer.py
+"""
+Places an order on Dropzone over plain HTTP: the same three requests the order page
+makes (create the header, look each product up, insert its row), reproduced field for
+field. The order is left as a draft: "Invia" stays a manual step on Dropzone.
+"""
 import logging
+from datetime import date, datetime
 
-# Use Django's logging system
+from .dropzone_client import DropzoneClient
+
 logger = logging.getLogger(__name__)
+
+# The order page's lookup, minus nothing: these flags decide which prices come back
+LOOKUP_FLAGS = {
+    "decodificaAnagrafica": "S",
+    "ricercaRepCommle_tipoCons": "S",
+    "ricercaCodRappCommle": "S",
+    "ricercaRapportiCommle": "S",
+    "ricercaListinoCessione": "S",
+    "intercettaCessione": "S",
+    "ricercaListinoVendita": "S",
+    "intercettaVendita": "S",
+    "ricercaDisponibilita": "S",
+    "Acquistato": "S",
+}
+OPEN_ENDED = "9999-12-31"
+
+
+def _page_date(value) -> str:
+    """The order page's formattaData: YYYY-M-D without zero padding."""
+    if not value:
+        return ""
+    if value == OPEN_ENDED:
+        return OPEN_ENDED
+    d = datetime.strptime(value, "%Y-%m-%d")
+    return f"{d.year}-{d.month}-{d.day}"
 
 
 class Orderer:
 
     def __init__(self, username: str, password: str) -> None:
-        """
-        Initialize orderer with credentials.
-        
-        Args:
-            username: Dropzone username
-            password: Dropzone password
-        """
-        self.username = username
-        self.password = password
-        
-        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
-        os.makedirs(self.user_data_dir, exist_ok=True)
-        os.chmod(self.user_data_dir, 0o700)
-
-        os.environ["HOME"] = self.user_data_dir
-        os.environ["XDG_RUNTIME_DIR"] = self.user_data_dir
-
-        # Set up the Selenium WebDriver
-        chrome_options = Options()
-        chrome_options.binary_location = "/usr/bin/google-chrome"
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-setuid-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-software-rasterizer")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        chrome_options.add_argument('--log-level=3')
-
-        # Set a writable directory for Chrome to use
-        chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
-
-        service = Service()
-
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        self.wait = WebDriverWait(self.driver, 300)
-        self.actions = ActionChains(self.driver)
-        
-        # Track products skipped during ordering phase
+        self.client = DropzoneClient(username, password)
         self.order_skipped_products = []
-        
+        self.order_id = None
+
     def login(self):
-        """Login to Dropzone"""
-        self.driver.get('https://dropzone.pac2000a.it/')
+        self.client.login()
 
-        # Wait for the page to fully load
-        self.wait.until(
-            EC.presence_of_element_located((By.ID, "username"))
-        )
+    def close(self):
+        self.client.session.close()
 
-        # Login
-        username_field = self.driver.find_element(By.ID, "username")
-        password_field = self.driver.find_element(By.ID, "password")
-        username_field.send_keys(self.username)
-        password_field.send_keys(self.password)
-        self.actions.send_keys(Keys.ENTER)
-        self.actions.perform()
-
-        self.wait.until(
-            EC.presence_of_element_located((By.ID, "carta31"))
-        )
-
-        orders_menu = self.driver.find_element(By.ID, "carta31")
-        orders_menu.click()
-
-        self.wait.until(
-            EC.presence_of_element_located((By.ID, "carta139"))
-        )
-
-        orders_menu1 = self.driver.find_element(By.ID, "carta139")
-        orders_menu1.click()
-
-        self.wait.until(
-            lambda driver: len(driver.window_handles) > 1
-        )
-
-        self.driver.switch_to.window(self.driver.window_handles[-1])
-
-        self.wait.until(
-            EC.presence_of_element_located((By.ID, "Ordini"))
-        )
-
-        time.sleep(0.2) 
-
-        orders_menu1 = self.driver.find_element(By.ID, "Ordini")
-        orders_menu1.click()
-
-        lista_link = self.wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//a[@href='./lista']"))
-        )
-
-        lista_link.click()
-
-        modal = self.wait.until(
-            EC.presence_of_element_located((By.CLASS_NAME, "modal-content"))
-        )
-
-        self.wait.until(
-            EC.presence_of_element_located((By.XPATH, "//button[text()='Chiudi']"))
-        )
-
-        time.sleep(0.2)
-
-        close_button = self.driver.find_element(By.XPATH, "//button[text()='Chiudi']")
-        close_button.click()
-
-        time.sleep(0.2)
-
-    def make_orders(self, storage: str, order_list: tuple):
+    def make_orders(self, storage, order_list):
         """
-        Make orders with skip tracking.
-        Returns: (successful_orders, order_skipped_products)
-        
-        NOTE: These are products skipped DURING ORDER EXECUTION (e.g., system disabled)
-        This is different from decision_maker's skipped_products (skipped during calculation)
+        Create one draft order for `storage` holding every orderable item of
+        order_list [(cod, var, qty, discount)].
+        Returns (successful_orders, order_skipped_products).
         """
+        supermarket = storage.supermarket
+        id_cliente = supermarket.id_cliente
+        id_azienda = supermarket.id_azienda
+        if not id_cliente or not id_azienda:
+            client = self.client.fetch_client()
+            id_cliente, id_azienda = int(client["value"]), int(client["IDAzienda"])
+        id_user = self.client.id_user
 
-        desired_value = re.sub(r'^\d+\s+', '', storage)
+        today = date.today().isoformat()
+        header = self.client.post("/ordini/elabora_ordine.php", {
+            "action": "save",
+            "IDOrdine": "",
+            "NumeroOrdine": "",
+            "DataOrdine": today,
+            "DataSpedizione": today,
+            "DataInvio": "",
+            "IDCliente": id_cliente,
+            "FaseOrdine": "0",
+            "IDCodMag": storage.id_cod_mag,
+            "idUtente": id_user,
+        })
+        self.order_id = header["IDOrdine"]
+        logger.info(f"Draft order {self.order_id} created for {storage.name}")
 
-        self.wait.until(
-            EC.presence_of_element_located((By.ID, "newRowButtonMenuSopra"))
-        )
-
-        order_button = self.driver.find_element(By.ID, "newRowButtonMenuSopra")
-        order_button.click()
-
-        time.sleep(1)
-
-        # Step 1: Wait for the modal to appear
-        modal_container = self.wait.until(
-            EC.visibility_of_element_located((By.ID, "finestraInsertOrdini"))
-        )
-
-        # Step 2: Wait for the button inside the modal using XPath
-        button_inside_modal = self.wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//*[@id='IDCodiceClienteBis']/div[1]/div/div[1]/span[2]"))
-        )
-
-        button_inside_modal.click()
-
-        xpath = "/html/body/div[2]/div[2]/div[5]/div/div/div/div[2]/div/form/div[1]/div/smart-combo-box/div[1]/div/div[2]/smart-list-box/div[1]/div[2]/div[2]/smart-list-item"
-
-        element = self.wait.until(
-            EC.element_to_be_clickable((By.XPATH, xpath))
-        )
-
-        element.click()
-
-        time.sleep(0.2)
-
-        button_inside_modal2 = self.wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//*[@id='magazziniInsert']/div[1]/div/div[1]/span[2]"))
-        )
-
-        button_inside_modal2.click()
-
-        time.sleep(0.2)
-
-        combo_box_element = self.driver.find_element(By.ID, "magazziniInsert")
-        self.actions.send_keys(Keys.ARROW_DOWN)
-        self.actions.perform()
-        time.sleep(0.5)
-        self.actions.send_keys(Keys.ARROW_DOWN)
-        self.actions.perform()
-        time.sleep(0.5)
-        self.actions.send_keys(Keys.ARROW_UP)
-        self.actions.perform()
-        time.sleep(0.5)
-        self.actions.send_keys(Keys.ARROW_UP)
-        self.actions.perform()
-        time.sleep(0.5)
-        
-        while True:
-            input_value = combo_box_element.get_attribute("value")
-            if input_value == desired_value:
-                self.actions.send_keys(Keys.ESCAPE)
-                self.actions.perform()
-                break
-            self.actions.send_keys(Keys.ARROW_DOWN)
-            self.actions.perform()
-            time.sleep(0.5)
-            
-        time.sleep(0.2)
-
-        confirm_button = self.driver.find_element(By.XPATH, '//*[@id="confermaInsertTestata"]')
-        confirm_button.click()
-
-        self.wait.until(
-            lambda driver: len(driver.window_handles) > 2
-        )
-
-        self.driver.switch_to.window(self.driver.window_handles[-1])
-
-        new_order_button = self.driver.find_element(By.ID, "addButtonT")
-        new_order_button.click()
-
-        time.sleep(0.2)
-
-        parent_div1 = self.driver.find_element(By.ID, "codArt")
-        parent_div2 = self.driver.find_element(By.ID, "varArt")
-        parent_div3 = self.driver.find_element(By.ID, "w_Quantita")
-        
-        cod_art_field = parent_div1.find_element(By.TAG_NAME, "input")
-        var_art_field = parent_div2.find_element(By.TAG_NAME, "input")
-        stock_size = parent_div3.find_element(By.TAG_NAME, "input")
-        search_button = self.driver.find_element(By.XPATH, '/html/body/div[66]/div[2]/form/div[4]/div[2]/div[3]/div')
-        
         successful_orders = []
-        
         for order_item in order_list:
-            cod_part, var_part, qty_part, discount = order_item
-            
-            cod_art_field.send_keys(Keys.CONTROL + 'a', cod_part)
-            var_art_field.send_keys(Keys.CONTROL + 'a', var_part)
-            time.sleep(0.2)
-            search_button.click()
+            cod, var, qty, _discount = order_item
+            article = self.client.post("/anagrafiche/ArticoliDecodifica_call.php", {
+                "IDAzienda": id_azienda,
+                "CodiceArticolo": cod,
+                "VarianteArticolo": var,
+                "IDCliente": id_cliente,
+                **LOOKUP_FLAGS,
+            }, timeout=30)
 
-            # Check if product doesn't accept orders (disabled by system).
-            # Wait for the switch to settle: during the brief animation after a new code is
-            # entered, label-off can flash visible even for enabled products. We wait until
-            # exactly one of the two labels is visible (stable state), then check which one.
-            try:
-                WebDriverWait(self.driver, 3).until(
-                    lambda d: bool(
-                        d.find_elements(By.XPATH, "//div[contains(@class,'jqx-switchbutton-label-on') and contains(@style,'visibility: visible')]")
-                    ) != bool(
-                        d.find_elements(By.XPATH, "//div[contains(@class,'jqx-switchbutton-label-off') and contains(@style,'visibility: visible')]")
-                    )
-                )
-            except Exception:
-                pass  # timeout: fall through and read current state anyway
-            is_off = self.driver.find_elements(
-                By.XPATH,
-                "//div[contains(@class, 'jqx-switchbutton-label-off') and contains(@style, 'visibility: visible')]"
-            ) and not self.driver.find_elements(
-                By.XPATH,
-                "//div[contains(@class, 'jqx-switchbutton-label-on') and contains(@style, 'visibility: visible')]"
-            )
-            if is_off:
-                logger.info(f"Article {cod_part}.{var_part} doesn't accept orders (disabled in ordering system)")
-                
-                self.order_skipped_products.append({
-                    'cod': cod_part,
-                    'var': var_part,
-                    'qty': qty_part,
-                    'reason': 'Product disabled in ordering system (cannot place order)'
-                })
+            if not isinstance(article, dict) or not article.get("IDArticolo"):
+                self._skip(cod, var, qty, "Product not found in Dropzone")
                 continue
-            stock_size.send_keys(Keys.CONTROL + 'a', qty_part)
+            if (int(article["CodiceArticolo"]), int(article["VarianteArticolo"])) != (int(cod), int(var)):
+                self._skip(cod, var, qty,
+                           f"Dropzone resolved it to {article['CodiceArticolo']}.{article['VarianteArticolo']}")
+                continue
+            if article.get("saAccettaOrdini") != "true":
+                logger.info(f"Article {cod}.{var} doesn't accept orders (disabled in ordering system)")
+                self._skip(cod, var, qty, 'Product disabled in ordering system (cannot place order)')
+                continue
 
-            time.sleep(0.2)
+            reply = self.client.post("/ordini/RigaVendita_call.php", {
+                "funzione": "insert",
+                "IDArticolo": article["IDArticolo"],
+                "IDOrdine": self.order_id,
+                "IDUnitaMisura": article["IDUnitaMisura"],
+                "Quantita": qty,
+                "Imballo": article["Imballo"],
+                "IDListCessione": article["cessioneIDList"],
+                "Prezzo": article["cessione"],
+                "CessioneDataDa": _page_date(article["cessioneDataDa"]),
+                "CessioneDataA": _page_date(article["cessioneDataA"]),
+                "IDListVendita": article["venditaIDList"],
+                "Vendita": article["vendita"],
+                "VenditaDataDa": _page_date(article["venditaDataDa"]),
+                "VenditaDataA": _page_date(article["venditaDataA"]),
+                "Margine": article["returnCalcoloMargine"],
+                "IDIva": article["IDIva"],
+                "IDLeggeIva": article["IDLeggeIva"],
+                "Corsia": "",
+                "IDFornitore": article["IDFornitore"],
+                "Valido": "S",
+                "idUtente": id_user,
+            }, timeout=30)
+            if not str(reply).startswith("Ok"):
+                self._skip(cod, var, qty, f"Dropzone refused the row: {reply}")
+                continue
+            successful_orders.append(order_item)
 
-            confirm_button_order = self.driver.find_element(By.ID, "okModificaRiga")
-            confirm_button_order.click()
-            successful_orders.append((cod_part, var_part, qty_part, discount))
-            
-        logger.info(f"Order execution complete: {len(successful_orders)} successful, {len(self.order_skipped_products)} skipped during ordering")
-        self.driver.quit()
-        shutil.rmtree(self.user_data_dir, ignore_errors=True)
+        logger.info(f"Order execution complete: {len(successful_orders)} successful, "
+                    f"{len(self.order_skipped_products)} skipped during ordering")
         return successful_orders, self.order_skipped_products
+
+    def _skip(self, cod, var, qty, reason):
+        self.order_skipped_products.append({'cod': cod, 'var': var, 'qty': qty, 'reason': reason})

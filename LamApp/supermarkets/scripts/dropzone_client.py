@@ -37,7 +37,7 @@ class DropzoneClient:
         self.session.headers["User-Agent"] = USER_AGENT
         self._id_user = None
 
-    def _post(self, path: str, data: dict, timeout: int = 60):
+    def post(self, path: str, data: dict, timeout: int = 60):
         response = self.session.post(BASE_URL + path, data=data, headers=AJAX_HEADERS, timeout=timeout)
         response.raise_for_status()
         return response.json()
@@ -71,11 +71,11 @@ class DropzoneClient:
         return self._id_user
 
     def fetch_x5cper(self) -> int:
-        rows = self._post("/include/PersoneProxy.php", {"ragsoc": "", "app": "RIEPFATT"}, timeout=30)
+        rows = self.post("/include/PersoneProxy.php", {"ragsoc": "", "app": "RIEPFATT"}, timeout=30)
         return int((rows[0] if isinstance(rows, list) else rows)["N1CPER"])
 
     def fetch_client(self) -> dict:
-        rows = self._post("/anagrafiche/Cliente_call.php", {
+        rows = self.post("/anagrafiche/Cliente_call.php", {
             "funzione": "loadComboV2", "IDUser": self.id_user, "Chiamante": "gestioneOrdini",
         }, timeout=30)
         return rows[0]
@@ -100,7 +100,7 @@ class DropzoneClient:
         `name` is the text the order page's warehouse dropdown shows (storage names come
         from it); `code` is what DDT and credit-note lines carry in UACMAG.
         """
-        rows = self._post("/clienti/tabelle/ClientiMagazzinoConsegna_call.php", {
+        rows = self.post("/clienti/tabelle/ClientiMagazzinoConsegna_call.php", {
             "funzione": "lista", "IDCliente": id_cliente,
         }, timeout=30) or []
         return [{
@@ -116,7 +116,7 @@ class DropzoneClient:
         Accounting headers for documents dated date_from..date_to ("YYYYMMDD").
         One row per (document, reparto), so a document spans several rows.
         """
-        rows = self._post("/fteweb/ScorporoAmministrativo_call.php", {
+        rows = self.post("/fteweb/ScorporoAmministrativo_call.php", {
             "funzione":    "lista",
             "X5TREC":      "02",
             "IDAziendaIn": 0,
@@ -144,7 +144,7 @@ class DropzoneClient:
             path = "/fteweb/fatture_righe_data.php"
             doc_date = header["X5DDOC"]
 
-        rows = self._post(path, {
+        rows = self.post(path, {
             "iduser":                       self.id_user,
             "uacazn":                       header["X5CAZN"],
             "uactda":                       header["X5CNFT"],

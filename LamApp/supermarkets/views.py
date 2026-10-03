@@ -4486,7 +4486,7 @@ def inventory_results_view(request, search_type):
 @login_required
 def cluster_order_preview_view(request):
     """Run the decision maker for specific clusters and render a printable order preview.
-    No order is actually placed — Selenium is not used."""
+    No order is actually placed."""
     from .scripts.decision_maker import DecisionMaker
 
     supermarket_id = request.GET.get('supermarket_id')

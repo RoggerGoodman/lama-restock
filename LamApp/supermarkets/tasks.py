@@ -112,7 +112,7 @@ def record_losses_all_supermarkets(self):
                     with AutomatedRestockService(first_storage) as service:
                         # Piggybacked on this task because the schema connection
                         # is already open. Runs BEFORE record_losses on purpose:
-                        # that is a long Selenium job (login, file download, then
+                        # that is a long job (login, file download, then
                         # DB writes) and a failure part-way through leaves the
                         # connection in an aborted transaction, which would make
                         # every later statement fail. Since a promo is matched on
@@ -406,9 +406,9 @@ def run_restock_for_storage(self, storage_id, coverage=None, manual=False):
 )
 def submit_pending_order(self, log_id):
     """
-    Submit a reviewed ('Da inviare') order to Dropzone via Selenium (the "Invia"
-    action). Runs the same proven execution path the automated flow used before
-    the review step existed. No auto-retry: a human is watching this one.
+    Submit a reviewed ('Da inviare') order to Dropzone (the "Invia" action). Runs
+    the same order placement as the automated flow. No auto-retry: a human is
+    watching this one.
     """
     from .models import Storage, RestockLog
 
@@ -463,7 +463,7 @@ def recalculate_review_order(self, log_id):
     """
     Re-run the decision maker for the products whose stock was corrected during
     review and apply the new package counts (default 'celery' queue — pure DB, no
-    Selenium). Guarded to awaiting_review.
+    Dropzone). Guarded to awaiting_review.
     """
     from .models import RestockLog
 
@@ -1210,23 +1210,14 @@ def place_manual_order_task(self, user_id, orders_list):
         user_id: User ID (for ownership validation)
         orders_list: List of dicts with {storage_id, storage_name, supermarket_id, cod, var, qty}
     """
-    from .models import Supermarket
+    from .models import Storage
     from .scripts.orderer import Orderer
 
     try:
-        # Group orders by supermarket (each supermarket has its own credentials)
-        by_supermarket = {}
+        # One draft order per storage; make_orders expects (cod, var, qty, discount)
+        by_storage = {}
         for order in orders_list:
-            sm_id = order['supermarket_id']
-            if sm_id not in by_supermarket:
-                by_supermarket[sm_id] = {
-                    'storages': {},
-                }
-            storage_name = order['storage_name']
-            if storage_name not in by_supermarket[sm_id]['storages']:
-                by_supermarket[sm_id]['storages'][storage_name] = []
-            # make_orders expects (cod, var, qty, discount)
-            by_supermarket[sm_id]['storages'][storage_name].append(
+            by_storage.setdefault(order['storage_id'], []).append(
                 (order['cod'], order['var'], order['qty'], None)
             )
 
@@ -1234,37 +1225,29 @@ def place_manual_order_task(self, user_id, orders_list):
         total_skipped = 0
         all_skipped_products = []
 
-        # Process each supermarket
-        for sm_id, sm_data in by_supermarket.items():
-            supermarket = Supermarket.objects.get(id=sm_id, owner_id=user_id)
+        for storage_id, products in by_storage.items():
+            storage = Storage.objects.select_related('supermarket').get(
+                id=storage_id, supermarket__owner_id=user_id
+            )
+            supermarket = storage.supermarket
             _sm_log_ctx = enter_supermarket_log(supermarket.name)
-
+            _order_log_ctx = enter_order_log(supermarket.name, storage.name)
+            orderer = Orderer(
+                username=supermarket.username,
+                password=supermarket.password
+            )
             try:
-                logger.info(f"[MANUAL ORDER] Processing supermarket {supermarket.name}")
+                orderer.login()
+                logger.info(f"[MANUAL ORDER] Ordering {len(products)} products for {storage.name}")
 
-                # make_orders closes the browser when done, so each storage needs its own session
-                for storage_name, products in sm_data['storages'].items():
-                    _order_log_ctx = enter_order_log(supermarket.name, storage_name)
-                    orderer = Orderer(
-                        username=supermarket.username,
-                        password=supermarket.password
-                    )
-                    try:
-                        orderer.login()
-                        logger.info(f"[MANUAL ORDER] Ordering {len(products)} products for {storage_name}")
+                successful_orders, order_skipped = orderer.make_orders(storage, products)
 
-                        successful_orders, order_skipped = orderer.make_orders(
-                            storage_name,
-                            products
-                        )
-
-                        total_ordered += len(successful_orders)
-                        total_skipped += len(order_skipped)
-                        all_skipped_products.extend(order_skipped)
-                    finally:
-                        orderer.driver.quit()
-                        exit_order_log(_order_log_ctx)
+                total_ordered += len(successful_orders)
+                total_skipped += len(order_skipped)
+                all_skipped_products.extend(order_skipped)
             finally:
+                orderer.close()
+                exit_order_log(_order_log_ctx)
                 exit_supermarket_log(_sm_log_ctx)
 
         logger.info(
