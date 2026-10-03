@@ -11,7 +11,6 @@ from django.utils import timezone
 from django.db import transaction
 from .models import Storage, RestockLog, ScheduleException
 from .services import RestockService
-import shutil
 from .scripts.decision_maker import DecisionMaker
 from .scripts.helpers import Helper
 from .scripts.inventory_scrapper import Inventory_Scrapper
@@ -93,8 +92,7 @@ class AutomatedRestockService(RestockService):
                 return True
 
             finally:
-                inv_scrapper.driver.quit()
-                shutil.rmtree(inv_scrapper.user_data_dir, ignore_errors=True)
+                inv_scrapper.close()
 
         except Exception as e:
             log.status = 'failed'

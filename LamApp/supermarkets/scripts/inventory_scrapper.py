@@ -1,27 +1,16 @@
 # LamApp/supermarkets/scripts/inventory_scrapper.py
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.keys import Keys
-import os, uuid
-import sys
+import os
 from django.conf import settings
 import logging
-import requests
 import csv
 from datetime import date, timedelta
+
+from .dropzone_client import DropzoneClient
 
 logger = logging.getLogger(__name__)
 
 # Save path for loss files (ROTTURE, SCADUTO, UTILIZZO INTERNO)
 save_path = str(settings.LOSSES_FOLDER)
-# Detect platform
-IS_WINDOWS = sys.platform.startswith('win')
-IS_LINUX = sys.platform.startswith('linux')
 
 CSV_COLUMN_MAP = {
     "RilevazioniRigheCodiceBarre": "EAN",
@@ -33,78 +22,15 @@ class Inventory_Scrapper:
 
     def __init__(self, supermarket, username: str, password: str) -> None:
         self.supermarket = supermarket
-        self.username = username
-        self.password = password
         self.id_cliente = self.supermarket.id_cliente
-        # Set up the Selenium WebDriver
-
-        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
-        os.makedirs(self.user_data_dir, exist_ok=True)
-        os.chmod(self.user_data_dir, 0o700)
-
-        os.environ["HOME"] = self.user_data_dir
-        os.environ["XDG_RUNTIME_DIR"] = self.user_data_dir
-
-        chrome_options = Options()
-        chrome_options.binary_location = "/usr/bin/google-chrome"
-        # Make direct download the default on all platforms (no prompt).
-        if IS_LINUX:
-            logger.info("Configuring Chrome for server/headless mode (direct download)")
-            chrome_options.add_argument("--headless=new")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-setuid-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--disable-software-rasterizer")
-            chrome_options.add_argument("--window-size=1920,1080")
-        else:
-            logger.info("Configuring Chrome for local mode (direct download preferred)")
-
-        # Direct download configuration - NO dialog (works on Linux + Windows)
-        prefs = {
-            "download.default_directory": save_path,
-            "download.prompt_for_download": False,
-            "download.directory_upgrade": True,
-            "safebrowsing.enabled": True,
-            "profile.default_content_settings.popups": 0,
-            "profile.default_content_setting_values.automatic_downloads": 1,
-        }
-        chrome_options.add_experimental_option("prefs", prefs)
-        self.use_save_dialog = False
-
-        # Suppress Chrome DevTools and other noise
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        chrome_options.add_argument('--log-level=3')
-
-        # Set a writable directory for Chrome to use
-        chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
-        
-        service = Service()
-
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        self.wait = WebDriverWait(self.driver, 10)
-        self.actions = ActionChains(self.driver)
+        self.client = DropzoneClient(username, password)
 
     def login(self):
-        """Login to Dropzone"""
-        logger.info("Logging in to Dropzone...")
-        self.driver.get('https://dropzone.pac2000a.it/')
+        self.client.login()
 
-        # Wait for login page
-        self.wait.until(
-            EC.presence_of_element_located((By.ID, "username"))
-        )
+    def close(self):
+        self.client.session.close()
 
-        # Enter credentials
-        username_field = self.driver.find_element(By.ID, "username")
-        password_field = self.driver.find_element(By.ID, "password")
-        username_field.send_keys(self.username)
-        password_field.send_keys(self.password)
-        self.actions.send_keys(Keys.ENTER)
-        self.actions.perform()
-        
-        logger.info(" Login successful")
-    
     def export_all_testate_from_day(self, max_days_back: int = 30):
         """
         Exports new testate (ROTTURE, SCADUTO, UTILIZZO INTERNO) not yet downloaded.
@@ -113,9 +39,7 @@ class Inventory_Scrapper:
         """
         from ..models import LossSyncState
 
-        session = requests.Session()
-        for c in self.driver.get_cookies():
-            session.cookies.set(c["name"], c["value"])
+        session = self.client.session
 
         headers = {
             "Accept": "application/json, text/javascript, */*; q=0.01",

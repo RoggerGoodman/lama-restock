@@ -58,7 +58,6 @@ class ListUpdateService:
             id_marchio=self.supermarket.id_marchio,
             id_clienti_canale=self.supermarket.id_clienti_canale,
             id_clienti_area=self.supermarket.id_clienti_area,
-            headless=True
         )
         
         logger.info(f"Downloaded: {file_path}")

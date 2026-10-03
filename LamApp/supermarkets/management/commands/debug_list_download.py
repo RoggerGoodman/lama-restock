@@ -7,7 +7,6 @@ nightly run), so it reproduces exactly what the automated update would fetch.
 
     python manage.py debug_list_download --storage-id 46 --cod 26566 --var 1
 """
-import shutil
 from pathlib import Path
 
 from django.conf import settings
@@ -55,12 +54,10 @@ class Command(BaseCommand):
             id_marchio=sm.id_marchio,
             id_clienti_canale=sm.id_clienti_canale,
             id_clienti_area=sm.id_clienti_area,
-            headless=True,
         )
 
         try:
             lister.login()
-            lister.navigate_to_lists()
             lister.apply_category_filters()
             self.stdout.write(f"reparto_groups: {lister.reparto_groups}\n")
 
@@ -112,5 +109,4 @@ class Command(BaseCommand):
             self.stdout.write(f"\nCSV saved (NOT imported): {path}")
 
         finally:
-            lister.driver.quit()
-            shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+            lister.close()

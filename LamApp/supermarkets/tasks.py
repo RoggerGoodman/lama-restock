@@ -635,9 +635,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
     from .models import Storage, RestockLog
     from .services import RestockService
     from .scripts.web_lister import WebLister
-    from pathlib import Path
     from django.utils import timezone
-    import shutil
     
     _log_ctx = None
     try:
@@ -653,26 +651,20 @@ def add_products_unified_task(self, storage_id, products_list, settore):
         )
         
         with RestockService(storage) as service:
-            temp_dir = Path(settings.BASE_DIR) / 'temp_add_products'
-            temp_dir.mkdir(exist_ok=True)
-            
             lister = WebLister(
                 username=storage.supermarket.username,
                 password=storage.supermarket.password,
                 storage_name=storage.name,
-                download_dir=str(temp_dir),
                 id_cod_mag=storage.id_cod_mag,
                 id_cliente=storage.supermarket.id_cliente,
                 id_azienda=storage.supermarket.id_azienda,
                 id_marchio=storage.supermarket.id_marchio,
                 id_clienti_canale=storage.supermarket.id_clienti_canale,
-                id_clienti_area=storage.supermarket.id_clienti_area,
-                headless=True
+                id_clienti_area=storage.supermarket.id_clienti_area
             )
 
             try:
                 lister.login()
-                lister.navigate_to_lists()
 
                 added = []
                 failed = []
@@ -739,8 +731,7 @@ def add_products_unified_task(self, storage_id, products_list, settore):
                     'storage_id': storage_id
                 }
             finally:
-                lister.driver.quit()
-                shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+                lister.close()
            
     except Exception as exc:
         logger.exception(f"[ADD PRODUCTS] Error for storage {storage_id}")
@@ -935,9 +926,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
     from .automation_services import AutomatedRestockService
     from .scripts.inventory_reader import parse_pdf
     from .scripts.web_lister import WebLister
-    from pathlib import Path
     import os
-    import shutil
     
     _log_ctx = None
     try:
@@ -1019,26 +1008,20 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                 )
                 logger.info(f"[VERIFY+AUTO-ADD] Step 4: Auto-adding {len(missing_products)} missing products...")
                 
-                temp_dir = Path(settings.BASE_DIR) / 'temp_auto_add'
-                temp_dir.mkdir(exist_ok=True)
-                
                 lister = WebLister(
                     username=storage.supermarket.username,
                     password=storage.supermarket.password,
                     storage_name=storage.name,
-                    download_dir=str(temp_dir),
                     id_cod_mag=storage.id_cod_mag,
                     id_cliente=storage.supermarket.id_cliente,
                     id_azienda=storage.supermarket.id_azienda,
                     id_marchio=storage.supermarket.id_marchio,
                     id_clienti_canale=storage.supermarket.id_clienti_canale,
-                    id_clienti_area=storage.supermarket.id_clienti_area,
-                    headless=True
+                    id_clienti_area=storage.supermarket.id_clienti_area
                 )
                 
                 try:
                     lister.login()
-                    lister.navigate_to_lists()
                     
                     for idx, (cod, var, qty) in enumerate(missing_products, 1):
                         # ✅ Update progress for each product
@@ -1112,8 +1095,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
                         service.db.verify_stock(p['cod'], p['var'], p['qty'], cluster)
 
                 finally:
-                    lister.driver.quit()
-                    shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+                    lister.close()
             
             # Step 5: Verify existing products
             self.update_state(
@@ -1652,8 +1634,6 @@ def backfill_ean_and_id_for_verified_products(self):
     from .models import Storage
     from .services import RestockService
     from .scripts.web_lister import WebLister
-    from pathlib import Path
-    import shutil
     import time
 
     try:
@@ -1688,26 +1668,20 @@ def backfill_ean_and_id_for_verified_products(self):
 
                 logger.info(f"[EAN BACKFILL] Found {len(missing)} products to fill in {storage.name}")
 
-                temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
-                temp_dir.mkdir(exist_ok=True)
-
                 lister = WebLister(
                     username=storage.supermarket.username,
                     password=storage.supermarket.password,
                     storage_name=storage.name,
-                    download_dir=str(temp_dir),
                     id_cod_mag=storage.id_cod_mag,
                     id_cliente=storage.supermarket.id_cliente,
                     id_azienda=storage.supermarket.id_azienda,
                     id_marchio=storage.supermarket.id_marchio,
                     id_clienti_canale=storage.supermarket.id_clienti_canale,
-                    id_clienti_area=storage.supermarket.id_clienti_area,
-                    headless=True
+                    id_clienti_area=storage.supermarket.id_clienti_area
                 )
 
                 try:
                     lister.login()
-                    lister.navigate_to_lists()
 
                     with RestockService(storage) as service:
                         for row in missing:
@@ -1742,8 +1716,7 @@ def backfill_ean_and_id_for_verified_products(self):
                             time.sleep(0.1)
 
                 finally:
-                    lister.driver.quit()
-                    shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+                    lister.close()
             finally:
                 exit_supermarket_log(_log_ctx)
 
@@ -1765,32 +1738,24 @@ def fetch_single_ean(storage_id, cod, v):
     from .models import Storage
     from .services import RestockService
     from .scripts.web_lister import WebLister
-    from pathlib import Path
-    import shutil
 
     storage = Storage.objects.select_related('supermarket').get(id=storage_id)
     _log_ctx = enter_supermarket_log(storage.supermarket.name)
-
-    temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
-    temp_dir.mkdir(exist_ok=True)
 
     lister = WebLister(
         username=storage.supermarket.username,
         password=storage.supermarket.password,
         storage_name=storage.name,
-        download_dir=str(temp_dir),
         id_cod_mag=storage.id_cod_mag,
         id_cliente=storage.supermarket.id_cliente,
         id_azienda=storage.supermarket.id_azienda,
         id_marchio=storage.supermarket.id_marchio,
         id_clienti_canale=storage.supermarket.id_clienti_canale,
-        id_clienti_area=storage.supermarket.id_clienti_area,
-        headless=True,
+        id_clienti_area=storage.supermarket.id_clienti_area
     )
 
     try:
         lister.login()
-        lister.navigate_to_lists()
         product_data = lister.gather_missing_product_data(cod, v)
         if not product_data or product_data[7] is None:
             return {'ean': None, 'message': f'EAN non trovato per {cod}.{v}'}
@@ -1805,8 +1770,7 @@ def fetch_single_ean(storage_id, cod, v):
         return {'ean': ean, 'message': f'EAN {ean} salvato per {cod}.{v}'}
 
     finally:
-        lister.driver.quit()
-        shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+        lister.close()
         exit_supermarket_log(_log_ctx)
 
 
@@ -1820,32 +1784,24 @@ def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
     from .models import Storage
     from .services import RestockService
     from .scripts.web_lister import WebLister
-    from pathlib import Path
-    import shutil
 
     storage = Storage.objects.select_related('supermarket').get(id=storage_id)
     _log_ctx = enter_supermarket_log(storage.supermarket.name)
-
-    temp_dir = Path(settings.BASE_DIR) / 'temp_ean_backfill'
-    temp_dir.mkdir(exist_ok=True)
 
     lister = WebLister(
         username=storage.supermarket.username,
         password=storage.supermarket.password,
         storage_name=storage.name,
-        download_dir=str(temp_dir),
         id_cod_mag=storage.id_cod_mag,
         id_cliente=storage.supermarket.id_cliente,
         id_azienda=storage.supermarket.id_azienda,
         id_marchio=storage.supermarket.id_marchio,
         id_clienti_canale=storage.supermarket.id_clienti_canale,
-        id_clienti_area=storage.supermarket.id_clienti_area,
-        headless=True,
+        id_clienti_area=storage.supermarket.id_clienti_area
     )
 
     try:
         lister.login()
-        lister.navigate_to_lists()
         cod_v = lister.gather_product_data_by_ean(ean)
         if cod_v is None:
             return {'success': False, 'ean': ean, 'message': f'EAN {ean} not found in Dropzone'}
@@ -1877,8 +1833,7 @@ def fetch_product_from_ean(storage_id, ean, qty=None, loss_type=None):
         return {'success': True, 'ean': ean, 'cod': cod, 'v': v, 'new_ean': new_ean, 'message': f'EAN aggiornato per {cod}.{v} ({new_ean})'}
 
     finally:
-        lister.driver.quit()
-        shutil.rmtree(lister.user_data_dir, ignore_errors=True)
+        lister.close()
         exit_supermarket_log(_log_ctx)
 
 

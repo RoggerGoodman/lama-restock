@@ -1,26 +1,14 @@
 # LamApp/supermarkets/scripts/web_lister.py
 """
-Web-integrated version of the Lister script.
-Downloads product list Excel files from Dropzone automatically.
+Product list and product lookups from Dropzone, over plain HTTP.
 """
-from .DatabaseManager import DatabaseManager
 import re
 import csv
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
-from selenium.webdriver.chrome.options import Options
 from pathlib import Path
 import logging
-import requests
 from datetime import date
-import time
-import os, uuid, shutil
+
+from .dropzone_client import DropzoneClient, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +33,11 @@ class WebLister:
     """
     
     def __init__(self, username: str, password: str, storage_name: str,
-                 download_dir: str, id_cod_mag: int = None,
+                 download_dir: str = None, id_cod_mag: int = None,
                  id_cliente: int = None, id_azienda: int = None,
                  id_marchio: int = None, id_clienti_canale: int = None,
                  id_clienti_area: int = None, id_user: int = None,
-                 x5cper: int = None, headless: bool = True):
+                 x5cper: int = None):
         """
         Initialize the lister.
 
@@ -57,14 +45,13 @@ class WebLister:
             username: Dropzone username
             password: Dropzone password
             storage_name: Storage name (e.g., "01 RIANO GENERI VARI")
-            download_dir: Directory to save downloaded files
+            download_dir: Directory for the downloaded CSV (only run() writes one)
             id_cod_mag: Warehouse code from Dropzone (stored on Storage model)
             id_cliente: Client ID from Dropzone (stored on Supermarket model)
             id_azienda: Company ID from Dropzone (stored on Supermarket model)
             id_marchio: Brand ID from Dropzone (stored on Supermarket model)
             id_clienti_canale: Channel ID from Dropzone (stored on Supermarket model)
             id_clienti_area: Area ID from Dropzone (stored on Supermarket model)
-            headless: Run browser in headless mode (no UI)
         """
         self.username = username
         self.password = password
@@ -85,116 +72,14 @@ class WebLister:
         # Extract settore name (remove numeric prefix)
         self.settore = re.sub(r'^\d+\s+', '', storage_name)
 
-        # ✅ FIX: Use unique temp directory for THIS instance
-        self.user_data_dir = f"/tmp/chrome-{uuid.uuid4()}"
-        os.makedirs(self.user_data_dir, exist_ok=True)
-        os.chmod(self.user_data_dir, 0o700)
-
-        # ✅ FIX: Set environment variables for THIS process
-        os.environ["HOME"] = self.user_data_dir
-        os.environ["XDG_RUNTIME_DIR"] = self.user_data_dir
-
-        # Setup Chrome options
-        chrome_options = Options()
-        chrome_options.binary_location = "/usr/bin/google-chrome"
-        
-        if headless:
-            chrome_options.add_argument("--headless=new")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-setuid-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--disable-software-rasterizer")
-            chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_argument("--disable-extensions")
-        
-        # Set download directory
-        prefs = {
-            "download.default_directory": str(Path(download_dir).absolute()),
-            "download.prompt_for_download": False,
-            "download.directory_upgrade": True,
-            "safebrowsing.enabled": True
-        }
-        chrome_options.add_experimental_option("prefs", prefs)
-
-        # Use unique user data directory
-        chrome_options.add_argument(f"--user-data-dir={self.user_data_dir}")
-
-        # ✅ FIX: Use unique log file per instance (or disable logging)
-        log_path = f"/tmp/chromedriver-{uuid.uuid4().hex[:8]}.log"
-        
-        service = Service(log_path=log_path)
-        
-        try:
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            self.actions = ActionChains(self.driver)
-            self.wait = WebDriverWait(self.driver, 300)
-            
-            logger.info(f"WebLister initialized for storage: {storage_name}")
-        
-        except Exception as e:
-            logger.exception(f"Failed to initialize WebDriver: {e}")
-            # Clean up on failure
-            shutil.rmtree(self.user_data_dir, ignore_errors=True)
-            raise
+        self.client = DropzoneClient(username, password)
+        self.session = self.client.session
 
     def login(self):
-        """Login to Dropzone and navigate to product list"""
-        logger.info("Logging in to Dropzone...")
-        
-        self.driver.get('https://dropzone.pac2000a.it/')
-        
-        self.wait.until(EC.presence_of_element_located((By.ID, "username")))
-        
-        username_field = self.driver.find_element(By.ID, "username")
-        password_field = self.driver.find_element(By.ID, "password")
-        username_field.send_keys(self.username)
-        password_field.send_keys(self.password)
-        self.actions.send_keys(Keys.ENTER)
-        self.actions.perform()
-        time.sleep(1)
-        logger.info("Login completed")
+        self.client.login()
 
-    def navigate_to_lists(self):
-        
-        self.wait.until(EC.presence_of_element_located((By.ID, "carta31")))
-        
-        list_menu = self.driver.find_element(By.ID, "carta31")
-        list_menu.click()
-        
-        self.wait.until(EC.presence_of_element_located((By.ID, "carta139")))
-        
-        list_menu1 = self.driver.find_element(By.ID, "carta139")
-        list_menu1.click()
-        
-        self.wait.until(lambda driver: len(driver.window_handles) > 1)
-        
-        self.driver.switch_to.window(self.driver.window_handles[-1])
-        
-        self.wait.until(EC.presence_of_element_located((By.ID, "linkListino")))
-        
-        time.sleep(1)
-        
-        orders_menu1 = self.driver.find_element(By.ID, "linkListino")
-        orders_menu1.click()
-        
-        time.sleep(1)
-        logger.info("Navigation to List completed")
-
-    def close_ordini_popup(self):
-        try:
-            popup_title = self.driver.find_element(By.XPATH, "//h4[normalize-space()='Elenco Ordini In Corso']")
-            
-            chiudi_btn = WebDriverWait(self.driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "/html/body/div[2]/div[2]/div[8]/div/div/div/div[3]/div/smart-button"))
-            )
-            chiudi_btn.click()
-            print("Popup 'Elenco Ordini In Corso' found and closed.")
-
-        except NoSuchElementException:
-            pass
-        except TimeoutException:
-            print("Popup detected but Chiudi button not clickable.")
+    def close(self):
+        self.session.close()
 
     def apply_category_filters(self):
         """Apply category filters based on storage type.
@@ -249,8 +134,8 @@ class WebLister:
 
     def fetch_listino(self, reparto_in: list = None):
         """
-        Fetch listino products from Dropzone (Listino_callV2.php)
-        Requires an authenticated Selenium driver.
+        Fetch listino products from Dropzone (Listino_callV2.php).
+        Requires login().
         """
         if reparto_in is None:
             reparto_in = getattr(self, "RepartoIn", [])
@@ -294,14 +179,10 @@ class WebLister:
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://dropzone.pac2000a.it/ordini/gestione/listino",
-            "User-Agent": self.driver.execute_script("return navigator.userAgent;"),
+            "User-Agent": USER_AGENT,
         }
 
-        session = requests.Session()
-        for c in self.driver.get_cookies():
-            session.cookies.set(c["name"], c["value"])
-
-        response = session.post(url, data=payload, headers=headers, timeout=600)
+        response = self.session.post(url, data=payload, headers=headers, timeout=600)
         response.raise_for_status()
 
         return response.json() or []
@@ -332,15 +213,11 @@ class WebLister:
         """
         try:
             self.login()
-            self.navigate_to_lists()
             self.apply_category_filters()
             self.data = self.fetch_all_listino()
-            file_path = self.save_listino_to_csv(self.data)
-            return file_path
+            return self.save_listino_to_csv(self.data)
         finally:
-            # ✅ Always clean up
-            self.driver.quit()
-            shutil.rmtree(self.user_data_dir, ignore_errors=True)
+            self.close()
 
     def gather_missing_product_data(self, cod, var):
         """
@@ -396,9 +273,7 @@ class WebLister:
             "dataScadenzaCosto": self.dataIntercettaPrezzi,
         }
 
-        session = requests.Session()
-        for c in self.driver.get_cookies():
-            session.cookies.set(c["name"], c["value"])
+        session = self.session
 
         try:
             response = session.post(url, headers=headers, data=payload, timeout=15)
@@ -504,9 +379,7 @@ class WebLister:
             "dataDecorrenzaCosto": self.dataIntercettaPrezzi,
             "dataScadenzaCosto": self.dataIntercettaPrezzi,
         }
-        session = requests.Session()
-        for c in self.driver.get_cookies():
-            session.cookies.set(c["name"], c["value"])
+        session = self.session
         try:
             response = session.post(url, headers=headers, data=payload, timeout=15)
             response.raise_for_status()
@@ -532,8 +405,7 @@ def download_product_list(username: str, password: str, storage_name: str,
                           download_dir: str, id_cod_mag: int = None,
                           id_cliente: int = None, id_azienda: int = None,
                           id_marchio: int = None, id_clienti_canale: int = None,
-                          id_clienti_area: int = None,
-                          headless: bool = True) -> str:
+                          id_clienti_area: int = None) -> str:
     """
     Convenience function to download product list.
 
@@ -548,7 +420,6 @@ def download_product_list(username: str, password: str, storage_name: str,
         id_marchio: Brand ID from Dropzone
         id_clienti_canale: Channel ID from Dropzone
         id_clienti_area: Area ID from Dropzone
-        headless: Run browser in headless mode
 
     Returns:
         str: Path to downloaded CSV file
@@ -557,7 +428,7 @@ def download_product_list(username: str, password: str, storage_name: str,
                        id_cod_mag=id_cod_mag, id_cliente=id_cliente,
                        id_azienda=id_azienda, id_marchio=id_marchio,
                        id_clienti_canale=id_clienti_canale,
-                       id_clienti_area=id_clienti_area, headless=headless)
+                       id_clienti_area=id_clienti_area)
     return lister.run()
 
 def is_real_product(row: dict) -> bool:
