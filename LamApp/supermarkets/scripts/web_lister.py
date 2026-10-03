@@ -92,8 +92,6 @@ class WebLister:
         expressed as a list of single-Reparto groups to be fetched
         separately and merged (see fetch_all_listino).
         """
-        self.output_path = Path(self.download_dir) / f"{self.storage_name}.csv"
-
         if self.IDCodMag is None:
             logger.error(f"IDCodMag not set for {self.settore}. "
                          "Storage may need re-sync from Dropzone.")
@@ -188,6 +186,7 @@ class WebLister:
         return response.json() or []
 
     def save_listino_to_csv(self, data: list[dict], column_map: dict = CSV_COLUMN_MAP):
+        self.output_path = Path(self.download_dir) / f"{self.storage_name}.csv"
         products = [row for row in data if is_real_product(row)]
 
         if not products:
