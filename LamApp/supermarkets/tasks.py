@@ -490,15 +490,13 @@ def retry_restock_from_checkpoint(self, log_id):
     acks_late=True,
     reject_on_worker_lost=True
 )
-def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=True, manual=False):
+def run_restock_for_storage(self, storage_id, coverage=None, manual=False):
     """
     Run restock for a single storage. Used for both scheduled and manual restocks.
 
     Args:
         storage_id: The storage ID to run restock for
         coverage: Optional coverage parameter for order calculation
-        skip_stats_update: If True, skip stats update (default True since stats
-                          are updated separately in the morning workflow)
         manual: True for an operator-triggered run — always parks for review,
                 ignoring the schedule's require_order_review toggle.
     """
@@ -510,7 +508,7 @@ def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=T
         _log_ctx = enter_supermarket_log(storage.supermarket.name)
         logger.info(
             f"[CELERY-ORDER] Running restock for {storage.name} "
-            f"(coverage={coverage}, skip_stats={skip_stats_update})"
+            f"(coverage={coverage})"
         )
 
         # Report progress
@@ -539,7 +537,6 @@ def run_restock_for_storage(self, storage_id, coverage=None, skip_stats_update=T
             service.run_full_restock_workflow(
                 coverage=coverage,
                 log=log,
-                skip_stats_update=skip_stats_update,
                 progress_callback=report_progress,
                 force_review=manual,
             )
@@ -1394,8 +1391,6 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
 
 @shared_task(
     bind=True,
-    max_retries=3,
-    default_retry_delay=600,
     queue='selenium',
     acks_late=True,
     reject_on_worker_lost=True
@@ -1403,6 +1398,7 @@ def verify_stock_with_auto_add_task(self, storage_id, pdf_file_path, cluster=Non
 def place_manual_order_task(self, user_id, orders_list):
     """
     Place a user-built order (promo products page, equipment catalog).
+    Never retried: a rerun after a partial send would create a second order on Dropzone.
 
     Args:
         user_id: User ID (for ownership validation)
@@ -1423,8 +1419,9 @@ def place_manual_order_task(self, user_id, orders_list):
             storage_name = order['storage_name']
             if storage_name not in by_supermarket[sm_id]['storages']:
                 by_supermarket[sm_id]['storages'][storage_name] = []
+            # make_orders expects (cod, var, qty, discount)
             by_supermarket[sm_id]['storages'][storage_name].append(
-                (order['cod'], order['var'], order['qty'])
+                (order['cod'], order['var'], order['qty'], None)
             )
 
         total_ordered = 0
@@ -1439,33 +1436,28 @@ def place_manual_order_task(self, user_id, orders_list):
             try:
                 logger.info(f"[MANUAL ORDER] Processing supermarket {supermarket.name}")
 
-                orderer = Orderer(
-                    username=supermarket.username,
-                    password=supermarket.password
-                )
+                # make_orders closes the browser when done, so each storage needs its own session
+                for storage_name, products in sm_data['storages'].items():
+                    _order_log_ctx = enter_order_log(supermarket.name, storage_name)
+                    orderer = Orderer(
+                        username=supermarket.username,
+                        password=supermarket.password
+                    )
+                    try:
+                        orderer.login()
+                        logger.info(f"[MANUAL ORDER] Ordering {len(products)} products for {storage_name}")
 
-                try:
-                    orderer.login()
+                        successful_orders, order_skipped = orderer.make_orders(
+                            storage_name,
+                            products
+                        )
 
-                    # Process each storage within this supermarket
-                    for storage_name, products in sm_data['storages'].items():
-                        _order_log_ctx = enter_order_log(supermarket.name, storage_name)
-                        try:
-                            logger.info(f"[MANUAL ORDER] Ordering {len(products)} products for {storage_name}")
-
-                            successful_orders, order_skipped = orderer.make_orders(
-                                storage_name,
-                                products
-                            )
-
-                            total_ordered += len(successful_orders)
-                            total_skipped += len(order_skipped)
-                            all_skipped_products.extend(order_skipped)
-                        finally:
-                            exit_order_log(_order_log_ctx)
-
-                finally:
-                    orderer.driver.quit()
+                        total_ordered += len(successful_orders)
+                        total_skipped += len(order_skipped)
+                        all_skipped_products.extend(order_skipped)
+                    finally:
+                        orderer.driver.quit()
+                        exit_order_log(_order_log_ctx)
             finally:
                 exit_supermarket_log(_sm_log_ctx)
 
@@ -1481,9 +1473,9 @@ def place_manual_order_task(self, user_id, orders_list):
             'skipped_products': all_skipped_products
         }
 
-    except Exception as exc:
+    except Exception:
         logger.exception(f"[MANUAL ORDER] Error for user #{user_id}")
-        raise self.retry(exc=exc)
+        raise
 
 
 @shared_task(
@@ -2265,10 +2257,7 @@ def run_scheduled_orders(self):
                 skipped += 1
                 continue
 
-            run_restock_for_storage.apply_async(
-                args=[storage.id],
-                kwargs={'skip_stats_update': True},
-            )
+            run_restock_for_storage.apply_async(args=[storage.id])
             logger.info(
                 f"[CELERY-SCHED] Queued restock for {storage.name} "
                 f"(slot {order_time:%H:%M}, fired {now_local:%H:%M})"

@@ -645,17 +645,22 @@ def sync_bootstrap_realtime_view(request, token):
     return HttpResponse(script, content_type='text/plain; charset=utf-8')
 
 
+# Baked into the store's Scheduled Task at install time: changing it only reaches a store
+# once its installer is rerun.
+SYNC_INTERVAL_MINUTES = 15
+
+
 def _build_realtime_bootstrap_script(token: str, server_url: str, curve_url: str) -> str:
     """
-    Installer for sync_sales_rt.ps1 + a Scheduled Task every 30 min, from ~08:30 to ~21:30.
+    Installer for sync_sales_rt.ps1 + a Scheduled Task every 15 min, from ~08:30 to ~21:30.
 
     Not overnight: the store's own ERP jobs run in the small hours and the tills are off.
 
-    The start minute is offset 0-29 by a hash of the token so stores spread across the
-    half hour instead of all hitting the server on :00 and :30. Derived from the token
+    The start minute is offset 0-14 by a hash of the token so stores spread across the
+    interval instead of all hitting the server on the same minute. Derived from the token
     rather than random so a reinstall lands on the same slot.
     """
-    offset = int(hashlib.sha256(token.encode()).hexdigest()[:8], 16) % 30
+    offset = int(hashlib.sha256(token.encode()).hexdigest()[:8], 16) % SYNC_INTERVAL_MINUTES
     start_time = f"08:{30 + offset:02d}"
 
     sync_script_content = _build_realtime_sync_script(
@@ -700,7 +705,7 @@ if (-not (Test-Path $ScriptDir)) {{
 '@ | Out-File -FilePath $ScriptPath -Encoding UTF8 -Force
 Write-Host "  Wrote $ScriptPath"
 
-# 4. Register Scheduled Task - every 30 min from {start_time}, for 13h
+# 4. Register Scheduled Task - every {SYNC_INTERVAL_MINUTES} min from {start_time}, for 13h
 $TaskCmd  = "powershell.exe"
 $TaskArgs = "-ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File `"$ScriptPath`""
 $action   = New-ScheduledTaskAction -Execute $TaskCmd -Argument $TaskArgs
@@ -709,7 +714,7 @@ $action   = New-ScheduledTaskAction -Execute $TaskCmd -Argument $TaskArgs
 # Repetition object and graft it onto the daily one.
 $trigger = New-ScheduledTaskTrigger -Daily -At "{start_time}"
 $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At "{start_time}" `
-                          -RepetitionInterval (New-TimeSpan -Minutes 30) `
+                          -RepetitionInterval (New-TimeSpan -Minutes {SYNC_INTERVAL_MINUTES}) `
                           -RepetitionDuration (New-TimeSpan -Hours 13)).Repetition
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
                 -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
@@ -729,9 +734,9 @@ if (-not $registered) {{
 }}
 if (-not $registered.Triggers[0].Repetition.Interval) {{
     Write-Host "WARNING: task registered but without a repetition interval - it will run"
-    Write-Host "         only once a day at {start_time} instead of every 30 minutes."
+    Write-Host "         only once a day at {start_time} instead of every {SYNC_INTERVAL_MINUTES} minutes."
 }}
-Write-Host "  Scheduled task '$TaskName' registered (every 30 min from {start_time}, user: $env:USERNAME)"
+Write-Host "  Scheduled task '$TaskName' registered (every {SYNC_INTERVAL_MINUTES} min from {start_time}, user: $env:USERNAME)"
 
 Write-Host ""
 Write-Host "Setup complete. Running once now to verify..."
@@ -782,7 +787,8 @@ FROM everest.dbo.RDB_LOG_ITEM li
 JOIN #map m ON m.ean_n = TRY_CAST(LTRIM(RTRIM(li.SZ_ITEM_REF_NO)) AS BIGINT)
 LEFT JOIN Essepiu.dbo.ARTICOLI a
        ON a.cod__articolo = m.cod AND a.variante_articolo = m.v
-WHERE CAST(li.DT_TIME_STAMP AS DATE) = @today
+WHERE li.DT_TIME_STAMP >= @today
+  AND li.DT_TIME_STAMP < DATEADD(day, 1, @today)
   AND li.BL_VOIDED = 0
   AND li.BL_MGR_VOIDED = 0
   AND li.N0_UOM_CODE <> 2

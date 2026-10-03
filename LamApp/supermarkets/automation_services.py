@@ -373,7 +373,8 @@ class AutomatedRestockService(RestockService):
     
     # Warn only — the fraction is measured from the sync timestamp, so it stays correct
     # when stale; blocking here would risk a stockout over a reporting problem.
-    SYNC_STALE_WARN_MINUTES = 45
+    # Two missed 15-min runs.
+    SYNC_STALE_WARN_MINUTES = 30
 
     def _remaining_order_day_fraction(self, order_date):
         """
@@ -403,7 +404,7 @@ class AutomatedRestockService(RestockService):
         return fraction
 
     def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None,
-                                  skip_stats_update=False, force_review=False):
+                                  force_review=False):
         """
         Run complete restock workflow: calculate order then execute it.
         Both steps always run fresh — no checkpoint skipping.
@@ -425,11 +426,6 @@ class AutomatedRestockService(RestockService):
         _sm_log_ctx = enter_supermarket_log(self.supermarket.name)
         _order_log_ctx = enter_order_log(self.supermarket.name, self.storage.name)
         try:
-            if not skip_stats_update:
-                if progress_callback:
-                    progress_callback(10, 'Updating product statistics...')
-                self.import_ddt_deliveries(log)
-
             # Step 1: Calculate order
             if progress_callback:
                 progress_callback(20, 'Analyzing product needs...')

@@ -6,6 +6,8 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 import json
 
+from .fields import EncryptedCharField
+
 class Supermarket(models.Model):
     """Main supermarket entity - each user can manage multiple supermarkets"""
     STORE_TYPE_STANDARD = 'standard'
@@ -18,7 +20,7 @@ class Supermarket(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='supermarkets')
     name = models.CharField(max_length=255, unique=True)
     username = models.CharField(max_length=255)
-    password = models.CharField(max_length=255)
+    password = EncryptedCharField(max_length=512)
     # Rione stores get only the promo rows tagged RIONE in the promo PDF.
     store_type = models.CharField(
         max_length=20, choices=STORE_TYPE_CHOICES, default=STORE_TYPE_STANDARD
@@ -952,7 +954,7 @@ class SalesSyncLog(models.Model):
     """
     One row per supermarket per day of sales sync.
 
-    The real-time feed syncs every 30 minutes and each payload is cumulative, so the row
+    The real-time feed syncs every 15 minutes and each payload is cumulative, so the row
     is rewritten in place rather than appended to. Otherwise the detail page would show
     the last two hours of polling instead of the last five days.
     """

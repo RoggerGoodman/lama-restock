@@ -29,8 +29,9 @@
                 </h4>
                 <p class="text-muted mb-0">
                     Questa procedura collega il PC del punto vendita a LamApp.
-                    Una volta completata, ogni mattina alle <strong>05:30</strong> le vendite del giorno
-                    precedente verranno inviate automaticamente al server — senza che nessuno debba fare nulla.
+                    Una volta completata, ogni <strong>15 minuti</strong> durante l'orario di apertura
+                    (circa dalle 08:30 alle 21:30) le vendite della giornata verranno inviate automaticamente
+                    al server — senza che nessuno debba fare nulla.
                 </p>
             </div>
 
@@ -144,13 +145,21 @@
                                 </p>
 
                                 <p class="mb-1"><strong>Metodo A (piu' semplice):</strong></p>
-                                <ol class="mb-3">
-                                    <li>Tieni premuto <kbd>Windows</kbd> e premi <kbd>X</kbd> (tenendolo premuto).</li>
-                                    <li>Si apre un menu. Cerca la voce <strong>"Windows PowerShell (amministratore)"</strong>
-                                        oppure <strong>"Terminale (amministratore)"</strong> e cliccaci sopra.</li>
+                                <ol class="mb-2">
+                                    <li>Tieni premuto il tasto <kbd>Windows</kbd> e, senza lasciarlo, premi <kbd>X</kbd>.</li>
+                                    <li>Si apre un menu. Clicca una di queste voci (dipende dalla versione di Windows,
+                                        vanno bene tutte):
+                                        <strong>"Windows PowerShell (amministratore)"</strong>,
+                                        <strong>"Terminale (amministratore)"</strong> oppure
+                                        <strong>"Prompt dei comandi (amministratore)"</strong>.</li>
                                     <li>Se compare una finestra che chiede <em>"Vuoi consentire a questa app di apportare modifiche?"</em>,
                                         clicca <strong>Si</strong>.</li>
                                 </ol>
+                                <p class="text-muted small mb-3">
+                                    <i class="bi bi-info-circle"></i>
+                                    Se sei collegato al PC da remoto (TeamViewer, AnyDesk, Desktop remoto) la combinazione
+                                    di tasti spesso non arriva al PC del punto vendita: usa direttamente il Metodo B.
+                                </p>
 
                                 <p class="mb-1"><strong>Metodo B (se il Metodo A non funziona):</strong></p>
                                 <ol class="mb-0">
@@ -164,7 +173,7 @@
 
                                 <div class="alert alert-warning mt-3 mb-0">
                                     <i class="bi bi-exclamation-triangle"></i>
-                                    <strong>Attenzione:</strong> la finestra di PowerShell deve avere scritto
+                                    <strong>Attenzione:</strong> la finestra deve avere scritto
                                     <em>"Amministratore"</em> nella barra del titolo in alto.
                                     Se non c'e' scritto, chiudila e riprova scegliendo "Esegui come amministratore".
                                 </div>
@@ -185,18 +194,20 @@
                              data-bs-parent="#tutorialAccordion">
                             <div class="accordion-body">
                                 <ol class="mb-3">
-                                    <li>Nella finestra di PowerShell, clicca con il <strong>tasto destro</strong>
-                                        in un punto qualsiasi — il comando verra' incollato automaticamente.</li>
+                                    <li>Nella finestra, clicca con il <strong>tasto destro</strong>
+                                        in un punto qualsiasi — il comando verra' incollato automaticamente.
+                                        Se non succede nulla, premi <kbd>Ctrl</kbd> + <kbd>V</kbd>.</li>
                                     <li>Premi <kbd>Invio</kbd>.</li>
                                     <li>Aspetta qualche secondo. Vedrai alcune righe di testo scorrere.</li>
-                                    <li>Se alla fine compare <strong>"Setup complete"</strong> oppure
-                                        <strong>"Sync OK"</strong>, l'installazione e' riuscita.</li>
+                                    <li>L'installazione e' riuscita se una delle ultime righe e'
+                                        <strong>"Sync OK."</strong> (la riga "Setup complete" compare prima
+                                        della prova finale, da sola non basta).</li>
                                 </ol>
 
                                 <div class="alert alert-danger mb-0">
                                     <i class="bi bi-x-circle"></i>
-                                    <strong>Se compare un errore in rosso:</strong> fai uno screenshot e mandalo
-                                    all'assistenza. Non toccare nient'altro.
+                                    <strong>Se compare una riga che inizia con "ERROR" o "WARNING", oppure del testo in rosso:</strong>
+                                    fai uno screenshot e mandalo all'assistenza. Non toccare nient'altro.
                                 </div>
                             </div>
                         </div>
@@ -215,9 +226,11 @@
                              data-bs-parent="#tutorialAccordion">
                             <div class="accordion-body">
                                 <p>
-                                    Il giorno dopo l'installazione, controlla qui su LamApp se i dati di vendita
-                                    si sono aggiornati. Se tutto e' andato bene, non dovrai fare piu' nulla —
-                                    il sistema lavora da solo ogni mattina alle 05:30.
+                                    Subito dopo l'installazione, apri la pagina del punto vendita qui su LamApp:
+                                    nel riquadro <strong>"Ultime sincronizzazioni vendite"</strong> deve comparire
+                                    un'etichetta verde <strong>"Ultimo sync ... (0 min fa)"</strong>.
+                                    Durante l'orario di apertura l'orario si aggiorna ogni 15 minuti; se diventa
+                                    gialla, il PC del punto vendita ha smesso di inviare i dati.
                                 </p>
                                 <p class="mb-0 text-muted small">
                                     In alternativa, puoi chiedere all'assistenza di verificare i log del server.

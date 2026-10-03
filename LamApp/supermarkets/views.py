@@ -433,19 +433,20 @@ class SupermarketDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
         ).order_by('name')
         context['recent_sync_logs'] = self.object.sales_sync_logs.order_by('-created_at')[:5]
 
-        # Today's row is rewritten every 30 min, so a frozen one looks the same as a quiet
+        # Today's row is rewritten every 15 min, so a frozen one looks the same as a quiet
         # morning. Surface the age so stock on screen can be trusted for a shelf check
         # mid-day, rather than only before opening.
         last_sync = self.object.last_sales_sync_at
         context['last_sales_sync_at'] = last_sync
         context['sync_age_minutes'] = None
         context['sync_is_stale'] = False
+        context['sync_stale_minutes'] = AutomatedRestockService.SYNC_STALE_WARN_MINUTES
         if last_sync:
             age = (timezone.now() - last_sync).total_seconds() / 60
             context['sync_age_minutes'] = int(age)
-            # Matches the dispatcher's warning threshold so the page and the order
-            # freshness guard never disagree.
-            context['sync_is_stale'] = age > 45
+            # The dispatcher's own threshold, so the page and the order freshness guard
+            # never disagree.
+            context['sync_is_stale'] = age > AutomatedRestockService.SYNC_STALE_WARN_MINUTES
         context['recent_loss_logs'] = RestockLog.objects.filter(
             storage__supermarket=self.object,
             operation_type='loss_recording',
@@ -487,6 +488,7 @@ class SupermarketCreateView(LoginRequiredMixin, CreateView):
         form.fields['name'].label = 'Nome del punto vendita'
         form.fields['username'].label = 'Username Dropzone'
         form.fields['password'].label = 'Password Dropzone'
+        form.fields['password'].widget = django_forms.PasswordInput()
         form.fields['store_type'].label = 'Tipo di punto vendita'
         form.fields['store_type'].help_text = 'I punti vendita Rione ricevono solo le promo contrassegnate RIONE.'
         return form
@@ -509,9 +511,17 @@ class SupermarketUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView)
         form.fields['name'].label = 'Nome del punto vendita'
         form.fields['username'].label = 'Username Dropzone'
         form.fields['password'].label = 'Password Dropzone'
+        form.fields['password'].widget = django_forms.PasswordInput()
+        form.fields['password'].required = False
+        form.fields['password'].help_text = 'Lascia vuoto per mantenere la password attuale.'
         form.fields['store_type'].label = 'Tipo di punto vendita'
         form.fields['store_type'].help_text = 'I punti vendita Rione ricevono solo le promo contrassegnate RIONE.'
         return form
+
+    def form_valid(self, form):
+        if not form.cleaned_data.get('password'):
+            form.instance.password = Supermarket.objects.get(pk=form.instance.pk).password
+        return super().form_valid(form)
 
     def test_func(self):
         return self.get_object().owner == self.request.user

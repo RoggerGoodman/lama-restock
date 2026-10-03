@@ -111,7 +111,7 @@
                 </h5>
                 {% if sync_is_stale %}
                 <div class="alert alert-warning py-2 px-3 small mb-3">
-                    Le vendite di oggi non arrivano da oltre 45 minuti: giacenze e ordini
+                    Le vendite di oggi non arrivano da oltre {{ sync_stale_minutes }} minuti: giacenze e ordini
                     potrebbero basarsi su dati non aggiornati. Controllare il PC del punto vendita.
                 </div>
                 {% endif %}

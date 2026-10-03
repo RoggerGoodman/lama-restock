@@ -34,7 +34,7 @@ app.autodiscover_tasks()
 #   03:30  backfill-ean
 #   05:00  update-stats-morning       (DDT import — also saves pending calibration snapshot)
 #   08:00  daily-calibration          (grades yesterday, which closed at the 21:30 sync)
-#   08:30-21:30 real-time sales sync  (store PC pushes today's running totals, every 30 min)
+#   08:30-21:30 real-time sales sync  (store PC pushes today's running totals, every 15 min)
 #   */15   run-scheduled-orders       (fires each storage at its own configured time)
 #   12:00  monthly-stock-snapshots    (1st of month only)
 #   22:30  record-losses-nightly

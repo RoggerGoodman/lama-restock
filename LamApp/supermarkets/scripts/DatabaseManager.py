@@ -351,18 +351,15 @@ class DatabaseManager:
 
     def adjust_stock(self, cod: int, v: int, delta: int):
         """Increment or decrement stock by delta (can be negative)."""
+        # Done in SQL, not read-then-write, so a sales sync committing in between is not lost.
         cur = self.cursor()
-        cur.execute("SELECT stock FROM product_stats WHERE cod=%s AND v=%s", (cod, v))
-        row = cur.fetchone()
-        if not row:
+        cur.execute(
+            "UPDATE product_stats SET stock = COALESCE(stock, 0) + %s WHERE cod=%s AND v=%s",
+            (delta, cod, v)
+        )
+        if cur.rowcount == 0:
             logger.warning(f"No product_stats found for {cod}.{v}")
             return
-
-        new_stock = (int(row["stock"]) if row["stock"] is not None else 0) + delta
-        cur.execute(
-            "UPDATE product_stats SET stock=%s WHERE cod=%s AND v=%s",
-            (new_stock, cod, v)
-        )
         self.conn.commit()
 
     def verify_stock(self, cod: int, v: int, new_stock: int, cluster: str = None):
@@ -479,6 +476,9 @@ class DatabaseManager:
 
         rows = []
         if wanted:
+            # Locked until commit: stock is written back as read-minus-delta, so a stock
+            # verification landing in between would otherwise be overwritten. ORDER BY
+            # keeps the lock order fixed so two overlapping syncs cannot deadlock.
             cur.execute("""
                 SELECT ps.cod, ps.v, ps.sold_last_24, ps.sales_sets, ps.stock, ps.verified,
                        ps.price_last_24, ps.cost_last_24,
@@ -487,6 +487,8 @@ class DatabaseManager:
                 JOIN unnest(%s::int[], %s::int[]) AS t(cod, v)
                   ON ps.cod = t.cod AND ps.v = t.v
                 LEFT JOIN economics e ON e.cod = ps.cod AND e.v = ps.v
+                ORDER BY ps.cod, ps.v
+                FOR UPDATE OF ps
             """, ([k[0] for k in wanted], [k[1] for k in wanted]))
             rows = cur.fetchall()
 
