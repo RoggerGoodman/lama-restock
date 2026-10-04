@@ -1246,3 +1246,69 @@ class CreditNoteLine(models.Model):
 
     def __str__(self):
         return f"{self.cod}.{self.v} x{self.qty}"
+
+
+class MarginReport(models.Model):
+    """
+    "Analisi Margini": a chain of contiguous Monday–Sunday periods comparing till sales
+    with Dropzone purchases, department by department. Merging two reports joins their
+    periods, so a report can grow from one period to a whole year.
+    """
+    MAX_PER_SUPERMARKET = 5
+
+    supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='margin_reports')
+    # User-added cost columns (e.g. "Vino az. agricola", "Spostamenti C/IVA"), in display order
+    extra_columns = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Analisi margini {self.supermarket.name} #{self.pk}"
+
+
+class MarginPeriod(models.Model):
+    report = models.ForeignKey(MarginReport, on_delete=models.CASCADE, related_name='periods')
+    start = models.DateField()
+    end = models.DateField()
+    source_filename = models.CharField(max_length=255, blank=True)
+    purchases_fetched_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['start']
+
+    def __str__(self):
+        return f"{self.start:%d/%m/%Y} – {self.end:%d/%m/%Y}"
+
+
+class MarginLine(models.Model):
+    """One department of one period. Amounts without IVA; NAC is already negative."""
+    period = models.ForeignKey(MarginPeriod, on_delete=models.CASCADE, related_name='lines')
+    department_code = models.IntegerField()
+    department_name = models.CharField(max_length=80)
+    sales = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    till_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    bol = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    brf = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    nac = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    nad = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    class Meta:
+        ordering = ['department_code']
+        constraints = [
+            models.UniqueConstraint(fields=['period', 'department_code'], name='uniq_margin_line_per_dept'),
+        ]
+
+
+class MarginExtra(models.Model):
+    """An amount in one of the report's extra columns, for one department of one period."""
+    period = models.ForeignKey(MarginPeriod, on_delete=models.CASCADE, related_name='extras')
+    column = models.CharField(max_length=60)
+    department_code = models.IntegerField()
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['period', 'column', 'department_code'], name='uniq_margin_extra_cell'),
+        ]

@@ -20,3 +20,12 @@ def pending_credit_notes_count(user):
     return CreditNote.objects.filter(
         storage__supermarket__owner=user, status=CreditNote.STATUS_PENDING
     ).count()
+
+
+@register.filter
+def it_num(value, decimals=2):
+    """1234.5 -> '1.234,50' (Italian grouping and decimal comma); '' for None."""
+    if value is None or value == '':
+        return ''
+    formatted = f"{float(value):,.{int(decimals)}f}"
+    return formatted.replace(',', '\x00').replace('.', ',').replace('\x00', '.')

@@ -1,0 +1,263 @@
+<!-- LamApp/supermarkets/templates/margins/detail.html -->
+{% extends 'base.html' %}
+{% load dashboard_extras %}
+{% block title %}Analisi Margini - {{ report.supermarket.name }}{% endblock %}
+{% block page_title %}Analisi Margini{% endblock %}
+
+{% block content %}
+<style>
+    .margin-table th, .margin-table td { white-space: nowrap; }
+    .margin-table .type-col { display: none; color: #6c757d; font-size: .85em; }
+    .margin-table.show-types .type-col { display: table-cell; }
+    .margin-table input.extra-cell { width: 110px; text-align: right; }
+    @media print {
+        .no-print, .sidebar, nav, .navbar { display: none !important; }
+        .stat-card { box-shadow: none !important; }
+        .margin-table input.extra-cell { border: none; padding: 0; }
+    }
+</style>
+<div class="container-fluid">
+    <div class="row mb-3 no-print">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'margin-report-list' %}">Analisi Margini</a></li>
+                    <li class="breadcrumb-item active">{% with periods|last as last %}{{ periods.0.start|date:"d/m/Y" }} – {{ last.end|date:"d/m/Y" }}{% endwith %}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                        <h4 class="mb-1"><i class="bi bi-percent"></i> {{ report.supermarket.name }}</h4>
+                        <p class="mb-0">
+                            {% with periods|last as last %}
+                            <strong>{{ periods.0.start|date:"d/m/Y" }} – {{ last.end|date:"d/m/Y" }}</strong>
+                            · {{ periods|length }} period{{ periods|length|pluralize:"o,i" }}
+                            {% endwith %}
+                        </p>
+                    </div>
+                    <div class="d-flex gap-2 no-print">
+                        <form method="post" action="{% url 'margin-report-refresh' pk=report.pk %}" onsubmit="this.querySelector('button').disabled = true;">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat"></i> Ricalcola</button>
+                        </form>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer"></i> Stampa</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if late_periods %}
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="alert alert-info mb-0 small">
+                <i class="bi bi-hourglass-split"></i>
+                I DDT dei fornitori diretti (BRF) arrivano su Dropzone anche settimane dopo la consegna (fino a circa 2 mesi).
+                Per {% for p in late_periods %}{{ p }}{% if not forloop.last %}, {% endif %}{% endfor %} gli acquisti potrebbero ancora aumentare:
+                premi <strong>Ricalcola</strong> più avanti per aggiornarli.
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Whole chain, by department -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="mb-0">Per reparto <small class="text-muted">— totale dell'intero periodo</small></h5>
+                    <div class="form-check form-switch no-print">
+                        <input class="form-check-input" type="checkbox" id="toggleTypes" onchange="document.querySelectorAll('.margin-table').forEach(t => t.classList.toggle('show-types', this.checked))">
+                        <label class="form-check-label small" for="toggleTypes">Dettaglio acquisti (BOL, BRF, NAC, NAD)</label>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle margin-table">
+                        <thead>
+                            <tr>
+                                <th>Reparto</th>
+                                <th class="text-end">Vendite</th>
+                                <th class="text-end">Costo cassa</th>
+                                <th class="text-end">Acquisti Dropzone</th>
+                                <th class="text-end type-col">BOL</th>
+                                <th class="text-end type-col">BRF</th>
+                                <th class="text-end type-col">NAC</th>
+                                <th class="text-end type-col">NAD</th>
+                                {% for c in columns %}<th class="text-end">{{ c }}</th>{% endfor %}
+                                <th class="text-end">Costi totali</th>
+                                <th class="text-end">Margine €</th>
+                                <th class="text-end">Margine %</th>
+                                <th class="text-end text-muted" title="Margine calcolato dalla cassa sul costo del venduto">Margine cassa %</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in departments %}
+                            <tr>
+                                <td><a href="?reparto={{ row.code }}#per-periodo" class="text-decoration-none">{{ row.label }}</a></td>
+                                {% include 'margins/_row.html' %}
+                            </tr>
+                            {% endfor %}
+                            <tr class="fw-bold table-light">
+                                <td>Totale reparti</td>
+                                {% include 'margins/_row.html' with row=departments_total %}
+                            </tr>
+                            {% if running_costs %}
+                            <tr><td colspan="99" class="pt-3 small text-muted text-uppercase">Costi di gestione del punto vendita</td></tr>
+                            {% for row in running_costs %}
+                            <tr>
+                                <td><a href="?reparto={{ row.code }}#per-periodo" class="text-decoration-none">{{ row.label }}</a></td>
+                                {% include 'margins/_row.html' %}
+                            </tr>
+                            {% endfor %}
+                            <tr class="fw-bold table-light">
+                                <td>Totale costi di gestione</td>
+                                {% include 'margins/_row.html' with row=running_costs_total %}
+                            </tr>
+                            {% endif %}
+                            <tr class="fw-bold table-success">
+                                <td>Totale punto vendita</td>
+                                {% include 'margins/_row.html' with row=store_total %}
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- One row per period -->
+    <div class="row mb-3" id="per-periodo">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <h5 class="mb-0">Per periodo <small class="text-muted">— {% if selected_label %}{{ selected_label }}{% else %}tutti i reparti{% endif %}</small></h5>
+                    <form method="get" class="no-print">
+                        <select name="reparto" class="form-select form-select-sm" onchange="this.form.submit()">
+                            <option value="">Tutti i reparti</option>
+                            {% for code, label in department_choices %}
+                            <option value="{{ code }}" {% if code == department %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                </div>
+                {% if department is None and columns %}
+                <p class="small text-muted no-print">Per inserire le spese extra scegli un reparto.</p>
+                {% endif %}
+
+                <form method="post" action="{% url 'margin-report-extras' pk=report.pk %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="reparto" value="{{ department|default_if_none:'' }}">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle margin-table">
+                            <thead>
+                                <tr>
+                                    <th>Periodo</th>
+                                    <th class="text-end">Vendite</th>
+                                    <th class="text-end">Costo cassa</th>
+                                    <th class="text-end">Acquisti Dropzone</th>
+                                    <th class="text-end type-col">BOL</th>
+                                    <th class="text-end type-col">BRF</th>
+                                    <th class="text-end type-col">NAC</th>
+                                    <th class="text-end type-col">NAD</th>
+                                    {% for c in columns %}<th class="text-end">{{ c }}</th>{% endfor %}
+                                    <th class="text-end">Costi totali</th>
+                                    <th class="text-end">Margine €</th>
+                                    <th class="text-end">Margine %</th>
+                                    <th class="text-end text-muted">Margine cassa %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in per_period %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ forloop.counter }}</strong>
+                                        {{ row.period.start|date:"d/m/y" }} – {{ row.period.end|date:"d/m/y" }}
+                                        {% if row.may_grow %}<i class="bi bi-hourglass-split text-info" title="Acquisti BRF forse ancora incompleti"></i>{% endif %}
+                                    </td>
+                                    {% if department is not None and columns %}
+                                    <td class="text-end">€ {{ row.sales|it_num }}</td>
+                                    <td class="text-end">€ {{ row.till_cost|it_num }}</td>
+                                    <td class="text-end">€ {{ row.purchases|it_num }}</td>
+                                    <td class="text-end type-col">{{ row.by_type.BOL|it_num }}</td>
+                                    <td class="text-end type-col">{{ row.by_type.BRF|it_num }}</td>
+                                    <td class="text-end type-col">{{ row.by_type.NAC|it_num }}</td>
+                                    <td class="text-end type-col">{{ row.by_type.NAD|it_num }}</td>
+                                    {% for amount in row.extras %}
+                                    <td class="text-end">
+                                        <input type="text" inputmode="decimal" class="form-control form-control-sm extra-cell"
+                                               name="cell_{{ row.period.pk }}_{{ forloop.counter0 }}" value="{% if amount %}{{ amount|it_num }}{% endif %}">
+                                    </td>
+                                    {% endfor %}
+                                    <td class="text-end">€ {{ row.total_cost|it_num }}</td>
+                                    <td class="text-end {% if row.margin < 0 %}text-danger{% endif %}">€ {{ row.margin|it_num }}</td>
+                                    <td class="text-end {% if row.margin < 0 %}text-danger{% endif %}">{% if row.margin_pct is not None %}{{ row.margin_pct|it_num:2 }}%{% else %}—{% endif %}</td>
+                                    <td class="text-end text-muted">{% if row.till_margin_pct is not None %}{{ row.till_margin_pct|it_num:2 }}%{% else %}—{% endif %}</td>
+                                    {% else %}
+                                    {% include 'margins/_row.html' %}
+                                    {% endif %}
+                                </tr>
+                                {% endfor %}
+                                <tr class="fw-bold table-success">
+                                    <td>Totale</td>
+                                    {% include 'margins/_row.html' with row=per_period_total %}
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if department is not None and columns %}
+                    <div class="d-flex justify-content-end no-print">
+                        <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-save"></i> Salva spese extra</button>
+                    </div>
+                    {% endif %}
+                </form>
+
+                <!-- Extra columns -->
+                <div class="border-top pt-3 mt-3 no-print">
+                    <h6 class="mb-2"><i class="bi bi-plus-square"></i> Colonne di spese extra
+                        <small class="text-muted fw-normal">— acquisti che non passano da Dropzone (es. vino da un'azienda agricola, Spostamenti C/IVA)</small>
+                    </h6>
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        {% for c in columns %}
+                        <div class="input-group input-group-sm" style="width: auto;">
+                            <form method="post" action="{% url 'margin-report-columns' pk=report.pk %}" class="d-flex">
+                                {% csrf_token %}
+                                <input type="hidden" name="column" value="{{ c }}">
+                                <input type="hidden" name="reparto" value="{{ department|default_if_none:'' }}">
+                                <input type="text" name="name" value="{{ c }}" class="form-control form-control-sm" style="width: 170px;" maxlength="60">
+                                <button type="submit" name="action" value="rename" class="btn btn-outline-secondary btn-sm" title="Rinomina"><i class="bi bi-pencil"></i></button>
+                                <button type="submit" name="action" value="delete" class="btn btn-outline-danger btn-sm" title="Elimina colonna"
+                                        onclick="return confirm('Eliminare la colonna &quot;{{ c|escapejs }}&quot; e tutti i suoi importi?');"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </div>
+                        {% empty %}
+                        <span class="small text-muted">Nessuna colonna extra.</span>
+                        {% endfor %}
+                    </div>
+                    <form method="post" action="{% url 'margin-report-columns' pk=report.pk %}" class="d-flex gap-2" style="max-width: 420px;">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="add">
+                        <input type="hidden" name="reparto" value="{{ department|default_if_none:'' }}">
+                        <input type="text" name="name" class="form-control form-control-sm" placeholder="Nome nuova colonna" maxlength="60" required>
+                        <button type="submit" class="btn btn-outline-primary btn-sm text-nowrap"><i class="bi bi-plus-lg"></i> Aggiungi colonna</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12 small text-muted">
+            Importi senza IVA. Acquisti Dropzone = DDT di magazzino (BOL) + DDT dei fornitori diretti (BRF) − note di accredito (NAC) + note di addebito (NAD),
+            per data del documento. Le fatture non sono contate: riassumono DDT già inclusi. Il margine non tiene conto delle variazioni di giacenza.
+            {% for p in periods %}{% if forloop.first %}<br>Acquisti letti da Dropzone: {% endif %}{{ p }} il {{ p.purchases_fetched_at|date:"d/m/Y H:i"|default:"—" }}{% if not forloop.last %}; {% endif %}{% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

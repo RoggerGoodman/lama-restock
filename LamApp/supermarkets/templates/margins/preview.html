@@ -1,0 +1,71 @@
+<!-- LamApp/supermarkets/templates/margins/preview.html -->
+{% extends 'base.html' %}
+{% load dashboard_extras %}
+{% block title %}Analisi Margini - Controllo{% endblock %}
+{% block page_title %}Analisi Margini{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'margin-report-list' %}">Analisi Margini</a></li>
+                    <li class="breadcrumb-item active">Controllo</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h4 class="mb-1">{{ supermarket.name }}</h4>
+                <p class="mb-0">Periodo letto dal PDF: <strong>{{ start|date:"d/m/Y" }} – {{ end|date:"d/m/Y" }}</strong></p>
+                <p class="small text-muted mb-0">Controlla che sia il report giusto: confermando, gli acquisti di questo periodo vengono letti da Dropzone.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Reparto</th>
+                                <th class="text-end">Costo cassa</th>
+                                <th class="text-end">Vendite</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for code, d in departments %}
+                            <tr>
+                                <td>{{ code }} {{ d.name }}</td>
+                                <td class="text-end">€ {{ d.till_cost|it_num }}</td>
+                                <td class="text-end">€ {{ d.sales|it_num }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold">
+                                <td>Totale reparti</td>
+                                <td class="text-end">€ {{ total_cost|it_num }}</td>
+                                <td class="text-end">€ {{ total_sales|it_num }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <form method="post" action="{% url 'margin-report-confirm' %}" class="d-flex gap-2 justify-content-end"
+                      onsubmit="const b = this.querySelector('button[type=submit]'); b.disabled = true; b.innerHTML = 'Lettura acquisti da Dropzone…';">
+                    {% csrf_token %}
+                    <a href="{% url 'margin-report-list' %}" class="btn btn-outline-secondary">Annulla</a>
+                    <button type="submit" class="btn btn-success"><i class="bi bi-check-lg"></i> Conferma e leggi gli acquisti</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

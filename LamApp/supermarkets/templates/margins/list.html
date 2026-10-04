@@ -1,0 +1,127 @@
+<!-- LamApp/supermarkets/templates/margins/list.html -->
+{% extends 'base.html' %}
+{% load dashboard_extras %}
+{% block title %}Analisi Margini{% endblock %}
+{% block page_title %}Analisi Margini{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'inventory-search' %}">Inventario</a></li>
+                    <li class="breadcrumb-item active">Analisi Margini</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white;">
+                <h3 class="mb-1"><i class="bi bi-percent"></i> Analisi Margini</h3>
+                <p class="mb-0 opacity-75">Vendite di cassa a confronto con gli acquisti registrati su Dropzone, reparto per reparto</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-3"><i class="bi bi-upload"></i> Nuova analisi</h5>
+                <form method="post" action="{% url 'margin-report-upload' %}" enctype="multipart/form-data" class="row g-2 align-items-end">
+                    {% csrf_token %}
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Punto vendita</label>
+                        <select name="supermarket" class="form-select" required>
+                            {% for s in supermarkets %}
+                            <option value="{{ s.supermarket.pk }}" {% if s.full %}disabled{% endif %}>
+                                {{ s.supermarket.name }}{% if s.full %} (limite raggiunto){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small mb-1">Report di cassa "Analisi Vendite per Reparto" (PDF, venduto senza IVA)</label>
+                        <input type="file" name="pdf_file" accept=".pdf" class="form-control" required>
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn btn-primary w-100"><i class="bi bi-arrow-right"></i> Carica</button>
+                    </div>
+                </form>
+                <p class="small text-muted mb-0 mt-2">
+                    Il periodo deve essere di settimane intere, da lunedì a domenica. Si possono salvare fino a {{ max_reports }} analisi
+                    per punto vendita; due analisi consecutive si possono unire in una sola.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    {% for s in supermarkets %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0"><i class="bi bi-shop"></i> {{ s.supermarket.name }}</h5>
+                    <span class="badge {% if s.full %}bg-warning text-dark{% else %}bg-light text-secondary border{% endif %}">
+                        {{ s.reports|length }}/{{ max_reports }} analisi salvate
+                    </span>
+                </div>
+                {% if s.reports %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>Periodo</th>
+                                <th class="text-end">Periodi</th>
+                                <th class="text-end">Vendite</th>
+                                <th class="text-end">Costi</th>
+                                <th class="text-end">Margine €</th>
+                                <th class="text-end">Margine %</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in s.reports %}
+                            <tr>
+                                <td><a href="{% url 'margin-report-detail' pk=r.report.pk %}"><strong>{{ r.start|date:"d/m/Y" }} – {{ r.end|date:"d/m/Y" }}</strong></a></td>
+                                <td class="text-end">{{ r.report.periods.all|length }}</td>
+                                <td class="text-end">€ {{ r.total.sales|it_num }}</td>
+                                <td class="text-end">€ {{ r.total.total_cost|it_num }}</td>
+                                <td class="text-end {% if r.total.margin < 0 %}text-danger{% endif %}">€ {{ r.total.margin|it_num }}</td>
+                                <td class="text-end {% if r.total.margin < 0 %}text-danger{% endif %}">{% if r.total.margin_pct is not None %}{{ r.total.margin_pct|it_num:1 }}%{% endif %}</td>
+                                <td class="text-end text-nowrap">
+                                    <a href="{% url 'margin-report-detail' pk=r.report.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-eye"></i> Apri</a>
+                                    {% if r.merge_with %}
+                                    <form method="post" action="{% url 'margin-report-merge' pk=r.report.pk %}" class="d-inline">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="other" value="{{ r.merge_with.pk }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-success" title="Unisci con l'analisi successiva"
+                                                onclick="return confirm('Unire questa analisi con quella successiva? Diventeranno una sola.');">
+                                            <i class="bi bi-link-45deg"></i> Unisci con la successiva
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                    <form method="post" action="{% url 'margin-report-delete' pk=r.report.pk %}" class="d-inline">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Elimina"
+                                                onclick="return confirm('Eliminare questa analisi, comprese le spese extra inserite?');">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">Nessuna analisi salvata.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

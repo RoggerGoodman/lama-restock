@@ -6,6 +6,7 @@ from django.urls import path
 from . import views
 from . import sync_views
 from . import credit_note_views
+from . import margin_views
 
 urlpatterns = [
     # ============ Home & Dashboard ============
@@ -72,6 +73,17 @@ urlpatterns = [
     # ============ Credit notes ============
     path('note-accredito/', credit_note_views.credit_note_list_view, name='credit-note-list'),
     path('note-accredito/<int:pk>/', credit_note_views.credit_note_detail_view, name='credit-note-detail'),
+
+    # ============ Analisi Margini ============
+    path('analisi-margini/', margin_views.margin_report_list_view, name='margin-report-list'),
+    path('analisi-margini/carica/', margin_views.margin_report_upload, name='margin-report-upload'),
+    path('analisi-margini/conferma/', margin_views.margin_report_confirm, name='margin-report-confirm'),
+    path('analisi-margini/<int:pk>/', margin_views.margin_report_detail_view, name='margin-report-detail'),
+    path('analisi-margini/<int:pk>/ricalcola/', margin_views.margin_report_refresh, name='margin-report-refresh'),
+    path('analisi-margini/<int:pk>/unisci/', margin_views.margin_report_merge, name='margin-report-merge'),
+    path('analisi-margini/<int:pk>/elimina/', margin_views.margin_report_delete, name='margin-report-delete'),
+    path('analisi-margini/<int:pk>/colonne/', margin_views.margin_report_columns, name='margin-report-columns'),
+    path('analisi-margini/<int:pk>/extra/', margin_views.margin_report_extras, name='margin-report-extras'),
 
     # ============ Blacklists (accessed from dashboard/storage) ============
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),

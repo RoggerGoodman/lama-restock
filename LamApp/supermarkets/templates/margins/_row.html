@@ -1,0 +1,12 @@
+{% load dashboard_extras %}<td class="text-end">€ {{ row.sales|it_num }}</td>
+<td class="text-end">€ {{ row.till_cost|it_num }}</td>
+<td class="text-end">€ {{ row.purchases|it_num }}</td>
+<td class="text-end type-col">{{ row.by_type.BOL|it_num }}</td>
+<td class="text-end type-col">{{ row.by_type.BRF|it_num }}</td>
+<td class="text-end type-col">{{ row.by_type.NAC|it_num }}</td>
+<td class="text-end type-col">{{ row.by_type.NAD|it_num }}</td>
+{% for amount in row.extras %}<td class="text-end">{% if amount %}€ {{ amount|it_num }}{% endif %}</td>{% endfor %}
+<td class="text-end">€ {{ row.total_cost|it_num }}</td>
+<td class="text-end {% if row.margin < 0 %}text-danger{% endif %}">€ {{ row.margin|it_num }}</td>
+<td class="text-end {% if row.margin < 0 %}text-danger{% endif %}">{% if row.margin_pct is not None %}{{ row.margin_pct|it_num:2 }}%{% else %}—{% endif %}</td>
+<td class="text-end text-muted">{% if row.till_margin_pct is not None %}{{ row.till_margin_pct|it_num:2 }}%{% else %}—{% endif %}</td>
