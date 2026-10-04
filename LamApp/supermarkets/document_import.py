@@ -21,6 +21,9 @@ from .scripts.dropzone_client import DropzoneClient
 logger = logging.getLogger(__name__)
 
 WINDOW_DAYS = 7
+# Pruning a document still inside the import window would make it look new and book it
+# twice, so the ledger keeps the window plus a day. Older DDT numbers stay in the import logs.
+LEDGER_RETENTION_DAYS = WINDOW_DAYS + 1
 IMPORTED_TYPES = ('BOL', 'NAC')
 # Header and line values agree to the cent once a document is complete
 TOTAL_TOLERANCE = 0.05

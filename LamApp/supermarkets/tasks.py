@@ -2075,6 +2075,32 @@ def cleanup_old_restock_logs(self, max_age_days=180, min_keep_per_storage=10):
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=300)
+def cleanup_old_dropzone_documents(self):
+    """
+    Prune each supermarket's Dropzone document ledger to LEDGER_RETENTION_DAYS.
+    Runs weekly (Sunday 01:20).
+    """
+    from .document_import import LEDGER_RETENTION_DAYS
+    from .scripts.DatabaseManager import DatabaseManager
+
+    before = datetime.date.today() - datetime.timedelta(days=LEDGER_RETENTION_DAYS)
+    total = 0
+    for supermarket in real_supermarkets():
+        db = None
+        try:
+            db = DatabaseManager(supermarket_name=supermarket.name)
+            deleted = db.prune_document_ledger(before)
+            total += deleted
+            logger.info(f"[CELERY-CLEANUP] {supermarket.name}: {deleted} ledger documents dated before {before} deleted")
+        except Exception:
+            logger.exception(f"[CELERY-CLEANUP] Ledger cleanup failed for {supermarket.name}")
+        finally:
+            if db:
+                db.close()
+    return f"Dropzone ledger cleanup: {total} documents deleted (dated before {before})"
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=300)
 def cleanup_old_sales_sync_logs(self, max_age_days=90, min_keep_per_supermarket=30):
     """
     Delete SalesSyncLog rows older than max_age_days, keeping the most

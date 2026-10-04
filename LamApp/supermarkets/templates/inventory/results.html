@@ -464,7 +464,8 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Rettifica giacenza & settaggi vari</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <span id="adjust_sync_age" class="badge fw-normal ms-auto d-none"></span>
+                <button type="button" class="btn-close ms-2" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="adjustStockForm">
@@ -482,6 +483,8 @@
                         <label class="form-label">Giacenza attuale</label>
                         <div class="form-control-plaintext" id="adjust_current_stock"></div>
                     </div>
+
+                    <div id="adjust_delivery_today" class="alert alert-warning py-2 small d-none" role="alert"></div>
                     
                     <div class="mb-3">
                         <label for="adjustment" class="form-label">Rettifica</label>
@@ -575,6 +578,8 @@
 {% endblock %}
 
 {% block scripts %}
+{{ sales_sync_at|json_script:"sales-sync-at" }}
+{{ todays_deliveries|json_script:"todays-deliveries" }}
 <script>
 // Initialize modal
 const adjustModal = new bootstrap.Modal(document.getElementById('adjustStockModal'));
@@ -652,6 +657,8 @@ function adjustStock(cod, var_, supermarket, currentStock, minimumStock, current
     document.getElementById('adjust_supermarket').value = supermarket;
     document.getElementById('adjust_product_display').textContent = `${cod}.${var_} (${supermarket})`;
     document.getElementById('adjust_current_stock').textContent = currentStock;
+    showSyncAge(supermarket);
+    showDeliveryToday(supermarket, cod, var_);
     document.getElementById('adjustment').value = '';
     // null = no per-product override; show empty so the user knows storage default applies
     document.getElementById('minimum_stock').value = minimumStock !== null ? minimumStock : '';
@@ -669,6 +676,52 @@ function adjustStock(cod, var_, supermarket, currentStock, minimumStock, current
     ).hide();
 
     adjustModal.show();
+}
+
+const SALES_SYNC_AT = JSON.parse(document.getElementById('sales-sync-at').textContent);
+const TODAYS_DELIVERIES = JSON.parse(document.getElementById('todays-deliveries').textContent);
+
+// A delivery counts in stock from the morning it is due, but the truck can come later
+// in the day: a shelf count taken before it arrives must not "correct" it away.
+function showDeliveryToday(supermarket, cod, var_) {
+    const box = document.getElementById('adjust_delivery_today');
+    const d = TODAYS_DELIVERIES[`${supermarket}|${cod}.${var_}`];
+    if (!d) {
+        box.classList.add('d-none');
+        return;
+    }
+    const ddt = `DDT ${d.ddt.join(', ')}`;
+    box.innerHTML = d.booked
+        ? `<i class="bi bi-truck"></i> <strong>Consegna di oggi: +${d.pieces} pz</strong> (${ddt}), già inclusi nella giacenza.`
+        : `<i class="bi bi-truck"></i> <strong>Consegna prevista oggi: +${d.pieces} pz</strong> (${ddt}), non ancora inclusi nella giacenza.`;
+    box.classList.remove('d-none');
+}
+const SYNC_STALE_MINUTES = {{ sync_stale_minutes }};
+
+// Age is measured at open time, not page load: the stock shown is as old as the sync
+// it was read after, however long the page has been open since.
+function showSyncAge(supermarket) {
+    const badge = document.getElementById('adjust_sync_age');
+    const iso = SALES_SYNC_AT[supermarket];
+    if (!iso) {
+        badge.classList.add('d-none');
+        return;
+    }
+    const synced = new Date(iso);
+    const ageMin = Math.max(0, Math.floor((Date.now() - synced) / 60000));
+    const hhmm = synced.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    const sameDay = synced.toDateString() === new Date().toDateString();
+    const when = sameDay ? hhmm : `${synced.toLocaleDateString('it-IT')} ${hhmm}`;
+    const age = ageMin < 60 ? `${ageMin} min fa`
+              : ageMin < 1440 ? `${Math.floor(ageMin / 60)} h fa`
+              : `${Math.floor(ageMin / 1440)} g fa`;
+    const stale = ageMin > SYNC_STALE_MINUTES;
+
+    badge.innerHTML = `<i class="bi ${stale ? 'bi-exclamation-triangle' : 'bi-clock'}"></i> Ultimo aggiornamento: ${when} (${age})`;
+    badge.className = `badge fw-normal text-wrap text-end ms-auto ${stale ? 'bg-warning text-dark' : 'bg-light text-secondary border'}`;
+    badge.title = stale
+        ? 'Le vendite non si aggiornano da un po\': la giacenza mostrata potrebbe essere piu\' alta di quella reale.'
+        : 'La giacenza mostrata tiene conto delle vendite fino a quest\'ora.';
 }
 
 function submitAdjustment() {

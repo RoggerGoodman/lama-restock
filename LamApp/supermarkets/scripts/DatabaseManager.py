@@ -809,6 +809,33 @@ class DatabaseManager:
         """, (settore, number, since))
         return cur.fetchone() is not None
 
+    def prune_document_ledger(self, before) -> int:
+        """Drop documents dated before `before`, except deliveries still waiting to be booked."""
+        if not self.has_document_ledger():
+            return 0
+        cur = self.cursor()
+        cur.execute("DELETE FROM dropzone_documents WHERE doc_date < %s AND status <> 'pending'", (before,))
+        return cur.rowcount
+
+    def deliveries_on(self, day) -> list:
+        """
+        Every product line of the DDTs delivered on `day`, in pieces (qty x rapp, as
+        booked). `booked` tells whether it is already counted in stock.
+        """
+        if not self.has_document_ledger():
+            return []
+        cur = self.cursor()
+        cur.execute("""
+            SELECT d.doc_number, d.status = 'applied' AS booked,
+                   (l->>'cod')::int AS cod, (l->>'v')::int AS v,
+                   (l->>'qty')::int * COALESCE(NULLIF(p.rapp, 0), 1) AS pieces
+            FROM dropzone_documents d
+            CROSS JOIN LATERAL jsonb_array_elements(d.lines) AS l
+            LEFT JOIN products p ON p.cod = (l->>'cod')::int AND p.v = (l->>'v')::int
+            WHERE d.doc_type = 'BOL' AND d.delivery_date = %s AND d.status IN ('pending', 'applied')
+        """, (day,))
+        return cur.fetchall()
+
     def has_verified_products(self, settore) -> bool:
         cur = self.cursor()
         cur.execute("""

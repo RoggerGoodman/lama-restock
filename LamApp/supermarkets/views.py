@@ -4282,6 +4282,43 @@ def fermi_products_api_view(request, storage_id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+def _todays_deliveries(user, results):
+    """
+    {"<supermarket>|<cod>.<v>": {pieces, ddt, booked}} for the products on the page
+    that a DDT delivers today. Stock counts a delivery from the morning it is due,
+    while the truck may come hours later: a shelf count before then is not a reason
+    to correct stock.
+    """
+    from .scripts.DatabaseManager import DatabaseManager
+
+    wanted = {}
+    for r in results:
+        wanted.setdefault(r['supermarket_name'], set()).add((r['cod'], r['v']))
+
+    today = date.today()
+    out = {}
+    for sm in Supermarket.objects.filter(owner=user, name__in=wanted):
+        try:
+            db = DatabaseManager(supermarket_name=sm.name)
+            try:
+                lines = db.deliveries_on(today)
+            finally:
+                db.close()
+        except Exception:
+            logger.exception(f"Could not read today's deliveries for {sm.name}")
+            continue
+        for line in lines:
+            if (line['cod'], line['v']) not in wanted[sm.name]:
+                continue
+            entry = out.setdefault(f"{sm.name}|{line['cod']}.{line['v']}",
+                                   {'pieces': 0, 'ddt': [], 'booked': True})
+            entry['pieces'] += line['pieces']
+            if line['doc_number'] not in entry['ddt']:
+                entry['ddt'].append(line['doc_number'])
+            entry['booked'] = entry['booked'] and line['booked']
+    return out
+
+
 @login_required
 def inventory_results_view(request, search_type):
     """Display inventory search results - NOW INCLUDES minimum_stock"""
@@ -4478,6 +4515,18 @@ def inventory_results_view(request, search_type):
         'supermarket': supermarket,
         'settore': settore_name,
         'cluster_param': request.GET.get('cluster', '') if search_type == 'settore_cluster' else '',
+        # Per store, since a code/EAN search can return several. The page's stock values
+        # describe sales up to these moments, so the modal shows their age.
+        'sales_sync_at': {
+            name: synced.replace(microsecond=0).isoformat()
+            for name, synced in Supermarket.objects.filter(
+                owner=request.user,
+                name__in={r['supermarket_name'] for r in results},
+                last_sales_sync_at__isnull=False,
+            ).values_list('name', 'last_sales_sync_at')
+        },
+        'sync_stale_minutes': AutomatedRestockService.SYNC_STALE_WARN_MINUTES,
+        'todays_deliveries': _todays_deliveries(request.user, results),
     }
 
     return render(request, 'inventory/results.html', context)
@@ -6071,7 +6120,9 @@ def _ddt_already_loaded(storage, number):
     """
     from .scripts.DatabaseManager import DatabaseManager
 
-    since = date.today() - timedelta(days=60)
+    from .document_import import LEDGER_RETENTION_DAYS
+
+    since = date.today() - timedelta(days=LEDGER_RETENTION_DAYS)
     try:
         db = DatabaseManager(supermarket_name=storage.supermarket.name)
         try:

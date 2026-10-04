@@ -127,6 +127,12 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=1, minute=10, day_of_week='sunday'),
     },
 
+    # Sunday 01:20 — prune the Dropzone document ledger (pending deliveries are kept)
+    'cleanup-old-dropzone-documents': {
+        'task': 'supermarkets.tasks.cleanup_old_dropzone_documents',
+        'schedule': crontab(hour=1, minute=20, day_of_week='sunday'),
+    },
+
     # Sunday 01:15 — delete per-order decision_maker log files older than 7 days
     'cleanup-old-decision-maker-logs': {
         'task': 'supermarkets.tasks.cleanup_old_decision_maker_logs',
