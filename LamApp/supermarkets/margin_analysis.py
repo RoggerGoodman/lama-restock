@@ -199,11 +199,11 @@ class _Acc:
                 'by_type': dict(self.by_type), **extra}
 
 
-def build_report(report, department=None) -> dict:
+def build_report(report, department=None, period_id=None) -> dict:
     """
     Everything the page shows:
-      departments / running_costs: summed over the whole chain, one row per department;
-      subtotals and the store total;
+      departments / running_costs: one row per department, summed over the whole chain,
+      or over the single period `period_id`; subtotals and the store total;
       per_period: one row per period for `department` (a group code) or the whole store.
     """
     columns = list(report.extra_columns)
@@ -213,6 +213,7 @@ def build_report(report, department=None) -> dict:
     names = {}
     per_period = []         # (period, _Acc) for the selected department / store
     for period in periods:
+        in_chain_view = period_id is None or period.pk == period_id
         period_acc = _Acc(columns)
         for line in period.lines.all():
             key = group_key(line.department_code)
@@ -220,14 +221,17 @@ def build_report(report, department=None) -> dict:
                 continue
             if line.department_code == key or key not in names:
                 names[key] = line.department_name
-            by_dept.setdefault(key, _Acc(columns)).add_line(line)
+            dept = by_dept.setdefault(key, _Acc(columns))
+            if in_chain_view:
+                dept.add_line(line)
             if department is None or department == key:
                 period_acc.add_line(line)
         for extra in period.extras.all():
             key = group_key(extra.department_code)
-            if key is None or extra.column not in by_dept.setdefault(key, _Acc(columns)).extras:
+            if key is None or extra.column not in columns:
                 continue
-            by_dept[key].extras[extra.column] += extra.amount
+            if in_chain_view:
+                by_dept.setdefault(key, _Acc(columns)).extras[extra.column] += extra.amount
             if department is None or department == key:
                 period_acc.extras[extra.column] += extra.amount
         per_period.append((period, period_acc))

@@ -1,6 +1,7 @@
 # LamApp/supermarkets/margin_views.py
 """Views for "Analisi Margini" (see margin_analysis.py)."""
 import logging
+import re
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -17,6 +18,7 @@ from .models import MarginExtra, MarginLine, MarginPeriod, MarginReport, Superma
 logger = logging.getLogger(__name__)
 
 SESSION_KEY = 'margin_upload'
+CELL_RE = re.compile(r'^x_(\d+)_(\d+)_(\d+)$')
 
 
 def _owned_report(request, pk):
@@ -24,9 +26,10 @@ def _owned_report(request, pk):
                              pk=pk, supermarket__owner=request.user)
 
 
-def _detail_url(report, department=''):
+def _detail_url(report, department='', period=''):
     url = reverse('margin-report-detail', kwargs={'pk': report.pk})
-    return f"{url}?reparto={department}" if department not in ('', None) else url
+    params = [f"{k}={v}" for k, v in (('reparto', department), ('periodo', period)) if v not in ('', None)]
+    return f"{url}?{'&'.join(params)}" if params else url
 
 
 def _span(report):
@@ -143,14 +146,24 @@ def margin_report_confirm(request):
 @login_required
 def margin_report_detail_view(request, pk):
     report = _owned_report(request, pk)
+    periods = list(report.periods.all())
     department = request.GET.get('reparto')
     department = int(department) if department and department.isdigit() else None
-    data = ma.build_report(report, department)
+    # The department table is editable for one period at a time; a one-period report
+    # is always that period
+    selected = request.GET.get('periodo')
+    selected = next((p for p in periods if str(p.pk) == selected), None)
+    if selected is None and len(periods) == 1:
+        selected = periods[0]
+    selected_id = selected.pk if selected else None
+    data = ma.build_report(report, department, selected_id)
     if department is not None and department not in dict(data['department_choices']):
-        department, data = None, ma.build_report(report)
+        department, data = None, ma.build_report(report, None, selected_id)
     return render(request, 'margins/detail.html', {
         'report': report,
         'department': department,
+        'selected_period': selected,
+        'chain_editable': bool(selected and data['columns']),
         'late_days': ma.LATE_DOCUMENTS_DAYS,
         **data,
     })
@@ -212,7 +225,7 @@ def margin_report_columns(request, pk):
     action = request.POST.get('action')
     name = (request.POST.get('name') or '').strip()[:60]
     columns = list(report.extra_columns)
-    back = redirect(_detail_url(report, request.POST.get('reparto', '')))
+    back = redirect(_detail_url(report, request.POST.get('reparto', ''), request.POST.get('periodo', '')))
 
     if action == 'add':
         if not name or name in columns:
@@ -240,28 +253,36 @@ def margin_report_columns(request, pk):
 @login_required
 @require_POST
 def margin_report_extras(request, pk):
-    """Save one department's extra amounts: one cell per period × column; empty clears it."""
+    """
+    Save extra amounts. Each cell is posted as x_<period>_<department>_<column index>;
+    only the cells on the page are touched, and an emptied cell is cleared.
+    """
     report = _owned_report(request, pk)
-    department = int(request.POST['reparto'])
     columns = list(report.extra_columns)
+    periods = {p.pk: p for p in report.periods.all()}
     bad = []
     with transaction.atomic():
-        for period in report.periods.all():
-            for index, column in enumerate(columns):
-                raw = (request.POST.get(f'cell_{period.pk}_{index}') or '').strip()
-                if not raw:
-                    MarginExtra.objects.filter(period=period, column=column, department_code=department).delete()
-                    continue
-                try:
-                    amount = ma.it_decimal(raw)
-                except ValueError:
-                    bad.append(raw)
-                    continue
-                MarginExtra.objects.update_or_create(
-                    period=period, column=column, department_code=department, defaults={'amount': amount},
-                )
+        for key, raw in request.POST.items():
+            m = CELL_RE.match(key)
+            if not m:
+                continue
+            period = periods.get(int(m.group(1)))
+            index = int(m.group(3))
+            if period is None or index >= len(columns):
+                continue
+            cell = dict(period=period, column=columns[index], department_code=int(m.group(2)))
+            raw = raw.strip()
+            if not raw:
+                MarginExtra.objects.filter(**cell).delete()
+                continue
+            try:
+                amount = ma.it_decimal(raw)
+            except ValueError:
+                bad.append(raw)
+                continue
+            MarginExtra.objects.update_or_create(**cell, defaults={'amount': amount})
     if bad:
         messages.error(request, f"Importi non validi, non salvati: {', '.join(bad)}")
     else:
         messages.success(request, "Spese extra salvate.")
-    return redirect(_detail_url(report, department))
+    return redirect(_detail_url(report, request.POST.get('reparto', ''), request.POST.get('periodo', '')))
