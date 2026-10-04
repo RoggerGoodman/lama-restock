@@ -9,11 +9,11 @@
     .margin-table th, .margin-table td { white-space: nowrap; }
     .margin-table .type-col { display: none; color: #6c757d; font-size: .85em; }
     .margin-table.show-types .type-col { display: table-cell; }
-    .margin-table input.extra-cell { width: 110px; text-align: right; }
+    .extras-table input.extra-cell { width: 120px; text-align: right; margin-left: auto; }
     @media print {
         .no-print, .sidebar, nav, .navbar { display: none !important; }
         .stat-card { box-shadow: none !important; }
-        .margin-table input.extra-cell { border: none; padding: 0; }
+        .extras-table input.extra-cell { border: none; padding: 0; }
     }
 </style>
 <div class="container-fluid">
@@ -67,197 +67,186 @@
     </div>
     {% endif %}
 
-    <!-- By department: the whole chain, or one period (then the extra cells are editable) -->
+    <!-- By department, whole span -->
     <div class="row mb-3">
         <div class="col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                    <h5 class="mb-0">Per reparto
-                        <small class="text-muted">— {% if selected_period %}periodo {{ selected_period }}{% else %}totale dell'intero periodo{% endif %}</small>
-                    </h5>
-                    <div class="d-flex align-items-center gap-3 no-print">
-                        {% if periods|length > 1 %}
-                        <form method="get">
-                            {% if department is not None %}<input type="hidden" name="reparto" value="{{ department }}">{% endif %}
-                            <select name="periodo" class="form-select form-select-sm" onchange="this.form.submit()">
-                                <option value="">Intero periodo</option>
-                                {% for p in periods %}
-                                <option value="{{ p.pk }}" {% if p == selected_period %}selected{% endif %}>{{ forloop.counter }}: {{ p }}</option>
-                                {% endfor %}
-                            </select>
-                        </form>
-                        {% endif %}
-                        <div class="form-check form-switch mb-0">
-                            <input class="form-check-input" type="checkbox" id="toggleTypes" onchange="document.querySelectorAll('.margin-table').forEach(t => t.classList.toggle('show-types', this.checked))">
-                            <label class="form-check-label small" for="toggleTypes">Dettaglio acquisti (BOL, BRF, NAC, NAD)</label>
-                        </div>
+                    <h5 class="mb-0">Per reparto <small class="text-muted">— intero periodo</small></h5>
+                    <div class="form-check form-switch mb-0 no-print">
+                        <input class="form-check-input" type="checkbox" id="toggleTypes" onchange="document.querySelectorAll('.margin-table').forEach(t => t.classList.toggle('show-types', this.checked))">
+                        <label class="form-check-label small" for="toggleTypes">Dettaglio acquisti (BOL, BRF, NAC, NAD)</label>
                     </div>
                 </div>
-
-                <!-- Extra columns -->
-                <div class="border rounded p-2 mb-3 no-print">
-                    <div class="small fw-semibold mb-2"><i class="bi bi-plus-square"></i> Colonne di spese extra
-                        <span class="text-muted fw-normal">— acquisti che non passano da Dropzone (es. vino da un'azienda agricola, Spostamenti C/IVA)</span>
-                    </div>
-                    <div class="d-flex flex-wrap gap-2 align-items-center">
-                        {% for c in columns %}
-                        <form method="post" action="{% url 'margin-report-columns' pk=report.pk %}" class="d-flex">
-                            {% csrf_token %}
-                            <input type="hidden" name="column" value="{{ c }}">
-                            <input type="hidden" name="reparto" value="{{ department|default_if_none:'' }}">
-                            <input type="hidden" name="periodo" value="{{ selected_period.pk|default_if_none:'' }}">
-                            <input type="text" name="name" value="{{ c }}" class="form-control form-control-sm" style="width: 170px;" maxlength="60">
-                            <button type="submit" name="action" value="rename" class="btn btn-outline-secondary btn-sm" title="Rinomina"><i class="bi bi-pencil"></i></button>
-                            <button type="submit" name="action" value="delete" class="btn btn-outline-danger btn-sm" title="Elimina colonna"
-                                    onclick="return confirm('Eliminare la colonna &quot;{{ c|escapejs }}&quot; e tutti i suoi importi?');"><i class="bi bi-trash"></i></button>
-                        </form>
-                        {% endfor %}
-                        <form method="post" action="{% url 'margin-report-columns' pk=report.pk %}" class="d-flex gap-1">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="add">
-                            <input type="hidden" name="reparto" value="{{ department|default_if_none:'' }}">
-                            <input type="hidden" name="periodo" value="{{ selected_period.pk|default_if_none:'' }}">
-                            <input type="text" name="name" class="form-control form-control-sm" style="width: 190px;" placeholder="Nome nuova colonna" maxlength="60" required>
-                            <button type="submit" class="btn btn-outline-primary btn-sm text-nowrap"><i class="bi bi-plus-lg"></i> Aggiungi colonna</button>
-                        </form>
-                    </div>
-                    {% if columns and not chain_editable %}
-                    <div class="small text-muted mt-2"><i class="bi bi-info-circle"></i> Per inserire gli importi scegli un periodo qui sopra.</div>
-                    {% endif %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle margin-table">
+                        <thead>
+                            <tr>
+                                <th>Reparto</th>
+                                {% include 'margins/_head.html' %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in departments %}
+                            <tr>
+                                <td><a href="#per-periodo" class="text-decoration-none" data-show-dept="{{ row.code }}">{{ row.label }}</a></td>
+                                {% include 'margins/_row.html' %}
+                            </tr>
+                            {% endfor %}
+                            <tr class="fw-bold table-light">
+                                <td>Totale reparti</td>
+                                {% include 'margins/_row.html' with row=departments_total %}
+                            </tr>
+                            {% if running_costs %}
+                            <tr><td colspan="99" class="pt-3 small text-muted text-uppercase">Costi di gestione del punto vendita</td></tr>
+                            {% for row in running_costs %}
+                            <tr>
+                                <td><a href="#per-periodo" class="text-decoration-none" data-show-dept="{{ row.code }}">{{ row.label }}</a></td>
+                                {% include 'margins/_row.html' %}
+                            </tr>
+                            {% endfor %}
+                            <tr class="fw-bold table-light">
+                                <td>Totale costi di gestione</td>
+                                {% include 'margins/_row.html' with row=running_costs_total %}
+                            </tr>
+                            {% endif %}
+                            <tr class="fw-bold table-success">
+                                <td>Totale punto vendita</td>
+                                {% include 'margins/_row.html' with row=store_total %}
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
-
-                <form method="post" action="{% url 'margin-report-extras' pk=report.pk %}">
-                    {% csrf_token %}
-                    <input type="hidden" name="reparto" value="{{ department|default_if_none:'' }}">
-                    <input type="hidden" name="periodo" value="{{ selected_period.pk|default_if_none:'' }}">
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover align-middle margin-table">
-                            <thead>
-                                <tr>
-                                    <th>Reparto</th>
-                                <th class="text-end">Vendite</th>
-                                <th class="text-end">Costo cassa</th>
-                                <th class="text-end">Acquisti Dropzone</th>
-                                <th class="text-end type-col">BOL</th>
-                                <th class="text-end type-col">BRF</th>
-                                <th class="text-end type-col">NAC</th>
-                                <th class="text-end type-col">NAD</th>
-                                {% for c in columns %}<th class="text-end">{{ c }}</th>{% endfor %}
-                                <th class="text-end">Costi totali</th>
-                                <th class="text-end">Margine €</th>
-                                <th class="text-end">Margine %</th>
-                                <th class="text-end text-muted" title="Margine calcolato dalla cassa sul costo del venduto">Margine cassa %</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for row in departments %}
-                                <tr>
-                                    <td><a href="?reparto={{ row.code }}{% if selected_period and periods|length > 1 %}&periodo={{ selected_period.pk }}{% endif %}#per-periodo" class="text-decoration-none">{{ row.label }}</a></td>
-                                    {% include 'margins/_row.html' with editable=chain_editable cell_period=selected_period.pk cell_code=row.code %}
-                                </tr>
-                                {% endfor %}
-                                <tr class="fw-bold table-light">
-                                    <td>Totale reparti</td>
-                                    {% include 'margins/_row.html' with row=departments_total %}
-                                </tr>
-                                {% if running_costs %}
-                                <tr><td colspan="99" class="pt-3 small text-muted text-uppercase">Costi di gestione del punto vendita</td></tr>
-                                {% for row in running_costs %}
-                                <tr>
-                                    <td><a href="?reparto={{ row.code }}{% if selected_period and periods|length > 1 %}&periodo={{ selected_period.pk }}{% endif %}#per-periodo" class="text-decoration-none">{{ row.label }}</a></td>
-                                    {% include 'margins/_row.html' with editable=chain_editable cell_period=selected_period.pk cell_code=row.code %}
-                                </tr>
-                                {% endfor %}
-                                <tr class="fw-bold table-light">
-                                    <td>Totale costi di gestione</td>
-                                    {% include 'margins/_row.html' with row=running_costs_total %}
-                                </tr>
-                                {% endif %}
-                                <tr class="fw-bold table-success">
-                                    <td>Totale punto vendita</td>
-                                    {% include 'margins/_row.html' with row=store_total %}
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    {% if chain_editable %}
-                    <div class="d-flex justify-content-end no-print">
-                        <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-save"></i> Salva spese extra</button>
-                    </div>
-                    {% endif %}
-                </form>
             </div>
         </div>
     </div>
 
-    <!-- One row per period -->
+    <!-- By period: every department is in the page, the selector only switches which one shows -->
     <div class="row mb-3" id="per-periodo">
         <div class="col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                    <h5 class="mb-0">Per periodo <small class="text-muted">— {% if selected_label %}{{ selected_label }}{% else %}tutti i reparti{% endif %}</small></h5>
-                    <form method="get" class="no-print">
-                        {% if selected_period and periods|length > 1 %}<input type="hidden" name="periodo" value="{{ selected_period.pk }}">{% endif %}
-                        <select name="reparto" class="form-select form-select-sm" onchange="this.form.submit()">
-                            <option value="">Tutti i reparti</option>
-                            {% for code, label in department_choices %}
-                            <option value="{{ code }}" {% if code == department %}selected{% endif %}>{{ label }}</option>
+                    <h5 class="mb-0">Per periodo <small class="text-muted">— <span id="perPeriodLabel"></span></small></h5>
+                    <select id="perPeriodSelect" class="form-select form-select-sm no-print" style="width: auto;">
+                        {% for entry in per_period %}
+                        <option value="{{ entry.code }}" {% if entry.code == department %}selected{% endif %}>{{ entry.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle margin-table">
+                        <thead>
+                            <tr>
+                                <th>Periodo</th>
+                                {% include 'margins/_head.html' %}
+                            </tr>
+                        </thead>
+                        {% for entry in per_period %}
+                        <tbody data-dept="{{ entry.code }}" {% if entry.code != department %}class="d-none"{% endif %}>
+                            {% for row in entry.rows %}
+                            <tr>
+                                <td>
+                                    <strong>{{ row.number }}</strong>
+                                    {{ row.period.start|date:"d/m/y" }} – {{ row.period.end|date:"d/m/y" }}
+                                    {% if row.may_grow %}<i class="bi bi-hourglass-split text-info" title="Acquisti BRF forse ancora incompleti"></i>{% endif %}
+                                </td>
+                                {% include 'margins/_row.html' %}
+                            </tr>
                             {% endfor %}
-                        </select>
+                            <tr class="fw-bold table-success">
+                                <td>Totale</td>
+                                {% include 'margins/_row.html' with row=entry.total %}
+                            </tr>
+                        </tbody>
+                        {% endfor %}
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Extra expenses: purchases that never pass through Dropzone -->
+    <div class="row mb-3" id="spese-extra">
+        <div class="col-12">
+            <div class="stat-card">
+                <h5 class="mb-1">Spese extra</h5>
+                <p class="small text-muted mb-3">
+                    Acquisti che non passano da Dropzone (es. vino da un'azienda agricola, Spostamenti C/IVA).
+                    Ogni spesa appartiene a un reparto e si somma alla sua colonna "Spese extra".
+                </p>
+
+                <form method="post" action="{% url 'margin-report-columns' pk=report.pk %}" class="d-flex flex-wrap gap-2 mb-3 no-print">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="add">
+                    <input type="hidden" name="reparto" value="{{ department }}">
+                    <input type="text" name="name" class="form-control form-control-sm" style="width: 220px;" placeholder="Nome spesa extra" maxlength="60" required>
+                    <select name="department" class="form-select form-select-sm" style="width: auto;" required>
+                        <option value="" selected disabled>-- Reparto --</option>
+                        {% for code, label in department_choices %}
+                        <option value="{{ code }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-outline-primary btn-sm text-nowrap"><i class="bi bi-plus-lg"></i> Aggiungi spesa extra</button>
+                </form>
+
+                {% if extras_columns %}
+                <div class="d-flex flex-wrap gap-2 mb-3 no-print">
+                    {% for c in extras_columns %}
+                    <form method="post" action="{% url 'margin-report-columns' pk=report.pk %}" class="d-flex align-items-center border rounded px-2 py-1 gap-1">
+                        {% csrf_token %}
+                        <input type="hidden" name="index" value="{{ c.index }}">
+                        <input type="hidden" name="reparto" value="{{ department }}">
+                        <input type="text" name="name" value="{{ c.name }}" class="form-control form-control-sm" style="width: 160px;" maxlength="60">
+                        <span class="small text-muted text-nowrap">{{ c.label }}</span>
+                        <button type="submit" name="action" value="rename" class="btn btn-outline-secondary btn-sm" title="Rinomina"><i class="bi bi-pencil"></i></button>
+                        <button type="submit" name="action" value="delete" class="btn btn-outline-danger btn-sm" title="Elimina"
+                                onclick="return confirm('Eliminare la spesa extra &quot;{{ c.name|escapejs }}&quot; e tutti i suoi importi?');"><i class="bi bi-trash"></i></button>
                     </form>
+                    {% endfor %}
                 </div>
 
                 <form method="post" action="{% url 'margin-report-extras' pk=report.pk %}">
                     {% csrf_token %}
-                    <input type="hidden" name="reparto" value="{{ department|default_if_none:'' }}">
-                    <input type="hidden" name="periodo" value="{{ selected_period.pk|default_if_none:'' }}">
+                    <input type="hidden" name="reparto" value="{{ department }}">
                     <div class="table-responsive">
-                        <table class="table table-sm table-hover align-middle margin-table">
+                        <table class="table table-sm align-middle extras-table">
                             <thead>
                                 <tr>
                                     <th>Periodo</th>
-                                <th class="text-end">Vendite</th>
-                                <th class="text-end">Costo cassa</th>
-                                <th class="text-end">Acquisti Dropzone</th>
-                                <th class="text-end type-col">BOL</th>
-                                <th class="text-end type-col">BRF</th>
-                                <th class="text-end type-col">NAC</th>
-                                <th class="text-end type-col">NAD</th>
-                                {% for c in columns %}<th class="text-end">{{ c }}</th>{% endfor %}
-                                <th class="text-end">Costi totali</th>
-                                <th class="text-end">Margine €</th>
-                                <th class="text-end">Margine %</th>
-                                <th class="text-end text-muted" title="Margine calcolato dalla cassa sul costo del venduto">Margine cassa %</th>
+                                    {% for c in extras_columns %}
+                                    <th class="text-end">{{ c.name }}<br><small class="text-muted fw-normal">{{ c.label }}</small></th>
+                                    {% endfor %}
+                                    <th class="text-end">Totale</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for row in per_period %}
+                                {% for row in extras_rows %}
                                 <tr>
-                                    <td>
-                                        <strong>{{ forloop.counter }}</strong>
-                                        {{ row.period.start|date:"d/m/y" }} – {{ row.period.end|date:"d/m/y" }}
-                                        {% if row.may_grow %}<i class="bi bi-hourglass-split text-info" title="Acquisti BRF forse ancora incompleti"></i>{% endif %}
+                                    <td class="text-nowrap"><strong>{{ row.number }}</strong> {{ row.period.start|date:"d/m/y" }} – {{ row.period.end|date:"d/m/y" }}</td>
+                                    {% for amount in row.cells %}
+                                    <td class="text-end">
+                                        <input type="text" inputmode="decimal" class="form-control form-control-sm extra-cell"
+                                               name="x_{{ row.period.pk }}_{{ forloop.counter0 }}" value="{% if amount is not None %}{{ amount|it_num }}{% endif %}">
                                     </td>
-                                    {% if department is not None %}
-                                    {% include 'margins/_row.html' with editable=True cell_period=row.period.pk cell_code=department %}
-                                    {% else %}
-                                    {% include 'margins/_row.html' %}
-                                    {% endif %}
+                                    {% endfor %}
+                                    <td class="text-end fw-semibold">{% if row.total %}€ {{ row.total|it_num }}{% endif %}</td>
                                 </tr>
                                 {% endfor %}
                                 <tr class="fw-bold table-success">
                                     <td>Totale</td>
-                                    {% include 'margins/_row.html' with row=per_period_total %}
+                                    {% for c in extras_columns %}<td class="text-end">€ {{ c.total|it_num }}</td>{% endfor %}
+                                    <td class="text-end">€ {{ extras_total|it_num }}</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
-                    {% if department is not None and columns %}
                     <div class="d-flex justify-content-end no-print">
                         <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-save"></i> Salva spese extra</button>
                     </div>
-                    {% endif %}
                 </form>
+                {% else %}
+                <p class="text-muted small mb-0">Nessuna spesa extra.</p>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -270,4 +259,34 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// The per-period table holds every department; switching only changes which one shows,
+// so the page neither reloads nor jumps.
+function showDept(code) {
+    document.querySelectorAll('#per-periodo tbody[data-dept]').forEach(tb => {
+        tb.classList.toggle('d-none', tb.dataset.dept !== code);
+    });
+    const select = document.getElementById('perPeriodSelect');
+    select.value = code;
+    document.getElementById('perPeriodLabel').textContent = select.options[select.selectedIndex].text;
+    // Saving extras comes back to the same department
+    document.querySelectorAll('input[name="reparto"]').forEach(input => { input.value = code; });
+    const url = new URL(window.location.href);
+    if (code) { url.searchParams.set('reparto', code); } else { url.searchParams.delete('reparto'); }
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+}
+
+document.getElementById('perPeriodSelect').addEventListener('change', e => showDept(e.target.value));
+document.querySelectorAll('[data-show-dept]').forEach(link => {
+    link.addEventListener('click', e => {
+        e.preventDefault();
+        showDept(link.dataset.showDept);
+        document.getElementById('per-periodo').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+});
+showDept(document.getElementById('perPeriodSelect').value);
+</script>
 {% endblock %}

@@ -18,7 +18,8 @@ from .models import MarginExtra, MarginLine, MarginPeriod, MarginReport, Superma
 logger = logging.getLogger(__name__)
 
 SESSION_KEY = 'margin_upload'
-CELL_RE = re.compile(r'^x_(\d+)_(\d+)_(\d+)$')
+CELL_RE = re.compile(r'^x_(\d+)_(\d+)$')
+EXTRAS_ANCHOR = 'spese-extra'
 
 
 def _owned_report(request, pk):
@@ -26,10 +27,11 @@ def _owned_report(request, pk):
                              pk=pk, supermarket__owner=request.user)
 
 
-def _detail_url(report, department='', period=''):
+def _detail_url(report, department='', anchor=''):
     url = reverse('margin-report-detail', kwargs={'pk': report.pk})
-    params = [f"{k}={v}" for k, v in (('reparto', department), ('periodo', period)) if v not in ('', None)]
-    return f"{url}?{'&'.join(params)}" if params else url
+    if department not in ('', None):
+        url += f"?reparto={department}"
+    return f"{url}#{anchor}" if anchor else url
 
 
 def _span(report):
@@ -146,24 +148,13 @@ def margin_report_confirm(request):
 @login_required
 def margin_report_detail_view(request, pk):
     report = _owned_report(request, pk)
-    periods = list(report.periods.all())
-    department = request.GET.get('reparto')
-    department = int(department) if department and department.isdigit() else None
-    # The department table is editable for one period at a time; a one-period report
-    # is always that period
-    selected = request.GET.get('periodo')
-    selected = next((p for p in periods if str(p.pk) == selected), None)
-    if selected is None and len(periods) == 1:
-        selected = periods[0]
-    selected_id = selected.pk if selected else None
-    data = ma.build_report(report, department, selected_id)
-    if department is not None and department not in dict(data['department_choices']):
-        department, data = None, ma.build_report(report, None, selected_id)
+    data = ma.build_report(report)
+    department = request.GET.get('reparto', '')
+    if department not in {row['code'] for row in data['per_period']}:
+        department = ''
     return render(request, 'margins/detail.html', {
         'report': report,
         'department': department,
-        'selected_period': selected,
-        'chain_editable': bool(selected and data['columns']),
         'late_days': ma.LATE_DOCUMENTS_DAYS,
         **data,
     })
@@ -201,8 +192,11 @@ def margin_report_merge(request, pk):
         messages.error(request, "Si possono unire solo due analisi dello stesso punto vendita consecutive.")
         return redirect('margin-report-list')
     with transaction.atomic():
+        # Same item = same name on the same department; its amounts simply follow their periods
+        columns = ma.report_columns(report)
+        columns += [c for c in ma.report_columns(other) if c not in columns]
         other.periods.update(report=report)
-        report.extra_columns = report.extra_columns + [c for c in other.extra_columns if c not in report.extra_columns]
+        report.extra_columns = columns
         report.save(update_fields=['extra_columns'])
         other.delete()
     messages.success(request, f"Analisi unite: {a_start:%d/%m/%Y} – {b_end:%d/%m/%Y}.")
@@ -221,30 +215,43 @@ def margin_report_delete(request, pk):
 @login_required
 @require_POST
 def margin_report_columns(request, pk):
+    """Add, rename or delete an extra item. An item is a name tied to one department."""
     report = _owned_report(request, pk)
+    columns = ma.report_columns(report)
     action = request.POST.get('action')
     name = (request.POST.get('name') or '').strip()[:60]
-    columns = list(report.extra_columns)
-    back = redirect(_detail_url(report, request.POST.get('reparto', ''), request.POST.get('periodo', '')))
+    back = redirect(_detail_url(report, request.POST.get('reparto', ''), EXTRAS_ANCHOR))
 
     if action == 'add':
-        if not name or name in columns:
-            messages.error(request, "Serve un nome nuovo per la colonna.")
+        try:
+            department = int(request.POST.get('department', ''))
+        except ValueError:
+            department = None
+        valid = {code for code, _ in ma.build_report(report)['department_choices']}
+        if not name or department not in valid:
+            messages.error(request, "Indica un nome e il reparto della spesa extra.")
             return back
-        columns.append(name)
+        if {'name': name, 'department': department} in columns:
+            messages.error(request, "Questa spesa extra esiste già per quel reparto.")
+            return back
+        columns.append({'name': name, 'department': department})
     elif action in ('rename', 'delete'):
-        old = request.POST.get('column')
-        if old not in columns:
+        try:
+            index = int(request.POST.get('index', ''))
+            column = columns[index]
+        except (ValueError, IndexError):
             return back
+        extras = MarginExtra.objects.filter(period__report=report, column=column['name'],
+                                            department_code=column['department'])
         if action == 'rename':
-            if not name or name in columns:
-                messages.error(request, "Serve un nome nuovo per la colonna.")
+            if not name or {'name': name, 'department': column['department']} in columns:
+                messages.error(request, "Serve un nome nuovo per questa spesa extra.")
                 return back
-            columns[columns.index(old)] = name
-            MarginExtra.objects.filter(period__report=report, column=old).update(column=name)
+            extras.update(column=name)
+            columns[index] = {'name': name, 'department': column['department']}
         else:
-            columns.remove(old)
-            MarginExtra.objects.filter(period__report=report, column=old).delete()
+            extras.delete()
+            del columns[index]
     report.extra_columns = columns
     report.save(update_fields=['extra_columns'])
     return back
@@ -254,11 +261,11 @@ def margin_report_columns(request, pk):
 @require_POST
 def margin_report_extras(request, pk):
     """
-    Save extra amounts. Each cell is posted as x_<period>_<department>_<column index>;
-    only the cells on the page are touched, and an emptied cell is cleared.
+    Save the extras table. Each cell is posted as x_<period>_<item index>; only the
+    cells on the page are touched, and an emptied cell is cleared.
     """
     report = _owned_report(request, pk)
-    columns = list(report.extra_columns)
+    columns = ma.report_columns(report)
     periods = {p.pk: p for p in report.periods.all()}
     bad = []
     with transaction.atomic():
@@ -267,10 +274,10 @@ def margin_report_extras(request, pk):
             if not m:
                 continue
             period = periods.get(int(m.group(1)))
-            index = int(m.group(3))
+            index = int(m.group(2))
             if period is None or index >= len(columns):
                 continue
-            cell = dict(period=period, column=columns[index], department_code=int(m.group(2)))
+            cell = dict(period=period, column=columns[index]['name'], department_code=columns[index]['department'])
             raw = raw.strip()
             if not raw:
                 MarginExtra.objects.filter(**cell).delete()
@@ -281,8 +288,11 @@ def margin_report_extras(request, pk):
                 bad.append(raw)
                 continue
             MarginExtra.objects.update_or_create(**cell, defaults={'amount': amount})
+        if report.extra_columns != columns:
+            report.extra_columns = columns
+            report.save(update_fields=['extra_columns'])
     if bad:
         messages.error(request, f"Importi non validi, non salvati: {', '.join(bad)}")
     else:
         messages.success(request, "Spese extra salvate.")
-    return redirect(_detail_url(report, request.POST.get('reparto', ''), request.POST.get('periodo', '')))
+    return redirect(_detail_url(report, request.POST.get('reparto', ''), EXTRAS_ANCHOR))

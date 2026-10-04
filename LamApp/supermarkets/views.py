@@ -236,16 +236,22 @@ def dashboard_view(request):
                     AND p.settore IN ({settore_placeholders})
                 """
 
-                cursor.execute(f"SELECT COUNT(*) AS n {pending_where}", settores)
-                pending_verifications += cursor.fetchone()['n']
-
-                # Collect a few samples for the dashboard preview
-                if len(top_pending_products) < 5:
-                    cursor.execute(
-                        f"SELECT p.cod, p.v, p.descrizione, ps.stock {pending_where} LIMIT 5",
-                        settores,
-                    )
-                    for row in cursor.fetchall():
+                # Blacklist lives in the Django DB, so filter in Python
+                blacklisted = set(
+                    BlacklistEntry.objects.filter(
+                        blacklist__storage__supermarket=sm
+                    ).values_list('product_code', 'product_var')
+                )
+                cursor.execute(
+                    f"SELECT p.cod, p.v, p.descrizione, ps.stock {pending_where}",
+                    settores,
+                )
+                for row in cursor.fetchall():
+                    if (row['cod'], row['v']) in blacklisted:
+                        continue
+                    pending_verifications += 1
+                    # Collect a few samples for the dashboard preview
+                    if len(top_pending_products) < 5:
                         top_pending_products.append({
                             'supermarket': sm.name,
                             'cod': row['cod'],
@@ -253,8 +259,6 @@ def dashboard_view(request):
                             'name': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
                             'stock': row['stock'] or 0
                         })
-                        if len(top_pending_products) >= 5:
-                            break
         except Exception as e:
             logger.warning(f"Could not load pending verifications for {sm.name}: {e}")
             continue
@@ -6380,6 +6384,11 @@ def pending_verifications_view(request):
             # Map settore -> storage id so each row can target the right storage
             # (e.g. for the "Non gestiti" action).
             storage_by_settore = {s.settore: s.id for s in sm.storages.all()}
+            blacklisted = set(
+                BlacklistEntry.objects.filter(
+                    blacklist__storage__supermarket=sm
+                ).values_list('product_code', 'product_var')
+            )
 
             with RestockService(storage) as service:
                 cursor = service.db.cursor()
@@ -6419,6 +6428,8 @@ def pending_verifications_view(request):
                 cursor.execute(query, settores)
                 
                 for row in cursor.fetchall():
+                    if (row['cod'], row['v']) in blacklisted:
+                        continue
                     bought = row['bought_last_24'] or []
                     sold = []  # They haven't sold any yet
                     

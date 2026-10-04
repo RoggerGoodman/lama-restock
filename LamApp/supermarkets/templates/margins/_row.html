@@ -5,7 +5,7 @@
 <td class="text-end type-col">{{ row.by_type.BRF|it_num }}</td>
 <td class="text-end type-col">{{ row.by_type.NAC|it_num }}</td>
 <td class="text-end type-col">{{ row.by_type.NAD|it_num }}</td>
-{% for amount in row.extras %}<td class="text-end">{% if editable %}<input type="text" inputmode="decimal" class="form-control form-control-sm extra-cell" name="x_{{ cell_period }}_{{ cell_code }}_{{ forloop.counter0 }}" value="{% if amount %}{{ amount|it_num }}{% endif %}">{% elif amount %}€ {{ amount|it_num }}{% endif %}</td>{% endfor %}
+<td class="text-end">{% if row.extras %}€ {{ row.extras|it_num }}{% endif %}</td>
 <td class="text-end">€ {{ row.total_cost|it_num }}</td>
 <td class="text-end {% if row.margin < 0 %}text-danger{% endif %}">€ {{ row.margin|it_num }}</td>
 <td class="text-end {% if row.margin < 0 %}text-danger{% endif %}">{% if row.margin_pct is not None %}{{ row.margin_pct|it_num:2 }}%{% else %}—{% endif %}</td>

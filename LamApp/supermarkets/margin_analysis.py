@@ -19,9 +19,10 @@ logger = logging.getLogger(__name__)
 
 PURCHASE_TYPES = ('BOL', 'BRF', 'NAC', 'NAD')
 # Departments the store does not want in the analysis at all
-EXCLUDED_DEPARTMENTS = {890, 993}
-# Shown as one line: 315 "Gastronomia calda centrale" belongs with 940 "Gastronomia calda"
-MERGED_DEPARTMENTS = {315: 940}
+EXCLUDED_DEPARTMENTS = {890}
+# Shown on the line of the department they belong with: 315 "Gastronomia calda centrale"
+# with 940 "Gastronomia calda", 993 "Take away" with 310 "Banco gastronomia"
+MERGED_DEPARTMENTS = {315: 940, 993: 310}
 # Bought to run the store, not to resell: shown in their own block, still in the store total
 RUNNING_COST_DEPARTMENTS = {900, 920, 950}
 # Direct-supplier DDTs (BRF) reach Dropzone up to ~2 months late; 97% of their value is
@@ -156,8 +157,29 @@ def group_key(code):
     return MERGED_DEPARTMENTS.get(code, code)
 
 
+def report_columns(report) -> list:
+    """
+    The report's extra items: [{'name', 'department'}], department being a group code.
+    Reports saved before items had a department stored bare names: those are resolved
+    from the departments their amounts were entered on.
+    """
+    from .models import MarginExtra
+
+    out = []
+    for column in report.extra_columns:
+        if isinstance(column, dict):
+            out.append({'name': column['name'], 'department': int(column['department'])})
+            continue
+        departments = sorted(set(
+            MarginExtra.objects.filter(period__report=report, column=column)
+            .values_list('department_code', flat=True)
+        ))
+        out.extend({'name': column, 'department': d} for d in departments)
+    return out
+
+
 def _metrics(sales, till_cost, purchases, extras):
-    total_cost = purchases + sum(extras, Decimal('0'))
+    total_cost = purchases + extras
     margin = sales - total_cost
     return {
         'sales': sales,
@@ -172,10 +194,9 @@ def _metrics(sales, till_cost, purchases, extras):
 
 
 class _Acc:
-    def __init__(self, columns):
-        self.sales = self.till_cost = Decimal('0')
+    def __init__(self):
+        self.sales = self.till_cost = self.extras = Decimal('0')
         self.by_type = {t: Decimal('0') for t in PURCHASE_TYPES}
-        self.extras = {c: Decimal('0') for c in columns}
 
     def add_line(self, line):
         self.sales += line.sales
@@ -188,93 +209,108 @@ class _Acc:
     def add(self, other):
         self.sales += other.sales
         self.till_cost += other.till_cost
+        self.extras += other.extras
         for t in PURCHASE_TYPES:
             self.by_type[t] += other.by_type[t]
-        for c in self.extras:
-            self.extras[c] += other.extras[c]
 
-    def row(self, columns, **extra):
+    def row(self, **extra):
         purchases = sum(self.by_type.values(), Decimal('0'))
-        return {**_metrics(self.sales, self.till_cost, purchases, [self.extras[c] for c in columns]),
-                'by_type': dict(self.by_type), **extra}
+        return {**_metrics(self.sales, self.till_cost, purchases, self.extras), 'by_type': dict(self.by_type), **extra}
 
 
-def build_report(report, department=None, period_id=None) -> dict:
+def build_report(report) -> dict:
     """
-    Everything the page shows:
-      departments / running_costs: one row per department, summed over the whole chain,
-      or over the single period `period_id`; subtotals and the store total;
-      per_period: one row per period for `department` (a group code) or the whole store.
+    Everything the page shows, in one pass:
+      departments / running_costs: one row per department over the whole chain, with
+        subtotals and the store total;
+      per_period: for the whole store and for every department, one row per period
+        (the page switches between them without reloading);
+      extras: the grid of extra amounts, one row per period, one column per item.
     """
-    columns = list(report.extra_columns)
+    columns = report_columns(report)
+    col_index = {(c['name'], c['department']): i for i, c in enumerate(columns)}
     periods = list(report.periods.prefetch_related('lines', 'extras'))
 
-    by_dept = {}            # group code -> _Acc over the whole chain
+    cells = defaultdict(_Acc)       # (group code, period index) -> _Acc
     names = {}
-    per_period = []         # (period, _Acc) for the selected department / store
-    for period in periods:
-        in_chain_view = period_id is None or period.pk == period_id
-        period_acc = _Acc(columns)
+    grid = [[None] * len(columns) for _ in periods]
+    for pi, period in enumerate(periods):
         for line in period.lines.all():
             key = group_key(line.department_code)
             if key is None:
                 continue
             if line.department_code == key or key not in names:
                 names[key] = line.department_name
-            dept = by_dept.setdefault(key, _Acc(columns))
-            if in_chain_view:
-                dept.add_line(line)
-            if department is None or department == key:
-                period_acc.add_line(line)
+            cells[(key, pi)].add_line(line)
         for extra in period.extras.all():
             key = group_key(extra.department_code)
-            if key is None or extra.column not in columns:
+            index = col_index.get((extra.column, key))
+            if index is None:
                 continue
-            if in_chain_view:
-                by_dept.setdefault(key, _Acc(columns)).extras[extra.column] += extra.amount
-            if department is None or department == key:
-                period_acc.extras[extra.column] += extra.amount
-        per_period.append((period, period_acc))
+            cells[(key, pi)].extras += extra.amount
+            grid[pi][index] = (grid[pi][index] or Decimal('0')) + extra.amount
+
+    keys = sorted({k for k, _ in cells} | {c['department'] for c in columns})
 
     def label(key):
         merged = sorted(c for c, k in MERGED_DEPARTMENTS.items() if k == key)
         suffix = f" (+{', '.join(map(str, merged))})" if merged else ""
         return f"{key} {names.get(key, '')}{suffix}".strip()
 
+    def chain(key):
+        acc = _Acc()
+        for pi in range(len(periods)):
+            acc.add(cells.get((key, pi), _Acc()))
+        return acc
+
     dept_rows, cost_rows = [], []
-    dept_total, cost_total = _Acc(columns), _Acc(columns)
-    for key in sorted(by_dept):
-        acc = by_dept[key]
-        row = acc.row(columns, code=key, label=label(key))
+    dept_total, cost_total, store_total = _Acc(), _Acc(), _Acc()
+    for key in keys:
+        acc = chain(key)
+        row = acc.row(code=key, label=label(key))
         if key in RUNNING_COST_DEPARTMENTS:
             cost_rows.append(row)
             cost_total.add(acc)
         else:
             dept_rows.append(row)
             dept_total.add(acc)
-    store_total = _Acc(columns)
     store_total.add(dept_total)
     store_total.add(cost_total)
 
     from datetime import date
     late_before = date.today() - timedelta(days=LATE_DOCUMENTS_DAYS)
-    period_rows = []
-    chain_total = _Acc(columns)
-    for period, acc in per_period:
-        period_rows.append(acc.row(columns, period=period, may_grow=period.end > late_before))
-        chain_total.add(acc)
+
+    def period_table(selected_keys):
+        rows, total = [], _Acc()
+        for pi, period in enumerate(periods):
+            acc = _Acc()
+            for key in selected_keys:
+                acc.add(cells.get((key, pi), _Acc()))
+            rows.append(acc.row(period=period, number=pi + 1, may_grow=period.end > late_before))
+            total.add(acc)
+        return {'rows': rows, 'total': total.row()}
+
+    per_period = [{'code': '', 'label': 'Tutti i reparti', **period_table(keys)}]
+    per_period += [{'code': str(k), 'label': label(k), **period_table([k])} for k in keys]
+
+    extras_columns = [{**c, 'index': i, 'label': label(c['department']),
+                       'total': sum((row[i] or Decimal('0') for row in grid), Decimal('0'))}
+                      for i, c in enumerate(columns)]
+    extras_rows = [{'period': p, 'number': pi + 1, 'cells': grid[pi],
+                    'total': sum((v or Decimal('0') for v in grid[pi]), Decimal('0'))}
+                   for pi, p in enumerate(periods)]
 
     return {
-        'columns': columns,
         'departments': dept_rows,
-        'departments_total': dept_total.row(columns),
+        'departments_total': dept_total.row(),
         'running_costs': cost_rows,
-        'running_costs_total': cost_total.row(columns),
-        'store_total': store_total.row(columns),
-        'department_choices': [(k, label(k)) for k in sorted(by_dept)],
-        'selected_label': label(department) if department is not None else None,
-        'per_period': period_rows,
-        'per_period_total': chain_total.row(columns),
+        'running_costs_total': cost_total.row(),
+        'store_total': store_total.row(),
+        'department_choices': [(k, label(k)) for k in keys],
+        'per_period': per_period,
         'periods': periods,
         'late_periods': [p for p in periods if p.end > late_before],
+        'extras_columns': extras_columns,
+        'extras_rows': extras_rows,
+        'extras_total': sum((c['total'] for c in extras_columns), Decimal('0')),
     }
