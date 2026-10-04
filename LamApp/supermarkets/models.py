@@ -1150,6 +1150,51 @@ class ProductLinkNotification(models.Model):
             f"{self.primary_cod}.{self.primary_v} → {self.secondary_cod}.{self.secondary_v}"
         )
 
+
+class ChainProductLink(models.Model):
+    """
+    Chain-wide substitution, applied to every store by the daily
+    sync_chain_product_links task (see chain_links.py). Same roles as
+    ProductLink: primary = subentrante (ordered), secondary = sostituito.
+    """
+    primary_cod = models.IntegerField()
+    primary_v = models.IntegerField()
+    secondary_cod = models.IntegerField()
+    secondary_v = models.IntegerField()
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='chain_product_links'
+    )
+
+    class Meta:
+        # No chains: each product belongs to at most one chain link.
+        unique_together = [
+            ('primary_cod', 'primary_v'),
+            ('secondary_cod', 'secondary_v'),
+        ]
+
+    def __str__(self):
+        return (
+            f"[{self.primary_cod}.{self.primary_v}] ← "
+            f"[{self.secondary_cod}.{self.secondary_v}]"
+        )
+
+
+class ChainLinkOptOut(models.Model):
+    """A store deleted this chain link by hand: never re-apply it there."""
+    supermarket = models.ForeignKey(
+        'Supermarket', on_delete=models.CASCADE, related_name='chain_link_opt_outs'
+    )
+    chain_link = models.ForeignKey(
+        ChainProductLink, on_delete=models.CASCADE, related_name='opt_outs'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('supermarket', 'chain_link')]
+
 class CreditNote(models.Model):
     """
     A Dropzone credit note (NAC), one per storage it touches. Its quantities come

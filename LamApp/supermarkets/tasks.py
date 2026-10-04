@@ -851,66 +851,6 @@ def assign_clusters_task(self, storage_id, pdf_file_path, cluster):
 
 @shared_task(
     bind=True,
-    max_retries=3,
-    default_retry_delay=900
-)
-def process_promos_task(self, supermarket_id, pdf_file_path):
-    """
-    Process promo PDF file.
-    
-    Args:
-        supermarket_id: Supermarket ID
-        pdf_file_path: Full path to PDF file
-    """
-    from .models import Supermarket
-    from .services import RestockService
-    from .scripts.helpers import Helper
-    from pathlib import Path
-    import os
-
-    _log_ctx = None
-    try:
-        supermarket = Supermarket.objects.get(id=supermarket_id)
-        _log_ctx = enter_supermarket_log(supermarket.name)
-
-        logger.info(f"[PROCESS PROMOS] Starting for {supermarket.name}")
-
-        storage = supermarket.storages.first()
-
-        if not storage:
-            raise ValueError(f"No storages found for {supermarket.name}")
-
-        with RestockService(storage) as service:
-            # Parse PDF
-            promo_list = Helper.promos_for_store(
-                Helper.parse_promo_pdf(pdf_file_path), supermarket.is_rione
-            )
-
-            # Update database
-            service.db.update_promos(promo_list)
-            
-            logger.info(f"✅ [PROCESS PROMOS] Completed: {len(promo_list)} promo items")
-            
-            # Clean up file
-            try:
-                os.remove(pdf_file_path)
-                logger.info(f"Deleted temp file: {pdf_file_path}")
-            except Exception as e:
-                logger.warning(f"Could not delete temp file: {e}")
-            
-            return {
-                'success': True,
-                'supermarket_name': supermarket.name,
-                'promo_count': len(promo_list)
-            }        
-    except Exception as exc:
-        logger.exception(f"[PROCESS PROMOS] Error for supermarket {supermarket_id}")
-        raise self.retry(exc=exc)
-    finally:
-        exit_supermarket_log(_log_ctx)
-
-@shared_task(
-    bind=True,
     max_retries=2,
     default_retry_delay=600,
     queue='selenium',
@@ -2072,6 +2012,36 @@ def cleanup_old_restock_logs(self, max_age_days=180, min_keep_per_storage=10):
     except Exception as exc:
         logger.exception("[CELERY-CLEANUP] Fatal error in cleanup_old_restock_logs")
         raise self.retry(exc=exc)
+
+
+@shared_task
+def import_promo_emails_task():
+    """Nightly: load promo PDFs mailed to the PROMO_IMAP mailbox (see promos.py)."""
+    from .promos import import_promo_emails
+
+    loaded = import_promo_emails()
+    logger.info(f"[PROMO MAIL] {loaded} promo email(s) loaded")
+    return loaded
+
+
+@shared_task
+def sync_chain_product_links():
+    """Nightly product link pass over every store (see chain_links.py)."""
+    from .chain_links import sync_all
+
+    reports, retired = sync_all()
+    for report in reports:
+        for line in report.lines():
+            logger.info(f"[CHAIN LINKS] {report.supermarket.name}: {line}")
+    msg = (
+        f"Product links synced: {sum(len(r.removed) for r in reports)} removed, "
+        f"{sum(len(r.added) for r in reports)} added, "
+        f"{sum(len(r.verified) for r in reports)} verified, "
+        f"{len(retired)} chain link(s) retired, "
+        f"{sum(1 for r in reports if r.error)} store(s) failed"
+    )
+    logger.info(f"[CHAIN LINKS] {msg}")
+    return msg
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=300)

@@ -27,18 +27,6 @@
                     {{ supermarket.name }}
                 </h4>
                 
-                <!-- NEW: Promo Upload -->
-                <h6 class="mb-2 mt-4"><i class="bi bi-file-pdf"></i> Promozioni</h6>
-                <div class="d-flex gap-2 flex-wrap mb-3">
-                    <a href="{% url 'upload-promos' supermarket_id=supermarket.pk %}" class="btn btn-outline-info">
-                        <i class="bi bi-upload"></i> Carica file PDF promozionale
-                    </a>
-                </div>
-                <div class="alert alert-info mb-3">
-                    <i class="bi bi-info-circle"></i>
-                    <strong>Nota bene:</strong> I file promozionali vengono elaborati a livello di Punto vendita poiché contengono prodotti provenienti da più magazzini.
-                </div>
-
                 <!-- Sincronizzazione vendite -->
                 <h6 class="mb-2 mt-4"><i class="bi bi-plug"></i> Sincronizzazione vendite</h6>
                 <div class="d-flex gap-2 flex-wrap mb-1">

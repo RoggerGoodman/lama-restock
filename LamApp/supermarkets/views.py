@@ -34,7 +34,7 @@ from .models import (
 )
 from .forms import (
     RestockScheduleForm, BlacklistForm, PurgeProductsForm, InventorySearchForm,
-    BlacklistEntryForm, AddProductsForm, PromoUploadForm,
+    BlacklistEntryForm, AddProductsForm,
     RecordLossesForm, DDTUploadForm, DayWeightsForm,
 )
 
@@ -2554,64 +2554,6 @@ def manual_list_update_view(request, storage_id):
     }
     
     return render(request, 'storages/manual_list_update.html', context)
-
-
-@login_required
-def upload_promos_view(request, supermarket_id):
-    """
-    REFACTORED: Async promo processing.
-    PDF parsing can take time depending on file size.
-    """
-    supermarket = get_object_or_404(
-        Supermarket,
-        id=supermarket_id,
-        owner=request.user
-    )
-    
-    if request.method == 'POST':
-        form = PromoUploadForm(request.POST, request.FILES)
-        
-        if form.is_valid():
-            pdf_file = request.FILES['pdf_file']
-            
-            try:
-                # Save file temporarily
-                temp_dir = Path(settings.BASE_DIR) / 'temp_promos'
-                temp_dir.mkdir(exist_ok=True)
-                
-                file_path = temp_dir / pdf_file.name
-                
-                with open(file_path, 'wb+') as destination:
-                    for chunk in pdf_file.chunks():
-                        destination.write(chunk)
-                
-                # ✅ DISPATCH TO CELERY
-                from .tasks import process_promos_task
-                
-                result = process_promos_task.apply_async(
-                    args=[supermarket_id, str(file_path)],
-                    retry=True
-                )
-                
-                messages.info(
-                    request,
-                    f"Processing promo file: {pdf_file.name}. "
-                    f"This may take a few minutes."
-                )
-                
-                return redirect('task-progress', task_id=result.id)
-                
-            except Exception as e:
-                logger.exception("Error saving promo file")
-                messages.error(request, f"Errore: {str(e)}")
-                return redirect('supermarket-detail', pk=supermarket_id)
-    else:
-        form = PromoUploadForm()
-    
-    return render(request, 'supermarkets/upload_promos.html', {
-        'supermarket': supermarket,
-        'form': form
-    })
 
 
 # ============ Stock Value Analysis Views ============
@@ -6990,7 +6932,7 @@ def product_links_view(request):
     ordering) and a secondary product (being phased out). A 'propagate to all'
     option creates the same link for every supermarket owned by the user.
     """
-    from .models import ProductLink
+    from .models import ChainLinkOptOut, ChainProductLink, ProductLink
 
     user_supermarkets = list(Supermarket.objects.filter(owner=request.user).order_by('name'))
     if not user_supermarkets:
@@ -7040,6 +6982,12 @@ def product_links_view(request):
                         )
                         if was_created:
                             created += 1
+                            # Re-created by hand: lift a previous opt-out from the chain link
+                            ChainLinkOptOut.objects.filter(
+                                supermarket=sm,
+                                chain_link__primary_cod=primary_cod, chain_link__primary_v=primary_v,
+                                chain_link__secondary_cod=secondary_cod, chain_link__secondary_v=secondary_v,
+                            ).delete()
                             ProductLinkNotification.objects.create(
                                 supermarket=sm,
                                 primary_cod=primary_cod,
@@ -7068,7 +7016,16 @@ def product_links_view(request):
         elif action == 'delete':
             try:
                 link_id = int(request.POST['link_id'])
-                ProductLink.objects.filter(id=link_id, supermarket__owner=request.user).delete()
+                link = ProductLink.objects.filter(id=link_id, supermarket__owner=request.user).first()
+                if link:
+                    # Deleting a chain link by hand opts this store out of it for good
+                    chain_link = ChainProductLink.objects.filter(
+                        primary_cod=link.primary_cod, primary_v=link.primary_v,
+                        secondary_cod=link.secondary_cod, secondary_v=link.secondary_v,
+                    ).first()
+                    if chain_link:
+                        ChainLinkOptOut.objects.get_or_create(supermarket=link.supermarket, chain_link=chain_link)
+                    link.delete()
                 success = "Collegamento eliminato."
             except Exception as e:
                 error = f"Errore durante l'eliminazione: {e}"

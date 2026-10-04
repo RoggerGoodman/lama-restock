@@ -11,7 +11,7 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 
 from supermarkets.demo import real_supermarkets
-from supermarkets.scripts.DatabaseManager import DatabaseManager
+from supermarkets.promos import apply_promo_list
 from supermarkets.scripts.helpers import Helper
 
 
@@ -43,26 +43,18 @@ class Command(BaseCommand):
                 "No RIONE rows found: Rione stores will receive nothing from this file."
             ))
 
-        ok = failed = 0
-        for sm in real_supermarkets().order_by("name"):
-            store_list = Helper.promos_for_store(promo_list, sm.is_rione)
-            label = f"{sm.name} ({sm.get_store_type_display()})"
-            if opts["dry_run"]:
-                self.stdout.write(f"  {label}: {len(store_list)} rows")
-                continue
-            try:
-                db = DatabaseManager(supermarket_name=sm.name)
-                try:
-                    matched = db.update_promos(store_list)
-                finally:
-                    db.close()
-                ok += 1
-                self.stdout.write(self.style.SUCCESS(
-                    f"  {label}: {matched}/{len(store_list)} rows matched a product"
-                ))
-            except Exception as e:
-                failed += 1
-                self.stdout.write(self.style.ERROR(f"  {label}: FAILED - {e}"))
+        if opts["dry_run"]:
+            for sm in real_supermarkets().order_by("name"):
+                rows = len(Helper.promos_for_store(promo_list, sm.is_rione))
+                self.stdout.write(f"  {sm.name} ({sm.get_store_type_display()}): {rows} rows")
+            return
 
-        if not opts["dry_run"]:
-            self.stdout.write(f"\nDone: {ok} supermarket(s) updated, {failed} failed.")
+        failed = 0
+        for sm, rows, matched, error in apply_promo_list(promo_list):
+            label = f"{sm.name} ({sm.get_store_type_display()})"
+            if error:
+                failed += 1
+                self.stdout.write(self.style.ERROR(f"  {label}: FAILED - {error}"))
+            else:
+                self.stdout.write(self.style.SUCCESS(f"  {label}: {matched}/{rows} rows matched a product"))
+        self.stdout.write(f"\nDone: {failed} store(s) failed.")

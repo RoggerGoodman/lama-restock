@@ -30,8 +30,10 @@ app.autodiscover_tasks()
 #   00:30  monthly-loss-zero-prepend  (1st of month only)
 #   00:35  monthly-bought-zero-prepend (1st of month only)
 #   00:40  monthly-sold-zero-prepend  (1st of month only — see note below)
+#   02:30  import-promo-emails        (promo PDFs mailed to the promo mailbox)
 #   03:00  check-list-updates
 #   03:30  backfill-ean
+#   03:45  sync-product-links         (cleanup + chain links applied, after fresh lists)
 #   06:00-22:00 import-documents      (hourly: DDTs + credit notes; books due deliveries, snapshots calibration)
 #   08:00  daily-calibration          (grades yesterday, which closed at the 21:30 sync)
 #   08:30-21:30 real-time sales sync  (store PC pushes today's running totals, every 15 min)
@@ -65,6 +67,12 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=0, minute=5),
     },
 
+    # 02:30 — promo PDFs mailed to the promo mailbox, applied to every store
+    'import-promo-emails': {
+        'task': 'supermarkets.tasks.import_promo_emails_task',
+        'schedule': crontab(hour=2, minute=30),
+    },
+
     # 03:00 — refresh product lists for all scheduled storages
     'check-list-updates': {
         'task': 'supermarkets.tasks.run_scheduled_list_updates',
@@ -75,6 +83,13 @@ app.conf.beat_schedule = {
     'backfill-ean': {
         'task': 'supermarkets.tasks.backfill_ean_and_id_for_verified_products',
         'schedule': crontab(hour=3, minute=30),
+    },
+
+    # 03:45 — product links: drop quiet ones, apply chain links, verify subentranti.
+    # After the list update so disponibilita and new products are fresh.
+    'sync-product-links': {
+        'task': 'supermarkets.tasks.sync_chain_product_links',
+        'schedule': crontab(hour=3, minute=45),
     },
 
     # Hourly 06:00–22:00 — DDTs and credit notes from Dropzone. A DDT can appear a day

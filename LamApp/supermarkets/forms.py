@@ -218,19 +218,6 @@ class BlacklistEntryForm(forms.ModelForm):
         return cleaned_data
 
 
-class PromoUploadForm(forms.Form):
-    """Form for uploading promo PDF files"""
-    
-    pdf_file = forms.FileField(
-        label="Promo PDF File",
-        help_text="Upload the promo PDF file from supplier",
-        widget=forms.FileInput(attrs={
-            'class': 'form-control',
-            'accept': '.pdf'
-        })
-    )
-
-
 class RecordLossesForm(forms.Form):
     """Form for manually uploading and recording losses from raw Dropzone CSV exports."""
 
