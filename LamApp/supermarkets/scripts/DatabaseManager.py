@@ -653,8 +653,13 @@ class DatabaseManager:
             if not include_current:
                 prev_sold = row["sold_last_24"] or [0]
                 prev_sets = row["sales_sets"] or [0]
-                monthly[0] = (prev_sold[0] if prev_sold else 0) or 0
-                daily[0] = (prev_sets[0] if prev_sets else 0) or 0
+                today_live = (prev_sets[0] if prev_sets else 0) or 0
+                # VEMEART is written nightly, so the dump's month excludes today. A store
+                # syncing since before this month already holds the larger figure; one that
+                # started today holds only today, and needs the dump's earlier days added.
+                monthly[0] = max((prev_sold[0] if prev_sold else 0) or 0,
+                                 monthly[0] + today_live)
+                daily[0] = today_live
 
             updates.append((row["cod"], row["v"], Json(monthly), Json(daily)))
 
