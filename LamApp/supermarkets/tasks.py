@@ -1499,7 +1499,7 @@ def sync_storages_task(self, supermarket_id):
     """Sync storages and client parameters from Dropzone for a supermarket."""
     from .models import Supermarket
     from .services import StorageService
-    from .scripts.dropzone_client import DropzoneClient
+    from .scripts.dropzone_client import DropzoneClient, DropzoneLoginError
 
     _log_ctx = None
     try:
@@ -1509,7 +1509,16 @@ def sync_storages_task(self, supermarket_id):
 
         # Client data first: storage discovery needs id_cliente
         client = DropzoneClient(supermarket.username, supermarket.password)
-        client.login()
+        try:
+            client.login()
+        except DropzoneLoginError as exc:
+            # Retrying cannot fix wrong credentials: fail now with a readable message
+            logger.warning(f"[SYNC STORAGES] Login refused for {supermarket.name}: {exc}")
+            if "expired" in str(exc):
+                msg = "Password Dropzone scaduta. Cambiala su Dropzone, poi inseriscila qui e premi di nuovo Sincronizza."
+            else:
+                msg = "Credenziali Dropzone non valide. Controlla username e password, poi premi di nuovo Sincronizza."
+            raise DropzoneLoginError(msg) from None
         client_data = client.gather_client_data()
 
         supermarket.id_cliente = client_data.get('id_cliente')
@@ -1534,6 +1543,8 @@ def sync_storages_task(self, supermarket_id):
             'supermarket_id': supermarket_id,
             'message': 'Magazzini e dati cliente sincronizzati con successo.',
         }
+    except DropzoneLoginError:
+        raise
     except Exception as exc:
         logger.exception(f"[SYNC STORAGES] Error for supermarket #{supermarket_id}")
         raise self.retry(exc=exc)

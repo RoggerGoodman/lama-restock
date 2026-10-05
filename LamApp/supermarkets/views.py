@@ -533,18 +533,16 @@ class SupermarketUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView)
     def form_valid(self, form):
         if not form.cleaned_data.get('password'):
             form.instance.password = Supermarket.objects.get(pk=form.instance.pk).password
-        return super().form_valid(form)
+        if 'sync_storages' not in self.request.POST:
+            return super().form_valid(form)
+        # Save first so the sync uses the credentials just typed
+        self.object = form.save()
+        from .tasks import sync_storages_task
+        result = sync_storages_task.apply_async(args=[self.object.pk])
+        return redirect('task-progress', task_id=result.id)
 
     def test_func(self):
         return self.get_object().owner == self.request.user
-
-    def post(self, request, *args, **kwargs):
-        if 'sync_storages' in request.POST:
-            supermarket = self.get_object()
-            from .tasks import sync_storages_task
-            result = sync_storages_task.apply_async(args=[supermarket.pk])
-            return redirect('task-progress', task_id=result.id)
-        return super().post(request, *args, **kwargs)
 
     def get_success_url(self):
         messages.success(self.request, "Supermarket updated successfully!")
