@@ -4,8 +4,12 @@ Browser-free Dropzone client. Login is a plain form POST, and every page the
 importers need is a JSON endpoint behind the session cookies it sets.
 """
 import logging
+import os
 import re
+import tempfile
+from pathlib import Path
 
+import certifi
 import requests
 
 logger = logging.getLogger(__name__)
@@ -24,6 +28,28 @@ AJAX_HEADERS = {
 }
 
 
+# Dropzone intermittently serves its certificate without the DigiCert intermediate.
+# Browsers fetch the missing piece themselves; requests does not and fails with
+# CERTIFICATE_VERIFY_FAILED. Trusting certifi's roots plus that intermediate lets the
+# chain verify either way.
+_INTERMEDIATE = Path(__file__).with_name("certs") / "digicert_global_g2_tls_rsa_sha256_2020_ca1.pem"
+
+
+def _ca_bundle() -> str:
+    content = Path(certifi.where()).read_bytes() + b"\n" + _INTERMEDIATE.read_bytes()
+    path = Path(tempfile.gettempdir()) / "lamarestock_dropzone_ca.pem"
+    if not path.exists() or path.read_bytes() != content:
+        # Unique temp name + replace, so concurrent workers never read a half-written file.
+        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".pem")
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+        os.replace(tmp, path)
+    return str(path)
+
+
+CA_BUNDLE = _ca_bundle()
+
+
 class DropzoneLoginError(Exception):
     pass
 
@@ -34,6 +60,7 @@ class DropzoneClient:
         self.username = username
         self.password = password
         self.session = requests.Session()
+        self.session.verify = CA_BUNDLE
         self.session.headers["User-Agent"] = USER_AGENT
         self._id_user = None
 
