@@ -814,6 +814,31 @@ class DatabaseManager:
         """, (settore, number, since))
         return cur.fetchone() is not None
 
+    def get_processing_table(self, settore):
+        """The stored {DDT weekday: order weekday} for this settore, or None if never learned."""
+        cur = self.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ddt_processing_tables (
+                settore TEXT PRIMARY KEY,
+                -- the agenda order days it was learned for, e.g. "1,3,6"
+                agenda TEXT NOT NULL,
+                -- NULL when the history fitted more than one reading
+                mapping JSONB,
+                learned_on DATE NOT NULL
+            )
+        """)
+        cur.execute("SELECT agenda, mapping, learned_on FROM ddt_processing_tables WHERE settore = %s", (settore,))
+        return cur.fetchone()
+
+    def save_processing_table(self, settore, agenda, mapping, learned_on):
+        cur = self.cursor()
+        cur.execute("""
+            INSERT INTO ddt_processing_tables (settore, agenda, mapping, learned_on)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (settore) DO UPDATE
+            SET agenda = EXCLUDED.agenda, mapping = EXCLUDED.mapping, learned_on = EXCLUDED.learned_on
+        """, (settore, agenda, Json(mapping) if mapping is not None else None, learned_on))
+
     def prune_document_ledger(self, before) -> int:
         """Drop documents dated before `before`, except deliveries still waiting to be booked."""
         if not self.has_document_ledger():

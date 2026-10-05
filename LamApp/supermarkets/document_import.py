@@ -10,6 +10,7 @@ every hour never imports anything twice.
 import logging
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
+from itertools import product
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -29,6 +30,13 @@ IMPORTED_TYPES = ('BOL', 'NAC')
 TOTAL_TOLERANCE = 0.05
 # The old 05:00 import's last retry ends around 06:30; the cutover never seeds before this
 CUTOVER_EARLIEST_HOUR = 7
+# Weeks of DDT dates the processing table is learned from
+HISTORY_WEEKS = 5
+# A DDT weekday is regular when it shows up in at least this share of those weeks
+REGULAR_SHARE = 0.6
+# A stored table is relearned after this long, or as soon as the agenda's order days change
+TABLE_MAX_AGE_DAYS = 7
+SUNDAY = 6
 
 
 def doc_key(header) -> str:
@@ -54,6 +62,39 @@ def cutover_covered_through(last_old_log_date, today) -> date:
     return min(last_old_log_date - timedelta(days=1), yesterday)
 
 
+def regular_ddt_weekdays(ddt_dates, weeks=HISTORY_WEEKS) -> set:
+    seen = defaultdict(set)
+    for d in ddt_dates:
+        seen[d.weekday()].add(d.isocalendar()[:2])
+    return {wd for wd, w in seen.items() if len(w) >= REGULAR_SHARE * weeks}
+
+
+def learn_processing_table(order_days, ddt_weekdays):
+    """
+    {DDT weekday: order weekday}, or None when the history allows more than one reading.
+
+    A DDT is dated the day the warehouse processes the order, which is the day it was
+    sent or the next working day, depending on a cutoff that differs per warehouse and
+    store. Warehouses never process on Sunday. Each order day therefore owns exactly one
+    regular DDT weekday, and only one assignment is accepted.
+    """
+    if not order_days:
+        return None
+    options = []
+    for o in order_days:
+        following = 0 if o + 1 >= SUNDAY else o + 1
+        candidates = {following} if o == SUNDAY else {o, following}
+        options.append([p for p in candidates if p in ddt_weekdays] or [None])
+    fits = []
+    for combo in product(*options):
+        mapped = [p for p in combo if p is not None]
+        if len(mapped) == len(set(mapped)):
+            fits.append(combo)
+    if len(fits) != 1:
+        return None
+    return {p: o for p, o in zip(fits[0], order_days) if p is not None}
+
+
 def group_documents(header_rows) -> dict:
     """Headers come one row per (document, reparto); fold them into documents."""
     docs = {}
@@ -73,12 +114,15 @@ class DocumentImporter:
         self.storages = list(supermarket.storages.all())
         self.today = date.today()
         self.summary = {'new': 0, 'pending': 0, 'credit_notes': 0, 'skipped': 0, 'incomplete': 0, 'failed': 0}
+        self._ddt_history = None
+        self._tables = {}
 
     def run(self) -> dict:
         client = DropzoneClient(self.supermarket.username, self.supermarket.password)
         client.login()
 
         x5cper = self.supermarket.x5cper or client.fetch_x5cper()
+        self.client, self.x5cper = client, x5cper
         id_cliente = self.supermarket.id_cliente or int(client.fetch_client()["value"])
         self.storage_by_code = self._map_warehouses(client.fetch_warehouses(id_cliente))
 
@@ -224,7 +268,6 @@ class DocumentImporter:
             return
 
         qty_by_product = defaultdict(lambda: {"qty": 0, "descrizione": ""})
-        order_dates = []
         for l in lines:
             try:
                 pair = (int(l["UACART"]), int(l["UACDAR"]))
@@ -232,10 +275,8 @@ class DocumentImporter:
                 continue
             qty_by_product[pair]["qty"] += _qty(l.get("UAQESP"))
             qty_by_product[pair]["descrizione"] = (l.get("UAXART") or "").strip()
-            if l.get("UACTDR") == "OPR" and l.get("UADDOC"):
-                order_dates.append(datetime.strptime(l["UADDOC"], "%Y-%m-%d").date())
 
-        delivery_date = self._delivery_date(storage, doc_date, min(order_dates) if order_dates else doc_date)
+        delivery_date = self._delivery_date(db, key, storage, h["X5NRCD"].strip(), doc_date)
         payload = [{"cod": c, "v": v, "qty": p["qty"], "descrizione": p["descrizione"]}
                    for (c, v), p in qty_by_product.items()]
         db.record_document(key, 'BOL', number, doc_date, 'pending',
@@ -244,17 +285,60 @@ class DocumentImporter:
             self.summary['pending'] += 1
         logger.info(f"[DOCS] {key} ({storage.name}): {len(payload)} products, delivery {delivery_date}")
 
-    def _delivery_date(self, storage, doc_date, order_date):
+    def _delivery_date(self, db, key, storage, series, doc_date):
         """
-        The goods arrive when the agenda says the order lands, never before the DDT
-        exists. A DDT can bundle a regular order with extra ones that ride the same
-        truck, so the earliest order on it is the one that sets the date.
+        The DDT date is the day the warehouse processed the order, not the day it was
+        sent (the order date on its lines is that same processing day). The learned
+        table says which agenda order day each DDT weekday belongs to; the agenda then
+        says when that order lands. Extra orders ride the same truck as the regular one.
         """
         try:
-            planned = storage.schedule.delivery_date_for_order(order_date)
+            schedule = storage.schedule
         except RestockSchedule.DoesNotExist:
-            planned = order_date + timedelta(days=1)
-        return max(doc_date, planned)
+            logger.warning(f"[DOCS] {key} ({storage.name}): no agenda, booked on its DDT date {doc_date}")
+            return doc_date
+
+        table = self._processing_table(db, storage, schedule, series)
+        order_day = (table or {}).get(doc_date.weekday())
+        if order_day is not None:
+            order_date = doc_date - timedelta(days=(doc_date.weekday() - order_day) % 7)
+            return max(doc_date, schedule.delivery_date_for_order(order_date))
+
+        # A holiday, an order sent at an unusual time, or a changed agenda. Server log
+        # only: the client never sees this.
+        delivery_days = {(o + schedule.get_delivery_offset(o)) % 7 for o in schedule.get_order_days()}
+        fallback = next((doc_date + timedelta(days=i) for i in range(7)
+                         if (doc_date + timedelta(days=i)).weekday() in delivery_days), doc_date)
+        logger.warning(f"[DOCS] {key} ({storage.name}): DDT dated {doc_date:%a %d/%m} matches no agenda order "
+                       f"day (table {table}), booked on the next delivery day {fallback}")
+        return fallback
+
+    def _processing_table(self, db, storage, schedule, series):
+        if storage.pk in self._tables:
+            return self._tables[storage.pk]
+
+        order_days = schedule.get_order_days()
+        agenda = ",".join(map(str, order_days))
+        stored = db.get_processing_table(storage.settore)
+        if stored and stored["agenda"] == agenda and (self.today - stored["learned_on"]).days < TABLE_MAX_AGE_DAYS:
+            table = {int(p): o for p, o in stored["mapping"].items()} if stored["mapping"] is not None else None
+        else:
+            if self._ddt_history is None:
+                since = self.today - timedelta(weeks=HISTORY_WEEKS)
+                headers = self.client.fetch_document_headers(
+                    self.x5cper, since.strftime("%Y%m%d"), (self.today - timedelta(days=1)).strftime("%Y%m%d"))
+                self._ddt_history = defaultdict(set)
+                for doc in group_documents(headers).values():
+                    h = doc["header"]
+                    if h["X5CNAT"] == 'BOL':
+                        self._ddt_history[h["X5NRCD"].strip()].add(_parse_ymd(h["X5DDOC"]))
+            ddt_weekdays = regular_ddt_weekdays(self._ddt_history[series])
+            table = learn_processing_table(order_days, ddt_weekdays)
+            db.save_processing_table(storage.settore, agenda, table, self.today)
+            logger.info(f"[DOCS] {storage.name}: processing table learned {table} "
+                        f"(order days {order_days}, regular DDT weekdays {sorted(ddt_weekdays)})")
+        self._tables[storage.pk] = table
+        return table
 
     def _import_credit_note(self, db, key, number, doc_date, lines):
         by_storage = defaultdict(list)
