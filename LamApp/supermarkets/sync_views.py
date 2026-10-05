@@ -377,6 +377,27 @@ def history_script_view(request, token):
 
 
 
+# Barcode -> (cod, v) map, shared by the live sync and the history export. Prefers
+# CassaAna.CodEan, what the tills resolve against; not every store has that database, so
+# Essepiu.CODEAN is the fallback. Each branch is dynamic SQL so the one naming a missing
+# table is never compiled. segn / segn_stato_record = 1 keeps active rows only: without it
+# a barcode maps to several articles and quantities multiply.
+# > 0 because a blank barcode casts to 0, the same value as a till line with no barcode
+# (counter sales), which would then all be booked to that article.
+_EAN_MAP_SQL = """CREATE TABLE #map (ean_n BIGINT, cod INT, v INT);
+IF OBJECT_ID('CassaAna.dbo.CodEan') IS NOT NULL
+    EXEC('INSERT INTO #map
+          SELECT DISTINCT TRY_CAST(LTRIM(RTRIM(cod_est)) AS BIGINT), cod_art, var_art
+          FROM CassaAna.dbo.CodEan
+          WHERE segn = 1 AND TRY_CAST(LTRIM(RTRIM(cod_est)) AS BIGINT) > 0');
+ELSE
+    EXEC('INSERT INTO #map
+          SELECT DISTINCT TRY_CAST(LTRIM(RTRIM(cod__esterno)) AS BIGINT), cod__articolo, variante_articolo
+          FROM Essepiu.dbo.CODEAN
+          WHERE segn_stato_record = 1 AND TRY_CAST(LTRIM(RTRIM(cod__esterno)) AS BIGINT) > 0');
+CREATE INDEX ix_map ON #map(ean_n);"""
+
+
 def _build_history_export_script() -> str:
     """
     PowerShell that dumps 24 monthly + 60 daily figures per product to a local JSON file.
@@ -426,10 +447,7 @@ HAVING SUM(pz) <> 0;
 $DailyEverest = @"
 SET NOCOUNT ON;
 DECLARE @today date = CAST(GETDATE() AS DATE);
-SELECT DISTINCT TRY_CAST(LTRIM(RTRIM(cod_est)) AS BIGINT) AS ean_n, cod_art AS cod, var_art AS v
-INTO #map FROM CassaAna.dbo.CodEan
-WHERE segn = 1 AND TRY_CAST(LTRIM(RTRIM(cod_est)) AS BIGINT) IS NOT NULL;
-CREATE INDEX ix_map ON #map(ean_n);
+__EAN_MAP_SQL__
 SELECT m.cod AS cod, m.v AS var,
        DATEDIFF(day, CAST(li.DT_TIME_STAMP AS DATE), @today) AS idx,
        SUM(CASE WHEN li.BL_RETURN=1 THEN -li.N0_QUANTITY ELSE li.N0_QUANTITY END) AS pz
@@ -500,7 +518,7 @@ foreach ($p in $acc.Values) {
 Write-Host ""
 Write-Host "Fatto: $OutFile ($([math]::Round((Get-Item $OutFile).Length/1MB,1)) MB, $($acc.Count) prodotti)"
 Write-Host "Caricare il file sul sito, nella pagina Importa storico."
-"""
+""".replace("__EAN_MAP_SQL__", _EAN_MAP_SQL)
 
 # ---------------------------------------------------------------------------
 # Sync log — detail view + actions
@@ -751,8 +769,7 @@ def _build_realtime_sync_script(token: str, server_url: str, curve_url: str) -> 
     Sends ABSOLUTE totals, not increments — the server subtracts what it already applied,
     so runs are idempotent and the store PC keeps no state.
 
-    Maps via CassaAna.CodEan (what the till resolves against) filtered to segn = 1;
-    without that filter a barcode resolves to several articles and quantities multiply.
+    Barcodes are mapped by _EAN_MAP_SQL.
     N0_UOM_CODE = 2 is weight-sold goods, excluded since we only handle whole units.
     """
     return f"""# sync_sales_rt.ps1 - LamApp real-time sales sync
@@ -773,12 +790,7 @@ $Query = @"
 SET NOCOUNT ON;
 DECLARE @today date = '$TodayStr';
 
-SELECT DISTINCT TRY_CAST(LTRIM(RTRIM(cod_est)) AS BIGINT) AS ean_n,
-       cod_art AS cod, var_art AS v
-INTO #map
-FROM CassaAna.dbo.CodEan
-WHERE segn = 1 AND TRY_CAST(LTRIM(RTRIM(cod_est)) AS BIGINT) IS NOT NULL;
-CREATE INDEX ix_map ON #map(ean_n);
+{_EAN_MAP_SQL}
 
 SELECT m.cod AS cod, m.v AS var,
        SUM(CASE WHEN li.BL_RETURN = 1 THEN -li.N0_QUANTITY ELSE li.N0_QUANTITY END) AS sold,
