@@ -36,15 +36,22 @@ _INTERMEDIATE = Path(__file__).with_name("certs") / "digicert_global_g2_tls_rsa_
 
 
 def _ca_bundle() -> str:
-    content = Path(certifi.where()).read_bytes() + b"\n" + _INTERMEDIATE.read_bytes()
-    path = Path(tempfile.gettempdir()) / "lamarestock_dropzone_ca.pem"
-    if not path.exists() or path.read_bytes() != content:
-        # Unique temp name + replace, so concurrent workers never read a half-written file.
-        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".pem")
-        with os.fdopen(fd, "wb") as f:
-            f.write(content)
-        os.replace(tmp, path)
-    return str(path)
+    # Runs at import, so it must never raise: any failure falls back to plain certifi.
+    try:
+        content = Path(certifi.where()).read_bytes() + b"\n" + _INTERMEDIATE.read_bytes()
+        # One file per OS user: mkstemp creates it 0600, so a bundle written by root (a
+        # deploy-time manage.py) would be unreadable to the gunicorn/celery user.
+        path = Path(tempfile.gettempdir()) / f"lamarestock_dropzone_ca_{os.getuid() if hasattr(os, 'getuid') else 0}.pem"
+        if not path.exists() or path.read_bytes() != content:
+            # Unique temp name + replace, so concurrent workers never read a half-written file.
+            fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".pem")
+            with os.fdopen(fd, "wb") as f:
+                f.write(content)
+            os.replace(tmp, path)
+        return str(path)
+    except Exception:
+        logger.exception("Dropzone CA bundle unavailable, using certifi only")
+        return certifi.where()
 
 
 CA_BUNDLE = _ca_bundle()
