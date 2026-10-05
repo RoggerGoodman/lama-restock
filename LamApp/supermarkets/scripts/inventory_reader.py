@@ -2,6 +2,7 @@
 
 import pandas as pd
 import os
+import re
 import pdfplumber
 from .DatabaseManager import DatabaseManager
 from django.conf import settings
@@ -160,17 +161,52 @@ def verify_lost_stock_from_excel_combined(db: DatabaseManager, internal_spread_d
         'absent_eans': absent_eans,
     }
 
+# "Valorizzazione Inventario" row: cod v DESCRIZIONE UM IVA Rilevata costo... prezzo... [art.forn] EAN
+_VALORIZZAZIONE_ROW = re.compile(
+    r'^(\d+)\s+(\d+)\s+.*?\s(?:PZ|KG)\s+\d+,\d+\s+(-?\d[\d.]*(?:,\d+)?)\s'
+)
+
+
+def _it_number(s: str) -> float:
+    return float(s.replace('.', '').replace(',', '.'))
+
+
+def _parse_valorizzazione_pages(pages, aggregated):
+    """Inventario per merceologia / Valorizzazione Inventario export."""
+    for page in pages:
+        # Default tolerance glues the variant onto the description ("25006 1VINO")
+        text = page.extract_text(x_tolerance=1)
+        if not text:
+            continue
+        for line in text.split('\n'):
+            m = _VALORIZZAZIONE_ROW.match(line.strip())
+            if not m:
+                continue
+            key = (int(m.group(1)), int(m.group(2)))
+            aggregated[key] = aggregated.get(key, 0) + round(_it_number(m.group(3)))
+
+
 def parse_pdf(pdf_path: str):
     """
-    Parse loss PDF file and extract product data.
+    Parse an inventory PDF and extract product data.
 
+    Supports "Stampa Articoli Scaricati da Terminalino" and
+    "Valorizzazione Inventario" (Inventario per merceologia) exports.
     Aggregates quantities when the same (cod, v) appears multiple times.
     """
     aggregated = {}  # (cod, v) -> qty
 
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
+            first_text = (pdf.pages[0].extract_text() or '') if pdf.pages else ''
+            if 'Valorizzazione Inventario' in first_text:
+                logger.info("Detected 'Valorizzazione Inventario' PDF format")
+                _parse_valorizzazione_pages(pdf.pages, aggregated)
+                pages = []
+            else:
+                pages = pdf.pages
+
+            for page in pages:
                 text = page.extract_text()
                 if not text:
                     continue
