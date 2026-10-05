@@ -132,8 +132,8 @@ class StorageService:
                 or Storage.objects.filter(supermarket=supermarket, name=name).first()
             )
             if storage is None:
-                # Remove numeric prefix if present
-                settore = re.sub(r'^[^ ]+\s*-?\s*', '', name)
+                # Drop the location prefix ("FIANO - CARNI" -> "CARNI"); single-word names stay whole
+                settore = re.sub(r'^[^ ]+\s*-?\s*', '', name) or name
                 Storage.objects.create(
                     supermarket=supermarket, name=name, settore=settore, id_cod_mag=id_cod_mag,
                 )
