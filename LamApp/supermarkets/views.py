@@ -2072,8 +2072,10 @@ def order_review_search(request, pk):
     try:
         with RestockService(storage) as service:
             cur = service.db.cursor()
+            # No disponibilita filter: an explicit scan/cod.v/description lookup should
+            # find the product even if it's flagged unavailable; the card warns instead.
             base_select = """
-                SELECT p.cod, p.v, p.descrizione, p.pz_x_collo,
+                SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.disponibilita,
                        ps.stock, ps.sales_sets, ps.sold_last_24,
                        e.price_std, e.price_s, e.sale_start, e.sale_end,
                        (e.sale_start IS NOT NULL AND e.sale_end IS NOT NULL
@@ -2081,7 +2083,7 @@ def order_review_search(request, pk):
                 FROM products p
                 LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
                 LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
-                WHERE p.settore = %s AND p.disponibilita != 'No'
+                WHERE p.settore = %s
             """
             if cod_raw and var_raw:
                 cur.execute(base_select + " AND p.cod = %s AND p.v = %s",
@@ -2129,6 +2131,7 @@ def order_review_search(request, pk):
                     'package_size': row['pz_x_collo'] or 0,
                     'on_sale': on_sale,
                     'discount': discount,
+                    'unavailable': (row['disponibilita'] == 'No'),
                     'link': link_info,
                 })
 
