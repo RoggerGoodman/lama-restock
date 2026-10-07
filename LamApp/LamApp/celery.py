@@ -34,8 +34,7 @@ app.autodiscover_tasks()
 #   03:00  check-list-updates
 #   03:30  backfill-ean
 #   03:45  sync-product-links         (cleanup + chain links applied, after fresh lists)
-#   06:00-22:00 import-documents      (hourly: DDTs + credit notes; books due deliveries, snapshots calibration)
-#   08:00  daily-calibration          (grades yesterday, which closed at the 21:30 sync)
+#   06:00-22:00 import-documents      (hourly: DDTs + credit notes; books due deliveries, grades calibration)
 #   08:30-21:30 real-time sales sync  (store PC pushes today's running totals, every 15 min)
 #   */15   run-scheduled-orders       (fires each storage at its own configured time)
 #   12:00  monthly-stock-snapshots    (1st of month only)
@@ -104,12 +103,6 @@ app.conf.beat_schedule = {
     'run-scheduled-orders': {
         'task': 'supermarkets.tasks.run_scheduled_orders',
         'schedule': crontab(minute='*/15'),
-    },
-
-    # 08:00 — complete calibration reports against yesterday's now-final sales
-    'daily-calibration': {
-        'task': 'supermarkets.tasks.run_daily_calibration',
-        'schedule': crontab(hour=8, minute=0),
     },
 
     # 1st of month — 12:00

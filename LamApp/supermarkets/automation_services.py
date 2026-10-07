@@ -377,10 +377,34 @@ class AutomatedRestockService(RestockService):
             raise
         return log
 
+    def grade_calibration_report(self, report, raw_stock):
+        """Fill report's counts and results from a pre-delivery stock snapshot. Does not save."""
+        cal = self.compute_calibration_for_storage(
+            coverage_days=report.coverage_days,
+            raw_stock=raw_stock,
+        )
+        report.products_evaluated = cal['products_evaluated']
+        report.products_ok = cal['products_ok']
+        report.products_overstocked = cal['products_overstocked']
+        report.products_understocked = cal['products_understocked'] + cal['products_critical']
+        report.set_results({
+            'products_critical': cal['products_critical'],
+            'critical': cal['critical'],
+            'understocked': cal['understocked'],
+            'overstocked': cal['overstocked'],
+            'ok': cal['ok'],
+        })
+        logger.info(
+            f"[CAL] {self.storage.name}: critical={cal['products_critical']}, "
+            f"under={cal['products_understocked']}, over={cal['products_overstocked']}, "
+            f"ok={cal['products_ok']}"
+        )
+
     def _save_calibration_snapshot(self, log, today):
         """
-        Pending OrderCalibrationReport holding stock as it was just before today's
-        delivery; run_daily_calibration grades it. One per storage per day.
+        OrderCalibrationReport grading stock as it was just before today's delivery.
+        Sales history uses completed days only, so it is already final at booking time.
+        One per storage per day.
         """
         from .models import OrderCalibrationReport
 
@@ -411,16 +435,11 @@ class AutomatedRestockService(RestockService):
                 ddt_import_log=log,
                 days_elapsed=days_elapsed,
                 coverage_days=coverage_days,
-                products_evaluated=0,
-                products_ok=0,
-                products_overstocked=0,
-                products_understocked=0,
             )
-            cal_report.set_results({'status': 'pending', 'raw_stock': raw_stock})
+            self.grade_calibration_report(cal_report, raw_stock)
             cal_report.save()
-            logger.info(f"[DDT] Stock snapshot saved for {self.storage.name} ({len(raw_stock)} products) — report pending calibration")
         except Exception:
-            logger.exception(f"[DDT] Stock snapshot failed for {self.storage.name} — DDT import continues")
+            logger.exception(f"[DDT] Calibration report failed for {self.storage.name} — DDT import continues")
     
     # Warn only — the fraction is measured from the sync timestamp, so it stays correct
     # when stale; blocking here would risk a stockout over a reporting problem.
