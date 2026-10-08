@@ -306,7 +306,7 @@ class DecisionMaker:
                 logger.info(f"{product_cod}.{product_var} - {descrizione} skipped because is not verified and not available")
                 continue
 
-            if stock == 0 and verified and disponibilita == "No" and settore != "DEPERIBILI":
+            if stock == 0 and verified and disponibilita == "No":
                 logger.info(f"{product_cod}.{product_var} - {descrizione} marked as zombie because is not available and has verified stock of 0")
                 zombie_products.append({
                     'cod': product_cod,
@@ -326,7 +326,7 @@ class DecisionMaker:
             package_size *= package_multi
 
             if bought_array[0] == 0 and sold_array[0] == 0:
-                if not verified and (disponibilita == "Si" or settore == "DEPERIBILI"):
+                if not verified:
                     reason = "Never been in system (brand new product)"
                     Helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     continue

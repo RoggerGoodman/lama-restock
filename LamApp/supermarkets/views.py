@@ -310,7 +310,7 @@ def dashboard_view(request):
                         WHERE p.settore = %s
                             AND p.purge_flag = FALSE
                             AND ps.verified IS NOT TRUE
-                            AND (p.disponibilita = 'Si' OR p.settore = 'DEPERIBILI')
+                            AND p.disponibilita != 'No'
                             AND (ps.bought_last_24 IS NULL OR ps.bought_last_24 = '[]'::jsonb OR (ps.bought_last_24->0)::numeric = 0)
                             AND (ps.sold_last_24 IS NULL OR ps.sold_last_24 = '[]'::jsonb OR (ps.sold_last_24->0)::numeric = 0)
                             AND p.first_added_at >= CURRENT_DATE - INTERVAL '7 days'
@@ -785,7 +785,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     WHERE p.settore = %s
                         AND p.purge_flag = FALSE
                         AND ps.verified IS NOT TRUE
-                        AND (p.disponibilita = 'Si' OR p.settore = 'DEPERIBILI')
+                        AND p.disponibilita != 'No'
                         AND (ps.bought_last_24 IS NULL OR ps.bought_last_24 = '[]'::jsonb OR (ps.bought_last_24->0)::numeric = 0)
                         AND (ps.sold_last_24 IS NULL OR ps.sold_last_24 = '[]'::jsonb OR (ps.sold_last_24->0)::numeric = 0)
                     ORDER BY

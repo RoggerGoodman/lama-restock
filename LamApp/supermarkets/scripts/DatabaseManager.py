@@ -1230,6 +1230,8 @@ class DatabaseManager:
         Import products from a CSV file into the given settore.
         Updates existing entries or inserts new ones.
         """
+        from .web_lister import orderable_availability
+
         print(f"Importing from '{file_path}' into settore '{settore}'...")
 
         df = pd.read_csv(file_path, sep=";", encoding="utf-8")
@@ -1240,6 +1242,7 @@ class DatabaseManager:
         RAPP_COLS = "Multiplier"
         PZ_COLS   = "Package"
         DISP_COLS = "Availability"
+        STATE_COLS = "State"
         COST_COLS = "Cost"
         PRICE_COLS = "Price"
         REP_COLS  = "Category"
@@ -1257,7 +1260,10 @@ class DatabaseManager:
             v           = int(row[V_COLS]) if not pd.isna(row[V_COLS]) else 0
             descrizione = str(row[DESC_COLS]).strip() if DESC_COLS in df.columns else ""
             pz_x_collo  = int(row[PZ_COLS]) if PZ_COLS in df.columns and not pd.isna(row[PZ_COLS]) else None
-            disponibilita = str(row[DISP_COLS]).strip() if DISP_COLS in df.columns else "Si"
+            disponibilita = orderable_availability(
+                row[STATE_COLS] if STATE_COLS in df.columns else None,
+                row[DISP_COLS] if DISP_COLS in df.columns else None,
+            )
             cost        = float(row[COST_COLS]) if COST_COLS in df.columns else None
             price       = float(row[PRICE_COLS]) if PRICE_COLS in df.columns else None
             category    = str(row[REP_COLS]).strip() if REP_COLS in df.columns else ""

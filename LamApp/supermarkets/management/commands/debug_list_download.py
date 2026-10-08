@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from supermarkets.models import Storage
-from supermarkets.scripts.web_lister import WebLister, is_real_product
+from supermarkets.scripts.web_lister import WebLister, is_real_product, orderable_availability
 
 
 class Command(BaseCommand):
@@ -94,6 +94,8 @@ class Command(BaseCommand):
                     self.stdout.write(
                         f"FOUND in RepartoIn={group}: "
                         f"disponibilita2={row.get('disponibilita2')!r} "
+                        f"saIDStatoArticolo={row.get('saIDStatoArticolo')!r} "
+                        f"-> imports as {orderable_availability(row.get('saIDStatoArticolo'), row.get('disponibilita2'))!r} "
                         f"arIDArticolo={row.get('arIDArticolo')!r} "
                         f"is_real_product={keeps} "
                         f"desc={row.get('arDescrizione')!r}"

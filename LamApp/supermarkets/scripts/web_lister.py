@@ -19,6 +19,7 @@ CSV_COLUMN_MAP = {
     "Imballo": "Package",
     "arRapportoCessioneVendita": "Multiplier",
     "disponibilita2": "Availability",
+    "saIDStatoArticolo": "State",
     "cessione": "Cost",
     "vendita": "Price",
     "reDescrizione": "Category",
@@ -290,7 +291,7 @@ class WebLister:
         description = data.get("Descrizione")
         package = data.get("Imballo")
         multiplier = data.get("RapportoCessioneVendita")
-        availability = data.get("disponibilita2")
+        availability = orderable_availability(data.get("saIDStatoArticolo"), data.get("disponibilita2"))
         cost = data.get("cessione")
         price = data.get("vendita")
         category = data.get("DexReparto")
@@ -429,6 +430,27 @@ def download_product_list(username: str, password: str, storage_name: str,
                        id_clienti_canale=id_clienti_canale,
                        id_clienti_area=id_clienti_area)
     return lister.run()
+
+STATO_IN_ASSORTIMENTO = 13
+STATO_AD_ESAURIMENTO = 16
+
+
+def orderable_availability(state, disponibilita2) -> str:
+    """
+    'Si'/'No' from the assortment state (saIDStatoArticolo).
+    disponibilita2 is live warehouse stock, so it only matters for
+    'ad esaurimento' items, which never come back once sold out.
+    """
+    try:
+        state = int(state)
+    except (TypeError, ValueError):
+        state = None
+    if state == STATO_IN_ASSORTIMENTO:
+        return "Si"
+    if state in (STATO_AD_ESAURIMENTO, None):
+        return "No" if str(disponibilita2).strip() == "No" else "Si"
+    return "No"
+
 
 def is_real_product(row: dict) -> bool:
     """
