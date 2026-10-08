@@ -133,13 +133,14 @@ class AutomatedRestockService(RestockService):
         eff_min computation mirrors processor_N.process_N_sales exactly,
         including shelf_life cap and expiry penalty factors.
         """
-        min_floor = self.storage.minimum_stock
+        storage_floor = self.storage.minimum_stock
+        cluster_floors = self.storage.cluster_minimum_stocks()
 
         cur = self.db.cursor()
         cur.execute("""
             SELECT ps.cod, ps.v, p.descrizione, ps.stock, ps.minimum_stock AS min_override,
                    ps.sales_sets, ps.bought_sets, ps.sold_last_24,
-                   p.pz_x_collo, p.rapp, p.shelf_life_days,
+                   p.pz_x_collo, p.rapp, p.shelf_life_days, p.cluster,
                    e.sale_start, e.sale_end
             FROM product_stats ps
             JOIN products p ON p.cod = ps.cod AND p.v = ps.v
@@ -171,6 +172,7 @@ class AutomatedRestockService(RestockService):
             cod, v = row['cod'], row['v']
             stock = raw_stock[key] if raw_stock is not None and key in raw_stock else (row['stock'] or 0)
             min_override = row['min_override']
+            min_floor = cluster_floors.get(row['cluster'], storage_floor)
             # Completed days only — slot 0 is the running day (see Helper.sales_history)
             sales_sets = Helper.sales_history(row['sales_sets'])
             bought_sets = row['bought_sets'] or []
@@ -545,7 +547,8 @@ class AutomatedRestockService(RestockService):
                     product_links=ProductLink.build_pairs(self.supermarket),
                 )
                 decision_maker.decide_orders_for_settore(
-                    self.settore, coverage, self.storage.minimum_stock, lead_days=lead_days
+                    self.settore, coverage, self.storage.minimum_stock, lead_days=lead_days,
+                    cluster_minimum_stock=self.storage.cluster_minimum_stocks(),
                 )
                 orders_list = decision_maker.orders_list
                 zombie_products = decision_maker.zombie_products
@@ -752,7 +755,10 @@ class AutomatedRestockService(RestockService):
             skip_sale=skip_sale,
             product_links=ProductLink.build_pairs(self.supermarket),
         )
-        decision_maker.decide_orders_for_settore(settore, coverage, self.storage.minimum_stock)
+        decision_maker.decide_orders_for_settore(
+            settore, coverage, self.storage.minimum_stock,
+            cluster_minimum_stock=self.storage.cluster_minimum_stocks(),
+        )
         new_list = decision_maker.orders_list
 
         new_qty = {

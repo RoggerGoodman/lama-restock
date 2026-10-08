@@ -25,7 +25,7 @@ from LamApp.celery import app as celery_app
 from celery.result import AsyncResult
 
 from .models import (
-    Supermarket, Storage, RestockSchedule, ScheduleException,
+    Supermarket, Storage, ClusterSetting, RestockSchedule, ScheduleException,
     Blacklist, BlacklistEntry, RestockLog,
     Recipe, RecipeProductItem, RecipeExternalItem, RecipeCostAlert,
     StockValueSnapshot,
@@ -4266,6 +4266,17 @@ def _todays_deliveries(user, results):
     return out
 
 
+def _set_default_minimum(result, storage, cluster_minimums):
+    """Baseline that applies when the product has no override: cluster value if set, else storage."""
+    cluster = result.get('cluster')
+    if cluster in cluster_minimums:
+        result['storage_minimum_stock'] = cluster_minimums[cluster]
+        result['default_minimum_label'] = f"Default cluster {cluster}"
+    else:
+        result['storage_minimum_stock'] = storage.minimum_stock
+        result['default_minimum_label'] = "Default magazzino"
+
+
 @login_required
 def inventory_results_view(request, search_type):
     """Display inventory search results - NOW INCLUDES minimum_stock"""
@@ -4311,7 +4322,7 @@ def inventory_results_view(request, search_type):
                             result['storage_id'] = product_storage.id if product_storage else storage.id
                             result['minimum_stock'] = row['minimum_stock']  # None if no per-product override
                             effective_storage = product_storage or storage
-                            result['storage_minimum_stock'] = effective_storage.minimum_stock
+                            _set_default_minimum(result, effective_storage, effective_storage.cluster_minimum_stocks())
                             results.append(result)
                     except Exception as e:
                         logger.exception(f"Error searching in {sm.name}")
@@ -4368,7 +4379,7 @@ def inventory_results_view(request, search_type):
                             result['storage_id'] = product_storage.id if product_storage else storage.id
                             result['minimum_stock'] = row['minimum_stock']
                             effective_storage = product_storage or storage
-                            result['storage_minimum_stock'] = effective_storage.minimum_stock
+                            _set_default_minimum(result, effective_storage, effective_storage.cluster_minimum_stocks())
                             results.append(result)
                     except Exception:
                         logger.exception(f"Error searching EAN in {sm.name}")
@@ -4437,12 +4448,13 @@ def inventory_results_view(request, search_type):
                             ORDER BY p.cluster, p.descrizione
                         """, (settore,))
 
+                    cluster_minimums = storage.cluster_minimum_stocks()
                     for row in cur.fetchall():
                         result = dict(row)
                         result['supermarket_name'] = supermarket.name
                         result['storage_id'] = storage.id
                         result['minimum_stock'] = row['minimum_stock']  # None if no per-product override
-                        result['storage_minimum_stock'] = storage.minimum_stock
+                        _set_default_minimum(result, storage, cluster_minimums)
                         results.append(result)
 
                 except Exception as e:
@@ -4520,7 +4532,10 @@ def cluster_order_preview_view(request):
             lead_days = storage.schedule.calculate_lead_days(
                 today_date.weekday(), reference_date=today_date
             ) if hasattr(storage, 'schedule') else 0.0
-            dm.decide_orders_for_settore(settore, coverage, storage.minimum_stock, lead_days=lead_days)
+            dm.decide_orders_for_settore(
+                settore, coverage, storage.minimum_stock, lead_days=lead_days,
+                cluster_minimum_stock=storage.cluster_minimum_stocks(),
+            )
 
             if dm.orders_list:
                 cur = service.db.cursor()
@@ -5056,10 +5071,18 @@ def assign_clusters_view(request):
             logger.exception("Error assigning clusters")
             messages.error(request, f"Errore: {str(e)}")
             return redirect('assign-clusters')
-    
-    # Load existing clusters for reference
+
+    clusters_by_storage, _ = _load_clusters_by_storage(supermarkets)
+    return render(request, 'inventory/assign_clusters.html', {
+        'supermarkets': supermarkets,
+        'clusters_by_storage': json.dumps(clusters_by_storage),
+    })
+
+
+def _load_clusters_by_storage(supermarkets):
+    """Return ({storage_id: [clusters]}, [storages that have at least one cluster])."""
     clusters_by_storage = {}
-    all_storages = []
+    storages_with_clusters = []
     for sm in supermarkets:
         for storage in sm.storages.all():
             with RestockService(storage) as service:
@@ -5074,24 +5097,80 @@ def assign_clusters_view(request):
                 clusters = [row['cluster'] for row in cursor.fetchall()]
                 clusters_by_storage[storage.id] = clusters
             if clusters:
-                all_storages.append({'id': storage.id, 'label': f"{sm.name} — {storage.settore}", 'clusters': clusters})
-    return render(request, 'inventory/assign_clusters.html', {
-        'supermarkets': supermarkets,
+                storages_with_clusters.append({'id': storage.id, 'label': f"{sm.name} — {storage.settore}"})
+    return clusters_by_storage, storages_with_clusters
+
+
+@login_required
+def cluster_management_view(request):
+    """Rename/move/delete clusters, set a cluster's Giacenza minima, block a cluster via blacklist."""
+    supermarkets = Supermarket.objects.filter(owner=request.user)
+    clusters_by_storage, all_storages = _load_clusters_by_storage(supermarkets)
+
+    storage_minimums = dict(
+        Storage.objects.filter(supermarket__owner=request.user).values_list('id', 'minimum_stock')
+    )
+    cluster_minimums = {}
+    for storage_id, name, value in ClusterSetting.objects.filter(
+        storage__supermarket__owner=request.user, minimum_stock__isnull=False
+    ).values_list('storage_id', 'name', 'minimum_stock'):
+        if name in clusters_by_storage.get(storage_id, []):
+            cluster_minimums.setdefault(storage_id, {})[name] = value
+
+    return render(request, 'inventory/cluster_management.html', {
         'clusters_by_storage': json.dumps(clusters_by_storage),
         'all_storages': all_storages,
+        'storage_minimums': json.dumps(storage_minimums),
+        'cluster_minimums': json.dumps(cluster_minimums),
     })
+
+
+@login_required
+@require_POST
+def cluster_set_minimum_stock_view(request):
+    """Set or clear a cluster's Giacenza minima. Empty value = back to the storage default."""
+    storage_id = request.POST.get('storage_id')
+    cluster = request.POST.get('cluster', '').strip().upper()
+    raw = request.POST.get('minimum_stock', '').strip()
+
+    if not storage_id or not cluster:
+        messages.error(request, "Seleziona un magazzino e un cluster.")
+        return redirect('cluster-management')
+
+    storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
+
+    if raw == '':
+        ClusterSetting.objects.filter(storage=storage, name=cluster).update(minimum_stock=None)
+        messages.success(
+            request,
+            f"Cluster '{cluster}': giacenza minima rimossa, si usa il default del magazzino ({storage.minimum_stock})."
+        )
+        return redirect('cluster-management')
+
+    try:
+        value = int(raw)
+        if value < 0:
+            raise ValueError
+    except ValueError:
+        messages.error(request, "La giacenza minima deve essere un numero intero >= 0.")
+        return redirect('cluster-management')
+
+    ClusterSetting.objects.update_or_create(storage=storage, name=cluster, defaults={'minimum_stock': value})
+    messages.success(request, f"Cluster '{cluster}': giacenza minima impostata a {value}.")
+    return redirect('cluster-management')
+
 
 @login_required
 @require_POST
 def manage_cluster_view(request):
-    """Handle cluster rename/move and delete operations from assign_clusters page."""
+    """Handle cluster rename/move and delete operations from the cluster management page."""
     storage_id = request.POST.get('storage_id')
     source = request.POST.get('source_cluster', '').strip().upper()
     action = request.POST.get('action')
 
     if not storage_id or not source:
         messages.error(request, "Seleziona un magazzino e un cluster.")
-        return redirect('assign-clusters')
+        return redirect('cluster-management')
 
     storage = get_object_or_404(Storage, id=storage_id, supermarket__owner=request.user)
 
@@ -5099,7 +5178,7 @@ def manage_cluster_view(request):
         new_name = request.POST.get('new_name', '').strip().upper()
         if not new_name:
             messages.error(request, "Inserisci il nuovo nome del cluster.")
-            return redirect('assign-clusters')
+            return redirect('cluster-management')
         with RestockService(storage) as service:
             cur = service.db.cursor()
             cur.execute(
@@ -5107,6 +5186,12 @@ def manage_cluster_view(request):
                 (new_name, storage.settore, source)
             )
             count = cur.rowcount
+        # Products joining an existing cluster take its settings; otherwise the settings follow the rename
+        if new_name != source:
+            if ClusterSetting.objects.filter(storage=storage, name=new_name).exists():
+                ClusterSetting.objects.filter(storage=storage, name=source).delete()
+            else:
+                ClusterSetting.objects.filter(storage=storage, name=source).update(name=new_name)
         if action == 'move':
             messages.success(request, f"{count} prodotti spostati da '{source}' a '{new_name}'.")
         else:
@@ -5129,12 +5214,13 @@ def manage_cluster_view(request):
                 "UPDATE products SET cluster = NULL WHERE settore = %s AND cluster = %s",
                 (storage.settore, source)
             )
+        ClusterSetting.objects.filter(storage=storage, name=source).delete()
         messages.success(request, f"Cluster '{source}' eliminato e prodotti purgati.")
 
     else:
         messages.error(request, "Azione non valida.")
 
-    return redirect('assign-clusters')
+    return redirect('cluster-management')
 
 
 @login_required

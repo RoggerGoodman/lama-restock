@@ -82,7 +82,7 @@ class DecisionMaker:
         """
         query = """
             SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
-                ps.bought_sets, p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag,
+                ps.bought_sets, p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag, p.cluster,
                 ps.minimum_stock, p.shelf_life_days, ps.promo_lifts, ps.max_stock, ps.bulk_order
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
@@ -205,7 +205,8 @@ class DecisionMaker:
         threshold_date = sale_start + timedelta(days=threshold_day - 1)
         return today <= threshold_date
 
-    def decide_orders_for_settore(self, settore, coverage, minimum_stock_base=None, lead_days=0.0):
+    def decide_orders_for_settore(self, settore, coverage, minimum_stock_base=None, lead_days=0.0,
+                                  cluster_minimum_stock=None):
         """
         Main method — iterate over all products in a settore and decide what to order.
         Now tracks zombie_products.
@@ -213,7 +214,11 @@ class DecisionMaker:
         lead_days: weighted days between the order and its delivery
         (RestockSchedule.calculate_lead_days). Only read by the max_stock ceiling;
         0 assumes nothing sells before delivery, the tightest ceiling.
+
+        cluster_minimum_stock: {cluster: base} replacing minimum_stock_base for
+        that cluster's products (Storage.cluster_minimum_stocks).
         """
+        cluster_minimum_stock = cluster_minimum_stock or {}
         lead_days = min(max(0.0, lead_days or 0.0), coverage)
         logger.info(f"Processing settore: {settore} with coverage: {coverage} days, lead time: {lead_days} days")
         logger.info(f"Active blacklist has {len(self.blacklist)} products")
@@ -298,6 +303,7 @@ class DecisionMaker:
             verified = row["verified"]
             disponibilita = row["disponibilita"]
             minimum_stock_override = row.get("minimum_stock", None)
+            product_minimum_base = cluster_minimum_stock.get(row.get("cluster"), minimum_stock_base)
             shelf_life_days = row.get("shelf_life_days", None)
 
             logger.info(f"Processing {product_cod}.{product_var} - {descrizione} (stock={stock})")
@@ -450,7 +456,7 @@ class DecisionMaker:
 
                 result, check, status, returned_discount = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales,
-                    req_stock, stock, discount, minimum_stock_base, minimum_stock_override,
+                    req_stock, stock, discount, product_minimum_base, minimum_stock_override,
                     expiry_factor, shelf_life_days, batch_expiry_factor,
                     sigma_L, safety_z,
                     row.get("max_stock"), bool(row.get("bulk_order")), lead_demand

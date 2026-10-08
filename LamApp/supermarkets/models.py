@@ -224,8 +224,30 @@ class Storage(models.Model):
     def __str__(self):
         return f"{self.name} ({self.supermarket.name})"
 
+    def cluster_minimum_stocks(self):
+        """{cluster: minimum_stock} for clusters that replace the storage baseline."""
+        return dict(
+            self.cluster_settings.filter(minimum_stock__isnull=False)
+            .values_list('name', 'minimum_stock')
+        )
 
-WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+
+class ClusterSetting(models.Model):
+    """Per-cluster settings. Membership lives in products.cluster (per-supermarket schema)."""
+    storage = models.ForeignKey(Storage, on_delete=models.CASCADE, related_name='cluster_settings')
+    name = models.CharField(max_length=255)
+    # NULL = use Storage.minimum_stock; a product override still wins over this
+    minimum_stock = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('storage', 'name')
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} ({self.storage.name})"
+
+
+WEEKDAYS =['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
 class RestockSchedule(models.Model):
     """

@@ -121,6 +121,7 @@ urlpatterns = [
     # NEW: Unified inventory operations
     path('inventory/verify-stock-enhanced/', views.verify_stock_unified_enhanced_view, name='verify-stock-unified-enhanced'),
     path('inventory/assign-clusters/', views.assign_clusters_view, name='assign-clusters'),
+    path('inventory/clusters/', views.cluster_management_view, name='cluster-management'),
     path('inventory/record-losses/', views.record_losses_unified_view, name='record-losses-unified'),
     path('inventory/verification-report/', views.verification_report_unified_view, name='verification-report-unified'),
     path('inventory/stock-value/', views.stock_value_unified_view, name='stock-value-unified'),
@@ -139,6 +140,7 @@ urlpatterns = [
     path('inventory/api/clusters/<int:supermarket_id>/<str:settore>/', views.get_clusters_for_settore_view, name='api-clusters'),
     path('inventory/api/create-blacklist-from-cluster/', views.create_blacklist_from_cluster_view, name='api-create-blacklist-from-cluster'),
     path('inventory/manage-cluster/', views.manage_cluster_view, name='manage-cluster'),
+    path('inventory/cluster-minimum-stock/', views.cluster_set_minimum_stock_view, name='cluster-set-minimum-stock'),
     path('inventory/api/storages/<int:supermarket_id>/', views.get_storages_for_supermarket_ajax_view, name='api-storages'),
     path('inventory/api/search-products/', views.recipe_product_search_view, name='inventory-search-products'),
     path('inventory/api/fermi-products/<int:storage_id>/', views.fermi_products_api_view, name='api-fermi-products'),

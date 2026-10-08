@@ -389,7 +389,8 @@
                                                 '{{ product.cluster|default:''|escapejs }}',
                                                 {{ product.storage_minimum_stock }},
                                                 {{ product.max_stock|default:'null' }},
-                                                {{ product.bulk_order|yesno:'true,false' }}
+                                                {{ product.bulk_order|yesno:'true,false' }},
+                                                '{{ product.default_minimum_label|escapejs }}'
                                             )">
                                             <i class="bi bi-pencil"></i> Rettifica
                                         </button>
@@ -525,7 +526,7 @@
                             <input type="number" class="form-control" id="minimum_stock" name="minimum_stock"
                                    min="1" max="100">
                             <div class="form-text" id="minimum_stock_help">
-                                Lascia vuoto per usare il default del magazzino. Inserisci un valore per sovrascriverlo solo per questo prodotto.
+                                Lascia vuoto per usare il default del cluster o del magazzino. Inserisci un valore per sovrascriverlo solo per questo prodotto.
                             </div>
                         </div>
 
@@ -651,7 +652,7 @@ function sortTable(column) {
     activeIcon.className = `sort-icon ${currentSortDirection} active`;
 }
 
-function adjustStock(cod, var_, supermarket, currentStock, minimumStock, currentCluster, storageDefault, maxStock, bulkOrder) {
+function adjustStock(cod, var_, supermarket, currentStock, minimumStock, currentCluster, storageDefault, maxStock, bulkOrder, defaultLabel) {
     document.getElementById('adjust_cod').value = cod;
     document.getElementById('adjust_var').value = var_;
     document.getElementById('adjust_supermarket').value = supermarket;
@@ -664,7 +665,7 @@ function adjustStock(cod, var_, supermarket, currentStock, minimumStock, current
     document.getElementById('minimum_stock').value = minimumStock !== null ? minimumStock : '';
     document.getElementById('minimum_stock').placeholder = storageDefault;
     document.getElementById('minimum_stock_help').textContent =
-        `Default magazzino: ${storageDefault}. Lascia vuoto per usarlo, oppure inserisci un valore per sovrascriverlo solo per questo prodotto.`;
+        `${defaultLabel}: ${storageDefault}. Lascia vuoto per usarlo, oppure inserisci un valore per sovrascriverlo solo per questo prodotto.`;
     document.getElementById('cluster').value = currentCluster || '';
     document.getElementById('max_stock').value = maxStock !== null ? maxStock : '';
     document.getElementById('bulk_order').checked = !!bulkOrder;

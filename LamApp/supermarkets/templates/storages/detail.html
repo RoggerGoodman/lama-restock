@@ -386,21 +386,9 @@
                     <h5 class="mb-0">
                         <i class="bi bi-slash-circle"></i> Blacklists
                     </h5>
-                    <div class="d-flex gap-2 align-items-center">
-                        <div class="input-group input-group-sm">
-                            <input type="text" class="form-control form-control-sm" id="bloccaClusterInput"
-                                   list="bloccaClusterList" placeholder="Blocca cluster..."
-                                   style="min-width:160px; text-transform:uppercase;"
-                                   oninput="this.value=this.value.toUpperCase(); loadClustersForBlacklist()">
-                            <datalist id="bloccaClusterList"></datalist>
-                            <button class="btn btn-outline-danger btn-sm" type="button" onclick="submitBlockCluster()">
-                                <i class="bi bi-lock"></i>
-                            </button>
-                        </div>
-                        <a href="{% url 'blacklist-add' %}" class="btn btn-sm btn-primary">
-                            <i class="bi bi-plus-circle"></i> Nuova Blacklist
-                        </a>
-                    </div>
+                    <a href="{% url 'blacklist-add' %}" class="btn btn-sm btn-primary">
+                        <i class="bi bi-plus-circle"></i> Nuova Blacklist
+                    </a>
                 </div>
 
                 {% if blacklists %}
@@ -992,59 +980,6 @@ function purgeProduct(cod, var_, rowIdPrefix) {
     });
 }
 
-let _clustersLoaded = false;
-let _allClusters = [];
-
-function loadClustersForBlacklist() {
-    if (_clustersLoaded) return;
-    _clustersLoaded = true;
-
-    const smId = {{ storage.supermarket.id }};
-    const settore = '{{ storage.settore|escapejs }}';
-
-    fetch(`/inventory/api/clusters/${smId}/${settore}/`)
-        .then(r => r.json())
-        .then(data => {
-            _allClusters = data.clusters || [];
-            const dl = document.getElementById('bloccaClusterList');
-            dl.innerHTML = '';
-            _allClusters.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c;
-                dl.appendChild(opt);
-            });
-        })
-        .catch(() => {});
-}
-
-function submitBlockCluster() {
-    const input = document.getElementById('bloccaClusterInput');
-    const clusterName = input.value.trim().toUpperCase();
-    if (!clusterName) {
-        input.focus();
-        return;
-    }
-    if (!confirm(`Creare la blacklist "Cluster ${clusterName} bloccato" con tutti i prodotti del cluster?`)) return;
-
-    fetch('/inventory/api/create-blacklist-from-cluster/', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
-        body: JSON.stringify({storage_id: {{ storage.id }}, cluster: clusterName}),
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            const msg = data.created
-                ? `Blacklist "${data.blacklist_name}" creata con ${data.total} prodotti.`
-                : `Blacklist "${data.blacklist_name}" aggiornata: aggiunti ${data.added} prodotti (totale ${data.total}).`;
-            alert(msg);
-            window.location.reload();
-        } else {
-            alert('Errore: ' + (data.error || 'Sconosciuto'));
-        }
-    })
-    .catch(err => alert('Errore: ' + err));
-}
 </script>
 
 <!-- Verify Available Product Modal -->
