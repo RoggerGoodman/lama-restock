@@ -130,18 +130,16 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     minimum_stock = max(1 if shelf_life_has_buffer else 0, minimum_stock)
     logger.info(f"Minimum Stock (final) = {minimum_stock}")
 
-    raw_order = (req_stock + minimum_stock - stock) / package_size
+    need = req_stock + minimum_stock - stock
+    raw_order = need / package_size
     order = raw_order
     decision = None
-    if order >= 0:
-        tollerance_threshold = min(0.5, minimum_stock/package_size)
-        decimal_part = order % 1
-        if batch_expiry_factor:
-            order = math.floor(order)
-        elif decimal_part <= tollerance_threshold:
-            order = math.floor(order)
-        else:
-            order = math.ceil(order)
+    if need >= 0:
+        # Compared in units: a float fraction misjudges shortfall == minimum_stock
+        shortfall = need % package_size
+        order = int(need // package_size)
+        if not batch_expiry_factor and shortfall > min(package_size / 2, minimum_stock):
+            order += 1
 
         if order >= 1:
             logger.info(
@@ -185,7 +183,7 @@ def apply_max_stock(order, package_size, stock, req_stock, lead_demand, max_stoc
 
     # Stock below lead_demand runs out before delivery; those sales are gone either way
     demand_gap = req_stock - max(stock, lead_demand)
-    demand_floor = max(1, math.ceil(round(demand_gap / package_size, 6)))
+    demand_floor = max(1, math.ceil(round(demand_gap / package_size, 3)))
     if demand_floor > ceiling:
         logger.info(
             f"max_stock={max_stock} leaves room for {ceiling} package(s), "
