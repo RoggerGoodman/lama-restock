@@ -107,83 +107,30 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# VS Code
+# Editors
 .vscode/
-.vscode/settings.json
-.vscode/tasks.json
-.vscode/launch.json
-.vscode/extensions.json
-
-# vscode specific
+.vs/
 .history/
 *.code-workspace
 
-# DATABASE STUFF
-/hsqldb
+# ===== Project-specific =====
 
-test.py
-Notes.txt
+# Server settings are hand-edited on each machine, never committed
 settings.py
-LamApp/LamApp/settings.py
-LOGGING_GUIDE.md
-DEPLOYMENT_CHANGES.md
-debug_ean_fetch.py
-web_lister_local.py
-debug_orderer.py
-LamApp/logs/app.log.1
-LamApp/logs/app.log.2
-LamApp/logs/app.log.3
-LamApp/logs/app.log.4
-LamApp/logs/app.log.5
-LamApp/logs/decision_maker.log.1
-LamApp/logs/decision_maker.log.2
-LamApp/logs/decision_maker.log.3
-docs/screenshots/agenda-eccezioni-calendario.png
-docs/screenshots/inventario-articolo-non-trovato.png
-docs/screenshots/agenda-pesi-e-giorni.png
-docs/screenshots/inventario-non-verificato-1.png
-docs/screenshots/inventario-non-verificato-2.png
-.gitignore
-docs/screenshots/inventario-prodotto-trovato.png
-docs/screenshots/inventario-rettifica-modal.png
-.gitignore
-docs/screenshots/log-ddt-dettaglio.png
-docs/screenshots/log-ordine-dettaglio.png
-.gitignore
-docs/screenshots/log-perdite-dettaglio.png
-docs/screenshots/sync-log-dettaglio.png
-.gitignore
-docs/MANUALE_UTENTE.md
-.gitignore
-docs/screenshots/inventario-modifica-perdite.png
-docs/screenshots/inv-fermi-tabella.png
-.gitignore
-docs/screenshots/cerca-inventario-4.png
-docs/screenshots/app-mobile-lista.png
-docs/screenshots/app-mobile-menu.png
-docs/screenshots/cerca-inventario-2.png
-docs/screenshots/app-mobile-scansione.png
-docs/screenshots/cerca-inventario-1.png
-docs/screenshots/cerca-inventario-3.png
-docs/screenshots/app-mobile-inventario.png
-.gitignore
-docs/screenshots/inventario-rettifica-motivazioni.png
-docs/screenshots/pv-chiusure-calendario.png
-docs/screenshots/inventario-modifica-perdite-edit.png
-docs/screenshots/valore-inventario.png
-.gitignore
-docs/screenshots/analisi-perdite-tabella.png
-docs/screenshots/analisi-perdite-riepiloghi.png
-.gitignore
-docs/screenshots/analisi-perdite-intervallo.png
-docs/screenshots/analisi-perdite-filtri.png
-docs/screenshots/articoli-disponibili.png
-docs/screenshots/giacenza-anomala.png
-.gitignore
-docs/screenshots/articoli-esauriti.png
-docs/screenshots/magazzino-blacklist.png
-.gitignore
-docs/screenshots/blacklist-dettaglio.png
+
+# Runtime logs (written by the app to <repo>/logs/)
+logs/
 
 # Collectstatic output (regenerated on deploy)
 LamApp/staticfiles/
+
+# Local database tooling
+/hsqldb
+
+# Personal scratch files: debug scripts, notes, old guides
+/_local/
+web_lister_local.py
+
+# User manual and its screenshots are kept out of the repo
+docs/MANUALE_UTENTE.md
+docs/screenshots/
