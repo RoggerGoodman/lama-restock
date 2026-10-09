@@ -788,9 +788,9 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         'package_size': row['pz_x_collo'] or 12,
                         'avg_daily_sales': avg_daily,
                         'supplier_unavailable': (row['cod'], row['v']) in supplier_unavailable,
-                        # Spike: a day selling at least twice the average (min 2 pcs)
+                        # Spike: a day selling at least twice the average (min 4 pcs)
                         'last_7': [
-                            {'qty': q, 'spike': q is not None and avg_daily > 0 and q >= max(2 * avg_daily, 2)}
+                            {'qty': q, 'spike': q is not None and avg_daily > 0 and q >= max(2 * avg_daily, 4)}
                             for q in (row['sales_sets'] or [])[:7]
                         ],
                     })
