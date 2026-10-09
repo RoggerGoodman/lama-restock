@@ -108,6 +108,7 @@
                                 <th>Descrizione</th>
                                 <th>Pz x Collo</th>
                                 <th>Pz/gg</th>
+                                <th title="Vendite giornaliere da oggi (a sinistra) a 6 giorni fa. In rosso i giorni con vendite almeno doppie rispetto alla media.">Ultimi 7 gg <small class="text-muted">(oggi &rarr;)</small></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -115,7 +116,14 @@
                             <tr>
                                 <td><code>{{ product.cod }}</code></td>
                                 <td><code>{{ product.var }}</code></td>
-                                <td>{{ product.description|truncatewords:8 }}</td>
+                                <td>
+                                    {{ product.description|truncatewords:8 }}
+                                    {% if product.supplier_unavailable %}
+                                        <span class="badge bg-info text-dark ms-1" title="Non disponibile presso il fornitore in almeno un ordine degli ultimi 7 giorni">
+                                            <i class="bi bi-truck"></i> Non disp. fornitore
+                                        </span>
+                                    {% endif %}
+                                </td>
                                 <td>
                                     <span class="badge bg-secondary">{{ product.package_size }}</span>
                                 </td>
@@ -127,6 +135,19 @@
                                     {% else %}
                                         <span class="badge bg-secondary">—</span>
                                     {% endif %}
+                                </td>
+                                <td class="text-nowrap">
+                                    {% for day in product.last_7 %}
+                                        {% if day.qty is None %}
+                                            <span class="badge bg-light text-muted border">—</span>
+                                        {% elif day.spike %}
+                                            <span class="badge bg-danger">{{ day.qty|floatformat:"-1" }}</span>
+                                        {% elif day.qty %}
+                                            <span class="badge bg-light text-dark border">{{ day.qty|floatformat:"-1" }}</span>
+                                        {% else %}
+                                            <span class="badge bg-light text-muted border">0</span>
+                                        {% endif %}
+                                    {% endfor %}
                                 </td>
                             </tr>
                             {% endfor %}

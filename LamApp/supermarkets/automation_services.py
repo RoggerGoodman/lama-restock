@@ -475,6 +475,40 @@ class AutomatedRestockService(RestockService):
         )
         return fraction
 
+    def _refresh_product_list(self) -> bool:
+        """Re-import this storage's list; on failure the order runs on the last imported one."""
+        from .list_update_service import ListUpdateService
+        try:
+            with ListUpdateService(self.storage) as service:
+                result = service.update_and_import()
+        except Exception:
+            logger.exception(f"Pre-order list update crashed for {self.storage.name}")
+            return False
+        if not result['success']:
+            logger.warning(f"Pre-order list update failed for {self.storage.name}: {result['message']} — using last imported list")
+            return False
+        logger.info(f"Pre-order list update done for {self.storage.name}")
+        return True
+
+    def _unavailable_verified_products(self) -> list:
+        """[[cod, v], ...] of verified products in this settore with disponibilita='No'."""
+        try:
+            cur = self.db.cursor()
+            cur.execute("""
+                SELECT p.cod, p.v
+                FROM products p
+                JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+                WHERE p.settore = %s
+                    AND p.purge_flag = FALSE
+                    AND ps.verified = TRUE
+                    AND p.disponibilita = 'No'
+            """, (self.settore,))
+            return [[r['cod'], r['v']] for r in cur.fetchall()]
+        except Exception:
+            logger.exception(f"Could not snapshot unavailable products for {self.storage.name}")
+            self.db.conn.rollback()
+            return []
+
     def run_full_restock_workflow(self, coverage=None, log=None, progress_callback=None,
                                   force_review=False):
         """
@@ -506,6 +540,11 @@ class AutomatedRestockService(RestockService):
             except Exception:
                 logger.exception(f"[DDT] Booking due deliveries failed for {self.storage.name} — ordering on current stock")
 
+            # Supplier availability moves during the day; the 03:00 list is stale by order time.
+            if progress_callback:
+                progress_callback(10, 'Aggiornamento listino...')
+            list_refreshed = self._refresh_product_list()
+
             # Step 1: Calculate order
             if progress_callback:
                 progress_callback(20, 'Analyzing product needs...')
@@ -536,6 +575,10 @@ class AutomatedRestockService(RestockService):
 
             if progress_callback:
                 progress_callback(30, 'Running decision algorithm...')
+
+            # What the supplier could not deliver at order time, so a later
+            # stockout can be told apart from one we caused.
+            unavailable_at_order = self._unavailable_verified_products()
 
             try:
                 from .models import ProductLink
@@ -572,6 +615,8 @@ class AutomatedRestockService(RestockService):
                     'orders': order_dicts,
                     'machine_orders': [dict(o) for o in order_dicts],
                     'zombie_products': zombie_products,
+                    'unavailable_at_order': unavailable_at_order,
+                    'list_refreshed': list_refreshed,
                     'settore': self.settore,
                     'coverage': float(coverage)
                 })

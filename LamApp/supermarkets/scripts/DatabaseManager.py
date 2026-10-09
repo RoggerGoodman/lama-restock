@@ -1293,12 +1293,7 @@ class DatabaseManager:
                 descrizione   = excluded.descrizione,
                 rapp          = excluded.rapp,
                 pz_x_collo    = excluded.pz_x_collo,
-                disponibilita = excluded.disponibilita,
-                first_added_at = CASE
-                    WHEN products.disponibilita = 'No' AND excluded.disponibilita = 'Si'
-                    THEN CURRENT_DATE
-                    ELSE products.first_added_at
-                END
+                disponibilita = excluded.disponibilita
         """, prod_rows)
 
         cur.executemany("""

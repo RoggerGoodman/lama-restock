@@ -296,8 +296,8 @@ def dashboard_view(request):
                             AND p.disponibilita = 'Si'
                             AND EXISTS (
                                 SELECT 1
-                                FROM jsonb_array_elements_text(ps.sales_sets) AS s(val)
-                                WHERE s.val::numeric <> 0
+                                FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY AS s(val, idx)
+                                WHERE s.idx <= 7 AND s.val::numeric <> 0
                             )
                     """, (storage.settore,))
                     out_of_stock_count = cursor.fetchone()['cnt']
@@ -311,8 +311,14 @@ def dashboard_view(request):
                             AND p.purge_flag = FALSE
                             AND ps.verified IS NOT TRUE
                             AND p.disponibilita != 'No'
-                            AND (ps.bought_last_24 IS NULL OR ps.bought_last_24 = '[]'::jsonb OR (ps.bought_last_24->0)::numeric = 0)
-                            AND (ps.sold_last_24 IS NULL OR ps.sold_last_24 = '[]'::jsonb OR (ps.sold_last_24->0)::numeric = 0)
+                            AND NOT EXISTS (
+                                SELECT 1 FROM jsonb_array_elements_text(COALESCE(ps.bought_last_24, '[]'::jsonb)) WITH ORDINALITY AS b(val, idx)
+                                WHERE b.idx <= 6 AND b.val::numeric <> 0
+                            )
+                            AND NOT EXISTS (
+                                SELECT 1 FROM jsonb_array_elements_text(COALESCE(ps.sold_last_24, '[]'::jsonb)) WITH ORDINALITY AS s(val, idx)
+                                WHERE s.idx <= 6 AND s.val::numeric <> 0
+                            )
                             AND p.first_added_at >= CURRENT_DATE - INTERVAL '7 days'
                     """, (storage.settore,))
                     new_available_count = cursor.fetchone()['cnt']
@@ -741,7 +747,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 context['negative_stock_products'] = negative_stock_products
                 logger.info(f"Found {len(negative_stock_products)} products with negative stock")
 
-                # Load out of stock products (verified, stock=0, disponibilita='Si')
+                # Load out of stock products (verified, stock=0, disponibilita='Si', sold in the first 7 slots)
                 cursor.execute("""
                     SELECT
                         p.cod, p.v, p.descrizione, p.pz_x_collo, ps.stock, ps.sales_sets
@@ -752,13 +758,26 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         AND ps.verified = TRUE
                         AND ps.stock = 0
                         AND p.disponibilita = 'Si'
-                    LIMIT 50;
+                        AND EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements_text(ps.sales_sets) WITH ORDINALITY AS s(val, idx)
+                            WHERE s.idx <= 7 AND s.val::numeric <> 0
+                        );
                 """, (self.object.settore,))
+
+                # Products the supplier had as unavailable in any order run of the last 7 days
+                supplier_unavailable = set()
+                recent_runs = RestockLog.objects.filter(
+                    storage=self.object,
+                    operation_type='full_restock',
+                    started_at__date__gte=timezone.now().date() - timedelta(days=6),
+                ).exclude(results='').only('results')
+                for run in recent_runs:
+                    for cod, v in run.get_results().get('unavailable_at_order', []):
+                        supplier_unavailable.add((cod, v))
 
                 out_of_stock_products = []
                 for row in cursor.fetchall():
-                    if not any(v for v in (row['sales_sets'] or [])):
-                        continue
                     sales_sets = Helper.sales_history(row['sales_sets'])
                     raw = Helper.avg_daily_sales_from_sales_sets(sales_sets, silent=True) if sales_sets else None
                     avg_daily = round(raw, 1) if raw is not None else 0.0
@@ -768,8 +787,15 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
                         'package_size': row['pz_x_collo'] or 12,
                         'avg_daily_sales': avg_daily,
+                        'supplier_unavailable': (row['cod'], row['v']) in supplier_unavailable,
+                        # Spike: a day selling at least twice the average (min 2 pcs)
+                        'last_7': [
+                            {'qty': q, 'spike': q is not None and avg_daily > 0 and q >= max(2 * avg_daily, 2)}
+                            for q in (row['sales_sets'] or [])[:7]
+                        ],
                     })
                 out_of_stock_products.sort(key=lambda x: x['avg_daily_sales'], reverse=True)
+                out_of_stock_products = out_of_stock_products[:50]
 
                 context['out_of_stock_products'] = out_of_stock_products
                 logger.info(f"Found {len(out_of_stock_products)} out of stock products")
@@ -786,8 +812,14 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         AND p.purge_flag = FALSE
                         AND ps.verified IS NOT TRUE
                         AND p.disponibilita != 'No'
-                        AND (ps.bought_last_24 IS NULL OR ps.bought_last_24 = '[]'::jsonb OR (ps.bought_last_24->0)::numeric = 0)
-                        AND (ps.sold_last_24 IS NULL OR ps.sold_last_24 = '[]'::jsonb OR (ps.sold_last_24->0)::numeric = 0)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM jsonb_array_elements_text(COALESCE(ps.bought_last_24, '[]'::jsonb)) WITH ORDINALITY AS b(val, idx)
+                            WHERE b.idx <= 6 AND b.val::numeric <> 0
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM jsonb_array_elements_text(COALESCE(ps.sold_last_24, '[]'::jsonb)) WITH ORDINALITY AS s(val, idx)
+                            WHERE s.idx <= 6 AND s.val::numeric <> 0
+                        )
                     ORDER BY
                         CASE WHEN p.first_added_at >= CURRENT_DATE - INTERVAL '7 days' THEN 0 ELSE 1 END,
                         p.first_added_at DESC,
