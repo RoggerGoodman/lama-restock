@@ -1110,6 +1110,8 @@ class ProductLink(models.Model):
     secondary_cod = models.IntegerField()
     secondary_v = models.IntegerField(default=0)
     notes = models.TextField(blank=True)
+    # When the nightly cleanup removes this link, also purge the sostituito
+    purge_on_removal = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name='product_links'
@@ -1184,6 +1186,8 @@ class ChainProductLink(models.Model):
     secondary_cod = models.IntegerField()
     secondary_v = models.IntegerField()
     notes = models.TextField(blank=True)
+    # Copied to the store links created from this one
+    purge_on_removal = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,

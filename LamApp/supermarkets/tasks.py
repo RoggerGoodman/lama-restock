@@ -1983,6 +1983,7 @@ def sync_chain_product_links():
         f"Product links synced: {sum(len(r.removed) for r in reports)} removed, "
         f"{sum(len(r.added) for r in reports)} added, "
         f"{sum(len(r.verified) for r in reports)} verified, "
+        f"{sum(len(r.purged) for r in reports)} purged, "
         f"{len(retired)} chain link(s) retired, "
         f"{sum(1 for r in reports if r.error)} store(s) failed"
     )

@@ -92,7 +92,8 @@
                 influisce sugli altri punti vendita.
                 <br>
                 Un collegamento viene rimosso automaticamente quando il sostituito ha giacenza zero e
-                non vende da 60 giorni. Eliminando un collegamento centrale, questo non verra' piu'
+                non vende da 60 giorni; con <strong>Elimina sostituito</strong> attivo, in quel momento
+                viene eliminato anche il prodotto sostituito. Eliminando un collegamento centrale, questo non verra' piu'
                 riapplicato a questo punto vendita.
             </div>
         </div>
@@ -151,6 +152,17 @@
                             placeholder="es. Sostituzione marca privata Q4 2025"></textarea>
                     </div>
 
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="purge_on_removal" value="1" id="purgeCheck">
+                        <label class="form-check-label" for="purgeCheck">
+                            Elimina il sostituito alla rimozione
+                            <small class="text-muted d-block">
+                                Quando il collegamento viene rimosso automaticamente, elimina anche il prodotto
+                                sostituito, cosi' non viene piu' riordinato.
+                            </small>
+                        </label>
+                    </div>
+
                     {% if supermarkets|length > 1 %}
                     <div class="form-check mb-4">
                         <input class="form-check-input" type="checkbox" name="propagate" value="1" id="propagateCheck">
@@ -194,6 +206,7 @@
                                 <th class="arrow-cell"></th>
                                 <th>Sostituito</th>
                                 <th>Note</th>
+                                <th title="Elimina il sostituito quando il collegamento viene rimosso automaticamente">Elimina sostituito</th>
                                 <th>Creato</th>
                                 <th></th>
                             </tr>
@@ -216,6 +229,17 @@
                                     {% else %}
                                     <span class="text-muted">—</span>
                                     {% endif %}
+                                </td>
+                                <td>
+                                    <form method="post" class="form-check form-switch mb-0">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="toggle_purge">
+                                        <input type="hidden" name="link_id" value="{{ link.id }}">
+                                        <input type="hidden" name="supermarket_id" value="{{ selected_sm.id }}">
+                                        <input class="form-check-input" type="checkbox" role="switch" name="purge_on_removal" value="1"
+                                            title="Elimina il sostituito quando il collegamento viene rimosso automaticamente"
+                                            {% if link.purge_on_removal %}checked{% endif %} onchange="this.form.submit()">
+                                    </form>
                                 </td>
                                 <td class="text-muted" style="white-space:nowrap;">
                                     {% if link.created_by %}{{ link.created_by.username }}<br>{% endif %}

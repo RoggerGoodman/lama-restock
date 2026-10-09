@@ -2,7 +2,8 @@
 Keep every store's ProductLinks in line with the chain-wide ChainProductLinks.
 
 Per store:
-  1. cleanup  - drop links whose sostituito is no longer active
+  1. cleanup  - drop links whose sostituito is no longer active, purging the
+                sostituito when the link has purge_on_removal
   2. apply    - add chain links whose sostituito is active, unless the store opted out
   3. verify   - verify unverified, orderable subentranti at their current stock
 
@@ -20,6 +21,7 @@ from django.utils import timezone
 from .demo import real_supermarkets
 from .models import ChainLinkOptOut, ChainProductLink, ProductLink, ProductLinkNotification
 from .scripts.DatabaseManager import DatabaseManager
+from .services import delete_blacklist_entries_for_purged
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +34,8 @@ class StoreReport:
     removed: list = field(default_factory=list)   # [(primary, secondary)]
     added: list = field(default_factory=list)
     verified: list = field(default_factory=list)  # [(cod, v)]
+    purged: list = field(default_factory=list)    # [(cod, v)]
     error: str = None
-
 
     def lines(self):
         """Human-readable summary, one line per change."""
@@ -42,6 +44,7 @@ class StoreReport:
         out = [f"remove  {fmt_pair(p)}" for p in self.removed]
         out += [f"add     {fmt_pair(p)}" for p in self.added]
         out += [f"verify  {fmt(p)}" for p in self.verified]
+        out += [f"purge   {fmt(p)}" for p in self.purged]
         return out
 
 
@@ -103,14 +106,24 @@ def sync_store(supermarket, chain_links, cleanup=True, dry_run=False):
         states = _load_states(db, keys)
 
         kept = []
+        purge_results = []
         for link in links:
             pair = _pair(link)
             if cleanup and not is_active(states.get(pair[1])):
                 report.removed.append(pair)
+                # Unsuppressed, a verified sostituito could be reordered from its monthly history
+                state = states.get(pair[1])
+                purge = link.purge_on_removal and state is not None and state["verified"] is not None
+                if purge:
+                    report.purged.append(pair[1])
                 if not dry_run:
                     link.delete()
+                    if purge:
+                        purge_results.append(db.purge_product(*pair[1]))
             else:
                 kept.append(pair)
+        if purge_results:
+            delete_blacklist_entries_for_purged(purge_results, supermarket=supermarket)
 
         used = {product for pair in kept for product in pair}
         for cl in chain_links:
@@ -130,7 +143,7 @@ def sync_store(supermarket, chain_links, cleanup=True, dry_run=False):
                     secondary_cod=secondary[0], secondary_v=secondary[1],
                     created_by=cl.created_by,
                 )
-                ProductLink.objects.create(notes=cl.notes, **fields)
+                ProductLink.objects.create(notes=cl.notes, purge_on_removal=cl.purge_on_removal, **fields)
                 ProductLinkNotification.objects.create(**fields)
 
         to_verify = report.added + (kept if cleanup else [])

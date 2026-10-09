@@ -7092,6 +7092,7 @@ def product_links_view(request):
                 secondary_v = int(request.POST.get('secondary_v') or 0)
                 notes = request.POST.get('notes', '').strip()
                 propagate = request.POST.get('propagate') == '1'
+                purge_on_removal = request.POST.get('purge_on_removal') == '1'
 
                 if primary_cod == secondary_cod and primary_v == secondary_v:
                     error = "Il prodotto subentrante e il prodotto sostituito non possono essere lo stesso articolo."
@@ -7107,6 +7108,7 @@ def product_links_view(request):
                                 'secondary_cod': secondary_cod,
                                 'secondary_v': secondary_v,
                                 'notes': notes,
+                                'purge_on_removal': purge_on_removal,
                                 'created_by': request.user,
                             }
                         )
@@ -7159,6 +7161,14 @@ def product_links_view(request):
                 success = "Collegamento eliminato."
             except Exception as e:
                 error = f"Errore durante l'eliminazione: {e}"
+
+        elif action == 'toggle_purge':
+            link = ProductLink.objects.filter(
+                id=request.POST.get('link_id'), supermarket__owner=request.user
+            ).first()
+            if link:
+                link.purge_on_removal = request.POST.get('purge_on_removal') == '1'
+                link.save(update_fields=['purge_on_removal'])
 
         elif action == 'invert':
             try:

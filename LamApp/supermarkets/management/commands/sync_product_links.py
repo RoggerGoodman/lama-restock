@@ -36,6 +36,7 @@ class Command(BaseCommand):
             f"\n{verb} {sum(len(r.removed) for r in reports)}, "
             f"add {sum(len(r.added) for r in reports)}, "
             f"verify {sum(len(r.verified) for r in reports)}, "
+            f"purge {sum(len(r.purged) for r in reports)}, "
             f"retire {len(retired)} chain link(s); "
             f"{sum(1 for r in reports if r.error)} store(s) failed."
             f"{' [DRY RUN]' if dry_run else ''}"
