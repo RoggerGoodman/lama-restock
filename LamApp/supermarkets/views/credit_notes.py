@@ -1,4 +1,3 @@
-# LamApp/supermarkets/credit_note_views.py
 """
 "Note di accredito": credit notes imported from Dropzone wait here until a
 human checks them. Approving takes each line's qty off stock.
@@ -12,8 +11,8 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .models import CreditNote
-from .scripts.DatabaseManager import DatabaseManager
+from ..models import CreditNote
+from ..scripts.DatabaseManager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 

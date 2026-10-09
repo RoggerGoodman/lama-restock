@@ -4,9 +4,7 @@ from django.contrib.auth import views as auth_views
 from django.contrib.auth.views import LogoutView
 from django.urls import path
 from . import views
-from . import sync_views
-from . import credit_note_views
-from . import margin_views
+from .views import credit_notes, margins, sync
 
 urlpatterns = [
     # ============ Home & Dashboard ============
@@ -71,19 +69,19 @@ urlpatterns = [
     path('logs/<int:pk>/discard/', views.order_discard, name='order-discard'),
 
     # ============ Credit notes ============
-    path('note-accredito/', credit_note_views.credit_note_list_view, name='credit-note-list'),
-    path('note-accredito/<int:pk>/', credit_note_views.credit_note_detail_view, name='credit-note-detail'),
+    path('note-accredito/', credit_notes.credit_note_list_view, name='credit-note-list'),
+    path('note-accredito/<int:pk>/', credit_notes.credit_note_detail_view, name='credit-note-detail'),
 
     # ============ Analisi Margini ============
-    path('analisi-margini/', margin_views.margin_report_list_view, name='margin-report-list'),
-    path('analisi-margini/carica/', margin_views.margin_report_upload, name='margin-report-upload'),
-    path('analisi-margini/conferma/', margin_views.margin_report_confirm, name='margin-report-confirm'),
-    path('analisi-margini/<int:pk>/', margin_views.margin_report_detail_view, name='margin-report-detail'),
-    path('analisi-margini/<int:pk>/ricalcola/', margin_views.margin_report_refresh, name='margin-report-refresh'),
-    path('analisi-margini/<int:pk>/unisci/', margin_views.margin_report_merge, name='margin-report-merge'),
-    path('analisi-margini/<int:pk>/elimina/', margin_views.margin_report_delete, name='margin-report-delete'),
-    path('analisi-margini/<int:pk>/colonne/', margin_views.margin_report_columns, name='margin-report-columns'),
-    path('analisi-margini/<int:pk>/extra/', margin_views.margin_report_extras, name='margin-report-extras'),
+    path('analisi-margini/', margins.margin_report_list_view, name='margin-report-list'),
+    path('analisi-margini/carica/', margins.margin_report_upload, name='margin-report-upload'),
+    path('analisi-margini/conferma/', margins.margin_report_confirm, name='margin-report-confirm'),
+    path('analisi-margini/<int:pk>/', margins.margin_report_detail_view, name='margin-report-detail'),
+    path('analisi-margini/<int:pk>/ricalcola/', margins.margin_report_refresh, name='margin-report-refresh'),
+    path('analisi-margini/<int:pk>/unisci/', margins.margin_report_merge, name='margin-report-merge'),
+    path('analisi-margini/<int:pk>/elimina/', margins.margin_report_delete, name='margin-report-delete'),
+    path('analisi-margini/<int:pk>/colonne/', margins.margin_report_columns, name='margin-report-columns'),
+    path('analisi-margini/<int:pk>/extra/', margins.margin_report_extras, name='margin-report-extras'),
 
     # ============ Blacklists (accessed from dashboard/storage) ============
     path('blacklists/', views.BlacklistListView.as_view(), name='blacklist-list'),
@@ -149,19 +147,19 @@ urlpatterns = [
     path('inventory/api/fermi-blacklist/', views.fermi_blacklist_view, name='api-fermi-blacklist'),
 
     # ============ Sync API (supermarket PC → server) ============
-    path('api/sync/realtime-sales/', sync_views.realtime_sales_sync_view, name='realtime-sales-sync'),
-    path('api/sync/intraday-curve/', sync_views.intraday_curve_sync_view, name='intraday-curve-sync'),
-    path('api/sync/setup/<str:token>/bootstrap-rt/', sync_views.sync_bootstrap_realtime_view, name='sync-bootstrap-rt'),
-    path('api/sync/setup/<str:token>/history-script/', sync_views.history_script_view, name='history-script'),
-    path('supermarkets/<int:pk>/history-import/', sync_views.history_import_view, name='history-import'),
-    path('api/sync/add-to-non-gestiti/', sync_views.add_to_non_gestiti_view, name='add-to-non-gestiti'),
+    path('api/sync/realtime-sales/', sync.realtime_sales_sync_view, name='realtime-sales-sync'),
+    path('api/sync/intraday-curve/', sync.intraday_curve_sync_view, name='intraday-curve-sync'),
+    path('api/sync/setup/<str:token>/bootstrap-rt/', sync.sync_bootstrap_realtime_view, name='sync-bootstrap-rt'),
+    path('api/sync/setup/<str:token>/history-script/', sync.history_script_view, name='history-script'),
+    path('supermarkets/<int:pk>/history-import/', sync.history_import_view, name='history-import'),
+    path('api/sync/add-to-non-gestiti/', sync.add_to_non_gestiti_view, name='add-to-non-gestiti'),
 
     # ============ Sync Setup UI (admin) ============
-    path('supermarkets/<int:pk>/sync-setup/', sync_views.sync_setup_view, name='sync-setup'),
-    path('supermarkets/<int:pk>/generate-sync-token/', sync_views.generate_sync_token_view, name='generate-sync-token'),
+    path('supermarkets/<int:pk>/sync-setup/', sync.sync_setup_view, name='sync-setup'),
+    path('supermarkets/<int:pk>/generate-sync-token/', sync.generate_sync_token_view, name='generate-sync-token'),
 
     # ============ Sales Sync Logs ============
-    path('sync-logs/<int:pk>/', sync_views.sales_sync_log_detail_view, name='sales-sync-log-detail'),
+    path('sync-logs/<int:pk>/', sync.sales_sync_log_detail_view, name='sales-sync-log-detail'),
 
     # ============ Task Progress Endpoints (NEW) ============
     path('tasks/<str:task_id>/progress/', views.task_progress_view, name='task-progress'),

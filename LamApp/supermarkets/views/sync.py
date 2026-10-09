@@ -1,5 +1,5 @@
 """
-sync_views.py — Machine-to-machine API endpoints + onboarding UI for supermarket PC sync.
+Machine-to-machine API endpoints + onboarding UI for supermarket PC sync.
 
   POST /api/sync/realtime-sales/               — today's running sold totals (Everest till log)
   POST /api/sync/intraday-curve/               — measured per-weekday hourly sales shape
@@ -22,9 +22,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from django.http import JsonResponse
-from .models import Blacklist, BlacklistEntry, SalesSyncLog, Storage, Supermarket
-from .scripts.DatabaseManager import DatabaseManager
-from .logging_context import enter_supermarket_log, exit_supermarket_log
+from ..models import Blacklist, BlacklistEntry, SalesSyncLog, Storage, Supermarket
+from ..scripts.DatabaseManager import DatabaseManager
+from ..logging_context import enter_supermarket_log, exit_supermarket_log
 
 logger = logging.getLogger(__name__)
 
@@ -275,7 +275,7 @@ def history_import_view(request, pk):
     queued_lists = None
 
     if request.method == 'POST' and request.POST.get('action') == 'download_lists':
-        from .tasks import manual_list_update_task
+        from ..tasks import manual_list_update_task
         chosen = request.POST.getlist('storages')
         wanted = [s for s in storages if str(s.id) in chosen]
         for s in wanted:

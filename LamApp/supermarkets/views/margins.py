@@ -1,4 +1,3 @@
-# LamApp/supermarkets/margin_views.py
 """Views for "Analisi Margini" (see margin_analysis.py)."""
 import logging
 import re
@@ -12,8 +11,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from . import margin_analysis as ma
-from .models import MarginExtra, MarginLine, MarginPeriod, MarginReport, Supermarket
+from .. import margin_analysis as ma
+from ..models import MarginExtra, MarginLine, MarginPeriod, MarginReport, Supermarket
 
 logger = logging.getLogger(__name__)
 

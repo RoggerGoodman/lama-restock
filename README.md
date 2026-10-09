@@ -14,7 +14,7 @@ LamApp/                      Django project (manage.py lives here)
   LamApp/                    Project config: settings, urls, celery beat schedule
   supermarkets/              The single Django app; almost all code lives here
     models.py                Django models (supermarkets, storages, logs, schedules...)
-    views.py                 Web pages (plus margin_views, credit_note_views, sync_views)
+    views/                   Web pages, one file per area (inventory, restock, losses...)
     urls.py                  URL routes
     tasks.py                 Celery background tasks (scheduled and on-demand)
     automation_services.py   Restock pipeline: update stats -> decide -> order
