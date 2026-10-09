@@ -56,6 +56,7 @@ restart the Celery services on the server by hand.
 ## Not in git
 
 - `settings.py`: hand-edited per machine
+- Migrations from 0006 on: created and kept on the server (`makemigrations` runs there)
 - `logs/`: runtime logs, one folder per supermarket
 - `_local/`: personal scratch scripts and notes
 - `docs/`: the Italian user manual and its screenshots
