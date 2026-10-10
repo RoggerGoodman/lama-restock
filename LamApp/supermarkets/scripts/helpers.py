@@ -367,8 +367,10 @@ class Helper:
 
     # Promo forecasting
     PROMO_MIN_BASE_DAYS = 14        # non-promo days needed for a baseline without the promo days
-    PROMO_OPEN_DAYS = 3             # first days of a run that sell above its average (flyer effect)
-    PROMO_OPEN_BOOST = 1.2
+    # Extra on the lift for a run's first days (flyer effect). 1.0: in Gubbio the
+    # opening sells as the promo average does (analyze_promo_dips)
+    PROMO_OPEN_DAYS = 3
+    PROMO_OPEN_BOOST = 1.0
     PROMO_LIFT_SD_FRAC = 0.5        # uncertainty of a measured lift, as a share of its excess over 1
     PROMO_DEFAULT_LIFT = 1.5        # never-measured product in a settore with too few measured ones
     PROMO_DEFAULT_SD = 0.3

@@ -187,6 +187,10 @@
                                     <th class="num-col sortable-header" onclick="sortTable(this, 'marginPromo')">
                                         M.Promo% <span class="sort-icon neutral"></span>
                                     </th>
+                                    <th class="num-col sortable-header" onclick="sortTable(this, 'pastPromo')"
+                                        title="Aumento delle vendite nelle ultime promozioni misurate di questo articolo, la più recente per prima">
+                                        Promo prec. <span class="sort-icon neutral"></span>
+                                    </th>
                                     <th class="num-col sortable-header" onclick="sortTable(this, 'stock')">
                                         Giac. <span class="sort-icon neutral"></span>
                                     </th>
@@ -207,6 +211,7 @@
                                     data-storage-label="{{ storage.settore }} - {{ storage.supermarket.name }}"
                                     data-margin-std="{{ p.margin_std|stringformat:'s' }}"
                                     data-margin-promo="{{ p.margin_promo|stringformat:'s' }}"
+                                    data-past-promo="{{ p.past_promo_avg|stringformat:'s' }}"
                                     data-stock="{{ p.stock }}">
                                     <td><input type="checkbox" class="promo-checkbox" onchange="toggleItem(this)"></td>
                                     <td class="desc-col">{{ p.descrizione }}</td>
@@ -221,6 +226,9 @@
                                         {% if p.margin_gain > 0 %}
                                         <small class="text-success">(+{{ p.margin_gain }})</small>
                                         {% endif %}
+                                    </td>
+                                    <td class="num-col" title="{% for e in p.past_promos %}{{ e.pct|stringformat:'+d' }}%{% if e.depth %} con sconto {{ e.depth|floatformat:0 }}%{% endif %}{% if not forloop.last %} &middot; {% endif %}{% empty %}Nessuna promozione misurata{% endfor %}">
+                                        {% for e in p.past_promos %}<span class="{% if e.pct >= 0 %}text-success{% else %}text-danger{% endif %}">{{ e.pct|stringformat:'+d' }}%</span>{% if not forloop.last %} <span class="text-muted">&middot;</span> {% endif %}{% empty %}<span class="text-muted">&ndash;</span>{% endfor %}
                                     </td>
                                     <td class="num-col {% if p.stock <= 2 %}stock-low{% elif p.stock >= 10 %}stock-ok{% endif %}">
                                         {{ p.stock }}

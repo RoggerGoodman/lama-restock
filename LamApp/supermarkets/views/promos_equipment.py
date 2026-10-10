@@ -48,7 +48,8 @@ def promo_products_view(request):
                         e.iva,
                         e.sale_start,
                         e.sale_end,
-                        ps.stock
+                        ps.stock,
+                        ps.promo_lifts
                     FROM products p
                     JOIN economics e ON p.cod = e.cod AND p.v = e.v
                     LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
@@ -75,6 +76,13 @@ def promo_products_view(request):
                     margin_promo = ((net_price - cost_s) / net_price * 100) if net_price > 0 else 0
                     margin_gain = margin_promo - margin_std  # Extra margin from promo
 
+                    # Sales increase in the last measured promos (up to 3, newest first)
+                    past_promos = [
+                        {'pct': round((float(e['lift']) - 1) * 100), 'depth': e.get('discount')}
+                        for e in (row['promo_lifts'] or [])
+                        if isinstance(e, dict) and e.get('lift') is not None
+                    ]
+
                     promo_products.append({
                         'cod': row['cod'],
                         'v': row['v'],
@@ -90,6 +98,10 @@ def promo_products_view(request):
                         'stock': stock,
                         'sale_start': row['sale_start'],
                         'sale_end': row['sale_end'],
+                        'past_promos': past_promos,
+                        # Sort key; never-measured products sort last
+                        'past_promo_avg': (sum(x['pct'] for x in past_promos) / len(past_promos)
+                                           if past_promos else -999),
                     })
         except Exception as e:
             logger.exception(f"Error fetching promo products for storage {storage.id}")
