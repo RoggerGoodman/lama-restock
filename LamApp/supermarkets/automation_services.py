@@ -141,7 +141,7 @@ class AutomatedRestockService(RestockService):
             SELECT ps.cod, ps.v, p.descrizione, ps.stock, ps.minimum_stock AS min_override,
                    ps.sales_sets, ps.bought_sets, ps.sold_last_24,
                    p.pz_x_collo, p.rapp, p.shelf_life_days, p.cluster,
-                   e.sale_start, e.sale_end
+                   e.sale_start, e.sale_end, e.past_windows
             FROM product_stats ps
             JOIN products p ON p.cod = ps.cod AND p.v = ps.v
             LEFT JOIN economics e ON e.cod = ps.cod AND e.v = ps.v
@@ -156,7 +156,7 @@ class AutomatedRestockService(RestockService):
 
         # Same exclusions and z as the ordering path, so the report grades against
         # the thresholds that produced the order.
-        closure_mask = Helper.closure_day_mask(self.db.get_store_daily_totals())
+        closure_mask = Helper.closure_day_mask(Helper.sales_history(self.db.get_store_daily_totals()))
         safety_z = Helper.safety_z_for(self.storage.settore)
 
         critical = []
@@ -174,7 +174,12 @@ class AutomatedRestockService(RestockService):
             min_override = row['min_override']
             min_floor = cluster_floors.get(row['cluster'], storage_floor)
             # Completed days only — slot 0 is the running day (see Helper.sales_history)
-            sales_sets = Helper.sales_history(row['sales_sets'])
+            history = Helper.sales_history(row['sales_sets'])
+            # The promo-free baseline decision_maker orders on
+            split = Helper.split_promo_history(
+                history, Helper.promo_windows(row['sale_start'], row['sale_end'], row['past_windows']), today
+            )
+            sales_sets = split.baseline
             bought_sets = row['bought_sets'] or []
             sold_last_24 = row['sold_last_24'] or []
             pz_x_collo = row['pz_x_collo'] or 1
@@ -198,6 +203,8 @@ class AutomatedRestockService(RestockService):
             deviation = self.helper.calculate_deviation(sales_sets, silent=True)
 
             sigma_daily = Helper.demand_sigma_daily(sales_sets, closure_mask)
+            if sigma_daily is None and split.promo_masked:
+                sigma_daily = Helper.demand_sigma_daily(history, closure_mask)
             sigma_L = sigma_daily * (max(coverage_days, 1) ** 0.5) if sigma_daily is not None else None
 
             # Mirrors processor_N: an override replaces the presence target, not
@@ -253,7 +260,7 @@ class AutomatedRestockService(RestockService):
             # Batch expiry penalty
             if shelf_life_days is not None:
                 batch_factor = Helper.compute_batch_expiry_factor(
-                    bought_sets, sales_sets, stock, shelf_life_days, avg_daily_sales
+                    bought_sets, split.batch_history, stock, shelf_life_days, avg_daily_sales
                 )
                 if batch_factor:
                     eff_min = 1
@@ -552,11 +559,16 @@ class AutomatedRestockService(RestockService):
             today_date = timezone.now().date()
             schedule = self.storage.schedule
             first_day_fraction = self._remaining_order_day_fraction(today_date)
+            # A coverage typed in by hand has no window; the decision maker approximates one
+            coverage_window = None
             if coverage is None:
                 coverage = schedule.calculate_coverage_for_day(
                     today_date.weekday(),
                     reference_date=today_date,
                     first_day_fraction=first_day_fraction,
+                )
+                coverage_window = schedule.coverage_window(
+                    today_date.weekday(), today_date, first_day_fraction,
                 )
             lead_days = schedule.calculate_lead_days(
                 today_date.weekday(),
@@ -592,6 +604,8 @@ class AutomatedRestockService(RestockService):
                 decision_maker.decide_orders_for_settore(
                     self.settore, coverage, self.storage.minimum_stock, lead_days=lead_days,
                     cluster_minimum_stock=self.storage.cluster_minimum_stocks(),
+                    coverage_window=coverage_window,
+                    day_weights=[self.supermarket.get_day_weight(d) for d in range(7)],
                 )
                 orders_list = decision_maker.orders_list
                 zombie_products = decision_maker.zombie_products
@@ -618,7 +632,13 @@ class AutomatedRestockService(RestockService):
                     'unavailable_at_order': unavailable_at_order,
                     'list_refreshed': list_refreshed,
                     'settore': self.settore,
-                    'coverage': float(coverage)
+                    'coverage': float(coverage),
+                    # Read back by recalculate_order_for_products, so a recalculation
+                    # during review plans for the same window as the original order
+                    'lead_days': float(lead_days),
+                    'coverage_window': (
+                        [[d.isoformat(), share] for d, share in coverage_window] if coverage_window else None
+                    ),
                 })
                 log.save()
             finally:
@@ -785,6 +805,12 @@ class AutomatedRestockService(RestockService):
         else:
             coverage = float(results.get('coverage') or 0)
         settore = results.get('settore') or self.storage.settore
+        # Orders logged before these were stored: lead time 0, approximated window
+        lead_days = float(results.get('lead_days') or 0.0)
+        from datetime import date as _date
+        coverage_window = [
+            (_date.fromisoformat(d), share) for d, share in results.get('coverage_window') or []
+        ] or None
 
         today = timezone.now().date()
         try:
@@ -801,8 +827,10 @@ class AutomatedRestockService(RestockService):
             product_links=ProductLink.build_pairs(self.supermarket),
         )
         decision_maker.decide_orders_for_settore(
-            settore, coverage, self.storage.minimum_stock,
+            settore, coverage, self.storage.minimum_stock, lead_days=lead_days,
             cluster_minimum_stock=self.storage.cluster_minimum_stocks(),
+            coverage_window=coverage_window,
+            day_weights=[self.supermarket.get_day_weight(d) for d in range(7)],
         )
         new_list = decision_maker.orders_list
 

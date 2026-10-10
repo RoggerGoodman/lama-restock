@@ -35,29 +35,40 @@ def _measure_finished_promos(db):
     PROMO_MEASURE_AFTER_DAYS ago for this supermarket. Returns how many were
     recorded.
 
-    Deliberately reads sales_sets un-excised: this is measurement, not ordering, so it
-    must see the promo days the ordering path removes. Still completed days only —
-    measure_promo_lift indexes by "days ago" and the running day would shift every slot.
+    The measured promo's own days are read as they are, though the ordering path
+    keeps them out of its baseline; only the product's other promos are masked.
+    Completed days only — measure_promo_lift indexes by "days ago" and the running
+    day would shift every slot.
     """
     from .scripts.helpers import Helper
 
     recorded = 0
+    today = datetime.date.today()
 
     for row in db.get_promos_ended_days_ago(PROMO_MEASURE_AFTER_DAYS):
-        days_lasted = (row["sale_end"] - row["sale_start"]).days + 1
+        start, end = row["sale_start"], row["sale_end"]
+        days_lasted = (end - start).days + 1
 
-        lift = Helper.measure_promo_lift(
-            Helper.sales_history(row["sales_sets"]),
-            PROMO_MEASURE_AFTER_DAYS,
-            days_lasted,
-        )
+        # The product's other promos would read as normal demand in the baseline
+        history = Helper.sales_history(row["sales_sets"])
+        others = [
+            (s, e) for s, e in Helper.promo_windows(row["econ_start"], row["econ_end"], row["past_windows"])
+            if e < start or s > end
+        ]
+        others_mask = Helper.promo_day_mask(others, today, len(history))
+        history = [None if m else v for v, m in zip(history, others_mask)]
+
+        lift = Helper.measure_promo_lift(history, PROMO_MEASURE_AFTER_DAYS, days_lasted)
         if lift is None:
             continue
 
-        price_std, price_s = row["price_std"], row["price_s"]
-        if not price_std or not price_s or price_std <= price_s:
-            continue
-        discount = round((price_std - price_s) / price_std * 100, 2)
+        if row["depth"] is not None:
+            discount = float(row["depth"])
+        else:
+            price_std, price_s = row["price_std"], row["price_s"]
+            if not price_std or not price_s or price_std <= price_s:
+                continue
+            discount = round((price_std - price_s) / price_std * 100, 2)
 
         db.append_promo_lift(row["cod"], row["v"], lift, discount)
         recorded += 1

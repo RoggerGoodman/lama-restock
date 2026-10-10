@@ -1,8 +1,7 @@
 # LamApp/supermarkets/scripts/decision_maker.py
 import logging
 from .DatabaseManager import DatabaseManager
-from datetime import date, timedelta
-from math import ceil
+from datetime import date
 from .helpers import Helper
 from .analyzer import analyzer
 from .processor_N import process_N_sales
@@ -30,9 +29,6 @@ class DecisionMaker:
         self.orders_list = []
 
         self.zombie_products = []   # Products that are finished/not restockable
-
-        self.sale_discounts = self.retrieve_products_on_sale()
-        self.sale_discounts_ended = self.retrieve_products_recently_ended_sale()
 
         # Store blacklist - if None, create empty set
         self.blacklist = blacklist_set if blacklist_set is not None else set()
@@ -83,9 +79,11 @@ class DecisionMaker:
         query = """
             SELECT p.cod, p.v, p.descrizione, ps.stock, ps.sold_last_24, ps.bought_last_24, ps.sales_sets,
                 ps.bought_sets, p.pz_x_collo, p.rapp, ps.verified, p.disponibilita, p.purge_flag, p.cluster,
-                ps.minimum_stock, p.shelf_life_days, ps.promo_lifts, ps.max_stock, ps.bulk_order
+                ps.minimum_stock, p.shelf_life_days, ps.promo_lifts, ps.max_stock, ps.bulk_order,
+                e.sale_start, e.sale_end, e.past_windows, e.price_std, e.price_s
             FROM products p
             LEFT JOIN product_stats ps ON p.cod = ps.cod AND p.v = ps.v
+            LEFT JOIN economics e ON p.cod = e.cod AND p.v = e.v
             WHERE p.settore = %s
         """
         self.cursor.execute(query, (settore,))
@@ -116,97 +114,27 @@ class DecisionMaker:
         return internal_dict, expired_dict
 
 
-    def retrieve_products_on_sale(self, days_ahead=0):
-        today = date.today()
-        future = today + timedelta(days=int(days_ahead))
-
+    def settore_lift_prior(self, settore):
+        """(lift, sd) assumed for this settore's never-measured products — see Helper.settore_lift_prior."""
         self.cursor.execute("""
-            SELECT cod, v, price_std, price_s, sale_start, sale_end
-            FROM economics
-            WHERE sale_start IS NOT NULL
-            AND sale_end IS NOT NULL
-            AND sale_end >= %s
-            AND sale_start <= %s;
-        """, (today, future))
+            SELECT ps.promo_lifts
+            FROM product_stats ps
+            JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+            WHERE p.settore = %s AND ps.verified = TRUE AND ps.promo_lifts IS NOT NULL
+        """, (settore,))
+        return Helper.settore_lift_prior(
+            [Helper.expected_promo_lift(r["promo_lifts"]) for r in self.cursor.fetchall()]
+        )
 
-        rows = self.cursor.fetchall()
-        sale_discounts = {}
-
-        for row in rows:
-            cod = row["cod"]
-            v = row["v"]
-
-            price_std = row["price_std"]
-            price_s = row["price_s"]
-            sale_start = row["sale_start"]
-            sale_end = row["sale_end"]
-
-            if price_std is None or price_s is None:
-                continue
-
-            if price_std > price_s:
-                discount_pct = round((price_std - price_s) / price_std * 100, 2)
-            else:
-                discount_pct = 10  # fallback
-
-            sale_discounts[(cod, v)] = {
-                "discount": discount_pct,
-                "sale_start": sale_start,
-                "sale_end": sale_end,
-            }
-
-        return sale_discounts
-    
-    def get_discount_for(self, cod, v):
-        return self.sale_discounts.get((cod, v))
-    
-    def retrieve_products_recently_ended_sale(self):
-        today = date.today()
-
-        self.cursor.execute("""
-            SELECT cod, v, sale_start, sale_end
-            FROM economics
-            WHERE sale_start IS NOT NULL
-            AND sale_end IS NOT NULL
-            AND %s > sale_end
-            AND (%s - sale_end) <= 14;
-        """, (today, today))
-
-        rows = self.cursor.fetchall()
-        sale_discounts_ended = {}
-
-        for row in rows:
-            cod = row["cod"]
-            v = row["v"]
-
-            sale_start = row["sale_start"]
-            sale_end = row["sale_end"]
-
-            # Inclusive of both endpoints — timedelta.days is not
-            days_lasted = (sale_end - sale_start).days + 1
-
-            # Days passed since sale ended
-            days_since_the_end = (today - sale_end).days
-
-            sale_discounts_ended[(cod, v)] = {
-                "days_lasted": days_lasted,
-                "days_since_the_end": days_since_the_end,
-            }
-
-        return sale_discounts_ended
-
-    def get_ended_discount_for(self, cod, v):
-        return self.sale_discounts_ended.get((cod, v))
-
-    def is_in_first_60_percent(self, today, sale_start, sale_end):
-        total_days = (sale_end - sale_start).days + 1
-        threshold_day = ceil(total_days * 0.6)
-
-        threshold_date = sale_start + timedelta(days=threshold_day - 1)
-        return today <= threshold_date
+    @staticmethod
+    def promo_discount(price_std, price_s):
+        """Promo depth in %, or None when the prices cannot give one."""
+        if not price_std or price_s is None or price_s >= price_std:
+            return None
+        return round((price_std - price_s) / price_std * 100, 2)
 
     def decide_orders_for_settore(self, settore, coverage, minimum_stock_base=None, lead_days=0.0,
-                                  cluster_minimum_stock=None):
+                                  cluster_minimum_stock=None, coverage_window=None, day_weights=None):
         """
         Main method — iterate over all products in a settore and decide what to order.
         Now tracks zombie_products.
@@ -217,8 +145,21 @@ class DecisionMaker:
 
         cluster_minimum_stock: {cluster: base} replacing minimum_stock_base for
         that cluster's products (Storage.cluster_minimum_stocks).
+
+        coverage_window: [(date, share), ...], the days coverage spans and each one's
+        weighted share of it (RestockSchedule.coverage_window). Tells which of those
+        days are on promo; without it they are approximated from coverage alone.
+
+        day_weights: the store's seven weekday weights, Monday first
+        (Supermarket.get_day_weight), so a running promo's first days are judged
+        against their own weekdays. Without them every day counts the same.
         """
         cluster_minimum_stock = cluster_minimum_stock or {}
+        today = date.today()
+        if not coverage_window:
+            coverage_window = Helper.coverage_window_fallback(today, coverage)
+        mean_weight = sum(day_weights) / 7 if day_weights else 0
+        day_shares = [w / mean_weight for w in day_weights] if mean_weight > 0 else None
         lead_days = min(max(0.0, lead_days or 0.0), coverage)
         logger.info(f"Processing settore: {settore} with coverage: {coverage} days, lead time: {lead_days} days")
         logger.info(f"Active blacklist has {len(self.blacklist)} products")
@@ -228,8 +169,9 @@ class DecisionMaker:
         
         internal_lookup, expired_lookup = self.get_extra_losses()
 
-        # Closure / sync-gap days look like real zeros and would inflate every sigma
-        closure_mask = Helper.closure_day_mask(self.db.get_store_daily_totals())
+        # Closure / sync-gap days look like real zeros and would inflate every sigma.
+        # Sliced like sales_sets, so mask[i] and sales_sets[i] are the same day.
+        closure_mask = Helper.closure_day_mask(Helper.sales_history(self.db.get_store_daily_totals()))
         excluded = sum(1 for c in closure_mask if c)
         if excluded:
             logger.info(f"Excluding {excluded} closure/no-sync day(s) from sigma estimation")
@@ -237,8 +179,8 @@ class DecisionMaker:
         safety_z = Helper.safety_z_for(settore)
         logger.info(f"Safety-stock z for settore '{settore}' = {safety_z}")
 
-        self.sale_discounts = self.retrieve_products_on_sale(coverage)
-        logger.info(f"Products on sale (including upcoming within {coverage} days): {len(self.sale_discounts)}")
+        lift_prior = self.settore_lift_prior(settore)
+        logger.info(f"Promo lift assumed for never-measured products: x{lift_prior[0]:.2f} (sd {lift_prior[1]:.2f})")
 
         order_list = []
         zombie_products = []
@@ -341,31 +283,24 @@ class DecisionMaker:
                     Helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     continue
 
-            sale_end_info = self.get_ended_discount_for(product_cod, product_var)
+            # Promo days, at any age, stay out of the baseline: the lift below adds the
+            # promo back once, on the days of this window that are on promo.
+            history = sales_sets
+            windows = Helper.promo_windows(row.get("sale_start"), row.get("sale_end"), row.get("past_windows"))
+            split = Helper.split_promo_history(history, windows, today)
+            baseline = split.baseline
+            if not split.lift_allowed:
+                logger.info(f"{product_cod}.{product_var}: on promo most of the time lately, promo level taken as normal")
 
-            if sale_end_info is not None:
-                days_lasted = sale_end_info["days_lasted"]
-                days_since_the_end = sale_end_info["days_since_the_end"]
-                # sales_sets[i] holds day (today - 1 - i), so the sale's last day —
-                # peak clearance volume — sits at (days_since_the_end - 1)
-                start = days_since_the_end - 1
-                logger.info(
-                    f"{product_cod}.{product_var}: recently-ended sale ({days_lasted}d, ended {days_since_the_end}d ago) "
-                    f"-> removing sales_sets[{start}:{start + days_lasted}] to avoid skewing avg_daily_sales"
-                )
-                sales_sets = sales_sets[:start] + sales_sets[start + days_lasted:]
-                sale_info = None
-            else :
-                sale_info = self.get_discount_for(product_cod, product_var)
-
-            avg_from_sets = Helper.avg_daily_sales_from_sales_sets(sales_sets)
+            avg_from_sets = Helper.avg_daily_sales_from_sales_sets(baseline)
             if avg_from_sets is not None:
                 avg_daily_sales = avg_from_sets
             else:
                 avg_daily_sales, _ = self.helper.calculate_weighted_avg_sales_new(sold_array)
 
-            # Staff consumption is real depletion: added to the rate, not to sales_sets
-            internal_array = internal_lookup.get((product_cod, product_var))
+            # Staff consumption is real depletion. register_losses already spreads it into
+            # sales_sets, so only the sold_last_24 fallback needs it added.
+            internal_array = internal_lookup.get((product_cod, product_var)) if avg_from_sets is None else None
             if internal_array:
                 internal_daily = Helper.internal_loss_daily_rate(internal_array)
                 if internal_daily > 0:
@@ -375,12 +310,12 @@ class DecisionMaker:
                     )
                     avg_daily_sales += internal_daily
 
-            deviation_corrected = Helper.calculate_deviation(sales_sets)
+            deviation_corrected = Helper.calculate_deviation(baseline)
 
             req_stock = avg_daily_sales * coverage
 
             if avg_from_sets is not None:
-                oos_window = sales_sets[:7]
+                oos_window = history[:7]
                 null_count = sum(1 for v in oos_window if v is None)
                 if null_count > 0:
                     null_rate = null_count / len(oos_window)
@@ -396,40 +331,43 @@ class DecisionMaker:
             package_consumption = req_stock / package_size
             logger.info(f"Package consumption = {package_consumption:.2f} (package_size={package_size})")
 
-            if sale_info is not None:
+            sigma_daily = Helper.demand_sigma_daily(baseline, closure_mask)
+            if sigma_daily is None and split.promo_masked:
+                # Too few days left without promo for a spread: with them is the cautious side
+                sigma_daily = Helper.demand_sigma_daily(history, closure_mask)
+
+            promo_cov, opening_cov = (
+                Helper.promo_coverage(windows, coverage_window) if split.lift_allowed else (0.0, 0.0)
+            )
+            observed = split.observed
+            lift, lift_sd = 1.0, 0.0
+            discount = None
+            if promo_cov > 0:
                 if self.skip_sale:
                     reason = "Skip products on sale mode is active for this order"
                     Helper.next_article(product_cod, product_var, package_size, descrizione, reason)
                     continue
-                discount = sale_info["discount"]
-                sale_start = sale_info["sale_start"]
-                sale_end = sale_info["sale_end"]
-
-                if discount == 0:
-                    discount = 10
-
-                today = date.today()
-                if sale_start > today:
-                    logger.info(f"Upcoming sale in {(sale_start - today).days} days: {discount}%")
+                depth = self.promo_discount(row.get("price_std"), row.get("price_s"))
+                discount = depth if depth is not None else 10
+                measured = Helper.expected_promo_lift(row.get("promo_lifts"), depth)
+                if measured is not None:
+                    prior, prior_sd, source = measured, Helper.PROMO_LIFT_SD_FRAC * (measured - 1.0), "measured"
                 else:
-                    logger.info(f"This product is currently on sale: {discount}%")
-
-                if self.is_in_first_60_percent(today, sale_start, sale_end):
-                    # Prefer measured history over the flat +10% guess
-                    measured_lift = Helper.expected_promo_lift(row.get("promo_lifts"), discount)
-                    if measured_lift is not None:
-                        req_stock *= measured_lift
-                        logger.info(
-                            f"Stock buff applied (measured lift x{measured_lift:.2f} "
-                            f"from {len(row['promo_lifts'])} past promo(s)): req_stock now {req_stock:.2f}"
-                        )
-                    else:
-                        req_stock += req_stock * 0.10
-                        logger.info(f"Stock buff applied (+10%, no measured history): req_stock now {req_stock:.2f}")
-                else:
-                    logger.info("Sale buff NOT applied (late sale phase)")
-            else:
-                discount = None
+                    (prior, prior_sd), source = lift_prior, "settore median"
+                observed_shares = [day_shares[d.weekday()] for d in split.observed_days] if day_shares else None
+                lift, lift_sd = Helper.learn_promo_lift(prior, prior_sd, observed, avg_daily_sales, sigma_daily,
+                                                        observed_shares=observed_shares)
+                # The lift on the window's promo days only, the opening boost on a run's first days
+                factor = 1.0 + (
+                    (lift - 1.0) * promo_cov + lift * (Helper.PROMO_OPEN_BOOST - 1.0) * opening_cov
+                ) / coverage if coverage > 0 else 1.0
+                req_stock *= factor
+                logger.info(
+                    f"Promo {discount}%: {promo_cov:.2f} of {coverage:.2f} window days on promo "
+                    f"({opening_cov:.2f} opening), lift x{lift:.2f} from {source} x{prior:.2f}"
+                    + (f" and {len(observed)} promo day(s) seen" if observed else "")
+                    + f" -> req_stock x{factor:.2f} = {req_stock:.2f}"
+                )
 
             if shelf_life_days is not None and shelf_life_days <= 90:
                 expiry_factor = None
@@ -438,11 +376,9 @@ class DecisionMaker:
                         expired_lookup[(product_cod, product_var)], sold_array
                     )
 
-                batch_expiry_factor = None
-                if shelf_life_days is not None:
-                    batch_expiry_factor = Helper.compute_batch_expiry_factor(
-                        bought_sets, sales_sets, stock, shelf_life_days, avg_daily_sales
-                    )
+                batch_expiry_factor = Helper.compute_batch_expiry_factor(
+                    bought_sets, split.batch_history, stock, shelf_life_days, avg_daily_sales
+                )
             else:
                 expiry_factor = None
                 batch_expiry_factor = None
@@ -451,15 +387,21 @@ class DecisionMaker:
                 category = "N"
                 # Same rate as req_stock, so promo lift and OOS correction carry over
                 lead_demand = req_stock * lead_days / coverage if coverage > 0 else 0.0
-                sigma_daily = Helper.demand_sigma_daily(sales_sets, closure_mask)
-                sigma_L = sigma_daily * (max(coverage, 1) ** 0.5) if sigma_daily is not None else None
+                if sigma_daily is not None:
+                    # Promo days add volume, and the risk that this promo's lift is not the
+                    # expected one, which hits all of them at once
+                    sigma_L = (sigma_daily ** 2 * (max(coverage, 1) + (lift - 1.0) * promo_cov)
+                               + (lift_sd * avg_daily_sales * promo_cov) ** 2) ** 0.5
+                else:
+                    sigma_L = None
 
                 result, check, status, returned_discount = process_N_sales(
                     package_size, deviation_corrected, avg_daily_sales,
                     req_stock, stock, discount, product_minimum_base, minimum_stock_override,
                     expiry_factor, shelf_life_days, batch_expiry_factor,
                     sigma_L, safety_z,
-                    row.get("max_stock"), bool(row.get("bulk_order")), lead_demand
+                    row.get("max_stock"), bool(row.get("bulk_order")), lead_demand,
+                    promo_in_window=promo_cov > 0,
                 )
             else:
                 reason = "Not verified in system"

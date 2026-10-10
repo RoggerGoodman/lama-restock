@@ -26,6 +26,10 @@ class DatabaseManager:
     # recording for a month would otherwise smear one batch across the whole window.
     LOSS_MAX_SPREAD_DAYS = 7
 
+    # How long a replaced promo run is kept in economics.past_windows: past the
+    # 59 days of sales history the decision maker reads, with some margin.
+    PROMO_WINDOW_KEEP_DAYS = 70
+
     # --- Connection & Cursor ---
 
     def __init__(self, supermarket_name=None):
@@ -113,6 +117,8 @@ class DatabaseManager:
                 cost_s FLOAT,
                 sale_start DATE,
                 sale_end DATE,
+                -- earlier promo runs, [[start, end, depth %], ...]: see update_promos
+                past_windows JSONB,
                 category TEXT NOT NULL,
                 iva INTEGER,
                 FOREIGN KEY (cod, v) REFERENCES products (cod, v),
@@ -214,8 +220,9 @@ class DatabaseManager:
     def get_store_daily_totals(self):
         """
         Element-wise sum of sales_sets across every verified product: one total per
-        day slot, newest first. Feeds Helper.closure_day_mask, which uses it to
-        spot closures and missed syncs.
+        day slot, newest first, slot 0 being the running day. Feeds
+        Helper.closure_day_mask, which uses it to spot closures and missed syncs;
+        slice it with Helper.sales_history before pairing it with a sliced sales_sets.
         """
         cur = self.cursor()
         cur.execute("""
@@ -235,16 +242,28 @@ class DatabaseManager:
         Products whose promotion ended exactly `days_ago` days ago, with the
         sales_sets needed to measure the lift. The exact-day match is what makes
         measurement idempotent — each promo is seen on exactly one nightly sweep.
+
+        The run can be the economics window or one already moved to past_windows by
+        a newer flyer. depth is the stored promo depth for the latter, NULL for the
+        former (read it off price_std/price_s). econ_start/econ_end and past_windows
+        come along so the caller can keep the product's other promos out of the baseline.
         """
         cur = self.cursor()
         cur.execute("""
-            SELECT e.cod, e.v, e.sale_start, e.sale_end, e.price_std, e.price_s,
-                   ps.sales_sets
+            SELECT e.cod, e.v, w.run_start AS sale_start, w.run_end AS sale_end, w.depth,
+                   e.price_std, e.price_s, e.sale_start AS econ_start, e.sale_end AS econ_end,
+                   e.past_windows, ps.sales_sets
             FROM economics e
             JOIN product_stats ps ON ps.cod = e.cod AND ps.v = e.v
-            WHERE e.sale_start IS NOT NULL
-              AND e.sale_end IS NOT NULL
-              AND (CURRENT_DATE - e.sale_end) = %s
+            CROSS JOIN LATERAL (
+                SELECT e.sale_start AS run_start, e.sale_end AS run_end, NULL::numeric AS depth
+                UNION ALL
+                SELECT (x->>0)::date, (x->>1)::date, (x->>2)::numeric
+                FROM jsonb_array_elements(COALESCE(e.past_windows, '[]'::jsonb)) AS x
+            ) AS w
+            WHERE w.run_start IS NOT NULL
+              AND w.run_end IS NOT NULL
+              AND (CURRENT_DATE - w.run_end) = %s
               AND ps.verified = TRUE
         """, (days_ago,))
         return cur.fetchall()
@@ -1098,10 +1117,12 @@ class DatabaseManager:
                 days = max(1, min(int(spread_days), self.LOSS_MAX_SPREAD_DAYS))
                 while len(sales_sets) < 1 + days:
                     sales_sets.append(0)
-                base, rem = divmod(delta, days)
-                for i in range(days):
+                # Censored stockout days (None) stay censored, unless every slot is one
+                slots = [1 + i for i in range(days) if sales_sets[1 + i] is not None] or [1]
+                base, rem = divmod(delta, len(slots))
+                for j, slot in enumerate(slots):
                     # Remainder lands on the most recent days
-                    sales_sets[1 + i] += base + (1 if i < rem else 0)
+                    sales_sets[slot] = (sales_sets[slot] or 0) + base + (1 if j < rem else 0)
                 cur.execute(
                     "UPDATE product_stats SET sales_sets=%s WHERE cod=%s AND v=%s",
                     (Json(sales_sets), cod, v)
@@ -1362,19 +1383,44 @@ class DatabaseManager:
             logger.warning(f"[PROMOS] No matches! Parsed sample: {sample_parsed}, DB sample: {sample_existing}")
             return 0
 
-        cur.executemany("""
+        # A window overlapping or back to back with the stored one merges into one run,
+        # whether or not that one has started: the next flyer's PDF can arrive before it does.
+        # A disjoint one replaces it, and the replaced run moves to past_windows with its
+        # depth, so its days can still be told apart from normal demand.
+        cur.executemany(f"""
             INSERT INTO economics (cod, v, cost_s, price_s, sale_start, sale_end, price_std, cost_std, category)
             VALUES (%s, %s, %s, %s, %s, %s, 0, 0, 0)
             ON CONFLICT (cod, v) DO UPDATE SET
                 price_s = EXCLUDED.price_s,
                 cost_s  = EXCLUDED.cost_s,
+                past_windows = CASE
+                    WHEN economics.sale_start IS NULL OR economics.sale_end IS NULL
+                      OR (EXCLUDED.sale_start <= economics.sale_end + 1
+                          AND EXCLUDED.sale_end >= economics.sale_start - 1)
+                    THEN economics.past_windows
+                    ELSE (
+                        SELECT COALESCE(jsonb_agg(w), '[]'::jsonb)
+                        FROM jsonb_array_elements(
+                            COALESCE(economics.past_windows, '[]'::jsonb) || jsonb_build_array(jsonb_build_array(
+                                economics.sale_start, economics.sale_end,
+                                CASE WHEN economics.price_std > 0 AND economics.price_s < economics.price_std
+                                     THEN round(((economics.price_std - economics.price_s)
+                                                 / economics.price_std * 100)::numeric, 2)
+                                END
+                            ))
+                        ) AS w
+                        WHERE (w->>1)::date >= CURRENT_DATE - {self.PROMO_WINDOW_KEEP_DAYS}
+                    )
+                END,
                 sale_start = CASE
-                    WHEN CURRENT_DATE BETWEEN economics.sale_start AND economics.sale_end
-                    THEN economics.sale_start
+                    WHEN EXCLUDED.sale_start <= economics.sale_end + 1
+                     AND EXCLUDED.sale_end >= economics.sale_start - 1
+                    THEN LEAST(economics.sale_start, EXCLUDED.sale_start)
                     ELSE EXCLUDED.sale_start
                 END,
                 sale_end = CASE
-                    WHEN CURRENT_DATE BETWEEN economics.sale_start AND economics.sale_end
+                    WHEN EXCLUDED.sale_start <= economics.sale_end + 1
+                     AND EXCLUDED.sale_end >= economics.sale_start - 1
                     THEN GREATEST(economics.sale_end, EXCLUDED.sale_end)
                     ELSE EXCLUDED.sale_end
                 END

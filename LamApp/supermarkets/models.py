@@ -348,6 +348,33 @@ class RestockSchedule(models.Model):
         Returns:
             float: Weighted number of days to cover
         """
+        num_days = self._coverage_num_days(order_day_index, reference_date)
+        if not num_days:
+            return 0
+        return self._calculate_weighted_days(order_day_index, num_days, first_day_fraction)
+
+    def coverage_window(self, order_day_index, reference_date, first_day_fraction=1.0):
+        """
+        The days calculate_coverage_for_day spans from reference_date, each with its
+        weighted share: [(date, share), ...] adding up to that coverage. Lets the
+        decision maker tell which of the days it covers are promo days.
+        """
+        from datetime import timedelta
+
+        num_days = self._coverage_num_days(order_day_index, reference_date)
+        weights = [self.storage.supermarket.get_day_weight(d) for d in range(7)]
+        mean_weight = sum(weights) / 7 or 1.0
+        return [
+            (reference_date + timedelta(days=i),
+             weights[(order_day_index + i) % 7] * (first_day_fraction if i == 0 else 1.0) / mean_weight)
+            for i in range(num_days)
+        ]
+
+    def _coverage_num_days(self, order_day_index, reference_date=None):
+        """
+        Days from the order day through the next delivery, both included, under the
+        ScheduleException rules of calculate_coverage_for_day. 0 with no schedule.
+        """
         from datetime import timedelta
 
         order_days = self.get_order_days()
@@ -404,12 +431,10 @@ class RestockSchedule(models.Model):
 
         # Fallback: no schedule and no exceptions, or everything skipped
         if next_days_ahead is None:
-            return self._calculate_weighted_days(order_day_index, 9, first_day_fraction)
+            return 9
 
-        # num_days: from order day (inclusive) through delivery day (inclusive)
-        num_days = next_days_ahead + next_delivery_offset + 1
-
-        return self._calculate_weighted_days(order_day_index, num_days, first_day_fraction)
+        # From order day (inclusive) through delivery day (inclusive)
+        return next_days_ahead + next_delivery_offset + 1
 
     def calculate_lead_days(self, order_day_index, reference_date=None, first_day_fraction=1.0):
         """

@@ -61,6 +61,7 @@ def cluster_order_preview_view(request):
             dm.decide_orders_for_settore(
                 settore, coverage, storage.minimum_stock, lead_days=lead_days,
                 cluster_minimum_stock=storage.cluster_minimum_stocks(),
+                day_weights=[supermarket.get_day_weight(d) for d in range(7)],
             )
 
             if dm.orders_list:

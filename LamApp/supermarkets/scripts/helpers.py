@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from calendar import monthrange
 from collections import defaultdict
+from typing import NamedTuple
 import logging
 import math
 import statistics
@@ -9,6 +10,16 @@ import re
 
 # Use Django's logging system
 logger = logging.getLogger(__name__)
+
+
+class PromoSplit(NamedTuple):
+    baseline: list        # history with every promo day blanked: what to forecast and measure spread on
+    promo_masked: bool    # baseline has promo days blanked, so it differs from the history
+    lift_allowed: bool    # False when the product is on promo too often for a promo-free baseline
+    observed: list        # the days of the run in progress so far, to learn its lift from
+    batch_history: list   # history without past runs' days: batch expiry's clearance pace
+    observed_days: list   # the date of each observed value
+
 
 class Helper:
 
@@ -210,10 +221,9 @@ class Helper:
         Daily rate of internal consumption (goods taken by store staff) from the
         monthly `extra_losses.internal` array. Returns 0.0 with no usable history.
 
-        Kept OUT of sales_sets on purpose: spreading a monthly total across daily
-        slots would fabricate observations, and the recency weighting, outlier
-        capping and deviation calc would then run on invented numbers. Two streams
-        at different granularities — add the rates, never the series.
+        Only for rates built from sold_last_24, which never sees these losses.
+        register_losses spreads every internal loss into sales_sets, so a rate
+        built from sales_sets already includes it and adding this would count it twice.
 
         Index 0 (month-to-date) is skipped; a partial month divided by its full
         length would understate the rate.
@@ -354,6 +364,141 @@ class Helper:
                 mean_lift = 1.0 + (mean_lift - 1.0) * ratio
 
         return max(1.0, min(mean_lift, Helper.PROMO_MAX_LIFT))
+
+    # Promo forecasting
+    PROMO_MIN_BASE_DAYS = 14        # non-promo days needed for a baseline without the promo days
+    PROMO_OPEN_DAYS = 3             # first days of a run that sell above its average (flyer effect)
+    PROMO_OPEN_BOOST = 1.2
+    PROMO_LIFT_SD_FRAC = 0.5        # uncertainty of a measured lift, as a share of its excess over 1
+    PROMO_DEFAULT_LIFT = 1.5        # never-measured product in a settore with too few measured ones
+    PROMO_DEFAULT_SD = 0.3
+    PROMO_PRIOR_MIN_PRODUCTS = 10
+    # In a promo window, the largest remainder left uncovered, as a share of the smaller
+    # of package and minimum stock. Below 1/6 every remainder of a 6-pack still rounds up.
+    PROMO_ROUND_DOWN_MAX = 0.15
+
+    @staticmethod
+    def promo_windows(sale_start, sale_end, past_windows=None):
+        """
+        Every known promo run of a product as merged (start, end) dates, oldest first:
+        the economics window plus the earlier runs update_promos moved to past_windows.
+        Back-to-back flyers merge into one run.
+        """
+        spans = []
+        if sale_start and sale_end:
+            spans.append((sale_start, sale_end))
+        for w in past_windows or []:
+            try:
+                spans.append((date.fromisoformat(str(w[0])[:10]), date.fromisoformat(str(w[1])[:10])))
+            except (TypeError, ValueError, IndexError):
+                continue
+        spans.sort()
+        merged = []
+        for s, e in spans:
+            if merged and s <= merged[-1][1] + timedelta(days=1):
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+        return merged
+
+    @staticmethod
+    def promo_day_mask(windows, today, length):
+        """[bool] over a sales history: True where day (today - 1 - i) fell inside a promo run."""
+        return [any(s <= today - timedelta(days=1 + i) <= e for s, e in windows) for i in range(length)]
+
+    @staticmethod
+    def current_promo_run(windows, today):
+        return next(((s, e) for s, e in windows if s <= today <= e), None)
+
+    @staticmethod
+    def split_promo_history(history, windows, today):
+        """
+        Tell a sales history's promo days from its normal ones (see PromoSplit).
+
+        Promo days are blanked to None rather than removed: consumers read the weekday
+        and the closure mask off the position. When fewer than PROMO_MIN_BASE_DAYS
+        normal days would remain, the product is on promo so often that the promo is
+        its normal level: the history stays whole and no lift goes on top.
+        """
+        current_run = Helper.current_promo_run(windows, today)
+        is_promo = Helper.promo_day_mask(windows, today, len(history))
+        in_run = [current_run is not None and today - timedelta(days=1 + i) >= current_run[0]
+                  for i in range(len(history))]
+        batch_history = [v for v, p, r in zip(history, is_promo, in_run) if r or not p]
+
+        baseline = [None if p else v for v, p in zip(history, is_promo)]
+        if not any(is_promo):
+            return PromoSplit(history, False, True, [], batch_history, [])
+        if sum(1 for v in baseline if v is not None) < Helper.PROMO_MIN_BASE_DAYS:
+            return PromoSplit(history, False, False, [], batch_history, [])
+        seen = [i for i, (v, r) in enumerate(zip(history, in_run)) if r and v is not None]
+        return PromoSplit(baseline, True, True, [history[i] for i in seen], batch_history,
+                          [today - timedelta(days=1 + i) for i in seen])
+
+    @staticmethod
+    def promo_coverage(windows, coverage_window):
+        """
+        (promo, opening): how much of the coverage window falls inside a promo run, and
+        inside a run's first PROMO_OPEN_DAYS days, in the same weighted-day units as
+        coverage. coverage_window is [(date, share), ...].
+        """
+        promo = opening = 0.0
+        for d, share in coverage_window:
+            run = next(((s, e) for s, e in windows if s <= d <= e), None)
+            if run is None:
+                continue
+            promo += share
+            if (d - run[0]).days < Helper.PROMO_OPEN_DAYS:
+                opening += share
+        return promo, opening
+
+    @staticmethod
+    def coverage_window_fallback(today, coverage):
+        """
+        The coverage window when the schedule's own is not available: ceil(coverage) days
+        from today sharing the coverage equally. Rounding up may take in the day after
+        the window, but never misses a day inside it.
+        """
+        n = max(1, math.ceil(coverage - 1e-9))
+        return [(today + timedelta(days=i), coverage / n) for i in range(n)]
+
+    @staticmethod
+    def settore_lift_prior(product_lifts):
+        """
+        (lift, sd) for a product with no measured promo: the median of its settore's
+        measured lifts, with their spread as the uncertainty. Not depth-rescaled, for the
+        reason in expected_promo_lift.
+        """
+        lifts = sorted(l for l in product_lifts if l is not None)
+        if len(lifts) < Helper.PROMO_PRIOR_MIN_PRODUCTS:
+            return Helper.PROMO_DEFAULT_LIFT, Helper.PROMO_DEFAULT_SD
+        q1, _, q3 = statistics.quantiles(lifts, n=4)
+        median = max(1.0, statistics.median(lifts))
+        return median, max((q3 - q1) / 1.349, Helper.PROMO_LIFT_SD_FRAC * (median - 1.0))
+
+    @staticmethod
+    def learn_promo_lift(prior, prior_sd, observed, base_rate, sigma_daily=None, observed_shares=None):
+        """
+        (lift, sd) after the running promo's own days: the stored lift and the observed
+        one, each weighted by its precision. The observed lift is only as sure as the
+        units behind it, so one day of a high seller moves the estimate a lot and a
+        fortnight of a slow seller barely does. At ~10/day it amounts to the stored lift
+        being worth a week of observations.
+
+        observed_shares: each observed day's weekday weight (mean 1). The days are
+        compared with what they normally sell, so a Monday-Tuesday start does not read
+        as a weak promo, nor a Friday-Saturday one as a strong one.
+        """
+        if not observed or base_rate <= 0 or prior_sd <= 0:
+            return prior, prior_sd
+        # Normal-level days the observations are worth
+        k = sum(observed_shares) if observed_shares else len(observed)
+        lift_obs = sum(observed) / k / base_rate
+        # Daily variance scales with the level; Poisson when sigma is unknown
+        var_day = sigma_daily ** 2 if sigma_daily else base_rate
+        var_obs = var_day * prior / (base_rate ** 2 * k)
+        w = prior_sd ** 2 / (prior_sd ** 2 + var_obs)
+        return max(1.0, (1 - w) * prior + w * lift_obs), prior_sd * (1 - w) ** 0.5
 
     # z = standard deviations of cushion. Set against holding cost, not just
     # dispersion: DEPERIBILI is measured at 2.34 but extra buffer there becomes
