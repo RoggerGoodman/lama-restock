@@ -1828,19 +1828,25 @@ function pollFetchTask(taskId, cod, v, btn) {
                 .catch(err => alert(err.message));
         } else if (e.target.closest('.edit-stock-btn')) {
             const stockEl = row.querySelector('.rev-stock');
-            openStockEditor(row.querySelector('.small'), cod, v, parseInt(stockEl.textContent) || 0, stockEl);
+            const name = row.querySelector('.review-name').firstChild.textContent.trim();
+            openStockEditor(name, cod, v, parseInt(stockEl.textContent) || 0, stockEl);
         }
     });
 
-    function openStockEditor(container, cod, v, currentStock, stockSpan, onSaved) {
-        openStockCorrector(container, currentStock, function (n, reason) {
-            return post({ action: 'set_stock', cod: cod, var: v, stock: n, reason: reason })
-                .then(function (data) {
-                    const applied = (data.stock !== undefined) ? data.stock : n;
-                    if (stockSpan) stockSpan.textContent = applied;
-                    if (onSaved) onSaved(applied);
-                    if (data.pending) addPendingRow(data.pending);
-                });
+    function openStockEditor(name, cod, v, currentStock, stockSpan, onSaved) {
+        openStockCorrector({
+            title: `${cod}.${v} · ${name}`,
+            currentStock: currentStock,
+            initialValue: currentStock,
+            submit: function (n, reason) {
+                return post({ action: 'set_stock', cod: cod, var: v, stock: n, reason: reason })
+                    .then(function (data) {
+                        const applied = (data.stock !== undefined) ? data.stock : n;
+                        if (stockSpan) stockSpan.textContent = applied;
+                        if (onSaved) onSaved(applied);
+                        if (data.pending) addPendingRow(data.pending);
+                    });
+            },
         });
     }
 
@@ -1900,7 +1906,7 @@ function pollFetchTask(taskId, cod, v, btn) {
                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
                     <div>
                         <small class="text-muted font-monospace">${p.cod}.${p.var}</small>
-                        <div>${p.description} ${badge}${unavail}</div>
+                        <div><span class="sr-name">${p.description}</span> ${badge}${unavail}</div>
                         <div class="small text-muted">Giacenza: <strong class="sr-stock">${p.stock}</strong>
                             · Media/gg: ${p.avg_daily_sales} ${inOrder}</div>
                         ${linkWarn}
@@ -1959,7 +1965,8 @@ function pollFetchTask(taskId, cod, v, btn) {
                 .catch(err => alert(err.message));
         } else if (e.target.closest('.sr-stock-edit')) {
             const stockEl = item.querySelector('.sr-stock');
-            openStockEditor(item, cod, v, parseInt(stockEl.textContent) || 0, stockEl, function (applied) {
+            const name = item.querySelector('.sr-name').textContent.trim();
+            openStockEditor(name, cod, v, parseInt(stockEl.textContent) || 0, stockEl, function (applied) {
                 const row = list.querySelector(`.review-item[data-cod="${cod}"][data-var="${v}"] .rev-stock`);
                 if (row) row.textContent = applied;
             });

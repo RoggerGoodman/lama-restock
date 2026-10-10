@@ -790,30 +790,35 @@ function verifyProduct(cod, var_, defaultStock, rowIdPrefix) {
 
 // Correct a negative stock: real shelf count + mandatory reason, posted as a delta
 function adjustNegativeStock(btn, cod, var_, currentStock) {
-    openStockCorrector(btn.closest('td'), 0, function (newStock, reason) {
-        const formData = new FormData();
-        formData.append('cod', cod);
-        formData.append('var', var_);
-        formData.append('adjustment', newStock - currentStock);
-        formData.append('reason', reason);
-        formData.append('source', 'negative_stock');
-        formData.append('supermarket', '{{ storage.supermarket.name }}');
+    const row = btn.closest('tr');
+    openStockCorrector({
+        title: `${cod}.${var_} · ${row.children[2].textContent.trim()}`,
+        currentStock: currentStock,
+        initialValue: 0,
+        submit: function (newStock, reason) {
+            const formData = new FormData();
+            formData.append('cod', cod);
+            formData.append('var', var_);
+            formData.append('adjustment', newStock - currentStock);
+            formData.append('reason', reason);
+            formData.append('source', 'negative_stock');
+            formData.append('supermarket', '{{ storage.supermarket.name }}');
 
-        return fetch('/inventory/adjust-stock/', {
-            method: 'POST',
-            headers: {
-                'X-CSRFToken': '{{ csrf_token }}'
-            },
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (!data.success) throw new Error('Errore: ' + data.message);
-            const row = document.getElementById(`negative-row-${cod}-${var_}`);
-            row.style.transition = 'opacity 0.3s';
-            row.style.opacity = '0';
-            setTimeout(() => row.remove(), 300);
-        });
+            return fetch('/inventory/adjust-stock/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) throw new Error('Errore: ' + data.message);
+                row.style.transition = 'opacity 0.3s';
+                row.style.opacity = '0';
+                setTimeout(() => row.remove(), 300);
+            });
+        },
     });
 }
 

@@ -873,21 +873,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 const sm = this.dataset.supermarket;
                 const rowEl = document.getElementById('fermi-row-' + sid + '-' + cod + '-' + v);
                 const badge = rowEl.querySelector('.fermi-stock-badge');
+                const currentStock = parseInt(badge.textContent);
 
-                openStockCorrector(this.closest('td'), 0, function (newStock, reason) {
-                    const fd = new FormData();
-                    fd.append('cod', cod); fd.append('var', v);
-                    fd.append('adjustment', newStock - parseInt(badge.textContent));
-                    fd.append('reason', reason);
-                    fd.append('source', 'fermi');
-                    fd.append('supermarket', sm);
+                openStockCorrector({
+                    title: cod + '.' + v + ' · ' + rowEl.children[2].firstChild.textContent.trim(),
+                    currentStock: currentStock,
+                    initialValue: 0,
+                    submit: function (newStock, reason) {
+                        const fd = new FormData();
+                        fd.append('cod', cod); fd.append('var', v);
+                        fd.append('adjustment', newStock - currentStock);
+                        fd.append('reason', reason);
+                        fd.append('source', 'fermi');
+                        fd.append('supermarket', sm);
 
-                    return fetch('/inventory/adjust-stock/', { method: 'POST', headers: { 'X-CSRFToken': getCsrf() }, body: fd })
-                        .then(r => r.json())
-                        .then(function (data) {
-                            if (!data.success) throw new Error('Errore: ' + data.message);
-                            badge.textContent = data.new_stock;
-                        });
+                        return fetch('/inventory/adjust-stock/', { method: 'POST', headers: { 'X-CSRFToken': getCsrf() }, body: fd })
+                            .then(r => r.json())
+                            .then(function (data) {
+                                if (!data.success) throw new Error('Errore: ' + data.message);
+                                badge.textContent = data.new_stock;
+                            });
+                    },
                 });
             });
         });
