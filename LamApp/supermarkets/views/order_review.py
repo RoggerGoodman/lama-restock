@@ -11,6 +11,7 @@ import logging
 
 from ..models import RestockLog
 from ..services import RestockService
+from ..scripts.DatabaseManager import DatabaseManager
 from .common import parse_shelf_barcode
 
 logger = logging.getLogger(__name__)
@@ -173,8 +174,7 @@ def order_review_edit(request, pk):
     orders = results.get('orders', [])
 
     if action == 'set_stock':
-        # Operator types the real shelf count (absolute) plus a mandatory reason;
-        # we apply the delta with the same loss/adjust rules as the inventory view.
+        # Operator types the real shelf count (absolute) plus a mandatory reason
         try:
             new_stock = int(data['stock'])
         except (KeyError, ValueError, TypeError):
@@ -182,28 +182,16 @@ def order_review_edit(request, pk):
         if new_stock < 0:
             return JsonResponse({'success': False, 'message': 'Giacenza non valida'}, status=400)
         reason = (data.get('reason') or '').strip()
-        if not reason:
+        if reason not in DatabaseManager.CORRECTION_REASONS:
             return JsonResponse({'success': False, 'message': 'Seleziona un motivo'}, status=400)
 
-        loss_type_mapping = {
-            'broken': 'broken', 'expired': 'expired', 'internal_use': 'internal',
-            'stolen': 'stolen', 'shrinkage': 'shrinkage',
-        }
         with RestockService(log.storage) as service:
             try:
                 current = service.db.get_stock(cod, var) or 0
             except ValueError:
-                current = 0
-            delta = new_stock - current
-            if delta != 0:
-                if delta < 0 and reason in loss_type_mapping:
-                    service.db.register_losses(cod, var, abs(delta), loss_type_mapping[reason])
-                else:
-                    service.db.adjust_stock(cod, var, delta)
-            try:
-                applied = service.db.get_stock(cod, var)
-            except ValueError:
-                applied = new_stock
+                return JsonResponse({'success': False, 'message': 'Articolo senza giacenza registrata'}, status=404)
+            result = service.correct_stock(cod, var, new_stock - current, reason, request.user, 'order_review')
+            applied = result['new_stock']
             cur = service.db.cursor()
             cur.execute("SELECT descrizione FROM products WHERE cod = %s AND v = %s", (cod, var))
             row = cur.fetchone()

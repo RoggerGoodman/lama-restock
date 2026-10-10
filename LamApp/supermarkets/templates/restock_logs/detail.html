@@ -1398,6 +1398,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="{% static 'js/ean-scanner.js' %}"></script>
+<script src="{% static 'js/stock-corrector.js' %}"></script>
 <script>
 let currentSortColumn = -1;
 let currentSortDirection = 'asc';
@@ -1831,48 +1832,15 @@ function pollFetchTask(taskId, cod, v, btn) {
         }
     });
 
-    // ---- Inline stock corrector: real shelf count + mandatory reason ----
-    const STOCK_REASONS = [
-        ['expired', 'Scaduto'],
-        ['broken', 'Rotto/Danneggiato'],
-        ['internal_use', 'Uso interno'],
-        ['stolen', 'Furti'],
-        ['shrinkage', 'Differenze inventariali'],
-        ['other', 'Altro'],
-    ];
-
     function openStockEditor(container, cod, v, currentStock, stockSpan, onSaved) {
-        if (!container || container.querySelector('.stock-editor')) return;
-        const ed = document.createElement('div');
-        ed.className = 'stock-editor d-flex flex-wrap gap-1 align-items-center mt-1';
-        ed.innerHTML =
-            '<input type="number" class="form-control form-control-sm se-stock" min="0" style="width:60px;">' +
-            '<select class="form-select form-select-sm se-reason" style="width:auto;">' +
-            '<option value="" selected disabled>Motivo…</option>' +
-            STOCK_REASONS.map(function (r) { return '<option value="' + r[0] + '">' + r[1] + '</option>'; }).join('') +
-            '</select>' +
-            '<button type="button" class="btn btn-sm btn-success se-save"><i class="bi bi-check-lg"></i></button>' +
-            '<button type="button" class="btn btn-sm btn-outline-secondary se-cancel"><i class="bi bi-x-lg"></i></button>';
-        container.appendChild(ed);
-        const stockInput = ed.querySelector('.se-stock');
-        stockInput.value = currentStock;
-        stockInput.focus();
-        stockInput.select();
-        ed.querySelector('.se-cancel').addEventListener('click', function () { ed.remove(); });
-        ed.querySelector('.se-save').addEventListener('click', function () {
-            const n = parseInt(stockInput.value);
-            const reason = ed.querySelector('.se-reason').value;
-            if (isNaN(n) || n < 0) { alert('Valore non valido'); return; }
-            if (!reason) { alert('Seleziona un motivo'); return; }
-            post({ action: 'set_stock', cod: cod, var: v, stock: n, reason: reason })
+        openStockCorrector(container, currentStock, function (n, reason) {
+            return post({ action: 'set_stock', cod: cod, var: v, stock: n, reason: reason })
                 .then(function (data) {
                     const applied = (data.stock !== undefined) ? data.stock : n;
                     if (stockSpan) stockSpan.textContent = applied;
                     if (onSaved) onSaved(applied);
                     if (data.pending) addPendingRow(data.pending);
-                    ed.remove();
-                })
-                .catch(function (err) { alert(err.message); });
+                });
         });
     }
 

@@ -5,7 +5,7 @@ import psycopg2
 import psycopg2.extras
 import os
 from psycopg2.extras import Json, execute_values
-from datetime import date
+from datetime import date, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,19 @@ class DatabaseManager:
     # How long a replaced promo run is kept in economics.past_windows: past the
     # 59 days of sales history the decision maker reads, with some margin.
     PROMO_WINDOW_KEEP_DAYS = 70
+
+    # Recorded zero days the censored-stockout rule looks past to find the last sale.
+    # Censored days (None) are passed over without counting, so a long stockout stays censored.
+    STOCKOUT_LOOKBACK_ZERO_DAYS = 7
+
+    # Reasons offered by the stock-correction screens, and the loss each books on a decrease
+    CORRECTION_LOSS_TYPES = {
+        'broken': 'broken', 'expired': 'expired', 'internal_use': 'internal',
+        'stolen': 'stolen', 'shrinkage': 'shrinkage',
+    }
+    CORRECTION_REASONS = (*CORRECTION_LOSS_TYPES, 'other')
+    # The units were never on the shelf (Furti, Differenze inventariali)
+    PHANTOM_STOCK_REASONS = ('stolen', 'shrinkage')
 
     # --- Connection & Cursor ---
 
@@ -404,6 +417,85 @@ class DatabaseManager:
 
         self.conn.commit()
 
+    @classmethod
+    def _zero_days_before_last_sale(cls, history):
+        """
+        Indices of the non-sale days in `history` (closed days, newest first) more recent
+        than its last sale, or None when no sale turns up within
+        STOCKOUT_LOOKBACK_ZERO_DAYS of them. Censored days (None) are skipped.
+        """
+        zeros = []
+        for i, q in enumerate(history):
+            if q is None:
+                continue
+            if q > 0:
+                return zeros
+            if len(zeros) == cls.STOCKOUT_LOOKBACK_ZERO_DAYS:
+                return None
+            zeros.append(i)
+        return None
+
+    def correct_stock(self, cod: int, v: int, delta: int, reason: str) -> dict:
+        """
+        Apply a human stock correction made with one of CORRECTION_REASONS. A decrease
+        with a loss reason is booked as that loss; anything else is a plain adjustment.
+
+        A PHANTOM_STOCK_REASONS correction that leaves a verified product on zero means
+        the shelf has been empty since the last sale, while the midnight rule saw stock
+        and recorded those days as zero demand. They are censored here, which also lets
+        the rule carry the stockout on from the next midnight.
+        """
+        if reason not in self.CORRECTION_REASONS:
+            raise ValueError(f"Invalid correction reason '{reason}'")
+        delta = int(delta)
+        old_stock = self.get_stock(cod, v)
+        result = {
+            "old_stock": old_stock, "new_stock": old_stock, "loss_type": None,
+            "blanked_days": [], "days_since_last_sale": None,
+        }
+        if delta == 0:
+            return result
+
+        loss_type = self.CORRECTION_LOSS_TYPES.get(reason) if delta < 0 else None
+        if loss_type:
+            self.register_losses(cod, v, -delta, loss_type)
+        else:
+            self.adjust_stock(cod, v, delta)
+        result["loss_type"] = loss_type
+
+        with self.transaction() as cur:
+            cur.execute("""
+                SELECT ps.sales_sets, ps.stock, ps.verified, ps.last_update_sold, p.disponibilita
+                FROM product_stats ps
+                LEFT JOIN products p ON p.cod = ps.cod AND p.v = ps.v
+                WHERE ps.cod = %s AND ps.v = %s
+                FOR UPDATE OF ps
+            """, (cod, v))
+            row = cur.fetchone()
+            ss = row["sales_sets"] or []
+            history = ss[1:]
+            result["new_stock"] = row["stock"]
+            result["days_since_last_sale"] = next(
+                (i + 1 for i, q in enumerate(history) if q is not None and q > 0), None
+            )
+
+            if (reason in self.PHANTOM_STOCK_REASONS and row["stock"] == 0
+                    and row["verified"] and row["disponibilita"] != 'No'):
+                zeros = self._zero_days_before_last_sale(history)
+                if zeros:
+                    for i in zeros:
+                        ss[1 + i] = None
+                    cur.execute(
+                        "UPDATE product_stats SET sales_sets=%s WHERE cod=%s AND v=%s",
+                        (Json(ss), cod, v)
+                    )
+                    # Slot 0 is the day in last_update_sold, so history[i] is i + 1 days before it
+                    day0 = row["last_update_sold"] or date.today()
+                    result["blanked_days"] = [(day0 - timedelta(days=1 + i)).isoformat() for i in zeros]
+                    logger.info(f"Censored {len(zeros)} stockout day(s) for {cod}.{v}: {result['blanked_days']}")
+
+        return result
+
     # --- Data Sync ---
 
     def _rollover_sales_day(self, cur, sync_date) -> int:
@@ -413,8 +505,9 @@ class DatabaseManager:
         Idempotent: products already at `sync_date` are skipped.
 
         Closing applies the censored-stockout rule — a verified product that ended on zero
-        with an empty shelf while the supplier still had stock was unbuyable, not
-        demandless, so its slot becomes None and drops out of the averages.
+        with an empty shelf while the supplier still had stock, and that sold within the
+        last STOCKOUT_LOOKBACK_ZERO_DAYS recorded days, was unbuyable, not demandless, so
+        its slot becomes None and drops out of the averages.
         """
         cur.execute("""
             SELECT ps.cod, ps.v, ps.sales_sets, ps.bought_sets, ps.stock, ps.verified,
@@ -434,8 +527,7 @@ class DatabaseManager:
                 stock_zero = (r["stock"] or 0) == 0
                 supplier_oos = r["disponibilita"] == 'No'
                 # Look past slot 0 — that is the day being closed, not history
-                last_known_sale = next((v for v in ss[1:] if v is not None), None)
-                demand_driven = last_known_sale is not None and last_known_sale > 0
+                demand_driven = self._zero_days_before_last_sale(ss[1:]) is not None
                 if stock_zero and not supplier_oos and demand_driven:
                     ss[0] = None
 

@@ -1,6 +1,8 @@
+from django.db import transaction
+
 from .scripts.DatabaseManager import DatabaseManager
 from .scripts.helpers import Helper
-from .models import Storage
+from .models import Storage, StockCorrection
 import logging
 
 logger = logging.getLogger(__name__)
@@ -50,7 +52,32 @@ class RestockService:
     def import_products_from_CSV(self, file_path):
         """Import products from CSV file"""
         self.db.import_from_CSV(file_path, self.settore)
-    
+
+    def correct_stock(self, cod, var, delta, reason, user, source):
+        """Apply a human stock correction (see DatabaseManager.correct_stock) and log it."""
+        result = self.db.correct_stock(cod, var, delta, reason)
+        if delta == 0:
+            return result
+        # The stock is already changed: a failed log row must not surface as an error
+        # the user answers by correcting again.
+        try:
+            with transaction.atomic():
+                StockCorrection.objects.create(
+                    supermarket=self.supermarket,
+                    user=user if user and user.is_authenticated else None,
+                    source=source,
+                    cod=cod,
+                    var=var,
+                    old_stock=result['old_stock'],
+                    new_stock=result['new_stock'],
+                    reason=reason,
+                    days_since_last_sale=result['days_since_last_sale'],
+                    blanked_days=result['blanked_days'],
+                )
+        except Exception:
+            logger.exception(f"Could not log stock correction for {cod}.{var}")
+        return result
+
     def close(self):
         """Clean up resources - CRITICAL for thread safety"""
         try:

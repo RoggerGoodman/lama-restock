@@ -1,5 +1,6 @@
 <!-- LamApp/supermarkets/templates/storages/detail.html - ENHANCED -->
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}{{ storage.name }} - LamaRestock{% endblock %}
 {% block page_title %}{{ storage.name }}{% endblock %}
@@ -63,7 +64,7 @@
                                 <td>
                                     <div class="btn-group btn-group-sm">
                                         <button class="btn btn-sm btn-warning"
-                                                onclick="adjustNegativeStock({{ product.cod }}, {{ product.var }}, {{ product.stock }})">
+                                                onclick="adjustNegativeStock(this, {{ product.cod }}, {{ product.var }}, {{ product.stock }})">
                                             <i class="bi bi-pencil"></i> Correggi
                                         </button>
                                         <button class="btn btn-sm btn-danger"
@@ -108,7 +109,7 @@
                                 <th>Descrizione</th>
                                 <th>Pz x Collo</th>
                                 <th>Pz/gg</th>
-                                <th title="Vendite giornaliere da oggi (a sinistra) a 6 giorni fa. In rosso i giorni con vendite almeno doppie rispetto alla media (minimo 4 pz).">Ultimi 7 gg <small class="text-muted">(oggi &rarr;)</small></th>
+                                <th title="Vendite giornaliere da oggi (a sinistra) a 6 giorni fa. In rosso i giorni con vendite almeno doppie rispetto alla media (minimo 4 pz). Con — i giorni a scaffale vuoto, esclusi dalla media.">Ultimi 7 gg <small class="text-muted">(oggi &rarr;)</small></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -139,7 +140,7 @@
                                 <td class="text-nowrap">
                                     {% for day in product.last_7 %}
                                         {% if day.qty is None %}
-                                            <span class="badge bg-light text-muted border">—</span>
+                                            <span class="badge bg-light text-muted border" title="Esaurito: scaffale vuoto, giorno escluso dal calcolo della media">—</span>
                                         {% elif day.spike %}
                                             <span class="badge bg-danger">{{ day.qty|floatformat:"-1" }}</span>
                                         {% elif day.qty %}
@@ -673,6 +674,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{% static 'js/stock-corrector.js' %}"></script>
 <script>
 // Giacenza minima inline edit
 function editMinimumStock() {
@@ -786,55 +788,32 @@ function verifyProduct(cod, var_, defaultStock, rowIdPrefix) {
     });
 }
 
-// NEW: Adjust negative stock - uses inventory_adjust_stock_ajax_view with form POST
-function adjustNegativeStock(cod, var_, currentStock) {
-    const newStock = prompt(`Correggi la giacenza per ${cod}.${var_} (attuale: ${currentStock}):`, '0');
+// Correct a negative stock: real shelf count + mandatory reason, posted as a delta
+function adjustNegativeStock(btn, cod, var_, currentStock) {
+    openStockCorrector(btn.closest('td'), 0, function (newStock, reason) {
+        const formData = new FormData();
+        formData.append('cod', cod);
+        formData.append('var', var_);
+        formData.append('adjustment', newStock - currentStock);
+        formData.append('reason', reason);
+        formData.append('source', 'negative_stock');
+        formData.append('supermarket', '{{ storage.supermarket.name }}');
 
-    if (newStock === null) return; // User cancelled
-
-    const stockValue = parseInt(newStock);
-    if (isNaN(stockValue)) {
-        alert('Valore non valido');
-        return;
-    }
-
-    // Calculate adjustment from current stock to new stock
-    const adjustment = stockValue - currentStock;
-
-    if (!confirm(`Impostare la giacenza di ${cod}.${var_} a ${stockValue}?`)) {
-        return;
-    }
-
-    // Use form POST like inventory panel does
-    const formData = new FormData();
-    formData.append('cod', cod);
-    formData.append('var', var_);
-    formData.append('adjustment', adjustment);
-    formData.append('reason', 'stolen');  // Use stolen as reason for discrepancy correction
-    formData.append('supermarket', '{{ storage.supermarket.name }}');
-
-    fetch('/inventory/adjust-stock/', {
-        method: 'POST',
-        headers: {
-            'X-CSRFToken': '{{ csrf_token }}'
-        },
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
+        return fetch('/inventory/adjust-stock/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) throw new Error('Errore: ' + data.message);
             const row = document.getElementById(`negative-row-${cod}-${var_}`);
             row.style.transition = 'opacity 0.3s';
             row.style.opacity = '0';
             setTimeout(() => row.remove(), 300);
-
-            alert(`✅ Giacenza aggiornata per ${cod}.${var_}!`);
-        } else {
-            alert('Errore: ' + data.message);
-        }
-    })
-    .catch(error => {
-        alert('Errore: ' + error);
+        });
     });
 }
 

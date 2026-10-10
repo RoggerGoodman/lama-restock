@@ -12,7 +12,7 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
                    req_stock, stock, discount=None, minimum_stock_base=None, minimum_stock_override=None,
                    expiry_factor=None, shelf_life_days=None, batch_expiry_factor=None,
                    sigma_L=None, safety_z=1.0,
-                   max_stock=None, bulk_order=False, lead_demand=0.0, promo_in_window=False):
+                   max_stock=None, bulk_order=False, lead_demand=0.0):
     """
     Process N category sales and calculate order quantity.
 
@@ -30,10 +30,6 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
         safety_z: standard deviations of cushion, per settore — Helper.safety_z_for.
         max_stock, bulk_order: product-level shelf ceiling — see apply_max_stock.
         lead_demand: units expected to sell before this order is delivered.
-        promo_in_window: the coverage window holds promo days. A remainder is then
-            rounded down only when it is noise next to both the package and the buffer
-            (Helper.PROMO_ROUND_DOWN_MAX): a shortfall left to the next order would land
-            mid-promo.
     """
     order = 1
     req_stock = round(req_stock)
@@ -139,13 +135,12 @@ def process_N_sales(package_size, deviation_corrected, avg_daily_sales,
     order = raw_order
     decision = None
     if need >= 0:
-        # Compared in units: a float fraction misjudges shortfall == minimum_stock
+        # In whole units, not as a float share of a package
         shortfall = need % package_size
         order = int(need // package_size)
-        if promo_in_window:
-            round_up_above = Helper.PROMO_ROUND_DOWN_MAX * min(package_size, minimum_stock)
-        else:
-            round_up_above = min(package_size / 2, minimum_stock)
+        # A remainder is left to the next order only when it is noise next to both the
+        # package and the buffer; rounding down any more eats into the safety stock
+        round_up_above = Helper.ROUND_DOWN_MAX * min(package_size, minimum_stock)
         if not batch_expiry_factor and shortfall > round_up_above:
             order += 1
 

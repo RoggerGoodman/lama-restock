@@ -1046,6 +1046,39 @@ class SalesSyncLog(models.Model):
         return len(self.unverified_products)
 
 
+class StockCorrection(models.Model):
+    """One human stock correction made from a correction screen, with its reason."""
+    SOURCE_CHOICES = [
+        ('inventory', 'Scheda articolo'),
+        ('negative_stock', 'Giacenza anomala'),
+        ('fermi', 'Prodotti fermi'),
+        ('order_review', 'Revisione ordine'),
+    ]
+
+    supermarket = models.ForeignKey(Supermarket, on_delete=models.CASCADE, related_name='stock_corrections')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
+    cod = models.IntegerField()
+    var = models.IntegerField()
+    old_stock = models.IntegerField(null=True)
+    new_stock = models.IntegerField(null=True)
+    reason = models.CharField(max_length=20)
+    # Measures how long phantom stock sits before it is caught
+    days_since_last_sale = models.SmallIntegerField(null=True)
+    # Closed sales days censored as stockouts, ISO dates
+    blanked_days = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['supermarket', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.supermarket.name} — {self.cod}.{self.var} {self.old_stock} → {self.new_stock} ({self.reason})"
+
+
 class LossSyncState(models.Model):
     """Tracks the last processed rilevazione date per loss type for a supermarket."""
     supermarket = models.OneToOneField(Supermarket, on_delete=models.CASCADE, related_name='loss_sync_state')

@@ -375,9 +375,6 @@ class Helper:
     PROMO_DEFAULT_LIFT = 1.5        # never-measured product in a settore with too few measured ones
     PROMO_DEFAULT_SD = 0.3
     PROMO_PRIOR_MIN_PRODUCTS = 10
-    # In a promo window, the largest remainder left uncovered, as a share of the smaller
-    # of package and minimum stock. Below 1/6 every remainder of a 6-pack still rounds up.
-    PROMO_ROUND_DOWN_MAX = 0.15
 
     @staticmethod
     def promo_windows(sale_start, sale_end, past_windows=None):
@@ -536,6 +533,10 @@ class Helper:
     # instead of a demand buffer, because the pack size already dwarfs its demand
     # (0.16/day against a pack of 8 is 50 days of cover).
     SLOW_MOVER_THRESHOLD = 0.6
+
+    # Largest remainder of the last package left uncovered, as a share of the smaller of
+    # package and minimum stock. Below 1/6 every remainder of a 6-pack still rounds up.
+    ROUND_DOWN_MAX = 0.15
 
     @staticmethod
     def slow_mover_reduction(avg_daily_sales):

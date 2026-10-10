@@ -327,6 +327,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="{% static 'js/ean-scanner.js' %}"></script>
+<script src="{% static 'js/stock-corrector.js' %}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const searchTypeRadios = document.querySelectorAll('input[name="search_type"]');
@@ -871,30 +872,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 const sid = parseInt(this.dataset.storageId);
                 const sm = this.dataset.supermarket;
                 const rowEl = document.getElementById('fermi-row-' + sid + '-' + cod + '-' + v);
-                const currentStock = parseInt(rowEl.querySelector('.fermi-stock-badge').textContent);
+                const badge = rowEl.querySelector('.fermi-stock-badge');
 
-                const newStockStr = prompt('Correggi la giacenza per ' + cod + '.' + v + ' (attuale: ' + currentStock + '):', '0');
-                if (newStockStr === null) return;
-                const newStock = parseInt(newStockStr);
-                if (isNaN(newStock)) { alert('Valore non valido'); return; }
-                if (!confirm('Impostare la giacenza di ' + cod + '.' + v + ' a ' + newStock + '?')) return;
+                openStockCorrector(this.closest('td'), 0, function (newStock, reason) {
+                    const fd = new FormData();
+                    fd.append('cod', cod); fd.append('var', v);
+                    fd.append('adjustment', newStock - parseInt(badge.textContent));
+                    fd.append('reason', reason);
+                    fd.append('source', 'fermi');
+                    fd.append('supermarket', sm);
 
-                const fd = new FormData();
-                fd.append('cod', cod); fd.append('var', v);
-                fd.append('adjustment', newStock - currentStock);
-                fd.append('reason', 'stolen');
-                fd.append('supermarket', sm);
-
-                fetch('/inventory/adjust-stock/', { method: 'POST', headers: { 'X-CSRFToken': getCsrf() }, body: fd })
-                    .then(r => r.json())
-                    .then(function (data) {
-                        if (data.success) {
-                            rowEl.querySelector('.fermi-stock-badge').textContent = newStock;
-                        } else {
-                            alert('Errore: ' + data.message);
-                        }
-                    })
-                    .catch(function (err) { alert('Errore: ' + err); });
+                    return fetch('/inventory/adjust-stock/', { method: 'POST', headers: { 'X-CSRFToken': getCsrf() }, body: fd })
+                        .then(r => r.json())
+                        .then(function (data) {
+                            if (!data.success) throw new Error('Errore: ' + data.message);
+                            badge.textContent = data.new_stock;
+                        });
+                });
             });
         });
 

@@ -401,7 +401,6 @@ class DecisionMaker:
                     expiry_factor, shelf_life_days, batch_expiry_factor,
                     sigma_L, safety_z,
                     row.get("max_stock"), bool(row.get("bulk_order")), lead_demand,
-                    promo_in_window=promo_cov > 0,
                 )
             else:
                 reason = "Not verified in system"

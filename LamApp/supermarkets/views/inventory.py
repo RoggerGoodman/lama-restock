@@ -10,9 +10,10 @@ from django.views.decorators.http import require_POST
 import logging
 
 from ..automation_services import AutomatedRestockService
-from ..models import Supermarket, Storage, Blacklist, BlacklistEntry
+from ..models import Supermarket, Storage, Blacklist, BlacklistEntry, StockCorrection
 from ..forms import InventorySearchForm
 from ..services import RestockService, delete_blacklist_entries_for_purged
+from ..scripts.DatabaseManager import DatabaseManager
 from .common import parse_shelf_barcode
 
 logger = logging.getLogger(__name__)
@@ -167,8 +168,6 @@ def _todays_deliveries(user, results):
     while the truck may come hours later: a shelf count before then is not a reason
     to correct stock.
     """
-    from ..scripts.DatabaseManager import DatabaseManager
-
     wanted = {}
     for r in results:
         wanted.setdefault(r['supermarket_name'], set()).add((r['cod'], r['v']))
@@ -614,6 +613,9 @@ def inventory_adjust_stock_ajax_view(request):
         var = int(request.POST.get('var'))
         adjustment_raw = request.POST.get('adjustment', '').strip()
         reason = request.POST.get('reason')
+        source = request.POST.get('source')
+        if source not in dict(StockCorrection.SOURCE_CHOICES):
+            source = 'inventory'
         supermarket_name = request.POST.get('supermarket')
         minimum_stock = request.POST.get('minimum_stock', '').strip()  # ← FIX: strip whitespace
         cluster = request.POST.get('cluster', '').strip().upper()
@@ -704,25 +706,15 @@ def inventory_adjust_stock_ajax_view(request):
                 cluster_updated = True
                 logger.info(f"Updated cluster for {cod}.{var} to {new_cluster_value}")
             
-            # Handle stock adjustment with stolen loss type
-            loss_type_mapping = {
-                'broken': 'broken',
-                'expired': 'expired',
-                'internal_use': 'internal',
-                'stolen': 'stolen',
-                'shrinkage': 'shrinkage',
-            }
-            
             adjustment = None
 
             if adjustment_raw != '':
-                # Reason is mandatory when adjusting stock
-                if not reason:
+                if reason not in DatabaseManager.CORRECTION_REASONS:
                     return JsonResponse({
                         'success': False,
                         'message': 'Please select a reason for the stock adjustment'
                     }, status=400)
-                
+
                 try:
                     adjustment = int(adjustment_raw)
                 except ValueError:
@@ -731,46 +723,28 @@ def inventory_adjust_stock_ajax_view(request):
                         status=400
                     )
 
-            if adjustment is not None and reason in loss_type_mapping and adjustment < 0:
-                # This is a loss - record in extra_losses
-                loss_type = loss_type_mapping[reason]
-                loss_amount = abs(adjustment)
-                service.db.register_losses(cod, var, loss_amount, loss_type)
-                new_stock = service.db.get_stock(cod, var)
-                
-                logger.info(
-                    f"Stock adjusted via loss recording: {supermarket_name} - "
-                    f"Product {cod}.{var}: {current_stock} → {new_stock} ({adjustment:+d}) "
-                    f"Loss type: {loss_type}, Amount: {loss_amount}"
-                )
-                
-                return JsonResponse({
-                    'success': True,
-                    'message': f'Stock adjusted and recorded as {loss_type} loss: {current_stock} → {new_stock}',
-                    'new_stock': new_stock,
-                    'loss_recorded': True,
-                    'loss_type': loss_type,
-                    'loss_amount': loss_amount,
-                    'minimum_stock_updated': minimum_stock_updated,
-                    'cluster_updated': cluster_updated,
-                    'new_cluster': new_cluster_value
-                })
-            elif adjustment is not None:
-                # Regular stock adjustment (not a loss)
-                service.db.adjust_stock(cod, var, adjustment)
-                new_stock = service.db.get_stock(cod, var)
-                
+            if adjustment is not None:
+                result = service.correct_stock(cod, var, adjustment, reason, request.user, source)
+                new_stock = result['new_stock']
+                loss_type = result['loss_type']
+
                 logger.info(
                     f"Stock adjusted: {supermarket_name} - "
                     f"Product {cod}.{var}: {current_stock} → {new_stock} ({adjustment:+d}) "
-                    f"Reason: {reason}"
+                    f"Reason: {reason}, loss: {loss_type}, censored days: {result['blanked_days']}"
                 )
-                
+
+                if loss_type:
+                    message = f'Stock adjusted and recorded as {loss_type} loss: {current_stock} → {new_stock}'
+                else:
+                    message = f'Stock adjusted: {current_stock} → {new_stock}'
                 return JsonResponse({
                     'success': True,
-                    'message': f'Stock adjusted: {current_stock} → {new_stock}',
+                    'message': message,
                     'new_stock': new_stock,
-                    'loss_recorded': False,
+                    'loss_recorded': bool(loss_type),
+                    'loss_type': loss_type,
+                    'loss_amount': abs(adjustment) if loss_type else 0,
                     'minimum_stock_updated': minimum_stock_updated,
                     'cluster_updated': cluster_updated,
                     'new_cluster': new_cluster_value
