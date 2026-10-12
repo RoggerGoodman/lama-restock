@@ -30,7 +30,7 @@ app.autodiscover_tasks()
 #   00:30  monthly-loss-zero-prepend  (1st of month only)
 #   00:35  monthly-bought-zero-prepend (1st of month only)
 #   00:40  monthly-sold-zero-prepend  (1st of month only — see note below)
-#   02:30  import-promo-emails        (promo PDFs mailed to the promo mailbox)
+#   02:30  import-mailbox             ("Promo" PDFs and "Sostituzione" pairs from the admin mailbox)
 #   03:00  check-list-updates
 #   03:30  backfill-ean
 #   03:45  sync-product-links         (cleanup + chain links applied, after fresh lists)
@@ -66,9 +66,10 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=0, minute=5),
     },
 
-    # 02:30 — promo PDFs mailed to the promo mailbox, applied to every store
-    'import-promo-emails': {
-        'task': 'supermarkets.tasks.import_promo_emails_task',
+    # 02:30 — admin mailbox: promo PDFs applied to every store, substitution pairs
+    # added to the chain list (applied by sync-product-links at 03:45)
+    'import-mailbox': {
+        'task': 'supermarkets.tasks.import_mailbox_task',
         'schedule': crontab(hour=2, minute=30),
     },
 

@@ -26,12 +26,10 @@ import re
 
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
-from django.db.models import Q
 
-from supermarkets.chain_links import fmt, fmt_pair, sync_store
+from supermarkets.chain_links import add_to_chain_list, fmt_pair, sync_store
 from supermarkets.demo import real_supermarkets
-from supermarkets.models import ChainProductLink, ProductLink, Supermarket
+from supermarkets.models import ProductLink, Supermarket
 
 PAIR_SEPARATOR = re.compile(r"[\s,;:>]+")
 
@@ -77,49 +75,23 @@ class Command(BaseCommand):
         if not entries:
             raise CommandError("No pairs given. Pass them as arguments, with --file or --from-store.")
 
-        seen = set()
-        for primary, secondary, *_ in entries:
-            for product in (primary, secondary):
-                if product in seen:
-                    raise CommandError(f"{fmt(product)} appears in more than one pair.")
-                seen.add(product)
-
         dry_run = opts["dry_run"]
         suffix = " [DRY RUN]" if dry_run else ""
 
+        try:
+            results = add_to_chain_list(entries, dry_run=dry_run)
+        except ValueError as e:
+            raise CommandError(str(e))
+
         new_links = []
         self.stdout.write(f"Chain list{suffix}:")
-        with transaction.atomic():
-            for primary, secondary, notes, created_by, purge in entries:
-                existing = ChainProductLink.objects.filter(
-                    Q(primary_cod=primary[0], primary_v=primary[1])
-                    | Q(secondary_cod=primary[0], secondary_v=primary[1])
-                    | Q(primary_cod=secondary[0], primary_v=secondary[1])
-                    | Q(secondary_cod=secondary[0], secondary_v=secondary[1])
-                ).first()
-                label = fmt_pair((primary, secondary))
-                if existing:
-                    same = (
-                        (existing.primary_cod, existing.primary_v) == primary
-                        and (existing.secondary_cod, existing.secondary_v) == secondary
-                    )
-                    reason = "already in the chain list" if same else (
-                        "conflicts with " + fmt_pair((
-                            (existing.primary_cod, existing.primary_v),
-                            (existing.secondary_cod, existing.secondary_v),
-                        ))
-                    )
-                    self.stdout.write(self.style.WARNING(f"  skip    {label}: {reason}"))
-                    continue
-                link = ChainProductLink(
-                    primary_cod=primary[0], primary_v=primary[1],
-                    secondary_cod=secondary[0], secondary_v=secondary[1],
-                    notes=notes, created_by=created_by, purge_on_removal=purge,
-                )
-                if not dry_run:
-                    link.save()
-                new_links.append(link)
-                self.stdout.write(self.style.SUCCESS(f"  add     {label}{'  [purge old]' if purge else ''}"))
+        for pair, link, skip_reason in results:
+            if link is None:
+                self.stdout.write(self.style.WARNING(f"  skip    {fmt_pair(pair)}: {skip_reason}"))
+                continue
+            new_links.append(link)
+            purge_note = "  [purge old]" if link.purge_on_removal else ""
+            self.stdout.write(self.style.SUCCESS(f"  add     {fmt_pair(pair)}{purge_note}"))
 
         if not new_links:
             self.stdout.write("\nNothing new to apply.")

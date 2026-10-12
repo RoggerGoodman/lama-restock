@@ -7,15 +7,22 @@ Per store:
   2. apply    - add chain links whose sostituito is active, unless the store opted out
   3. verify   - verify unverified, orderable subentranti at their current stock
 
-"Active" means in stock or sold within QUIET_DAYS. The add and remove rules
-are exact opposites, so a removed link is never re-added while it stays quiet.
-QUIET_DAYS also covers the forecast: the sostituito's history is merged into
-the subentrante, and after ~4 half-lives (14d each) it no longer matters.
+"Active" means the sostituito still matters in the store: in stock, sold within
+QUIET_DAYS, or still orderable (verified and not delisted). Orderable must count
+on its own: a censored stockout records "—" days, not sales, and the order logic
+still orders a verified, listed product from its monthly history or minimum stock.
+The add and remove rules are exact opposites, so a removed link is never re-added
+while it stays inactive. QUIET_DAYS also covers the forecast: the sostituito's
+history is merged into the subentrante, and after ~4 half-lives (14d each) it no
+longer matters.
 """
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from .demo import real_supermarkets
@@ -26,6 +33,9 @@ from .services import delete_blacklist_entries_for_purged
 logger = logging.getLogger(__name__)
 
 QUIET_DAYS = 60
+
+# One "subentrante = sostituito" pair per line, both as cod.v
+EMAIL_PAIR = re.compile(r"^(\d+)\.(\d+)\s*=\s*(\d+)\.(\d+)$")
 
 
 @dataclass
@@ -78,6 +88,8 @@ def is_active(state):
     if state is None:
         return False
     if (state["stock"] or 0) > 0:
+        return True
+    if state["verified"] and state["disponibilita"] != "No":
         return True
     recent = (state["sales_sets"] or [])[:QUIET_DAYS + 1]  # slot 0 is today
     return any(s is not None and s > 0 for s in recent)
@@ -158,6 +170,67 @@ def sync_store(supermarket, chain_links, cleanup=True, dry_run=False):
         db.close()
 
     return report
+
+
+def add_to_chain_list(entries, dry_run=False):
+    """
+    entries: [(primary, secondary, notes, created_by, purge_on_removal)].
+    Returns [(pair, link, skip_reason)]: link is the new ChainProductLink (unsaved
+    on dry_run) or None when skipped. Raises ValueError if a product appears twice.
+    """
+    seen = set()
+    for primary, secondary, *_ in entries:
+        for product in (primary, secondary):
+            if product in seen:
+                raise ValueError(f"{fmt(product)} appears in more than one pair")
+            seen.add(product)
+
+    results = []
+    with transaction.atomic():
+        for primary, secondary, notes, created_by, purge in entries:
+            existing = ChainProductLink.objects.filter(
+                Q(primary_cod=primary[0], primary_v=primary[1])
+                | Q(secondary_cod=primary[0], secondary_v=primary[1])
+                | Q(primary_cod=secondary[0], primary_v=secondary[1])
+                | Q(secondary_cod=secondary[0], secondary_v=secondary[1])
+            ).first()
+            if existing:
+                same = _pair(existing) == (primary, secondary)
+                reason = "already in the chain list" if same else f"conflicts with {fmt_pair(_pair(existing))}"
+                results.append(((primary, secondary), None, reason))
+                continue
+            link = ChainProductLink(
+                primary_cod=primary[0], primary_v=primary[1],
+                secondary_cod=secondary[0], secondary_v=secondary[1],
+                notes=notes, created_by=created_by, purge_on_removal=purge,
+            )
+            if not dry_run:
+                link.save()
+            results.append(((primary, secondary), link, None))
+    return results
+
+
+def parse_email_pairs(text):
+    """
+    Pairs from a "Sostituzione" email body. Lines without "=" (greetings,
+    signatures) are ignored; a line with "=" that is not "cod.v = cod.v" rejects
+    the whole email, so a typo never applies half a list.
+    """
+    pairs = []
+    for raw in text.splitlines():
+        line = raw.strip().lstrip(">").strip()  # quoted replies
+        if "=" not in line:
+            continue
+        m = EMAIL_PAIR.match(line)
+        if not m:
+            raise ValueError(f"line not in 'cod.v = cod.v' format: {line!r}")
+        primary, secondary = (int(m[1]), int(m[2])), (int(m[3]), int(m[4]))
+        if primary == secondary:
+            raise ValueError(f"subentrante and sostituito are the same product: {line!r}")
+        pairs.append((primary, secondary))
+    if not pairs:
+        raise ValueError("no 'cod.v = cod.v' pairs found")
+    return pairs
 
 
 def retire_chain_links(dry_run=False):

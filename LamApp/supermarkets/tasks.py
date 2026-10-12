@@ -1972,13 +1972,13 @@ def cleanup_old_restock_logs(self, max_age_days=180, min_keep_per_storage=10):
 
 
 @shared_task
-def import_promo_emails_task():
-    """Nightly: load promo PDFs mailed to the PROMO_IMAP mailbox (see promos.py)."""
-    from .promos import import_promo_emails
+def import_mailbox_task():
+    """Nightly: handle "Promo" and "Sostituzione" emails in the admin mailbox (see admin_mailbox.py)."""
+    from .admin_mailbox import import_mailbox
 
-    loaded = import_promo_emails()
-    logger.info(f"[PROMO MAIL] {loaded} promo email(s) loaded")
-    return loaded
+    handled = import_mailbox()
+    logger.info(f"[MAILBOX] {handled} email(s) handled")
+    return handled
 
 
 @shared_task
