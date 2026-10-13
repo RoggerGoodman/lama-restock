@@ -5,6 +5,7 @@ import psycopg2
 import psycopg2.extras
 import os
 from psycopg2.extras import Json, execute_values
+from calendar import monthrange
 from datetime import date, timedelta
 import logging
 
@@ -502,7 +503,8 @@ class DatabaseManager:
         """
         Close every product's current slot and open a fresh one for `sync_date`.
 
-        Idempotent: products already at `sync_date` are skipped.
+        Idempotent: products already at `sync_date` are skipped. Runs in the caller's
+        transaction.
 
         Closing applies the censored-stockout rule — a verified product that ended on zero
         with an empty shelf while the supplier still had stock, and that sold within the
@@ -548,7 +550,6 @@ class DatabaseManager:
             WHERE ps.cod = d.cod::int AND ps.v = d.var::int
         """, updates, page_size=1000)
 
-        self.conn.commit()
         return len(rows)
 
     def roll_sales_day(self, sync_date) -> int:
@@ -559,8 +560,8 @@ class DatabaseManager:
         the first sync at 08:30, anything ordering or calibrating before then would slice
         off yesterday as if it were the running day.
         """
-        cur = self.cursor()
-        return self._rollover_sales_day(cur, sync_date)
+        with self.transaction() as cur:
+            return self._rollover_sales_day(cur, sync_date)
 
     def apply_realtime_sales(self, totals, sync_date, shelf_life_map=None) -> dict:
         """
@@ -571,115 +572,167 @@ class DatabaseManager:
         payload is a no-op, a missed run is made up by the next, and the store keeps no
         state. sales_sets[0] is rewritten in place; the day boundary is crossed only by
         _rollover_sales_day.
-        """
-        cur = self.cursor()
-        rolled = self._rollover_sales_day(cur, sync_date)
 
+        The payload covers the whole day, so a product already booked today but missing
+        from it has netted back to zero (voided or returned) and is booked as 0.
+        """
         # Dedupe first: the batched update would count a repeated (cod, var) twice, where
         # the old per-product loop happened to absorb it.
         wanted = {(int(c), int(v)): int(s) for c, v, s in totals}
 
         applied = 0
         unchanged = 0
+        zeroed = 0
+        matched = 0
         total_delta = 0
         unverified_products = []
         stat_updates = []
         shelf_updates = []
 
-        rows = []
-        if wanted:
-            # Locked until commit: stock is written back as read-minus-delta, so a stock
-            # verification landing in between would otherwise be overwritten. ORDER BY
-            # keeps the lock order fixed so two overlapping syncs cannot deadlock.
+        # One transaction, so the rows stay locked from this read to the write-back: stock
+        # is written as read-minus-delta, and a stock verification landing in between would
+        # otherwise be overwritten. ORDER BY keeps the lock order fixed so two overlapping
+        # syncs cannot deadlock.
+        with self.transaction() as cur:
+            rolled = self._rollover_sales_day(cur, sync_date)
+
             cur.execute("""
                 SELECT ps.cod, ps.v, ps.sold_last_24, ps.sales_sets, ps.stock, ps.verified,
                        ps.price_last_24, ps.cost_last_24,
                        e.price_std, e.cost_std
                 FROM product_stats ps
-                JOIN unnest(%s::int[], %s::int[]) AS t(cod, v)
-                  ON ps.cod = t.cod AND ps.v = t.v
                 LEFT JOIN economics e ON e.cod = ps.cod AND e.v = ps.v
+                WHERE (ps.cod, ps.v) IN (SELECT t.c, t.vv FROM unnest(%s::int[], %s::int[]) AS t(c, vv))
+                   OR (ps.last_update_sold = %s
+                       AND CASE WHEN jsonb_typeof(ps.sales_sets -> 0) = 'number'
+                                THEN (ps.sales_sets ->> 0)::numeric <> 0 ELSE FALSE END)
                 ORDER BY ps.cod, ps.v
                 FOR UPDATE OF ps
-            """, ([k[0] for k in wanted], [k[1] for k in wanted]))
+            """, ([k[0] for k in wanted], [k[1] for k in wanted], sync_date))
             rows = cur.fetchall()
 
-        not_in_db = len(wanted) - len(rows)
+            for row in rows:
+                cod, var = row["cod"], row["v"]
+                in_payload = (cod, var) in wanted
+                sold_today = wanted.get((cod, var), 0)
 
-        for row in rows:
-            cod, var = row["cod"], row["v"]
-            sold_today = wanted[(cod, var)]
+                verified = bool(row["verified"])
+                if in_payload:
+                    matched += 1
+                    if not verified:
+                        unverified_products.append({'cod': cod, 'v': var})
 
-            verified = bool(row["verified"])
-            if not verified:
-                unverified_products.append({'cod': cod, 'v': var})
+                ss = row["sales_sets"] or [0]
+                if not ss:
+                    ss = [0]
 
-            ss = row["sales_sets"] or [0]
-            if not ss:
-                ss = [0]
+                delta = sold_today - (ss[0] or 0)
+                if delta == 0:
+                    unchanged += 1
+                    continue
+                if not in_payload:
+                    zeroed += 1
 
-            delta = sold_today - (ss[0] or 0)
-            if delta == 0:
-                unchanged += 1
-                continue
+                if shelf_life_map and verified:
+                    sl = shelf_life_map.get((cod, var))
+                    if sl is not None:
+                        shelf_updates.append((cod, var, int(sl)))
 
-            if shelf_life_map and verified:
-                sl = shelf_life_map.get((cod, var))
-                if sl is not None:
-                    shelf_updates.append((cod, var, int(sl)))
+                sold_array = row["sold_last_24"]
+                if not isinstance(sold_array, list) or not sold_array:
+                    sold_array = [0]
+                sold_array[0] = (sold_array[0] or 0) + delta
 
-            sold_array = row["sold_last_24"]
-            if not isinstance(sold_array, list) or not sold_array:
-                sold_array = [0]
-            sold_array[0] = (sold_array[0] or 0) + delta
+                ss[0] = sold_today
+                stock = (row["stock"] or 0) - delta
 
-            ss[0] = sold_today
-            stock = (row["stock"] or 0) - delta
+                price_arr = _stamp_snapshot(row["price_last_24"], row["price_std"])
+                cost_arr = _stamp_snapshot(row["cost_last_24"], row["cost_std"])
 
-            price_arr = _stamp_snapshot(row["price_last_24"], row["price_std"])
-            cost_arr = _stamp_snapshot(row["cost_last_24"], row["cost_std"])
+                stat_updates.append((cod, var, Json(sold_array), Json(ss), stock,
+                                     price_arr, cost_arr))
+                applied += 1
+                total_delta += delta
 
-            stat_updates.append((cod, var, Json(sold_array), Json(ss), stock,
-                                 price_arr, cost_arr))
-            applied += 1
-            total_delta += delta
+            if stat_updates:
+                execute_values(cur, """
+                    UPDATE product_stats AS ps
+                    SET sold_last_24  = d.sold,
+                        sales_sets    = d.sets,
+                        stock         = d.stock,
+                        price_last_24 = d.price,
+                        cost_last_24  = d.cost
+                    FROM (VALUES %s) AS d(cod, var, sold, sets, stock, price, cost)
+                    WHERE ps.cod = d.cod AND ps.v = d.var
+                """, stat_updates,
+                    template="(%s::int, %s::int, %s::jsonb, %s::jsonb, %s::int, %s::real[], %s::real[])",
+                    page_size=1000)
 
-        if stat_updates:
-            execute_values(cur, """
-                UPDATE product_stats AS ps
-                SET sold_last_24  = d.sold,
-                    sales_sets    = d.sets,
-                    stock         = d.stock,
-                    price_last_24 = d.price,
-                    cost_last_24  = d.cost
-                FROM (VALUES %s) AS d(cod, var, sold, sets, stock, price, cost)
-                WHERE ps.cod = d.cod AND ps.v = d.var
-            """, stat_updates,
-                template="(%s::int, %s::int, %s::jsonb, %s::jsonb, %s::int, %s::real[], %s::real[])",
-                page_size=1000)
+            if shelf_updates:
+                execute_values(cur, """
+                    UPDATE products AS p
+                    SET shelf_life_days = d.sl::int
+                    FROM (VALUES %s) AS d(cod, var, sl)
+                    WHERE p.cod = d.cod::int AND p.v = d.var::int
+                """, shelf_updates, page_size=1000)
 
-        if shelf_updates:
-            execute_values(cur, """
-                UPDATE products AS p
-                SET shelf_life_days = d.sl::int
-                FROM (VALUES %s) AS d(cod, var, sl)
-                WHERE p.cod = d.cod::int AND p.v = d.var::int
-            """, shelf_updates, page_size=1000)
-
-        self.conn.commit()
+        not_in_db = len(wanted) - matched
         logger.info(
             f"[RT SYNC] schema={self.schema} date={sync_date} rolled_over={rolled} "
-            f"applied={applied} unchanged={unchanged} not_in_db={not_in_db} "
+            f"applied={applied} unchanged={unchanged} zeroed={zeroed} not_in_db={not_in_db} "
             f"units={total_delta} unverified={len(unverified_products)}"
         )
         return {
             'applied': applied,
             'unchanged': unchanged,
+            'zeroed': zeroed,
             'not_in_db': not_in_db,
             'rolled_over': rolled,
             'units_applied': total_delta,
             'unverified_products': unverified_products,
         }
+
+    @staticmethod
+    def _respread_internal_losses(daily, internal, updated, today) -> int:
+        """
+        Add internal-use losses back onto the closed days of `daily` (index i is today - i)
+        after an import has rewritten them with till sales only.
+
+        extra_losses keeps monthly totals, so each month goes evenly over its closed days,
+        the window taking the share of the days it holds, remainder on the most recent;
+        censored days are skipped, as register_losses skips them. Losses register_losses
+        had spread back into the previous month land in their own month instead.
+        Returns the units added.
+        """
+        if not isinstance(internal, list) or updated is None:
+            return 0
+        offset = (today.year - updated.year) * 12 + (today.month - updated.month)
+        yesterday = today - timedelta(days=1)
+        oldest = today - timedelta(days=len(daily) - 1)
+        added = 0
+        for k, entry in enumerate(internal):
+            # Stored as [qty, cost]; tolerate the legacy plain-int form
+            qty = entry[0] if isinstance(entry, list) and entry else entry
+            if not isinstance(qty, (int, float)) or qty <= 0:
+                continue
+            y, m = divmod(today.year * 12 + today.month - 1 - (offset + k), 12)
+            first = date(y, m + 1, 1)
+            last = min(date(y, m + 1, monthrange(y, m + 1)[1]), yesterday)
+            if last < oldest:
+                break
+            if last < first:
+                continue
+            in_window = [i for i in range(1, len(daily))
+                         if first <= today - timedelta(days=i) <= last]
+            share = round(qty * len(in_window) / ((last - first).days + 1))
+            slots = [i for i in in_window if daily[i] is not None]
+            if share <= 0 or not slots:
+                continue
+            base, rem = divmod(share, len(slots))
+            for j, i in enumerate(slots):
+                daily[i] += base + (1 if j < rem else 0)
+            added += share
+        return added
 
     def apply_history_backfill(self, entries, include_current: bool, history_date) -> dict:
         """
@@ -691,14 +744,17 @@ class DatabaseManager:
         `include_current` decides who owns index 0. A store whose live sync has never run
         has nothing there worth keeping, so it takes the lot. Once the sync is running,
         `sales_sets[0]` is the base its delta arithmetic works from and overwriting it
-        would make the next run re-book the difference, so index 0 is left alone.
+        would make the next run re-book the difference, so index 0 is left alone, as are
+        closed days already censored as stockouts, and the month so far is rebuilt from
+        its days. Rerunning the import on a live store therefore corrects its history.
+
+        The dump holds till sales only, so internal-use losses, which register_losses
+        spreads into sales_sets as depletion, are put back from extra_losses.
 
         Products in the imported catalogue get a product_stats row created if they lack
         one, since those rows otherwise only appear on first verification. Anything not
         in `products` is ignored: the dump carries the store's whole catalogue.
         """
-        cur = self.cursor()
-
         wanted = {}
         skipped_fractional = 0
         for cod, var, monthly, daily in entries:
@@ -715,75 +771,96 @@ class DatabaseManager:
         cods = [k[0] for k in wanted]
         vars_ = [k[1] for k in wanted]
 
-        # product_stats rows only appear when a human verifies a product, so a freshly
-        # onboarded store has none and there would be nothing to write history onto.
-        # Seed them for anything in the imported catalogue: stock 0 and verified False
-        # keeps them out of ordering until someone actually counts the shelf, and
-        # verify_stock updates in place, so the history survives that.
         created = 0
-        if wanted:
-            cur.execute("""
-                SELECT p.cod, p.v
-                FROM products p
-                JOIN unnest(%s::int[], %s::int[]) AS t(c, vv)
-                  ON p.cod = t.c AND p.v = t.vv
-                LEFT JOIN product_stats ps ON ps.cod = p.cod AND ps.v = p.v
-                WHERE ps.cod IS NULL
-            """, (cods, vars_))
-            missing = [(r["cod"], r["v"], history_date) for r in cur.fetchall()]
-            if missing:
-                # last_update_sold must be the dump's date: left NULL, the next rollover
-                # would treat the day as unopened and shift every backfilled value by one.
-                execute_values(cur, """
-                    INSERT INTO product_stats
-                        (cod, v, sold_last_24, bought_last_24, sales_sets, bought_sets,
-                         stock, verified, last_update_sold)
-                    SELECT d.cod::int, d.var::int, '[0]'::jsonb, '[0]'::jsonb,
-                           '[0]'::jsonb, '[0]'::jsonb, 0, FALSE, d.day::date
-                    FROM (VALUES %s) AS d(cod, var, day)
-                    ON CONFLICT (cod, v) DO NOTHING
-                """, missing, page_size=1000)
-                created = len(missing)
-
+        respread = 0
         rows = []
-        if wanted:
-            cur.execute("""
-                SELECT cod, v, sold_last_24, sales_sets
-                FROM product_stats
-                JOIN unnest(%s::int[], %s::int[]) AS t(c, vv)
-                  ON cod = t.c AND v = t.vv
-            """, (cods, vars_))
-            rows = cur.fetchall()
-
         updates = []
-        for row in rows:
-            monthly, daily = wanted[(row["cod"], row["v"])]
-            monthly = (monthly + [0] * 24)[:24]
-            daily = (daily + [0] * 60)[:60]
+        internal_by_key = {}
+        # Locked like a sync: a run landing between this read and the write-back would see
+        # its running day overwritten, then book it again into stock.
+        with self.transaction() as cur:
+            if wanted:
+                # product_stats rows only appear when a human verifies a product, so a
+                # freshly onboarded store has none and there would be nothing to write
+                # history onto. Seed them for anything in the imported catalogue: stock 0
+                # and verified False keeps them out of ordering until someone actually
+                # counts the shelf, and verify_stock updates in place, so the history
+                # survives that.
+                cur.execute("""
+                    SELECT p.cod, p.v
+                    FROM products p
+                    JOIN unnest(%s::int[], %s::int[]) AS t(c, vv)
+                      ON p.cod = t.c AND p.v = t.vv
+                    LEFT JOIN product_stats ps ON ps.cod = p.cod AND ps.v = p.v
+                    WHERE ps.cod IS NULL
+                """, (cods, vars_))
+                missing = [(r["cod"], r["v"], history_date) for r in cur.fetchall()]
+                if missing:
+                    # last_update_sold must be the dump's date: left NULL, the next rollover
+                    # would treat the day as unopened and shift every backfilled value by one.
+                    execute_values(cur, """
+                        INSERT INTO product_stats
+                            (cod, v, sold_last_24, bought_last_24, sales_sets, bought_sets,
+                             stock, verified, last_update_sold)
+                        SELECT d.cod::int, d.var::int, '[0]'::jsonb, '[0]'::jsonb,
+                               '[0]'::jsonb, '[0]'::jsonb, 0, FALSE, d.day::date
+                        FROM (VALUES %s) AS d(cod, var, day)
+                        ON CONFLICT (cod, v) DO NOTHING
+                    """, missing, page_size=1000)
+                    created = len(missing)
 
-            if not include_current:
-                prev_sold = row["sold_last_24"] or [0]
-                prev_sets = row["sales_sets"] or [0]
-                today_live = (prev_sets[0] if prev_sets else 0) or 0
-                # VEMEART is written nightly, so the dump's month excludes today. A store
-                # syncing since before this month already holds the larger figure; one that
-                # started today holds only today, and needs the dump's earlier days added.
-                monthly[0] = max((prev_sold[0] if prev_sold else 0) or 0,
-                                 monthly[0] + today_live)
-                daily[0] = today_live
+                cur.execute("""
+                    SELECT cod, v, sold_last_24, sales_sets
+                    FROM product_stats
+                    JOIN unnest(%s::int[], %s::int[]) AS t(c, vv)
+                      ON cod = t.c AND v = t.vv
+                    ORDER BY cod, v
+                    FOR UPDATE OF product_stats
+                """, (cods, vars_))
+                rows = cur.fetchall()
 
-            updates.append((row["cod"], row["v"], Json(monthly), Json(daily)))
+                cur.execute("""
+                    SELECT el.cod, el.v, el.internal, el.internal_updated
+                    FROM extra_losses el
+                    JOIN unnest(%s::int[], %s::int[]) AS t(c, vv)
+                      ON el.cod = t.c AND el.v = t.vv
+                    WHERE el.internal IS NOT NULL
+                """, (cods, vars_))
+                internal_by_key = {(r["cod"], r["v"]): (r["internal"], r["internal_updated"])
+                                   for r in cur.fetchall()}
 
-        if updates:
-            execute_values(cur, """
-                UPDATE product_stats AS ps
-                SET sold_last_24 = d.sold::jsonb,
-                    sales_sets   = d.sets::jsonb
-                FROM (VALUES %s) AS d(cod, var, sold, sets)
-                WHERE ps.cod = d.cod::int AND ps.v = d.var::int
-            """, updates, page_size=1000)
+            for row in rows:
+                monthly, daily = wanted[(row["cod"], row["v"])]
+                monthly = (monthly + [0] * 24)[:24]
+                daily = (daily + [0] * 60)[:60]
 
-        self.conn.commit()
+                if not include_current:
+                    prev_sets = row["sales_sets"] or [0]
+                    daily[0] = (prev_sets[0] if prev_sets else 0) or 0
+                    for i in range(1, min(len(prev_sets), 60)):
+                        # A day the dump shows selling was not a stockout
+                        if prev_sets[i] is None and daily[i] <= 0:
+                            daily[i] = None
+                    # VEMEART misses today and the stored figure may carry what this
+                    # import corrects, so the month so far is rebuilt from its days.
+                    # Before the re-spread below: sold_last_24 never holds internal use.
+                    monthly[0] = sum(d or 0 for d in daily[:history_date.day])
+
+                internal = internal_by_key.get((row["cod"], row["v"]))
+                if internal:
+                    respread += self._respread_internal_losses(daily, *internal, history_date)
+
+                updates.append((row["cod"], row["v"], Json(monthly), Json(daily)))
+
+            if updates:
+                execute_values(cur, """
+                    UPDATE product_stats AS ps
+                    SET sold_last_24 = d.sold::jsonb,
+                        sales_sets   = d.sets::jsonb
+                    FROM (VALUES %s) AS d(cod, var, sold, sets)
+                    WHERE ps.cod = d.cod::int AND ps.v = d.var::int
+                """, updates, page_size=1000)
+
         result = {
             'received': len(entries),
             'applied': len(updates),
@@ -791,6 +868,7 @@ class DatabaseManager:
             'not_in_catalogue': len(wanted) - len(rows),
             'skipped_fractional': skipped_fractional,
             'included_current': include_current,
+            'internal_respread': respread,
         }
         logger.info(f"[HISTORY] schema={self.schema} {result}")
         return result

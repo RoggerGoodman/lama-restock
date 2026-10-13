@@ -42,13 +42,15 @@ def realtime_sales_sync_view(request):
 
     Expected JSON body:
     {
-        "token":     "<sync_api_token>",
-        "sync_date": "YYYY-MM-DD",
-        "mode":      "absolute",
-        "products":  [{"cod": 606, "var": 1, "sold": 7, "shelf_life": 360}, ...]
+        "token":          "<sync_api_token>",
+        "sync_date":      "YYYY-MM-DD",
+        "mode":           "absolute",
+        "script_version": 2,
+        "products":       [{"cod": 606, "var": 1, "sold": 7, "shelf_life": 360}, ...]
     }
 
     `sold` is the day's total SO FAR, not an increment; the server books the difference.
+    The list is the whole day: a product booked earlier but now absent is booked as 0.
     An empty product list is valid — the first run of a new day rolls the previous closed.
 
     One SalesSyncLog row per supermarket per day, rewritten on each run.
@@ -107,6 +109,14 @@ def realtime_sales_sync_view(request):
         if skipped_float:
             logger.info(f"[RT SYNC] skipped {skipped_float} fractional-qty products")
 
+        script_version = data.get('script_version')
+        if script_version != SYNC_SCRIPT_VERSION:
+            logger.warning(
+                f"[RT SYNC] supermarket='{supermarket.name}' runs store script "
+                f"v{script_version or 1}, current is v{SYNC_SCRIPT_VERSION}: "
+                f"rerun the bootstrap-rt installer on the store PC"
+            )
+
         db = DatabaseManager(supermarket_name=supermarket.name)
         try:
             result = db.apply_realtime_sales(totals, sync_date, shelf_life_map=shelf_life_map)
@@ -145,9 +155,9 @@ def realtime_sales_sync_view(request):
 
         logger.info(
             f"[RT SYNC] supermarket='{supermarket.name}' date={sync_date_str} "
-            f"received={len(totals)} changed={result['applied']} "
+            f"received={len(totals)} changed={result['applied']} zeroed={result['zeroed']} "
             f"units={result['units_applied']} rolled_over={result['rolled_over']} "
-            f"unverified={len(unverified_filtered)}"
+            f"unverified={len(unverified_filtered)} script=v{script_version or 1}"
         )
         return JsonResponse({
             'ok': True,
@@ -397,6 +407,14 @@ ELSE
           WHERE segn_stato_record = 1 AND TRY_CAST(LTRIM(RTRIM(cod__esterno)) AS BIGINT) > 0');
 CREATE INDEX ix_map ON #map(ean_n);"""
 
+# Units sold by one RDB_LOG_ITEM line. The log is append-only: voiding a line leaves it
+# untouched and appends a void entry with the same positive quantity and BL_VOIDED set
+# (BL_MGR_VOIDED when a manager authorised it). Void entries must be subtracted, not
+# filtered out, or every voided scan stays counted as sold.
+_SOLD_QTY_SQL = ("li.N0_QUANTITY"
+                 " * CASE WHEN li.BL_RETURN = 1 THEN -1 ELSE 1 END"
+                 " * CASE WHEN li.BL_VOIDED = 1 OR li.BL_MGR_VOIDED = 1 THEN -1 ELSE 1 END")
+
 
 def _build_history_export_script() -> str:
     """
@@ -450,13 +468,13 @@ DECLARE @today date = CAST(GETDATE() AS DATE);
 __EAN_MAP_SQL__
 SELECT m.cod AS cod, m.v AS var,
        DATEDIFF(day, CAST(li.DT_TIME_STAMP AS DATE), @today) AS idx,
-       SUM(CASE WHEN li.BL_RETURN=1 THEN -li.N0_QUANTITY ELSE li.N0_QUANTITY END) AS pz
+       SUM(__SOLD_QTY_SQL__) AS pz
 FROM everest.dbo.RDB_LOG_ITEM li
 JOIN #map m ON m.ean_n = TRY_CAST(LTRIM(RTRIM(li.SZ_ITEM_REF_NO)) AS BIGINT)
 WHERE CAST(li.DT_TIME_STAMP AS DATE) BETWEEN DATEADD(day,-59,@today) AND @today
-  AND li.BL_VOIDED = 0 AND li.BL_MGR_VOIDED = 0 AND li.N0_UOM_CODE <> 2
+  AND li.N0_UOM_CODE <> 2
 GROUP BY m.cod, m.v, DATEDIFF(day, CAST(li.DT_TIME_STAMP AS DATE), @today)
-HAVING SUM(CASE WHEN li.BL_RETURN=1 THEN -li.N0_QUANTITY ELSE li.N0_QUANTITY END) <> 0;
+HAVING SUM(__SOLD_QTY_SQL__) <> 0;
 "@
 
 $DailyVengart = @"
@@ -518,7 +536,7 @@ foreach ($p in $acc.Values) {
 Write-Host ""
 Write-Host "Fatto: $OutFile ($([math]::Round((Get-Item $OutFile).Length/1MB,1)) MB, $($acc.Count) prodotti)"
 Write-Host "Caricare il file sul sito, nella pagina Importa storico."
-""".replace("__EAN_MAP_SQL__", _EAN_MAP_SQL)
+""".replace("__EAN_MAP_SQL__", _EAN_MAP_SQL).replace("__SOLD_QTY_SQL__", _SOLD_QTY_SQL)
 
 # ---------------------------------------------------------------------------
 # Sync log — detail view + actions
@@ -667,6 +685,10 @@ def sync_bootstrap_realtime_view(request, token):
 # once its installer is rerun.
 SYNC_INTERVAL_MINUTES = 15
 
+# Sent with every payload. Bump it whenever the generated sync script changes, so a store
+# still running an older install is reported instead of silently booking old logic.
+SYNC_SCRIPT_VERSION = 2
+
 
 def _build_realtime_bootstrap_script(token: str, server_url: str, curve_url: str) -> str:
     """
@@ -769,7 +791,7 @@ def _build_realtime_sync_script(token: str, server_url: str, curve_url: str) -> 
     Sends ABSOLUTE totals, not increments — the server subtracts what it already applied,
     so runs are idempotent and the store PC keeps no state.
 
-    Barcodes are mapped by _EAN_MAP_SQL.
+    Barcodes are mapped by _EAN_MAP_SQL, quantities netted by _SOLD_QTY_SQL.
     N0_UOM_CODE = 2 is weight-sold goods, excluded since we only handle whole units.
     """
     return f"""# sync_sales_rt.ps1 - LamApp real-time sales sync
@@ -793,7 +815,7 @@ DECLARE @today date = '$TodayStr';
 {_EAN_MAP_SQL}
 
 SELECT m.cod AS cod, m.v AS var,
-       SUM(CASE WHEN li.BL_RETURN = 1 THEN -li.N0_QUANTITY ELSE li.N0_QUANTITY END) AS sold,
+       SUM({_SOLD_QTY_SQL}) AS sold,
        MAX(a.durata_max_articolo) AS shelf_life
 FROM everest.dbo.RDB_LOG_ITEM li
 JOIN #map m ON m.ean_n = TRY_CAST(LTRIM(RTRIM(li.SZ_ITEM_REF_NO)) AS BIGINT)
@@ -801,11 +823,9 @@ LEFT JOIN Essepiu.dbo.ARTICOLI a
        ON a.cod__articolo = m.cod AND a.variante_articolo = m.v
 WHERE li.DT_TIME_STAMP >= @today
   AND li.DT_TIME_STAMP < DATEADD(day, 1, @today)
-  AND li.BL_VOIDED = 0
-  AND li.BL_MGR_VOIDED = 0
   AND li.N0_UOM_CODE <> 2
 GROUP BY m.cod, m.v
-HAVING SUM(CASE WHEN li.BL_RETURN = 1 THEN -li.N0_QUANTITY ELSE li.N0_QUANTITY END) <> 0;
+HAVING SUM({_SOLD_QTY_SQL}) <> 0;
 "@
 
 try {{
@@ -826,10 +846,11 @@ $Products = @($Rows | ForEach-Object {{
 # Posted even when empty: the 08:30 run is the first of the day and carries little or
 # nothing, but it is what tells the server to close the previous day and open a new slot.
 $Payload = @{{
-    token     = $Token
-    sync_date = $TodayStr
-    mode      = 'absolute'
-    products  = $Products
+    token          = $Token
+    sync_date      = $TodayStr
+    mode           = 'absolute'
+    script_version = {SYNC_SCRIPT_VERSION}
+    products       = $Products
 }} | ConvertTo-Json -Depth 3 -Compress
 
 Write-Host "Sending $($Products.Count) products for $TodayStr..."
@@ -853,11 +874,9 @@ $CurveQuery = @"
 SET NOCOUNT ON;
 SELECT ((DATEPART(dw, li.DT_TIME_STAMP) + @@DATEFIRST - 2) % 7) AS dow,
        DATEPART(hour, li.DT_TIME_STAMP) AS hr,
-       SUM(li.N0_QUANTITY) AS units
+       SUM({_SOLD_QTY_SQL}) AS units
 FROM everest.dbo.RDB_LOG_ITEM li
 WHERE li.DT_TIME_STAMP >= DATEADD(day, -84, CAST(GETDATE() AS DATE))
-  AND li.BL_VOIDED = 0
-  AND li.BL_MGR_VOIDED = 0
   AND li.N0_UOM_CODE <> 2
 GROUP BY ((DATEPART(dw, li.DT_TIME_STAMP) + @@DATEFIRST - 2) % 7),
          DATEPART(hour, li.DT_TIME_STAMP);
@@ -876,7 +895,9 @@ try {{
 $Curve = @()
 for ($d = 0; $d -lt 7; $d++) {{ $Curve += ,(@(0.0) * 24) }}
 foreach ($row in $CurveRows) {{
-    $Curve[[int]$row.dow][[int]$row.hr] = [double]$row.units
+    # Returns and voids are netted, so a near-empty hour can dip below zero, which the
+    # server rejects.
+    $Curve[[int]$row.dow][[int]$row.hr] = [Math]::Max(0.0, [double]$row.units)
 }}
 
 $CurvePayload = @{{ token = $Token; curve = $Curve }} | ConvertTo-Json -Depth 5 -Compress

@@ -29,8 +29,15 @@
             <div class="col-6 col-md-3"><strong>{{ result.skipped_fractional }}</strong> a peso (esclusi)</div>
         </div>
         <div class="small mt-2">
-            Giorno e mese in corso:
-            <strong>{% if result.included_current %}importati{% else %}lasciati alla sincronizzazione live{% endif %}</strong>.
+            {% if result.included_current %}
+            Giorno e mese in corso: <strong>importati</strong>.
+            {% else %}
+            Giorno in corso: <strong>lasciato alla sincronizzazione live</strong>;
+            mese in corso: <strong>ricalcolato dai giorni importati</strong>.
+            {% endif %}
+            {% if result.internal_respread %}
+            <strong>{{ result.internal_respread }}</strong> pezzi di uso interno riportati sui giorni del loro mese.
+            {% endif %}
             {% if result.created %}
             Le schede create sono a giacenza 0 e non verificate: non entrano negli ordini
             finche' non vengono verificate, ma lo storico e' gia' presente.
