@@ -552,6 +552,10 @@ class AutomatedRestockService(RestockService):
                 progress_callback(10, 'Aggiornamento listino...')
             list_refreshed = self._refresh_product_list()
 
+            # After the list refresh, so a just-listed subentrante can be verified
+            from .admin_mailbox import refresh_links_before_order
+            refresh_links_before_order(self.supermarket)
+
             # Step 1: Calculate order
             if progress_callback:
                 progress_callback(20, 'Analyzing product needs...')

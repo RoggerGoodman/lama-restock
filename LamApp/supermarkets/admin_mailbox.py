@@ -8,6 +8,10 @@ Inbox emails are handled by subject (exact, any case):
                    chain list; the 03:45 sync_chain_product_links task applies them
 A handled email is labelled PROCESSED_LABEL and archived. One that fails stays in
 the inbox and is retried the next night; other subjects are left untouched.
+
+Before every order, refresh_links_before_order also picks up "Sostituzione"
+emails and applies the chain list to that store, so an order never runs with
+a substitution still unread.
 """
 import email
 import html
@@ -15,17 +19,26 @@ import imaplib
 import logging
 import os
 import re
+from contextlib import contextmanager
 from email.header import decode_header, make_header
 
+from django.conf import settings
 from django.utils import timezone
 
-from .chain_links import add_to_chain_list, fmt_pair, parse_email_pairs
+from .chain_links import add_to_chain_list, fmt_pair, parse_email_pairs, sync_store
+from .demo import real_supermarkets
+from .models import ChainProductLink
 from .promos import load_promo_pdfs
 
 logger = logging.getLogger(__name__)
 
 IMAP_HOST = "imap.gmail.com"
 PROCESSED_LABEL = "Caricate"
+
+# One mailbox, read by the nightly task and by every order: one reader at a time
+LOCK_NAME = "admin-mailbox"
+PRE_ORDER_IMAP_TIMEOUT = 10   # seconds per Gmail operation; an order never waits longer
+PRE_ORDER_LOCK_WAIT = 60      # seconds an order waits for another reader to finish
 
 
 def _subject(msg):
@@ -88,8 +101,53 @@ HANDLERS = {
 }
 
 
-def import_mailbox():
-    """Handle every pending email. Returns how many were handled."""
+@contextmanager
+def mailbox_lock(wait):
+    """Yields True once the lock is held, False if it could not be had within `wait` seconds."""
+    import redis
+    client = redis.Redis.from_url(getattr(settings, "CELERY_BROKER_URL", "redis://localhost:6379/0"))
+    lock = client.lock(LOCK_NAME, timeout=600, blocking_timeout=wait)  # expires if a worker dies
+    acquired = lock.acquire()
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            try:
+                lock.release()
+            except Exception:
+                pass
+
+
+def refresh_links_before_order(supermarket):
+    """
+    Read pending "Sostituzione" emails, then add any chain link that applies to
+    this store. Never raises: on any failure the order runs with the links it has.
+    """
+    if not real_supermarkets().filter(pk=supermarket.pk).exists():
+        return
+    try:
+        with mailbox_lock(PRE_ORDER_LOCK_WAIT) as acquired:
+            if not acquired:
+                logger.warning(f"[MAILBOX] Pre-order link check skipped for {supermarket.name}: mailbox busy")
+                return
+            try:
+                import_mailbox(subjects={"sostituzione"}, timeout=PRE_ORDER_IMAP_TIMEOUT)
+            except Exception:
+                logger.warning(f"[MAILBOX] Pre-order mailbox check failed for {supermarket.name}", exc_info=True)
+            chain_links = list(ChainProductLink.objects.select_related("created_by"))
+            report = sync_store(supermarket, chain_links, cleanup=False)
+            for line in report.lines():
+                logger.info(f"[CHAIN LINKS] {supermarket.name} (pre-order): {line}")
+    except Exception:
+        logger.exception(f"[MAILBOX] Pre-order link refresh failed for {supermarket.name}")
+
+
+def import_mailbox(subjects=None, timeout=None):
+    """
+    Handle every pending email, or only those whose subject is in `subjects`.
+    Returns how many were handled.
+    """
+    handlers = HANDLERS if subjects is None else {k: HANDLERS[k] for k in subjects}
     user = os.environ.get("PROMO_IMAP_USER")
     password = os.environ.get("PROMO_IMAP_PASSWORD")
     if not user or not password:
@@ -97,7 +155,7 @@ def import_mailbox():
         return 0
 
     handled = 0
-    imap = imaplib.IMAP4_SSL(IMAP_HOST)
+    imap = imaplib.IMAP4_SSL(IMAP_HOST, timeout=timeout)
     try:
         imap.login(user, password.replace(" ", ""))
         imap.create(PROCESSED_LABEL)  # answers NO if it already exists
@@ -106,7 +164,7 @@ def import_mailbox():
         for num in data[0].split():
             # Headers first: the inbox may hold unrelated mail with large attachments
             _, head = imap.fetch(num, "(BODY.PEEK[HEADER.FIELDS (SUBJECT)])")
-            handler = HANDLERS.get(_subject(email.message_from_bytes(head[0][1])).lower())
+            handler = handlers.get(_subject(email.message_from_bytes(head[0][1])).lower())
             if handler is None:
                 continue
             _, msg_data = imap.fetch(num, "(BODY.PEEK[])")

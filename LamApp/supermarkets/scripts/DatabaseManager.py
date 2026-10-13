@@ -894,6 +894,41 @@ class DatabaseManager:
         """, (settore, number, since))
         return cur.fetchone()
 
+    def delivered_quantities(self, settore, dates) -> dict:
+        """
+        {delivery date: {(cod, v): qty}} brought by this settore's DDTs on each of
+        `dates`, in DDT units (x rapp = pieces). A date with no DDT on record is left out.
+        """
+        if not dates or not self.has_document_ledger():
+            return {}
+        cur = self.cursor()
+        cur.execute("""
+            SELECT delivery_date, lines FROM dropzone_documents
+            WHERE doc_type = 'BOL' AND settore = %s AND delivery_date = ANY(%s)
+              AND status IN ('pending', 'applied')
+        """, (settore, list(dates)))
+        delivered = {}
+        for r in cur.fetchall():
+            got = delivered.setdefault(r["delivery_date"], {})
+            for line in r["lines"] or []:
+                key = (line["cod"], line["v"])
+                got[key] = got.get(key, 0) + (line.get("qty") or 0)
+        return delivered
+
+    def products_by_key(self, keys) -> dict:
+        """{(cod, v): {descrizione, pz_x_collo, rapp, stock}} for the given products."""
+        keys = list(keys)
+        if not keys:
+            return {}
+        cur = self.cursor()
+        cur.execute("""
+            SELECT p.cod, p.v, p.descrizione, p.pz_x_collo, p.rapp, ps.stock
+            FROM products p
+            JOIN unnest(%s::int[], %s::int[]) AS t(cod, v) ON p.cod = t.cod AND p.v = t.v
+            LEFT JOIN product_stats ps ON ps.cod = p.cod AND ps.v = p.v
+        """, ([k[0] for k in keys], [k[1] for k in keys]))
+        return {(r["cod"], r["v"]): dict(r) for r in cur.fetchall()}
+
     def claim_manual_ddt(self, settore, number, today) -> int:
         """
         A DDT loaded by hand from its PDF: cancel its automatic booking if it is

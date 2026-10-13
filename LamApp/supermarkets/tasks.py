@@ -1974,9 +1974,13 @@ def cleanup_old_restock_logs(self, max_age_days=180, min_keep_per_storage=10):
 @shared_task
 def import_mailbox_task():
     """Nightly: handle "Promo" and "Sostituzione" emails in the admin mailbox (see admin_mailbox.py)."""
-    from .admin_mailbox import import_mailbox
+    from .admin_mailbox import import_mailbox, mailbox_lock
 
-    handled = import_mailbox()
+    with mailbox_lock(wait=600) as acquired:
+        if not acquired:
+            logger.warning("[MAILBOX] Mailbox busy for 10 minutes, nightly check skipped")
+            return 0
+        handled = import_mailbox()
     logger.info(f"[MAILBOX] {handled} email(s) handled")
     return handled
 
