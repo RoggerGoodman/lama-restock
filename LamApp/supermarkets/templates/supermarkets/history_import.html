@@ -124,7 +124,22 @@
     </div>
 
     <div class="stat-card mb-4">
-        <h5><i class="bi bi-2-circle text-primary"></i> Genera il file sul PC del punto vendita</h5>
+        <h5><i class="bi bi-2-circle text-primary"></i> Esegui il comando sul PC del punto vendita</h5>
+
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>L'importazione sovrascrive lo storico esistente.</strong>
+            Questo magazzino ha <strong>{{ state.products }}</strong> prodotti,
+            di cui <strong>{{ state.with_history }}</strong> con storico vendite.
+            {% if supermarket.last_sales_sync_at %}
+            La sincronizzazione live e' attiva: il giorno in corso <strong>non</strong> verra'
+            toccato e il mese in corso verra' ricalcolato dai giorni importati.
+            {% else %}
+            Nessuna sincronizzazione live ricevuta: verranno importati anche il giorno
+            e il mese in corso.
+            {% endif %}
+        </div>
+
         {% if oneliner %}
         <div class="input-group">
             <input type="text" class="form-control font-monospace small" id="oneliner"
@@ -135,7 +150,10 @@
             </button>
         </div>
         <div class="form-text">
-            Non serve connessione dal PC del punto vendita: il comando scrive solo un file locale.
+            Il comando legge lo storico dal gestionale e lo invia direttamente a LamApp: al
+            termine scrive <strong>IMPORTAZIONE COMPLETATA</strong> con il numero di prodotti.
+            Se l'invio non riesce lo dice e salva il file
+            <code>C:\LamApp\history_export.json.gz</code>, da caricare al passo 3.
         </div>
         {% else %}
         <div class="alert alert-warning mb-0">
@@ -146,35 +164,27 @@
     </div>
 
     <div class="stat-card">
-        <h5><i class="bi bi-3-circle text-primary"></i> Carica il file</h5>
+        <h5><i class="bi bi-3-circle text-primary"></i> Carica il file
+            <small class="text-muted">(solo se l'invio automatico non e' riuscito)</small></h5>
 
-        <div class="alert alert-warning">
-            <i class="bi bi-exclamation-triangle"></i>
-            <strong>L'importazione sovrascrive lo storico esistente.</strong>
-            Questo magazzino ha <strong>{{ state.products }}</strong> prodotti,
-            di cui <strong>{{ state.with_history }}</strong> con storico vendite.
-            {% if supermarket.last_sales_sync_at %}
-            La sincronizzazione live e' attiva: il giorno e il mese in corso
-            <strong>non</strong> verranno toccati.
-            {% else %}
-            Nessuna sincronizzazione live ricevuta: verranno importati anche il giorno
-            e il mese in corso.
-            {% endif %}
-        </div>
-
-        <form method="post" enctype="multipart/form-data">
+        <form method="post" enctype="multipart/form-data"
+              onsubmit="if (!confirm('Sovrascrivere lo storico vendite di {{ supermarket.name|escapejs }}?')) return false;
+                        var b = this.querySelector('button[type=submit]');
+                        b.disabled = true;
+                        b.innerHTML = 'Caricamento in corso, non chiudere la pagina...';
+                        return true;">
             {% csrf_token %}
             <input type="hidden" name="action" value="upload_history">
             <div class="mb-3">
-                <input type="file" name="history_file" accept=".json,application/json"
+                <input type="file" name="history_file"
+                       accept=".gz,.json,application/gzip,application/json"
                        class="form-control" required>
                 <div class="form-text">
                     Il file deve essere generato oggi: gli indici sono relativi alla data di
                     creazione e un file di ieri sposterebbe tutto lo storico di un giorno.
                 </div>
             </div>
-            <button type="submit" class="btn btn-primary"
-                    onclick="return confirm('Sovrascrivere lo storico vendite di {{ supermarket.name }}?')">
+            <button type="submit" class="btn btn-primary">
                 <i class="bi bi-upload"></i> Importa storico
             </button>
         </form>

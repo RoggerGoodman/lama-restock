@@ -151,6 +151,7 @@ urlpatterns = [
     path('api/sync/intraday-curve/', sync.intraday_curve_sync_view, name='intraday-curve-sync'),
     path('api/sync/setup/<str:token>/bootstrap-rt/', sync.sync_bootstrap_realtime_view, name='sync-bootstrap-rt'),
     path('api/sync/setup/<str:token>/history-script/', sync.history_script_view, name='history-script'),
+    path('api/sync/setup/<str:token>/history-upload/', sync.history_upload_view, name='history-upload'),
     path('supermarkets/<int:pk>/history-import/', sync.history_import_view, name='history-import'),
     path('api/sync/add-to-non-gestiti/', sync.add_to_non_gestiti_view, name='add-to-non-gestiti'),
 

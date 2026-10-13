@@ -6,15 +6,19 @@ Machine-to-machine API endpoints + onboarding UI for supermarket PC sync.
   POST /supermarkets/<pk>/generate-sync-token/ — generate/regenerate token (admin UI)
   GET  /api/sync/setup/<token>/bootstrap-rt/   — serve ready-to-run PS1 installer script
   GET  /supermarkets/<pk>/sync-setup/          — onboarding setup page
+  GET  /api/sync/setup/<token>/history-script/ — serve the sales history export script
+  POST /api/sync/setup/<token>/history-upload/ — the export script's own upload of its dump
 """
 import hashlib
 import json
 import logging
 import secrets
+import zlib
 from datetime import date
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import RequestDataTooBig
 from django.http import HttpResponse
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
@@ -305,55 +309,10 @@ def history_import_view(request, pk):
             error = "Nessun file selezionato."
         else:
             try:
-                # utf-8-sig tolerates the BOM that .NET's UTF8 encoding writes.
-                payload = json.loads(upload.read().decode('utf-8-sig'))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                payload = None
-                error = "Il file non e' un JSON valido."
-
-            if payload is not None:
-                generated = payload.get('generated_at')
-                today = date.today().isoformat()
-                if generated != today:
-                    # Every index is relative to the dump's own date, so a file from
-                    # another day would shift all 84 values silently.
-                    error = (f"Il file e' del {generated}, oggi e' {today}. "
-                             f"Rigenera il file sul PC del punto vendita.")
-                elif not isinstance(payload.get('products'), list):
-                    error = "Il file non contiene l'elenco prodotti."
-                else:
-                    entries = []
-                    for p in payload['products']:
-                        try:
-                            entries.append((
-                                int(p['cod']), int(p['var']),
-                                [float(x) for x in p['m']],
-                                [float(x) for x in p['d']],
-                            ))
-                        except (KeyError, TypeError, ValueError):
-                            continue
-
-                    if not entries:
-                        error = "Nessun prodotto valido nel file."
-                    else:
-                        db = DatabaseManager(supermarket_name=supermarket.name)
-                        try:
-                            result = db.apply_history_backfill(
-                                entries,
-                                include_current=supermarket.last_sales_sync_at is None,
-                                history_date=date.today(),
-                            )
-                        except Exception:
-                            logger.exception(f"[HISTORY] failed for '{supermarket.name}'")
-                            error = "Errore durante l'importazione. Controlla i log."
-                        finally:
-                            db.close()
-
-                        if result:
-                            logger.info(
-                                f"[HISTORY] supermarket='{supermarket.name}' "
-                                f"applied={result['applied']} by user={request.user}"
-                            )
+                result, error = _apply_history_export(
+                    supermarket, upload.read(), f"page upload by user={request.user}")
+            except Exception:
+                error = "Errore durante l'importazione. Controlla i log."
 
     script_url = request.build_absolute_uri(
         f'/api/sync/setup/{supermarket.sync_api_token}/history-script/'
@@ -382,8 +341,106 @@ def history_script_view(request, token):
         Supermarket.objects.get(sync_api_token=token)
     except Supermarket.DoesNotExist:
         return HttpResponse('Not found', status=404)
-    return HttpResponse(_build_history_export_script(),
+    upload_url = request.build_absolute_uri(f'/api/sync/setup/{token}/history-upload/')
+    return HttpResponse(_build_history_export_script(upload_url),
                         content_type='text/plain; charset=utf-8')
+
+
+@csrf_exempt
+@require_POST
+def history_upload_view(request, token):
+    """
+    The export script's own POST of its gzip dump, so onboarding needs no browser upload.
+    Authenticated by the token in the URL, like the script download.
+    """
+    try:
+        supermarket = Supermarket.objects.get(sync_api_token=token)
+    except Supermarket.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': "Codice di sincronizzazione non valido."}, status=401)
+    try:
+        raw = request.body
+    except RequestDataTooBig:
+        return JsonResponse({'ok': False, 'error': "File troppo grande."}, status=413)
+    try:
+        result, error = _apply_history_export(supermarket, raw, "store script")
+    except Exception:
+        return JsonResponse({'ok': False, 'error': "Errore durante l'importazione sul server."}, status=500)
+    if error:
+        return JsonResponse({'ok': False, 'error': error}, status=400)
+    return JsonResponse({'ok': True, **result})
+
+
+# Far past any real export (~2 MB uncompressed for ~8,000 products); bounds memory if a
+# crafted gzip arrives.
+_HISTORY_MAX_BYTES = 64 * 1024 * 1024
+
+
+def _read_history_export(raw: bytes):
+    """Parse an export: gzip, as the script writes and sends it, or a plain .json."""
+    if raw[:2] == b'\x1f\x8b':
+        inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        raw = inflater.decompress(raw, _HISTORY_MAX_BYTES)
+        if inflater.unconsumed_tail:
+            raise ValueError("export too large")
+    # utf-8-sig tolerates the BOM that .NET's UTF8 encoding writes.
+    return json.loads(raw.decode('utf-8-sig'))
+
+
+def _apply_history_export(supermarket, raw: bytes, source: str):
+    """
+    Validate an export and apply it. Returns (result, error), exactly one of them None.
+    A database failure is logged and re-raised for the caller to report.
+    """
+    try:
+        payload = _read_history_export(raw)
+    except (ValueError, UnicodeDecodeError, zlib.error):
+        return None, "Il file non e' un export valido."
+    if not isinstance(payload, dict):
+        return None, "Il file non e' un export valido."
+
+    generated = payload.get('generated_at')
+    today = date.today().isoformat()
+    if generated != today:
+        # Every index is relative to the dump's own date, so a file from another day
+        # would shift all 84 values silently.
+        return None, (f"Il file e' del {generated}, oggi e' {today}. "
+                      f"Rigenera il file sul PC del punto vendita.")
+    if not isinstance(payload.get('products'), list):
+        return None, "Il file non contiene l'elenco prodotti."
+
+    entries = []
+    for p in payload['products']:
+        try:
+            entries.append((
+                int(p['cod']), int(p['var']),
+                [float(x) for x in p['m']],
+                [float(x) for x in p['d']],
+            ))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not entries:
+        return None, "Nessun prodotto valido nel file."
+
+    log_ctx = enter_supermarket_log(supermarket.name)
+    try:
+        db = DatabaseManager(supermarket_name=supermarket.name)
+        try:
+            result = db.apply_history_backfill(
+                entries,
+                include_current=supermarket.last_sales_sync_at is None,
+                history_date=date.today(),
+            )
+        except Exception:
+            logger.exception(f"[HISTORY] failed for '{supermarket.name}'")
+            raise
+        finally:
+            db.close()
+        logger.info(
+            f"[HISTORY] supermarket='{supermarket.name}' applied={result['applied']} via {source}"
+        )
+        return result, None
+    finally:
+        exit_supermarket_log(log_ctx)
 
 
 
@@ -416,13 +473,14 @@ _SOLD_QTY_SQL = ("li.N0_QUANTITY"
                  " * CASE WHEN li.BL_VOIDED = 1 OR li.BL_MGR_VOIDED = 1 THEN -1 ELSE 1 END")
 
 
-def _build_history_export_script() -> str:
+def _build_history_export_script(upload_url: str) -> str:
     """
-    PowerShell that dumps 24 monthly + 60 daily figures per product to a local JSON file.
+    PowerShell that dumps 24 monthly + 60 daily figures per product and sends them.
 
-    No network and no token: it only reads the store's own databases and writes a file the
-    operator then uploads. That keeps the backfill independent of firewall whitelisting,
-    which is usually the slowest part of onboarding.
+    The dump goes gzip-compressed (several times smaller, it is mostly zeros) to
+    `upload_url`, the same kind of POST the live sync makes from this PC, rather than
+    through a browser upload, which store connections can cut off. If sending fails the
+    compressed file stays in C:\\LamApp for the page upload.
 
     Monthly comes from VEMEART (the only source reaching 24 months, and the one table that
     keeps pieces and kg in separate columns). Daily prefers the Everest till log so the
@@ -432,9 +490,14 @@ def _build_history_export_script() -> str:
     return r"""# LamApp - export storico vendite
 # Auto-generated. Do not edit manually. ASCII only.
 
-$OutFile = "C:\LamApp\history_export.json"
-$Server  = "localhost"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$OutFile   = "C:\LamApp\history_export.json.gz"
+$UploadUrl = '__UPLOAD_URL__'
+$Server    = "localhost"
 if (-not (Test-Path "C:\LamApp")) { New-Item -ItemType Directory -Path "C:\LamApp" | Out-Null }
+# Written by earlier versions; gone so nobody uploads a stale one
+Remove-Item "C:\LamApp\history_export.json" -ErrorAction SilentlyContinue
 
 $hasEverest = (Invoke-Sqlcmd -ServerInstance $Server -Database "master" -Query `
     "SET NOCOUNT ON; SELECT COUNT(*) AS n FROM sys.databases WHERE name='everest'").n -gt 0
@@ -531,12 +594,51 @@ foreach ($p in $acc.Values) {
     [void]$sb.Append(',"d":[' + ($p.d -join ',') + ']}')
 }
 [void]$sb.Append(']}')
-[IO.File]::WriteAllText($OutFile, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+
+$raw = (New-Object System.Text.UTF8Encoding($false)).GetBytes($sb.ToString())
+$ms = New-Object System.IO.MemoryStream
+$gz = New-Object System.IO.Compression.GZipStream($ms, [System.IO.Compression.CompressionMode]::Compress)
+$gz.Write($raw, 0, $raw.Length)
+$gz.Close()
+$body = $ms.ToArray()
+[IO.File]::WriteAllBytes($OutFile, $body)
 
 Write-Host ""
-Write-Host "Fatto: $OutFile ($([math]::Round((Get-Item $OutFile).Length/1MB,1)) MB, $($acc.Count) prodotti)"
-Write-Host "Caricare il file sul sito, nella pagina Importa storico."
-""".replace("__EAN_MAP_SQL__", _EAN_MAP_SQL).replace("__SOLD_QTY_SQL__", _SOLD_QTY_SQL)
+Write-Host "Dati pronti: $($acc.Count) prodotti, $([math]::Round($body.Length/1KB)) KB. Invio a LamApp..."
+
+$resp = $null
+$reason = $null
+for ($try = 1; $try -le 3; $try++) {
+    try {
+        $resp = Invoke-RestMethod -Uri $UploadUrl -Method Post -Body $body -ContentType 'application/gzip' -TimeoutSec 600 -ErrorAction Stop
+        break
+    } catch {
+        $err = $_
+        $reason = $err.Exception.Message
+        $status = 0
+        if ($err.Exception.Response) { $status = [int]$err.Exception.Response.StatusCode }
+        if ($err.ErrorDetails -and $err.ErrorDetails.Message) {
+            try { $reason = ($err.ErrorDetails.Message | ConvertFrom-Json).error } catch { $reason = $err.ErrorDetails.Message }
+        }
+        # A refusal (file from another day, bad data) would only be refused again
+        if ($status -ge 400 -and $status -lt 500) { break }
+        if ($try -lt 3) {
+            Write-Host "  Tentativo $try non riuscito ($reason). Nuovo tentativo tra 15 secondi..."
+            Start-Sleep -Seconds 15
+        }
+    }
+}
+
+Write-Host ""
+if ($resp -and $resp.ok) {
+    Write-Host "IMPORTAZIONE COMPLETATA: $($resp.applied) prodotti aggiornati, $($resp.created) nuove schede create."
+} else {
+    Write-Host "INVIO NON RIUSCITO: $reason"
+    Write-Host "Il file e' salvato in $OutFile."
+    Write-Host "Caricalo oggi stesso dalla pagina Importa storico di LamApp (passo 3)."
+}
+""".replace("__EAN_MAP_SQL__", _EAN_MAP_SQL).replace("__SOLD_QTY_SQL__", _SOLD_QTY_SQL).replace(
+        "__UPLOAD_URL__", upload_url)
 
 # ---------------------------------------------------------------------------
 # Sync log — detail view + actions
