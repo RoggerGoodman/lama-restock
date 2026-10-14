@@ -1,5 +1,10 @@
 """Helpers shared by several view modules."""
 
+# Only cods up to this can get the "Nuovo" badge (Articoli disponibili + dashboard).
+# Not a permanent solution: new cods keep growing and will eventually pass it,
+# but it holds for at least a couple of years.
+NEW_BADGE_MAX_COD = 41000
+
 
 def net_price_of(price, iva):
     """

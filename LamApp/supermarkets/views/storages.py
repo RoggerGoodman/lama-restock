@@ -18,7 +18,7 @@ import logging
 
 from ..models import Storage, RestockSchedule, RestockLog, ProductLink
 from ..scripts.helpers import Helper
-from .common import net_price_of
+from .common import net_price_of, NEW_BADGE_MAX_COD
 
 logger = logging.getLogger(__name__)
 
@@ -244,10 +244,11 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                             WHERE s.idx <= 6 AND s.val::numeric <> 0
                         )
                     ORDER BY
-                        CASE WHEN p.first_added_at >= CURRENT_DATE - INTERVAL '7 days' THEN 0 ELSE 1 END,
+                        CASE WHEN p.first_added_at >= CURRENT_DATE - INTERVAL '7 days'
+                                  AND p.cod <= %s THEN 0 ELSE 1 END,
                         p.first_added_at DESC,
                         p.descrizione;
-                """, (self.object.settore,))
+                """, (self.object.settore, NEW_BADGE_MAX_COD))
 
                 today = date.today()
                 available_products = []
@@ -263,7 +264,9 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                     if net_price > 0 and unit_cost > 0:
                         margin_pct = ((net_price - unit_cost) / net_price) * 100
                     first_added_at = row['first_added_at']
-                    is_new = first_added_at is not None and (today - first_added_at).days <= 7
+                    is_new = (first_added_at is not None
+                              and (today - first_added_at).days <= 7
+                              and row['cod'] <= NEW_BADGE_MAX_COD)
                     available_products.append({
                         'cod': row['cod'],
                         'var': row['v'],

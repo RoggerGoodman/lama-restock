@@ -10,6 +10,7 @@ from ..models import (
     ProductLinkNotification, CreditNote,
 )
 from ..services import RestockService
+from .common import NEW_BADGE_MAX_COD
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +189,8 @@ def dashboard_view(request):
                                 WHERE s.idx <= 6 AND s.val::numeric <> 0
                             )
                             AND p.first_added_at >= CURRENT_DATE - INTERVAL '7 days'
-                    """, (storage.settore,))
+                            AND p.cod <= %s
+                    """, (storage.settore, NEW_BADGE_MAX_COD))
                     new_available_count = cursor.fetchone()['cnt']
 
                     storage_notifications[storage.id] = {
