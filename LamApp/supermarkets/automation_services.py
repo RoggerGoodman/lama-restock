@@ -9,6 +9,7 @@ from pathlib import Path
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
+from . import supply_checks
 from .models import Storage, RestockLog, ScheduleException
 from .services import RestockService
 from .scripts.decision_maker import DecisionMaker
@@ -396,13 +397,21 @@ class AutomatedRestockService(RestockService):
         report.products_ok = cal['products_ok']
         report.products_overstocked = cal['products_overstocked']
         report.products_understocked = cal['products_understocked'] + cal['products_critical']
-        report.set_results({
+        results = {
             'products_critical': cal['products_critical'],
             'critical': cal['critical'],
             'understocked': cal['understocked'],
             'overstocked': cal['overstocked'],
             'ok': cal['ok'],
-        })
+        }
+        # Frozen with the report: the DDT ledger it is read from keeps only about a week
+        try:
+            partner, _ = supply_checks.link_partners(self.supermarket)
+            results['shortfalls'] = supply_checks.shortfalls_to_json(supply_checks.delivery_shortfalls(
+                self.storage, self.db, partner, timezone.localdate(report.generated_at)))
+        except Exception:
+            logger.exception(f"[CAL] {self.storage.name}: delivery shortfalls not saved with the report")
+        report.set_results(results)
         logger.info(
             f"[CAL] {self.storage.name}: critical={cal['products_critical']}, "
             f"under={cal['products_understocked']}, over={cal['products_overstocked']}, "

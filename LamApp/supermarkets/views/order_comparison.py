@@ -10,6 +10,7 @@ from django.views.decorators.http import require_POST
 from pathlib import Path
 from django.conf import settings
 
+from .. import supply_checks
 from ..models import Storage, RestockLog
 
 
@@ -138,6 +139,8 @@ def order_comparison_view(request, storage_id):
             pass
     if calibration is None:
         calibration = storage.calibration_reports.first()
+    # Why a product ran short in the period the calibration graded
+    badges = supply_checks.report_badges(calibration) if calibration else {}
 
     # Build calib_map: (cod, v) -> calibration data for display + JS burn
     calib_map = {}
@@ -203,6 +206,7 @@ def order_comparison_view(request, storage_id):
             'calib': calib,
             'has_blue_dot': (cod, var) in blue_dot_keys,
             'has_promo': (cod, var) in promo_keys,
+            **badges.get(key, {}),
         }
 
         if comp_cat == 'human_added':
@@ -238,6 +242,7 @@ def order_comparison_view(request, storage_id):
                     'calib': calib,
                     'has_blue_dot': (p['cod'], p['v']) in blue_dot_keys,
                     'has_promo': (p['cod'], p['v']) in promo_keys,
+                    **badges.get(key, {}),
                 })
 
     # --- Products rejected by PAC2000A (Errore='Si' in the CSV) ---
@@ -256,6 +261,7 @@ def order_comparison_view(request, storage_id):
             'calib': calib,
             'has_blue_dot': key in blue_dot_keys,
             'has_promo': key in promo_keys,
+            **badges.get(key, {}),
         })
 
     context = {

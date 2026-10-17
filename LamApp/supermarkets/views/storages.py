@@ -1,6 +1,5 @@
 """Storage detail, minimum stock, calibration and list refresh."""
 
-from collections import defaultdict
 from django.utils import timezone
 from datetime import date, timedelta
 import json
@@ -16,7 +15,8 @@ from pathlib import Path
 from django.conf import settings
 import logging
 
-from ..models import Storage, RestockSchedule, RestockLog, ProductLink
+from .. import supply_checks
+from ..models import Storage, RestockSchedule, RestockLog
 from ..scripts.helpers import Helper
 from .common import net_price_of, NEW_BADGE_MAX_COD
 
@@ -30,70 +30,6 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
     def test_func(self):
         return self.get_object().supermarket.owner == self.request.user
-
-    def _delivery_shortfalls(self, db, partner):
-        """
-        {(cod, v): {ordered_on, delivery, colli, expected, arrived}} for products the
-        latest delivery meant to bring them brought short or not at all. Compared are the
-        colli sent to Dropzone in the last 7 days for that delivery date (refused rows
-        excluded) and the pieces on that date's DDTs, a linked partner's included.
-        A delivery is judged once its date has come and a DDT for it is on record.
-        `expected` is None when the pack size is unknown: only a total absence counts then.
-        """
-        try:
-            schedule = self.object.schedule
-        except RestockSchedule.DoesNotExist:
-            return {}
-
-        today = timezone.localdate()
-        sent = RestockLog.objects.filter(
-            storage=self.object,
-            operation_type='full_restock',
-            status='completed',
-            order_executed_at__date__gte=today - timedelta(days=6),
-        ).exclude(results='').only('results', 'order_executed_at').order_by('-order_executed_at')
-
-        # Two order days can share a delivery day, so colli are summed per delivery
-        ordered = defaultdict(dict)
-        ordered_on = {}
-        for log in sent:
-            day = timezone.localdate(log.order_executed_at)
-            delivery = schedule.delivery_date_for_order(day)
-            if delivery > today:
-                continue
-            results = log.get_results()
-            refused = {(p['cod'], p['var']) for p in results.get('order_skipped_products', [])}
-            for o in results.get('orders', []):
-                p = (o['cod'], o['var'])
-                if not o.get('qty') or p in refused:
-                    continue
-                ordered[delivery][p] = ordered[delivery].get(p, 0) + int(o['qty'])
-                ordered_on.setdefault((delivery, p), day)
-
-        delivered = db.delivered_quantities(self.object.settore, set(ordered))
-        keys = {p for products in ordered.values() for p in products}
-        info = db.products_by_key(keys | {partner[p] for p in keys if p in partner})
-
-        def rapp(p):
-            return (info.get(p) or {}).get('rapp') or 1
-
-        shortfalls, judged = {}, set()
-        for delivery in sorted(ordered, reverse=True):
-            got = delivered.get(delivery)
-            for p, colli in ordered[delivery].items():
-                if p in judged:
-                    continue
-                judged.add(p)
-                if got is None:
-                    continue
-                arrived = sum(got.get(k, 0) * rapp(k) for k in (p, partner.get(p)) if k)
-                pack = info.get(p) or {}
-                expected = colli * pack['pz_x_collo'] * pack['rapp'] if pack.get('pz_x_collo') and pack.get('rapp') else None
-                if arrived > 0 and (expected is None or arrived >= expected):
-                    continue
-                shortfalls[p] = {'ordered_on': ordered_on[(delivery, p)], 'delivery': delivery,
-                                 'colli': colli, 'expected': expected, 'arrived': arrived}
-        return shortfalls
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -164,30 +100,11 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
 
                 rows = cursor.fetchall()
 
-                # Products the supplier could not provide in any order run of the last 7
-                # days: unavailable on the list at order time, or refused by Dropzone on sending
-                supplier_unavailable = {}
-                recent_runs = RestockLog.objects.filter(
-                    storage=self.object,
-                    operation_type='full_restock',
-                    started_at__date__gte=timezone.now().date() - timedelta(days=6),
-                ).exclude(results='').only('results')
-                for run in recent_runs:
-                    results = run.get_results()
-                    for cod, v in results.get('unavailable_at_order', []):
-                        supplier_unavailable.setdefault(
-                            (cod, v), "Non disponibile a listino al momento di un ordine degli ultimi 7 giorni")
-                    for p in results.get('order_skipped_products', []):
-                        supplier_unavailable[(p['cod'], p['var'])] = \
-                            "Rifiutato da Dropzone all'invio di un ordine degli ultimi 7 giorni"
-
-                # Each side of a link, with the role its partner plays
-                partner, twin_role = {}, {}
-                for primary, secondary in ProductLink.build_pairs(self.object.supermarket):
-                    partner[primary], partner[secondary] = secondary, primary
-                    twin_role[primary], twin_role[secondary] = 'Sostituito', 'Subentrante'
-
-                shortfalls = self._delivery_shortfalls(service.db, partner)
+                # Today included
+                before = timezone.localdate() + timedelta(days=1)
+                unavailable = supply_checks.supplier_unavailable(self.object, before)
+                partner, twin_role = supply_checks.link_partners(self.object.supermarket)
+                shortfalls = supply_checks.delivery_shortfalls(self.object, service.db, partner, before)
                 twins = service.db.products_by_key(
                     {partner[(r['cod'], r['v'])] for r in rows if (r['cod'], r['v']) in partner})
 
@@ -208,7 +125,7 @@ class StorageDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                         'description': row['descrizione'] or f"Product {row['cod']}.{row['v']}",
                         'package_size': row['pz_x_collo'] or 12,
                         'avg_daily_sales': avg_daily,
-                        'supplier_unavailable': supplier_unavailable.get(key),
+                        'supplier_unavailable': unavailable.get(key),
                         'shortfall': shortfalls.get(key),
                         'twin': twin,
                         # Spike: a day selling at least twice the average (min 4 pcs)
@@ -365,6 +282,11 @@ def calibration_report_view(request, pk):
     for lst in (results.get('critical', []), understocked, overstocked):
         for p in lst:
             p['has_blue_dot'] = (p.get('cod'), p.get('v')) in blue_dot_keys
+
+    badges = supply_checks.report_badges(report)
+    for lst in (results.get('critical', []), understocked):
+        for p in lst:
+            p.update(badges.get((p.get('cod'), p.get('v')), {}))
 
     context = {
         'report': report,

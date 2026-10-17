@@ -1,0 +1,22 @@
+{% comment %}Why a product ran short: expects `product` with supplier_unavailable, shortfall, twin (see supply_checks.py){% endcomment %}
+{% if product.supplier_unavailable %}
+    <span class="badge bg-info text-dark ms-1" title="{{ product.supplier_unavailable }}">
+        <i class="bi bi-truck"></i> Non disp. fornitore
+    </span>
+{% endif %}
+{% with s=product.shortfall %}{% if s %}
+    {% if s.arrived %}
+    <span class="badge bg-warning text-dark ms-1" title="Ordinato il {{ s.ordered_on|date:'d/m' }} ({{ s.colli }} coll{{ s.colli|pluralize:'o,i' }}, {{ s.expected }} pz), arrivati {{ s.arrived }} pz con la consegna del {{ s.delivery|date:'d/m' }}">
+        <i class="bi bi-box-seam"></i> Consegna parziale
+    </span>
+    {% else %}
+    <span class="badge bg-warning text-dark ms-1" title="Ordinato il {{ s.ordered_on|date:'d/m' }} ({{ s.colli }} coll{{ s.colli|pluralize:'o,i' }}), assente dal DDT in consegna il {{ s.delivery|date:'d/m' }}">
+        <i class="bi bi-box-seam"></i> Inevaso
+    </span>
+    {% endif %}
+{% endif %}{% endwith %}
+{% if product.twin %}
+    <span class="badge bg-success ms-1" title="{{ product.twin.role }} {{ product.twin.cod }}.{{ product.twin.v }} {{ product.twin.descrizione }}: giacenza {{ product.twin.stock }}">
+        <i class="bi bi-link-45deg"></i> {{ product.twin.role }} in giacenza ({{ product.twin.stock }})
+    </span>
+{% endif %}
